@@ -121,56 +121,51 @@ class ExpressionBuilder:
 
 
 materialized_func_template = '''
-def __fleaux_materialized_func_{origin_name}_{id}({params}) -> {rtype}:
+def __fleaux_materialized_func_{origin_name}_{unique_func_id}({params}) -> {rtype}:
     return {expr}
 '''
+materialized_func_name_template = '__fleaux_materialized_func_{origin_name}_{id}'
+
+fleaux_inner_func_counter: int = 0
 
 
-class MaterializedFunction:
-    counter: int = 0
+def gen_fleaux_inner_func(origin_name: str, params: ParameterList, rtype: Type, expr: Expression):
+    global fleaux_inner_func_counter
 
-    @staticmethod
-    def next_id():
-        val = MaterializedFunction.counter
-        MaterializedFunction.counter += 1
-        return val
+    next_id = fleaux_inner_func_counter
+    fleaux_inner_func_counter += 1
 
-    def __init__(self, ):
-        self.origin_function_name: str = ''
-        self.param_list: ParameterList = ParameterList()
-        self.expr: Expression = Expression()
-        self.rtype: Type = Type()
+    return (materialized_func_name_template.format(origin_name=origin_name, unique_func_id=next_id),
+            materialized_func_template.format(origin_name=origin_name, id=next_id, params=str(params), rtype=str(rtype),
+                                              expr=str(expr)))
 
-        self._id: int = MaterializedFunction.next_id()
 
-    def __str__(self) -> str:
-        return materialized_func_template.format(origin_name=self.origin_function_name, id=self._id,
-                                                 params=str(self.param_list), rtype=str(self.rtype),
-                                                 expr=str(self.expr))
+class LetFunctionDefinition:
+    def __init__(self, name: str, params: ParameterList, rtype: Type, expr: Expression):
+        self.name = name
+        self.params = params
+        self.rtype = rtype
+        self.expr = expr
 
-    def set_origin_function_name(self, origin_function_name: str):
-        self.origin_function_name = origin_function_name
+    def set_name(self, name: str):
+        self.name = name
 
-    def set_parameter_list(self, params: ParameterList):
-        self.param_list = params
+    def set_params(self, params: ParameterList):
+        self.params = params
 
     def set_rtype(self, rtype: Type):
         self.rtype = rtype
 
-    def set_expression(self, expr: Expression):
+    def set_expr(self, expr: Expression):
         self.expr = expr
 
-
-class LetFunctionDefinition:
-    def __init__(self):
-        pass
-
     def __str__(self):
-        return ''
+        materialized_func_name, materialized_func = gen_fleaux_inner_func(self.name, self.params, self.rtype, self.expr)
+        return '{}\n\n{} = {}'.format(materialized_func, self.name, materialized_func)
 
 
 class LetVariableDefinition:
-    def __init__(self):
+    def __init__(self, identifier: str, type: Type):
         pass
 
     def __str__(self):
@@ -182,6 +177,15 @@ class OptionallyQualifiedIdentifier:
         self.name: str = name
         self.qualifier: str = qualifier
 
+    def set_name(self, name: str):
+        self.name: str = name
+
+    def set_qualifier(self, qualifier: str):
+        self.qualifier: str = qualifier
+
+    def __str__(self):
+        return f'{self.name}.{self.qualifier}'
+
 
 class LetStatement:
     def __init__(self, ident: OptionallyQualifiedIdentifier = OptionallyQualifiedIdentifier(),
@@ -191,9 +195,9 @@ class LetStatement:
 
     def __str__(self):
         if isinstance(self.statement_rhs, LetVariableDefinition):
-            return '{} {}'
+            return '{}'
         if isinstance(self.statement_rhs, LetFunctionDefinition):
-            return '{} {}'
+            return '{}'
 
 
 class ImportStatement:
@@ -217,21 +221,6 @@ class StatementList:
         return '\n'.join([str(s) for s in self.statements])
 
 
-class MaterializedTemporaryBuilder:
-    def __init__(self):
-        pass
-
-
-class LetFunctionExpressionBuilder:
-    def __init__(self):
-        pass
-
-
-class LetVariableExpressionBuilder:
-    def __init__(self):
-        pass
-
-
 class FleauxTranspiler:
     def __init__(self):
         self.logger = structlog.get_logger()
@@ -244,7 +233,6 @@ class FleauxTranspiler:
             'ExpressionStatement': self.handle_expr_stmt,
             # 'Expression': self.handle_expr,
             # 'ParameterDeclList': self.handle_param_list,
-
         })
 
     def process(self, filename):
