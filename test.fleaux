@@ -1,0 +1,35 @@
+// This line is a Comment
+import Std;
+
+"Hello, World!" -> Std.Println;
+
+let MyAdd(lhs: Number, rhs: Number) : Number :: (lhs + rhs);
+
+(1, 2) -> MyAdd;
+
+//
+//let MyLib.X : Number :: 5;
+//let X : Number :: 5 -> Std.Sqrt;
+//
+//let MyLib.Add(x:Number, y:Number) : Number :: (x + y);
+//
+//let Multiply2(x : Number) : Number :: (x) -> Std.Multiply -> Std.Println;
+//let AddPrint(x : Number, y: Number) : Number :: (x, y) -> Std.Add -> Std.Println;
+
+// This line is a Comment
+// This line is a Comment
+// This line is a Comment
+// y = 4x^7 - x^5
+//let Polynomial(x : Number) : Number :: ((((4, x) -> Std.Multiply, 7) -> Std.Pow), ((x, 5) -> Std.Pow)) -> Std.Subtract;
+//(1, 2) -> AddPrint;
+//("Hello, World!") -> Std.Println;
+
+// This line is a Comment
+// This line is a Comment
+// This line is a Comment
+// This line is a Comment
+
+//2 -> ((((4, x) -> Std.Multiply, 7) -> Std.Pow), ((x, 5) -> Std.Pow)) -> Std.Subtract;
+
+
+// This line is a Comment

@@ -1,0 +1,161 @@
+Program:
+  statements*=Statement;
+
+Statement:
+  (ImportStatement | LetStatement | ExpressionStatement) ';';
+
+ImportStatement:
+  'import' module_name=Identifier;
+
+LetStatement:
+  'let' id=OptionallyQualifiedId (definition=LetFunctionDefinition | definition=LetVariableDefinition);
+
+OptionallyQualifiedId:
+  QualifiedId | Identifier;
+
+LetFunctionDefinition:
+    '(' params=ParameterDeclList ')' ':' rtype=Type '::' (expr=Expression | expr='__builtin__');
+
+LetVariableDefinition:
+    ':' type=Type '::' (expr=Expression | expr='__builtin__');
+
+ExpressionStatement:
+  expr=Expression;
+
+ParameterDeclList:
+  params*=Parameter[','];
+
+Parameter:
+  param_name=Identifier ':' type=Type;
+
+TypeList:
+  types*=Type[','];
+
+Type:
+  ('Number' |
+  'String' |
+  'Bool' |
+  'Null' |
+  'Any' |
+  Identifier |
+  QualifiedId |
+  TupleType) '...'?;
+
+TupleType:
+  'Tuple' '(' TypeList ')';
+
+Expression:
+  PipelineExpression |
+  ExponentExpression |
+  DivideExpression |
+  MultiplyExpression |
+  ModulusExpression |
+  AddExpression |
+  SubtractExpression |
+  EqualityExpression |
+  InequalityExpression |
+  LessThanExpression |
+  GreaterThanExpression |
+  LessEqualExpression |
+  GreaterEqualExpression |
+  NotExpression |
+  LogicalAndExpression |
+  CommaExpression |
+  LogicalOrExpression |
+  UnaryPlusExpression |
+  UnaryMinusExpression |
+  TermExpression;
+
+PipelineExpression:
+  term=Term op='->' expr=Expression;
+
+ExponentExpression:
+  term=Term op='^' expr=Expression;
+
+DivideExpression:
+  term=Term op='//' expr=Expression;
+
+MultiplyExpression:
+  term=Term op='*' expr=Expression;
+
+ModulusExpression:
+  term=Term op='%' expr=Expression;
+
+AddExpression:
+  term=Term op='+' expr=Expression;
+
+SubtractExpression:
+  term=Term op='-' expr=Expression;
+
+EqualityExpression:
+  term=Term op='==' expr=Expression;
+
+InequalityExpression:
+  term=Term op='!=' expr=Expression;
+
+LessThanExpression:
+  term=Term op='<' expr=Expression;
+
+GreaterThanExpression:
+  term=Term op='>' expr=Expression;
+
+LessEqualExpression:
+  term=Term op='>=' expr=Expression;
+
+GreaterEqualExpression:
+  term=Term op='<=' expr=Expression;
+
+NotExpression:
+  op='!' expr=Expression;
+
+LogicalAndExpression:
+  term=Term op='&&' expr=Expression;
+
+CommaExpression:
+  term=Term op=',' expr=Expression;
+
+LogicalOrExpression:
+  term=Term op='||' expr=Expression;
+
+UnaryPlusExpression:
+  op='+' expr=Expression;
+
+UnaryMinusExpression:
+  op='-' expr=Expression;
+
+TermExpression:
+  expr=Term;
+
+Term:
+  constant=Constant |
+  qualified_var=QualifiedId |
+  var=Identifier |
+  expr=ParenthesizedExpression;
+
+ParenthesizedExpression:
+  '(' expr=Expression ')';
+
+QualifiedId:
+  qualifier=Qualifier id=Identifier;
+
+Qualifier:
+  qualifier=Identifier '.';
+
+Identifier:
+  !Keyword ID;
+
+Constant:
+  val=NUMBER | val=STRING | val=BOOL | val='Null';
+
+Keyword: 'Let' |
+         'Number' |
+         'String' |
+         'Bool' |
+         'Null' |
+         'True' |
+         'False' |
+         'Any' |
+         'Tuple' |
+         '__builtin__';
+
+Comment: /\/\/.*/;

@@ -1,0 +1,62 @@
+let Std.Println(args: Any...) : Tuple(Any...) :: __builtin__;
+
+let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __builtin__;
+
+let Std.In(count: Number) : Tuple(Any...) :: __builtin__;
+
+let Std.Add(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Subtract(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Multiply(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Divide(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Mod(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Pow(lhs: Number, rhs: Number) : Number :: __builtin__;
+
+let Std.Sqrt(val: Number) : Number :: __builtin__;
+
+let Std.Tan(val: Number) : Number :: __builtin__;
+
+let Std.Sin(val: Number) : Number :: __builtin__;
+
+let Std.Cos(val: Number) : Number :: __builtin__;
+
+let Std.GreaterThan(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.LessThan(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.GreaterOrEqual(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.LessOrEqual(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.Equal(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.NotEqual(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.Not(val: Any) : Any :: __builtin__;
+
+let Std.And(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.Or(lhs: Any, rhs: Any) : Bool :: __builtin__;
+
+let Std.UnaryPlus(val: Any) : Any :: __builtin__;
+
+let Std.UnaryMinus(val: Any) : Any :: __builtin__;
+
+let Std.ToString(val: Any) : String :: __builtin__;
+
+// @brief Take the first `count` items from `tuple` and return them as a new Tuple
+// ((1, 2, 3, 4), 2) -> Std.Take;
+// Results in: (1, 2)
+let Std.Take(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__;
+
+// @brief Drop the first `count` items from `tuple` and return the remaining elements as a new Tuple
+// ((1, 2, 3, 4), 2) -> Std.Drop;
+// Results in: (3, 4)
+let Std.Drop(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__;
+
+// @brief Get the element at position `count` in `tuple`
+let Std.ElementAt(tuple: Tuple(Any...), count: Number) : Any :: __builtin__;
