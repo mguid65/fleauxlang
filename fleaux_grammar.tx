@@ -8,16 +8,19 @@ ImportStatement:
   'import' module_name=Identifier;
 
 LetStatement:
-  'let' id=OptionallyQualifiedId (definition=LetFunctionDefinition | definition=LetVariableDefinition);
+  'let' (definition=LetFunctionDefinition | definition=LetVariableDefinition);
 
 OptionallyQualifiedId:
   QualifiedId | Identifier;
 
 LetFunctionDefinition:
-    '(' params=ParameterDeclList ')' ':' rtype=Type '::' (expr=Expression | expr='__builtin__');
+    id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+
+DeclarationDefinitionSeparator:
+    '::' | '=';
 
 LetVariableDefinition:
-    ':' type=Type '::' (expr=Expression | expr='__builtin__');
+    id=OptionallyQualifiedId ':' type=Type '::' (expr=Expression | expr='__builtin__');
 
 ExpressionStatement:
   expr=Expression;
@@ -45,7 +48,7 @@ TupleType:
   'Tuple' '(' TypeList ')';
 
 Expression:
-  PipelineExpression |
+  FlowExpression |
   ExponentExpression |
   DivideExpression |
   MultiplyExpression |
@@ -66,7 +69,7 @@ Expression:
   UnaryMinusExpression |
   TermExpression;
 
-PipelineExpression:
+FlowExpression:
   term=Term op='->' expr=Expression;
 
 ExponentExpression:
