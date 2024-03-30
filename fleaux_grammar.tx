@@ -7,20 +7,14 @@ Statement:
 ImportStatement:
   'import' module_name=Identifier;
 
-LetStatement:
-  'let' (definition=LetFunctionDefinition | definition=LetVariableDefinition);
-
 OptionallyQualifiedId:
   QualifiedId | Identifier;
 
-LetFunctionDefinition:
-    id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+LetStatement:
+    'let' id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
 
 DeclarationDefinitionSeparator:
     '::' | '=';
-
-LetVariableDefinition:
-    id=OptionallyQualifiedId ':' type=Type '::' (expr=Expression | expr='__builtin__');
 
 ExpressionStatement:
   expr=Expression;
@@ -148,7 +142,7 @@ Identifier:
   !Keyword ID;
 
 Constant:
-  val=NUMBER | val=STRING | val=BOOL | val='Null';
+  val=NUMBER | val=STRING | val=BOOL | val='null';
 
 Keyword: 'Let' |
          'Number' |
