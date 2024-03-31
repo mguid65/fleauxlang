@@ -214,6 +214,7 @@ class StatementList:
 class FleauxTranspiler:
     def __init__(self, modules: dict[str, ImportStatement] = None):
         self.translation_unit: StatementList = StatementList()
+        self.symbol_table: dict[OptionallyQualifiedIdentifier] = {}
         self.logger = structlog.get_logger()
         self.fleaux_mm = metamodel_from_file('fleaux_grammar.tx', auto_init_attributes=False)
         self.fleaux_mm.register_obj_processors({
@@ -225,7 +226,7 @@ class FleauxTranspiler:
             'ParameterDeclList': self.handle_param_list,
         })
         if modules is None:
-            modules = {'Std': ImportStatement('fleaux_std_lib')}
+            modules = {'StdBuiltins' : ImportStatement('fleaux_std_builtins.py')}
         self.modules_seen: dict[str, ImportStatement] = modules
 
     def process(self, filename):
@@ -249,22 +250,19 @@ class FleauxTranspiler:
         self.translation_unit.add_statement(Statement(self.modules_seen[import_stmt.module_name]))
 
     def handle_let_stmt(self, let_stmt):
+
         logger.info(let_stmt)
+        # recursively generate expression
         # print(let_stmt.definition)
 
     def handle_expr_stmt(self, expr_stmt):
+        # recursively generate expression
         logger.info(expr_stmt)
 
     def handle_expr(self, expr):
         logger.info()
 
     def handle_param_list(self, param_list):
-        logger.info()
-
-    def handle_let_expr_def(self, expr_definition):
-        logger.info()
-
-    def handle_let_var_def(self, var_definition):
         logger.info()
 
 
