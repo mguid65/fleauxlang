@@ -42,83 +42,36 @@ TupleType:
   'Tuple' '(' TypeList ')';
 
 Expression:
-  FlowExpression |
-  ExponentExpression |
-  DivideExpression |
-  MultiplyExpression |
-  ModulusExpression |
-  AddExpression |
-  SubtractExpression |
-  EqualityExpression |
-  InequalityExpression |
-  LessThanExpression |
-  GreaterThanExpression |
-  LessEqualExpression |
-  GreaterEqualExpression |
-  NotExpression |
-  LogicalAndExpression |
-  CommaExpression |
-  LogicalOrExpression |
-  UnaryPlusExpression |
-  UnaryMinusExpression |
-  TermExpression;
+  expr=FlowExpression |
+  expr=TermExpression;
 
 FlowExpression:
-  term=Term op='->' expr=Expression;
+  lhs=ParenthesizedExpression '->' rhs=OpOrGraphId;
 
-ExponentExpression:
-  term=Term op='^' expr=Expression;
+OpOrGraphId:
+  qualified_var=QualifiedId |
+  var=Identifier |
+  op=Operator;
 
-DivideExpression:
-  term=Term op='//' expr=Expression;
+Operator:
+  '^'|
+  '//'|
+  '*'|
+  '%'|
+  '+'|
+  '-'|
+  '=='|
+  '!='|
+  '<'|
+  '>'|
+  '>='|
+  '<='|
+  '!'|
+  '&&' |
+  '||';
 
-MultiplyExpression:
-  term=Term op='*' expr=Expression;
-
-ModulusExpression:
-  term=Term op='%' expr=Expression;
-
-AddExpression:
-  term=Term op='+' expr=Expression;
-
-SubtractExpression:
-  term=Term op='-' expr=Expression;
-
-EqualityExpression:
-  term=Term op='==' expr=Expression;
-
-InequalityExpression:
-  term=Term op='!=' expr=Expression;
-
-LessThanExpression:
-  term=Term op='<' expr=Expression;
-
-GreaterThanExpression:
-  term=Term op='>' expr=Expression;
-
-LessEqualExpression:
-  term=Term op='>=' expr=Expression;
-
-GreaterEqualExpression:
-  term=Term op='<=' expr=Expression;
-
-NotExpression:
-  op='!' expr=Expression;
-
-LogicalAndExpression:
-  term=Term op='&&' expr=Expression;
-
-CommaExpression:
-  term=Term op=',' expr=Expression;
-
-LogicalOrExpression:
-  term=Term op='||' expr=Expression;
-
-UnaryPlusExpression:
-  op='+' expr=Expression;
-
-UnaryMinusExpression:
-  op='-' expr=Expression;
+DelimitedExpression:
+  exprs*=Expression[','];
 
 TermExpression:
   expr=Term;
@@ -127,10 +80,10 @@ Term:
   constant=Constant |
   qualified_var=QualifiedId |
   var=Identifier |
-  expr=ParenthesizedExpression;
+  ParenthesizedExpression;
 
 ParenthesizedExpression:
-  '(' expr=Expression ')';
+  '(' expr=DelimitedExpression ')';
 
 QualifiedId:
   qualifier=Qualifier id=Identifier;
