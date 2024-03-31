@@ -5,6 +5,7 @@ import inspect
 import logging
 # import struct
 import typing
+from pathlib import Path
 
 from textx.metamodel import metamodel_from_file
 
@@ -102,11 +103,6 @@ class ParameterList:
         self.parameters.append(param)
 
 
-# p_list = ParameterList([Parameter("x", "float"), Parameter("y", "float"), Parameter("z", "float")])
-#
-# print(p_list)
-
-
 class Expression:
     def __init__(self):
         pass
@@ -120,35 +116,50 @@ class ExpressionBuilder:
         pass
 
 
+class OptionallyQualifiedIdentifier:
+    def __init__(self, name: str = '', qualifier: str = "__UQ_GLOBAL__"):
+        self.name: str = name
+        self.qualifier: str = qualifier
+
+    def set_name(self, name: str):
+        self.name: str = name
+
+    def set_qualifier(self, qualifier: str):
+        self.qualifier: str = qualifier
+
+    def __str__(self):
+        return f'q{self.qualifier}_n{self.name}'
+
+
 materialized_func_template = '''
 def __fleaux_materialized_func_{origin_name}_{unique_func_id}({params}) -> {rtype}:
     return {expr}
 '''
-materialized_func_name_template = '__fleaux_materialized_func_{origin_name}_{id}'
+materialized_func_name_template = '__fleaux_materialized_func_{origin_name}_{unique_func_id}'
 
 fleaux_inner_func_counter: int = 0
 
 
-def gen_fleaux_inner_func(origin_name: str, params: ParameterList, rtype: Type, expr: Expression):
+def gen_fleaux_inner_func(ident: OptionallyQualifiedIdentifier, params: ParameterList, rtype: Type, expr: Expression):
     global fleaux_inner_func_counter
 
     next_id = fleaux_inner_func_counter
     fleaux_inner_func_counter += 1
 
-    return (materialized_func_name_template.format(origin_name=origin_name, unique_func_id=next_id),
-            materialized_func_template.format(origin_name=origin_name, id=next_id, params=str(params), rtype=str(rtype),
-                                              expr=str(expr)))
+    return (materialized_func_name_template.format(origin_name=str(ident), unique_func_id=next_id),
+            materialized_func_template.format(origin_name=str(ident), unique_func_id=next_id, params=str(params),
+                                              rtype=str(rtype), expr=str(expr)))
 
 
-class LetFunctionDefinition:
-    def __init__(self, name: str, params: ParameterList, rtype: Type, expr: Expression):
-        self.name = name
+class LetStatement:
+    def __init__(self, ident: OptionallyQualifiedIdentifier, params: ParameterList, rtype: Type, expr: Expression):
+        self.ident = ident
         self.params = params
         self.rtype = rtype
         self.expr = expr
 
-    def set_name(self, name: str):
-        self.name = name
+    def set_ident(self, ident: OptionallyQualifiedIdentifier):
+        self.ident = ident
 
     def set_params(self, params: ParameterList):
         self.params = params
@@ -160,96 +171,89 @@ class LetFunctionDefinition:
         self.expr = expr
 
     def __str__(self):
-        materialized_func_name, materialized_func = gen_fleaux_inner_func(self.name, self.params, self.rtype, self.expr)
-        return '{}\n\n{} = {}'.format(materialized_func, self.name, materialized_func)
-
-
-class LetVariableDefinition:
-    def __init__(self, identifier: str, type: Type):
-        pass
-
-    def __str__(self):
-        return ''
-
-
-class OptionallyQualifiedIdentifier:
-    def __init__(self, name: str = '', qualifier: str = None):
-        self.name: str = name
-        self.qualifier: str = qualifier
-
-    def set_name(self, name: str):
-        self.name: str = name
-
-    def set_qualifier(self, qualifier: str):
-        self.qualifier: str = qualifier
-
-    def __str__(self):
-        return f'{self.name}.{self.qualifier}'
-
-
-class LetStatement:
-    def __init__(self, ident: OptionallyQualifiedIdentifier = OptionallyQualifiedIdentifier(),
-                 definition: LetVariableDefinition | LetFunctionDefinition = None):
-        self.identifier: OptionallyQualifiedIdentifier = ident
-        self.statement_rhs: LetVariableDefinition | LetFunctionDefinition = definition
-
-    def __str__(self):
-        if isinstance(self.statement_rhs, LetVariableDefinition):
-            return '{}'
-        if isinstance(self.statement_rhs, LetFunctionDefinition):
-            return '{}'
+        materialized_func_name, materialized_func = gen_fleaux_inner_func(self.ident, self.params, self.rtype,
+                                                                          self.expr)
+        return '{}\n\n{} = {}'.format(materialized_func, self.ident, materialized_func)
 
 
 class ImportStatement:
-    def __init__(self, module_name: str):
-        self.module_name: str = module_name
+    def __init__(self, gen_module_name: str):
+        self.gen_module_name: str = gen_module_name
 
     def __str__(self):
-        return 'import {}'.format(self.module_name)
+        return f'import {self.gen_module_name}'
+
+
+class ExpressionStatement:
+    def __init__(self, expr: Expression):
+        self.expr = expr
+
+    def __str__(self):
+        return str(self.expr)
 
 
 class Statement:
-    def __init__(self):
-        pass
+    def __init__(self, stmt: ImportStatement | LetStatement | ExpressionStatement):
+        self.stmt: ImportStatement | LetStatement | ExpressionStatement = stmt
+
+    def __str__(self):
+        return str(self.stmt)
 
 
 class StatementList:
     def __init__(self):
         self.statements: list[Statement] = []
 
+    def add_statement(self, stmt: Statement):
+        self.statements.append(stmt)
+
     def __str__(self):
         return '\n'.join([str(s) for s in self.statements])
 
 
 class FleauxTranspiler:
-    def __init__(self):
+    def __init__(self, modules: dict[str, ImportStatement] = None):
+        self.translation_unit: StatementList = StatementList()
         self.logger = structlog.get_logger()
         self.fleaux_mm = metamodel_from_file('fleaux_grammar.tx', auto_init_attributes=False)
         self.fleaux_mm.register_obj_processors({
+            # 'Statement': self.handle_stmt,
             'ImportStatement': self.handle_import_stmt,
             'LetStatement': self.handle_let_stmt,
-            'LetExpressionDefinition': self.handle_let_expr_def,
-            'LetVariableDefinition': self.handle_let_var_def,
             'ExpressionStatement': self.handle_expr_stmt,
-            # 'Expression': self.handle_expr,
-            # 'ParameterDeclList': self.handle_param_list,
+            'Expression': self.handle_expr,
+            'ParameterDeclList': self.handle_param_list,
         })
+        if modules is None:
+            modules = {'Std': ImportStatement('fleaux_std_lib')}
+        self.modules_seen: dict[str, ImportStatement] = modules
 
     def process(self, filename):
         logger.info()
         # self.variables = {}
         self.fleaux_mm.model_from_file(filename)
 
+        filename_without_ext = Path(filename).with_suffix('')
+
+        return f'fleaux_generated_module_{filename_without_ext}.py'
+
     def handle_import_stmt(self, import_stmt):
-        logger.info()
-        # print(import_stmt.module_name)
+        logger.info(import_stmt)
+
+        if import_stmt.module_name not in self.modules_seen:
+            module_transpiler = FleauxTranspiler(modules=self.modules_seen)
+            gen_py_mod_name = module_transpiler.process(f'{import_stmt.module_name}.fleaux')
+            # maybe dangerous, probably change to something like
+            mod_name = Path(gen_py_mod_name).with_suffix('')
+            self.modules_seen[import_stmt.module_name] = ImportStatement(str(mod_name))
+        self.translation_unit.add_statement(Statement(self.modules_seen[import_stmt.module_name]))
 
     def handle_let_stmt(self, let_stmt):
-        logger.info()
+        logger.info(let_stmt)
         # print(let_stmt.definition)
 
     def handle_expr_stmt(self, expr_stmt):
-        logger.info()
+        logger.info(expr_stmt)
 
     def handle_expr(self, expr):
         logger.info()
@@ -265,4 +269,6 @@ class FleauxTranspiler:
 
 
 transpiler = FleauxTranspiler()
-transpiler.process('Std.fleaux')
+transpiler.process('test.fleaux')
+
+print(str(transpiler.translation_unit))

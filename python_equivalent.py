@@ -1,4 +1,4 @@
-import fleauxstd as fstd
+import fleaux_std_lib as fstd
 
 
 def _materialized_rhs_expression_MultiplyPrint_0(x: float, y: float):
@@ -14,6 +14,6 @@ def _materialized_rhs_expression_Polynomial_1(x: float):
 
 Polynomial = fstd.make_node(_materialized_rhs_expression_Polynomial_1)
 
-((4,) | Polynomial(), (6,) | Polynomial()) | fstd.Println()
+((4 | fstd.Wrap() | Polynomial()), (6 | fstd.Wrap() | Polynomial())) | fstd.Println()
 
-# (1,) | fstd.In() | fstd.ToNum() | Polynomial() | fstd.Println()
+1 | fstd.Wrap() | fstd.In() | fstd.ToNum() | fstd.Wrap() | Polynomial() | fstd.Wrap() | fstd.Println()

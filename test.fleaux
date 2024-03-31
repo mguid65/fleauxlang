@@ -1,5 +1,6 @@
 // This line is a Comment
 import Std;
+import test_import;
 
 "Hello, World!" -> Std.Println;
 
@@ -8,7 +9,7 @@ let MyAdd(lhs: Number, rhs: Number) : Number :: (lhs + rhs);
 (1, 2) -> MyAdd;
 
 //
-let x : Number :: 5;
+let x() : Number :: 5;
 //let X : Number :: 5 -> Std.Sqrt;
 //
 //let MyLib.Add(x:Number, y:Number) : Number :: (x + y);

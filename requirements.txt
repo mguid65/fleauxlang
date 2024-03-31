@@ -1,3 +1,4 @@
 structlog
 textX
 parglare
+rich

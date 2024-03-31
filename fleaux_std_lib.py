@@ -1,7 +1,12 @@
 import itertools
 import math
 import typing
-from typing import overload, TypeVar
+from typing import TypeVar
+from rich.traceback import install
+import sys
+
+
+install(show_locals=True)
 
 T = TypeVar('T')
 
@@ -10,7 +15,31 @@ def decompose_call(func: typing.Callable, tuple_args: tuple):
     return func(*tuple_args)
 
 
-class Extract:
+class GetArgs:
+    def __init__(self):
+        pass
+
+    def __call__(self):
+        return tuple(sys.argv)
+
+
+class Wrap:
+    def __init__(self):
+        pass
+
+    def __ror__(self, arg: T) -> tuple[T]:
+        return (arg, )
+
+
+class Unwrap:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_arg: tuple[T]) -> tuple[T]:
+        return tuple_arg[0]
+
+
+class ElementAt:
     def __init__(self):
         pass
 
@@ -39,15 +68,45 @@ class In:
     def __init__(self):
         pass
 
-    def __ror__(self, tuple_args: tuple[int]) -> tuple[str, ...] | str | None:
+    def __ror__(self, tuple_args: tuple[int]) -> tuple[str, ...] | tuple[str]:
         def get_input(count: int):
-            if count == 0:
-                return None
+            if not count > 0:
+                raise ValueError(f"{count} is not a valid input for In operation")
             if count == 1:
-                return input()
+                return tuple([input()])
             return tuple([input() for _ in range(count)])
 
         return decompose_call(get_input, tuple_args)
+
+
+class Take:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[tuple[T, ...], int]) -> tuple[T, ...] | None:
+        def take(seq: tuple[T, ...], stop: int) -> tuple[T, ...] | None:
+            return seq[:stop]
+
+        return decompose_call(take, tuple_args)
+
+
+class Drop:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[tuple[T, ...], int]) -> tuple[T, ...]:
+        def drop(seq: tuple[T, ...], start: int) -> tuple[T, ...]:
+            return seq[start:]
+
+        return decompose_call(drop, tuple_args)
+
+
+class Length:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, ...]) -> float:
+        return len(tuple_args)
 
 
 class Slice:
@@ -101,6 +160,7 @@ class Multiply:
         pass
 
     def __ror__(self, tuple_args: tuple[float, float]) -> float:
+        print (tuple_args)
         def multiply(lhs, rhs):
             return lhs * rhs
 
