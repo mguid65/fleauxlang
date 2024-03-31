@@ -97,7 +97,7 @@ Identifier:
 Constant:
   val=NUMBER | val=STRING | val=BOOL | val='null';
 
-Keyword: 'Let' |
+Keyword: 'let' |
          'Number' |
          'String' |
          'Bool' |

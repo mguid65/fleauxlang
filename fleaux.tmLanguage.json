@@ -1,0 +1,166 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Fleaux",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#comment"
+		},
+		{
+			"include": "#statements"
+		}
+	],
+	"repository": {
+		"comment": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.fleaux",
+					"match": "//.*"
+				}
+			]
+		},
+		"statements": {
+			"patterns": [
+				{
+					"include": "#import_statement"
+				},
+				{
+					"include": "#let_statement"
+				},
+				{
+					"include": "#expression_statement"
+				}
+			]
+		},
+		"import_statement": {
+			"name": "import_stmt.fleaux",
+			"patterns": [
+				{
+					"match": "\\b(import)\\b\\s+([a-zA-Z][a-zA-Z0-9_]*)\\s*(\\;)",
+					"captures": {
+						"1": {
+							"name": "keyword.other.fleaux"
+						}
+					}
+				}
+			]
+		},
+		"let_statement": {
+			"name": "let_stmt.fleaux",
+			"begin": "\\b(let)\\b\\s+([a-zA-Z][a-zA-Z0-9_]*\\.)?([a-zA-Z][a-zA-Z0-9_]*)\\s*\\(\\s*(.*)(?=\\)\\s*\\:)",
+			"end": "\\)\\s*\\:\\s*(.*)\\s*(?:::|=)\\s*(.*)\\s*\\;",
+			"beginCaptures": {
+				"1": {
+					"name": "keyword.other.fleaux"
+				},
+				"2": {
+					"name": "entity.name.function.fleaux"
+				},
+				"3": {
+					"name": "entity.name.function.fleaux"
+				},
+				"4": {
+					"patterns": [
+						{
+							"include": "#parameter_list"
+						}
+					]
+				}
+			},
+			"endCaptures": {
+				"1": {
+					"patterns": [
+						{
+							"include": "#type"
+						}
+					]
+				},
+				"2": {
+					"patterns": [
+						{
+							"include": "#expression_statement"
+						}
+					]
+				}
+			}
+		},
+		"parameter_list": {
+			"name": "parameter_list.fleaux",
+			"begin": "\\s*([a-zA-Z][a-zA-Z0-9_]*)\\s*\\:\\s*([a-zA-Z][a-zA-Z0-9_]*)(\\((.*)\\))?",
+			"end": ".*",
+			"beginCaptures": {
+				"1": {
+					"name": "variable.parameter.fleaux"
+				},
+				"2": {
+					"patterns": [
+						{
+							"include": "#type"
+						}
+					]
+				},
+				"3": {
+					"patterns" : [
+						{
+							"include" : "#type_list"
+						}
+					]
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"patterns": [
+						{
+							"include": "#parameter_list"
+						}
+					]
+				}
+			}
+		},
+		"type" : {
+			"patterns": [{
+				"match" : ".*",
+				"name": "support.type.fleaux"
+			}]
+		},
+		"type_list" : {
+
+		},
+		"expression_statement": {
+			"patterns": [
+				{
+					"name": "entity.name.section"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.fleaux",
+					"match": "\\b(if|while|for|return)\\b"
+				},
+				{
+					"name": "keyword.other.fleaux",
+					"match": "\\b(Number|String|Bool|Null|Any|Tuple|__builtin__)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.fleaux",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.fleaux",
+					"match": "\\\\."
+				}
+			]
+		}
+	},
+	"scopeName": "source.fleaux"
+}
