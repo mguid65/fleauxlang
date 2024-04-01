@@ -1,16 +1,22 @@
-// This line is a Comment
 import Std;
-import test_import;
 
-( 1, 2 ) -> Std.Println;
+let Add3(tpl: Tuple(Number, Number, Number)) : Number = (((tpl, 0) -> Std.ElementAt, (tpl, 1) -> Std.ElementAt) -> Std.Add, (tpl, 2) -> Std.ElementAt) -> Std.Add;
 
-( (1, 1) -> Std.Add ) -> Std.Println;
+(1, 2, 3) -> Add3;
+
+// This line is a Comment
+//import Std;
+//import test_import;
 //
-let x() : Number = 5;
-//let X : Number :: 5 -> Std.Sqrt;
+//( 1, 2 ) -> Std.Println;
 //
-let MyLib.Add(x: Number, y: Number) : Number = (x, y) -> +;
-let Negate(x: Number) : Number = (x) -> -;
+//( (1, 1) -> Std.Add ) -> Std.Println;
+////
+//let x() : Number = 5;
+////let X : Number :: 5 -> Std.Sqrt;
+////
+//let MyLib.Add(x: Number, y: Number) : Number = (x, y) -> +;
+//let Negate(x: Number) : Number = (x) -> -;
 //
 //let Multiply2(x : Number) : Number :: (x) -> Std.Multiply -> Std.Println;
 //let AddPrint(x : Number, y: Number) : Number :: (x, y) -> Std.Add -> Std.Println;
