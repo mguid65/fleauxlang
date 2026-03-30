@@ -19,7 +19,8 @@ class GetArgs:
     def __init__(self):
         pass
 
-    def __call__(self):
+    def __ror__(self, tuple_args: tuple) -> tuple:
+        # Called as () -> Std.GetArgs; tuple_args will be () (empty tuple).
         return tuple(sys.argv)
 
 
@@ -105,8 +106,11 @@ class Length:
     def __init__(self):
         pass
 
-    def __ror__(self, tuple_args: tuple[typing.Any, ...]) -> float:
-        return len(tuple_args)
+    def __ror__(self, tuple_args: tuple) -> int:
+        def length(seq):
+            return len(seq)
+
+        return decompose_call(length, tuple_args)
 
 
 class Slice:
@@ -160,7 +164,6 @@ class Multiply:
         pass
 
     def __ror__(self, tuple_args: tuple[float, float]) -> float:
-        print (tuple_args)
         def multiply(lhs, rhs):
             return lhs * rhs
 
@@ -242,6 +245,149 @@ class Sin:
 
     def __ror__(self, tuple_args: tuple[float]) -> float:
         return decompose_call(math.sin, tuple_args)
+
+
+class Mod:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[float, float]) -> float:
+        def mod(lhs, rhs):
+            return lhs % rhs
+
+        return decompose_call(mod, tuple_args)
+
+
+class GreaterThan:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def gt(lhs, rhs):
+            return lhs > rhs
+
+        return decompose_call(gt, tuple_args)
+
+
+class LessThan:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def lt(lhs, rhs):
+            return lhs < rhs
+
+        return decompose_call(lt, tuple_args)
+
+
+class GreaterOrEqual:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def ge(lhs, rhs):
+            return lhs >= rhs
+
+        return decompose_call(ge, tuple_args)
+
+
+class LessOrEqual:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def le(lhs, rhs):
+            return lhs <= rhs
+
+        return decompose_call(le, tuple_args)
+
+
+class Equal:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def eq(lhs, rhs):
+            return lhs == rhs
+
+        return decompose_call(eq, tuple_args)
+
+
+class NotEqual:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def ne(lhs, rhs):
+            return lhs != rhs
+
+        return decompose_call(ne, tuple_args)
+
+
+class Not:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any]) -> bool:
+        def logical_not(val):
+            return not val
+
+        return decompose_call(logical_not, tuple_args)
+
+
+class And:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def logical_and(lhs, rhs):
+            return lhs and rhs
+
+        return decompose_call(logical_and, tuple_args)
+
+
+class Or:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any, typing.Any]) -> bool:
+        def logical_or(lhs, rhs):
+            return lhs or rhs
+
+        return decompose_call(logical_or, tuple_args)
+
+
+class UnaryPlus:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any]) -> typing.Any:
+        def unary_plus(val):
+            return +val
+
+        return decompose_call(unary_plus, tuple_args)
+
+
+class UnaryMinus:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any]) -> typing.Any:
+        def unary_minus(val):
+            return -val
+
+        return decompose_call(unary_minus, tuple_args)
+
+
+class ToString:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple[typing.Any]) -> str:
+        def to_string(val):
+            return str(val)
+
+        return decompose_call(to_string, tuple_args)
 
 
 def make_node(func):

@@ -111,3 +111,18 @@ let Std.Drop(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__
 // ((1, 2, 3, 4), 2) -> Std.ElementAt;
 // Result: 3
 let Std.ElementAt(tuple: Tuple(Any...), count: Number) : Any :: __builtin__;
+// @brief Return the number of elements in `tuple`
+// ((1, 2, 3),) -> Std.Length;
+// Result: 3
+let Std.Length(tuple: Tuple(Any...)) : Number :: __builtin__;
+// @brief Slice a tuple. Accepts (tuple, stop), (tuple, start, stop), or (tuple, start, stop, step)
+// ((1, 2, 3, 4), 1, 3) -> Std.Slice;
+// Result: (2, 3)
+let Std.Slice(tuple: Tuple(Any...), stop: Number) : Tuple(Any...) :: __builtin__;
+// @brief Parse a string to a number
+// ("42") -> Std.ToNum;
+// Result: 42
+let Std.ToNum(val: String) : Number :: __builtin__;
+// @brief Return command-line arguments as a tuple of strings
+// () -> Std.GetArgs;
+let Std.GetArgs() : Tuple(Any...) :: __builtin__;
