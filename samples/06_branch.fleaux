@@ -1,0 +1,32 @@
+import Std;
+
+// Std.Branch: (condition, value, true_func, false_func) -> Std.Branch
+// Dispatches value to true_func if condition is truthy, false_func otherwise.
+// Only the chosen function is called — unlike Select, the other is never evaluated.
+
+// -- Basic branch between two functions --
+let Double(x: Number): Number = (x, 2) -> Std.Multiply;
+let Halve(x: Number): Number  = (x, 2) -> Std.Divide;
+
+// If 10 > 0, Double it; otherwise Halve it.
+((10, 0) -> Std.GreaterThan, 10, Double, Halve) -> Std.Branch -> Std.Println;    // 20
+((-4, 0) -> Std.GreaterThan, -4, Double, Halve) -> Std.Branch -> Std.Println;   // -2.0
+
+// -- Branch to apply different string transforms --
+let Shout(s: String): String = (s) -> Std.String.Upper;
+let Whisper(s: String): String = (s) -> Std.String.Lower;
+
+let Announce(loud: Bool, message: String): String =
+    (loud, message, Shout, Whisper) -> Std.Branch;
+
+(True, "hello world") -> Announce -> Std.Println;                 // HELLO WORLD
+(False, "HELLO WORLD") -> Announce -> Std.Println;                // hello world
+
+// -- Branch used for early-exit style logic --
+let SafeDivide(a: Number, b: Number): Number =
+    ((b, 0) -> Std.Equal, b, Halve, Double) -> Std.Branch;
+
+// b=0 -> Halve(0) = 0.0, b=4 -> Double(4) = 8
+(10, 0) -> SafeDivide -> Std.Println;                             // 0.0
+(10, 4) -> SafeDivide -> Std.Println;                             // 8
+

@@ -30,6 +30,11 @@ class FleauxTranspilerError(Exception):
 
 
 class FleauxTranspiler:
+    RUNTIME_ROOT = Path(__file__).resolve().parent
+    BUNDLED_MODULE_SOURCES = {
+        "Std": RUNTIME_ROOT / "Std.fleaux",
+    }
+
     OPERATOR_TO_BUILTIN = {
         "+": "Add",
         "-": "Subtract",
@@ -49,7 +54,7 @@ class FleauxTranspiler:
     }
 
     IMPLEMENTED_BUILTINS = {
-        "GetArgs", "Wrap", "Unwrap", "ElementAt", "ToNum", "In", "Input", "Exit",
+        "GetArgs", "Wrap", "Unwrap", "ElementAt", "ToNum", "Input", "Exit",
         "Take", "Drop", "Length", "Slice", "Pow", "Subtract",
         "Multiply", "Divide", "Add", "Sqrt", "Println", "Printf",
         "Tan", "Cos", "Sin",
@@ -74,7 +79,7 @@ class FleauxTranspiler:
         "StringSplit", "StringJoin", "StringReplace", "StringContains",
         "StringStartsWith", "StringEndsWith", "StringLength",
         # os extras
-        "OSHome", "OSTempDir",
+        "OSHome", "OSTempDir", "OSMakeTempFile", "OSMakeTempDir",
         # path extras
         "PathExtension", "PathStem", "PathWithExtension", "PathWithBasename",
         # file extras
@@ -132,6 +137,8 @@ class FleauxTranspiler:
         # os extras
         "Std.OS.Home": "OSHome",
         "Std.OS.TempDir": "OSTempDir",
+        "Std.OS.MakeTempFile": "OSMakeTempFile",
+        "Std.OS.MakeTempDir": "OSMakeTempDir",
         # path extras
         "Std.Path.Extension": "PathExtension",
         "Std.Path.Stem": "PathStem",
@@ -158,8 +165,8 @@ class FleauxTranspiler:
     }
 
     def __init__(self):
-        self._generated: dict[str, Path] = {}
-        self._in_progress: set[str] = set()
+        self._generated: dict[Path, Path] = {}
+        self._in_progress: set[Path] = set()
 
     def process(self, filename: str | Path) -> Path:
         return self._process_file(Path(filename).resolve())
@@ -167,87 +174,91 @@ class FleauxTranspiler:
     # ── Internal pipeline ─────────────────────────────────────────────────────
 
     def _process_file(self, source: Path) -> Path:
+        source = source.resolve()
         module_name = source.stem
 
-        if module_name in self._generated:
-            return self._generated[module_name]
-        if module_name in self._in_progress:
+        if source in self._generated:
+            return self._generated[source]
+        if source in self._in_progress:
             raise FleauxTranspilerError(
                 f"Cyclic import detected while transpiling '{module_name}'.",
                 hint="Break the import cycle by moving shared definitions into a third module.",
             )
 
-        self._in_progress.add(module_name)
-
-        # 1. Parse -> model -> IR
+        self._in_progress.add(source)
         try:
-            parsed_model = parse_file(source)
-            program: IRProgram = lower(parsed_model)
-        except Exception as exc:
-            raise FleauxTranspilerError(
-                f"Failed to parse/lower '{source.name}': {exc}",
-                hint="Fix parse or lowering errors in the source module, then transpile again.",
-            ) from exc
+            # 1. Parse -> model -> IR
+            try:
+                parsed_model = parse_file(source)
+                program: IRProgram = lower(parsed_model)
+            except Exception as exc:
+                raise FleauxTranspilerError(
+                    f"Failed to parse/lower '{source.name}': {exc}",
+                    hint="Fix parse or lowering errors in the source module, then transpile again.",
+                ) from exc
 
-        # 2. Recursively transpile imports first
-        import_aliases: dict[str, str] = {}
-        import_modules: dict[str, str] = {}
+            # 2. Recursively transpile imports first
+            import_aliases: dict[str, str] = {}
+            import_modules: dict[str, str] = {}
 
-        for stmt in program.statements:
-            if not isinstance(stmt, IRImport):
-                continue
-            if stmt.module_name == "StdBuiltins":
-                continue
-            imported_source = source.with_name(f"{stmt.module_name}.fleaux")
-            imported_output = self._process_file(imported_source)
-            import_modules[stmt.module_name] = imported_output.stem
-            import_aliases[stmt.module_name] = f"_mod_{self._sanitize(stmt.module_name)}"
+            for stmt in program.statements:
+                if not isinstance(stmt, IRImport):
+                    continue
+                if stmt.module_name == "StdBuiltins":
+                    continue
+                imported_source = self._resolve_import_source(source, stmt.module_name)
+                imported_output = self._process_file(imported_source)
+                import_modules[stmt.module_name] = imported_output.stem
+                import_aliases[stmt.module_name] = f"_mod_{self._sanitize(stmt.module_name)}"
 
-        # 3. Build symbol table from let-bindings in this module
-        known_symbols: dict[tuple[str | None, str], str] = {}
-        for stmt in program.statements:
-            if not isinstance(stmt, IRLet):
-                continue
-            sym = self._symbol_name(stmt.qualifier, stmt.name)
-            known_symbols[(stmt.qualifier, stmt.name)] = sym
-            known_symbols[(None, stmt.name)] = sym
+            # 3. Build symbol table from let-bindings in this module
+            known_symbols: dict[tuple[str | None, str], str] = {}
+            for stmt in program.statements:
+                if not isinstance(stmt, IRLet):
+                    continue
+                sym = self._symbol_name(stmt.qualifier, stmt.name)
+                known_symbols[(stmt.qualifier, stmt.name)] = sym
+                known_symbols[(None, stmt.name)] = sym
 
-        # 4. Emit Python source
-        lines: list[str] = [
-            "import fleaux_std_builtins as fstd",
-            "",
-            "def _fleaux_missing_builtin(name):",
-            "    class _MissingBuiltin:",
-            "        def __ror__(self, _tuple_args):",
-            "            raise NotImplementedError(",
-            "                f\"Builtin '{name}' is not yet implemented in fleaux_std_builtins.py\"",
-            "            )",
-            "    return _MissingBuiltin",
-            "",
-        ]
+            # 4. Emit Python source
+            lines: list[str] = [
+                "import fleaux_std_builtins as fstd",
+                "",
+                "def _fleaux_missing_builtin(name):",
+                "    class _MissingBuiltin:",
+                "        def __ror__(self, _tuple_args):",
+                "            raise NotImplementedError(",
+                "                f\"Builtin '{name}' is not yet implemented in fleaux_std_builtins.py\"",
+                "            )",
+                "    return _MissingBuiltin",
+                "",
+            ]
 
-        for imported_name, module_stem in sorted(import_modules.items()):
-            lines.append(f"import {module_stem} as {import_aliases[imported_name]}")
-        if import_modules:
-            lines.append("")
+            for imported_name, module_stem in sorted(import_modules.items()):
+                alias = import_aliases[imported_name]
+                lines.append(f"import {module_stem} as {alias}")
+                lines.append(f"from {module_stem} import *")
+            if import_modules:
+                lines.append("")
 
-        for stmt in program.statements:
-            if isinstance(stmt, IRLet):
-                lines.extend(
-                    self._emit_let(stmt, import_aliases, known_symbols)
-                )
-            elif isinstance(stmt, IRExprStatement):
-                compiled = self._compile_expr(
-                    stmt.expr, {}, import_aliases, known_symbols
-                )
-                lines.append(f"_fleaux_last_value = {compiled}")
+            for stmt in program.statements:
+                if isinstance(stmt, IRLet):
+                    lines.extend(
+                        self._emit_let(stmt, import_aliases, known_symbols)
+                    )
+                elif isinstance(stmt, IRExprStatement):
+                    compiled = self._compile_expr(
+                        stmt.expr, {}, import_aliases, known_symbols
+                    )
+                    lines.append(f"_fleaux_last_value = {compiled}")
 
-        output_path = source.with_name(f"fleaux_generated_module_{module_name}.py")
-        output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+            output_path = source.with_name(f"fleaux_generated_module_{module_name}.py")
+            output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
-        self._generated[module_name] = output_path
-        self._in_progress.remove(module_name)
-        return output_path
+            self._generated[source] = output_path
+            return output_path
+        finally:
+            self._in_progress.discard(source)
 
     # ── Let-statement emission ────────────────────────────────────────────────
 
@@ -383,6 +394,11 @@ class FleauxTranspiler:
         )
         if ref.qualifier in import_aliases:
             return f"{import_aliases[ref.qualifier]}.{sym}"
+        # Nested namespaces like Std.Math, Std.Path etc. have qualifier "Std.Math"
+        # but import_aliases only has the root "Std". Fall back to root segment.
+        root = ref.qualifier.split(".")[0]
+        if root in import_aliases:
+            return f"{import_aliases[root]}.{sym}"
         return sym
 
     def _compile_name_ref(
@@ -396,6 +412,24 @@ class FleauxTranspiler:
         if (None, name) in known_symbols:
             return known_symbols[(None, name)]
         return self._sanitize(name)
+
+    def _resolve_import_source(self, source: Path, module_name: str) -> Path:
+        local_source = source.with_name(f"{module_name}.fleaux").resolve()
+        if local_source.exists():
+            return local_source
+
+        bundled_source = self.BUNDLED_MODULE_SOURCES.get(module_name)
+        if bundled_source is not None and bundled_source.exists():
+            return bundled_source.resolve()
+
+        bundled_hint = ""
+        if bundled_source is not None:
+            bundled_hint = f" and bundled module '{bundled_source}'"
+        raise FleauxTranspilerError(
+            f"Unable to resolve import '{module_name}' from '{source}'. "
+            f"Looked for '{local_source}'{bundled_hint}.",
+            hint="Place the module beside the importing source file, or use a bundled module such as 'Std'.",
+        )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

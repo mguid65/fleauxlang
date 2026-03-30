@@ -17,6 +17,11 @@ from pathlib import Path
 from fleaux_transpiler import FleauxTranspiler
 from fleaux_lowering import lower
 from fleaux_parser import parse_program, parse_file
+from tests.helpers import ensure_std_generated
+
+
+def setUpModule() -> None:
+    ensure_std_generated()
 
 
 class EndToEndPipelineTests(unittest.TestCase):

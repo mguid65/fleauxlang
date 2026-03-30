@@ -1,0 +1,21 @@
+import Std;
+// Std.Apply: (value, func) -> Std.Apply
+// Calls func with value. Useful when the function to call is chosen at runtime.
+let Double(x: Number): Number  = (x, 2) -> Std.Multiply;
+let Square(x: Number): Number  = (x, x) -> Std.Multiply;
+let Negate(x: Number): Number  = (0, x) -> Std.Subtract;
+// -- Direct Apply call --
+(5, Double) -> Std.Apply -> Std.Println;                          // 10
+(5, Square) -> Std.Apply -> Std.Println;                          // 25
+(5, Negate) -> Std.Apply -> Std.Println;                          // -5
+// -- Selecting a function at runtime then applying it --
+// Pick Double if x is positive, Negate if not.
+let Transform(x: Number): Number =
+    ((x, 0) -> Std.GreaterThan, Double, Negate) -> Std.Select -> (x, _) -> Std.Apply;
+(4) -> Transform -> Std.Println;                                  // 8
+(-4) -> Transform -> Std.Println;                                 // 4
+// -- Higher-order: pass a function as a pipeline argument --
+let ApplyTwice(x: Number, f: Any): Number =
+    (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
+(3, Double) -> ApplyTwice -> Std.Println;                         // 12
+(2, Square) -> ApplyTwice -> Std.Println;                         // 16

@@ -1,0 +1,48 @@
+import Std;
+
+// Std.Select: (condition, true_value, false_value) -> Std.Select
+// Returns true_value when condition is truthy, false_value otherwise.
+// Note: both branches are always evaluated before Select is called.
+
+// -- Basic conditional value selection --
+(True, "yes", "no") -> Std.Select -> Std.Println;                 // yes
+(False, "yes", "no") -> Std.Select -> Std.Println;                // no
+
+// -- Select driven by a comparison --
+// Is 10 > 5? -> pick "greater" or "lesser"
+((10, 5) -> Std.GreaterThan, "greater", "lesser") -> Std.Select -> Std.Println;  // greater
+
+// -- Absolute value: x if x >= 0 else -x --
+let Abs(x: Number): Number =
+    ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
+
+(7) -> Abs -> Std.Println;                                        // 7
+(-7) -> Abs -> Std.Println;                                       // 7
+
+// -- Min and Max via Select --
+let Min(a: Number, b: Number): Number =
+    ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
+
+let Max(a: Number, b: Number): Number =
+    ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
+
+(4, 9) -> Min -> Std.Println;                                     // 4
+(4, 9) -> Max -> Std.Println;                                     // 9
+
+// -- Clamping a value to a range [lo, hi] --
+let Clamp(x: Number, lo: Number, hi: Number): Number =
+    (x, lo) -> Max -> (_, hi) -> Min;
+
+(-5, 0, 100) -> Clamp -> Std.Println;                             // 0
+(50, 0, 100) -> Clamp -> Std.Println;                             // 50
+(150, 0, 100) -> Clamp -> Std.Println;                            // 100
+
+// -- Selecting a numeric label based on sign --
+let SignLabel(x: Number): String =
+    ((x, 0) -> Std.GreaterThan, "positive",
+     ((x, 0) -> Std.Equal, "zero", "negative") -> Std.Select) -> Std.Select;
+
+(5) -> SignLabel -> Std.Println;                                   // positive
+(0) -> SignLabel -> Std.Println;                                   // zero
+(-3) -> SignLabel -> Std.Println;                                  // negative
+

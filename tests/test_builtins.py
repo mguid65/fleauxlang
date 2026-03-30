@@ -477,7 +477,7 @@ class BuiltinParityTests(unittest.TestCase):
     """Verify every builtin declared in Std.fleaux with __builtin__ maps to a real class."""
 
     BUILTIN_OPS = [
-        "Println", "Printf", "In", "Input", "Exit", "Add", "Subtract", "Multiply", "Divide",
+        "Println", "Printf", "Input", "Exit", "Add", "Subtract", "Multiply", "Divide",
         "Mod", "Pow", "Sqrt", "Tan", "Sin", "Cos",
         "GreaterThan", "LessThan", "GreaterOrEqual", "LessOrEqual",
         "Equal", "NotEqual", "Not", "And", "Or",

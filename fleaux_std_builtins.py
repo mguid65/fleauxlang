@@ -71,20 +71,6 @@ class ToNum:
         return decompose_call(parse_number, tuple_args)
 
 
-class In:
-    def __init__(self):
-        pass
-
-    def __ror__(self, tuple_args: tuple[int]) -> tuple[str, ...] | tuple[str]:
-        def get_input(count: int):
-            if not count > 0:
-                raise ValueError(f"{count} is not a valid input for In operation")
-            if count == 1:
-                return tuple([input()])
-            return tuple([input() for _ in range(count)])
-
-        return decompose_call(get_input, tuple_args)
-
 
 class Input:
     """Read a single line from stdin and return it as String.
@@ -682,6 +668,40 @@ class OSTempDir:
         return tempfile.gettempdir()
 
 
+class OSMakeTempFile:
+    """Create a unique, empty temporary file and return its path.
+
+    The file is guaranteed to exist and be writable at the returned path.
+    Usage:  () -> Std.OS.MakeTempFile
+    """
+
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> str:
+        if tuple_args != ():
+            raise TypeError("OS.MakeTempFile expects no arguments")
+        fd, path = tempfile.mkstemp()
+        os.close(fd)
+        return path
+
+
+class OSMakeTempDir:
+    """Create a unique temporary directory and return its path.
+
+    The directory is guaranteed to exist and be writable at the returned path.
+    Usage:  () -> Std.OS.MakeTempDir
+    """
+
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> str:
+        if tuple_args != ():
+            raise TypeError("OS.MakeTempDir expects no arguments")
+        return tempfile.mkdtemp()
+
+
 class StringUpper:
     def __init__(self):
         pass
@@ -995,8 +1015,11 @@ class FileDelete:
 
     def __ror__(self, tuple_args: tuple[str] | str) -> bool:
         def delete(path: str) -> bool:
-            os.remove(str(path))
-            return True
+            try:
+                os.remove(str(path))
+                return True
+            except FileNotFoundError:
+                return False
 
         return decompose_call(delete, tuple_args)
 
@@ -1034,7 +1057,10 @@ class PathWithExtension:
 
     def __ror__(self, tuple_args: tuple[str, str]) -> str:
         def with_ext(path: str, ext: str) -> str:
-            return str(Path(str(path)).with_suffix(str(ext)))
+            ext = str(ext)
+            if ext and not ext.startswith("."):
+                ext = "." + ext
+            return str(Path(str(path)).with_suffix(ext))
 
         return decompose_call(with_ext, tuple_args)
 
@@ -1068,8 +1094,11 @@ class DirDelete:
 
     def __ror__(self, tuple_args: tuple[str] | str) -> bool:
         def delete(path: str) -> bool:
-            shutil.rmtree(str(path))
-            return True
+            try:
+                shutil.rmtree(str(path))
+                return True
+            except FileNotFoundError:
+                return False
 
         return decompose_call(delete, tuple_args)
 

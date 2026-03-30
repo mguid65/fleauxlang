@@ -1,0 +1,25 @@
+import Std;
+// Std.Loop: (state, continue_func, step_func) -> Std.Loop
+// Iterates while continue_func(state) is truthy.
+// State can be any value or tuple.
+// -- Simple countdown: 10 down to 0 --
+let CountContinue(n: Number): Bool = (n, 0) -> Std.GreaterThan;
+let CountStep(n: Number): Number   = (n, 1) -> Std.Subtract;
+(10, CountContinue, CountStep) -> Std.Loop -> Std.Println;        // 0
+// -- Accumulate: sum 1..N --
+// state = (counter, accumulator)
+let SumContinue(n: Number, acc: Number): Bool = (n, 0) -> Std.GreaterThan;
+let SumStep(n: Number, acc: Number): Tuple(Number, Number) =
+    ((n, 1) -> Std.Subtract, (acc, n) -> Std.Add);
+(10, 0) -> (_, SumContinue, SumStep) -> Std.Loop -> Std.Println; // (0, 55)
+// -- Fibonacci: iterate until index reaches 0 --
+// state = (remaining_steps, a, b)
+let FibContinue(steps: Number, a: Number, b: Number): Bool =
+    (steps, 0) -> Std.GreaterThan;
+let FibStep(steps: Number, a: Number, b: Number): Tuple(Number, Number, Number) =
+    ((steps, 1) -> Std.Subtract, b, (a, b) -> Std.Add);
+// Compute fib(10): start (10, 0, 1), extract second element of result
+let Fib(n: Number): Number =
+    ((n, 0, 1), FibContinue, FibStep) -> Std.Loop -> (_, 1) -> Std.ElementAt;
+(10) -> Fib -> Std.Println;                                       // 55
+(0)  -> Fib -> Std.Println;                                       // 0

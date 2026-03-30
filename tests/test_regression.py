@@ -5,6 +5,11 @@ import unittest
 from pathlib import Path
 
 from fleaux_transpiler import FleauxTranspiler
+from tests.helpers import ensure_std_generated
+
+
+def setUpModule() -> None:
+    ensure_std_generated()
 
 
 class RegressionTests(unittest.TestCase):
@@ -16,25 +21,26 @@ class RegressionTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parents[1]
+        self.test_dir = Path(__file__).resolve().parent
         self.transpiler = FleauxTranspiler()
 
     def test_regression_program_transpiles_without_error(self) -> None:
         """Verify regression_test.fleaux transpiles to Python."""
-        output = self.transpiler.process(self.repo_root / "regression_test.fleaux")
+        output = self.transpiler.process(self.test_dir / "regression_test.fleaux")
 
         self.assertTrue(output.exists())
         self.assertIn("regression_test", output.name)
 
     def test_regression_program_executes_without_error(self) -> None:
         """Verify the transpiled regression_test module can be executed."""
-        output = self.transpiler.process(self.repo_root / "regression_test.fleaux")
+        output = self.transpiler.process(self.test_dir / "regression_test.fleaux")
 
         # Should not raise any exception.
         runpy.run_path(str(output), run_name="__main__")
 
     def test_regression_generated_python_contains_expected_symbols(self) -> None:
         """Verify key function definitions appear in generated code."""
-        output = self.transpiler.process(self.repo_root / "regression_test.fleaux")
+        output = self.transpiler.process(self.test_dir / "regression_test.fleaux")
         code = output.read_text()
 
         # Verify that user-defined functions are in the generated output.
@@ -44,7 +50,7 @@ class RegressionTests(unittest.TestCase):
 
     def test_regression_imports_standard_library(self) -> None:
         """Verify Std module is imported and generated."""
-        output = self.transpiler.process(self.repo_root / "regression_test.fleaux")
+        output = self.transpiler.process(self.test_dir / "regression_test.fleaux")
         std_output = self.repo_root / "fleaux_generated_module_Std.py"
 
         # Verify both test and Std modules were generated.

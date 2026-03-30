@@ -9,6 +9,7 @@ Covers:
 """
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,11 @@ import fleaux_std_builtins as fstd
 from fleaux_transpiler import FleauxTranspiler
 from fleaux_lowering import lower
 from fleaux_parser import parse_program
+from tests.helpers import ensure_std_generated
+
+
+def setUpModule() -> None:
+    ensure_std_generated()
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +42,9 @@ def _transpile_and_run(source: str):
 
         spec = importlib.util.spec_from_file_location(f"_fleaux_cond_{uid}", out_path)
         mod = importlib.util.module_from_spec(spec)
+        repo_str = str(repo_root)
+        if repo_str not in sys.path:
+            sys.path.insert(0, repo_str)
         spec.loader.exec_module(mod)
         return getattr(mod, "_fleaux_last_value", None)
     finally:

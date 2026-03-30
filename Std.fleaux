@@ -146,6 +146,8 @@ let Std.String.Length(s: String) : Number :: __builtin__;
 let Std.OS.Cwd() : String :: __builtin__;
 let Std.OS.Home() : String :: __builtin__;
 let Std.OS.TempDir() : String :: __builtin__;
+let Std.OS.MakeTempFile() : String :: __builtin__;
+let Std.OS.MakeTempDir() : String :: __builtin__;
 let Std.OS.Env(name: String) : Any :: __builtin__;
 let Std.OS.HasEnv(name: String) : Bool :: __builtin__;
 let Std.OS.SetEnv(name: String, value: String) : String :: __builtin__;
@@ -211,3 +213,11 @@ let Std.ToNum(val: String) : Number :: __builtin__;
 // @brief Return command-line arguments as a tuple of strings
 // () -> Std.GetArgs;
 let Std.GetArgs() : Tuple(Any...) :: __builtin__;
+// @brief Lift a single value into a 1-tuple
+// (42) -> Std.Wrap;
+// Result: (42,)
+let Std.Wrap(val: Any) : Tuple(Any) :: __builtin__;
+// @brief Extract the single value from a 1-tuple
+// ((42,)) -> Std.Unwrap;
+// Result: 42
+let Std.Unwrap(tuple: Tuple(Any)) : Any :: __builtin__;

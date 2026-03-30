@@ -23,6 +23,14 @@ class IRLoweringImportTests(unittest.TestCase):
         self.assertIsInstance(stmt, IRImport)
         self.assertEqual(stmt.module_name, "Std")
 
+    def test_lowers_digit_prefixed_import_to_IRImport(self) -> None:
+        program = _lower("import 20_export;")
+
+        self.assertEqual(len(program.statements), 1)
+        stmt = program.statements[0]
+        self.assertIsInstance(stmt, IRImport)
+        self.assertEqual(stmt.module_name, "20_export")
+
 
 class IRLoweringLetTests(unittest.TestCase):
     def test_simple_let_name_and_params(self) -> None:

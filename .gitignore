@@ -161,3 +161,5 @@ cython_debug/
 
 # Project organization
 notes/summaries/
+
+fleaux_generated_module*

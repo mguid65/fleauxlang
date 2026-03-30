@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from fleaux_hand_parser import FleauxSyntaxError
+from fleaux_parser import FleauxSyntaxError
 from fleaux_parser import parse_file, parse_program
 
 
