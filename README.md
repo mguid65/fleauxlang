@@ -18,7 +18,7 @@ The second on is piping a single argument into Std.Println, that being the tuple
 
 # Parser Source Of Truth
 
-`fleaux_hand_parser.py` (via `fleaux_parser.py`) is the runtime parser source of truth.
+`fleaux_parser.py` is the runtime parser source of truth.
 
 `fleaux_grammar.tx` is the reference syntax specification used to document and evolve the language grammar.
 
@@ -28,12 +28,6 @@ Example:
 
 ```fleaux
 let AddPrint(x: Number, y: Number): Number = ((x, y) -> Std.Add) -> Std.Println;
-```
-
-Generate an EBNF artifact from the textX grammar:
-
-```bash
-python3 fleaux_grammar_ebnf.py --grammar fleaux_grammar.tx --out fleaux_grammar.ebnf
 ```
 
 # Vertical Slice Workflow
