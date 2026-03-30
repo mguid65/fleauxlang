@@ -1,0 +1,35 @@
+import Std;
+
+// Interactive mini flow: compute bill split after tip.
+// Inputs:
+//   1) subtotal (Number)
+//   2) tip_rate (Number, e.g. 0.18)
+//   3) people (Number)
+// Output:
+//   per-person total
+
+let ReadNumber(prompt: String): Number =
+    (prompt) -> Std.Input -> Std.ToNum;
+
+let Add(a: Number, b: Number): Number =
+    (a, b) -> Std.Add;
+
+let Multiply(a: Number, b: Number): Number =
+    (a, b) -> Std.Multiply;
+
+let Divide(a: Number, b: Number): Number =
+    (a, b) -> Std.Divide;
+
+let TotalWithTip(subtotal: Number, tip_rate: Number): Number =
+    (subtotal, (subtotal, tip_rate) -> Multiply) -> Add;
+
+let PerPerson(total: Number, people: Number): Number =
+    (total, people) -> Divide;
+
+(
+  ("Enter subtotal: ") -> ReadNumber,
+  ("Enter tip rate (e.g. 0.18): ") -> ReadNumber
+) -> TotalWithTip ->
+(_, ("Enter number of people: ") -> ReadNumber) -> PerPerson ->
+Std.Println;
+

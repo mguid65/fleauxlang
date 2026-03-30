@@ -1,20 +1,16 @@
 from pathlib import Path
 
-from textx.metamodel import metamodel_from_file
-
-
-_GRAMMAR_PATH = Path(__file__).with_name("fleaux_grammar.tx")
-_METAMODEL = metamodel_from_file(str(_GRAMMAR_PATH), auto_init_attributes=False)
+from fleaux_hand_parser import parse_program as _parse_program_hand, parse_file as _parse_file_hand
 
 
 def parse_program(source: str):
-    """Parse Fleaux source text into a textX Program model."""
-    return _METAMODEL.model_from_str(source)
+    """Parse Fleaux source text into a Program model using the hand-rolled parser."""
+    return _parse_program_hand(source)
 
 
 def parse_file(file_path: str | Path):
-    """Parse a .fleaux file into a textX Program model."""
-    return _METAMODEL.model_from_file(str(file_path))
+    """Parse a .fleaux file into a Program model using the hand-rolled parser."""
+    return _parse_file_hand(file_path)
 
 
 def main() -> None:

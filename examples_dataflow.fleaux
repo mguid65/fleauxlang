@@ -1,0 +1,155 @@
+// ============================================================================
+// Fleaux Dataflow Example Suite
+// Demonstrates core dataflow patterns and idioms
+// ============================================================================
+
+import Std;
+
+// ============================================================================
+// SECTION 1: BASIC TRANSFORMATIONS
+// ============================================================================
+
+// Single-stage transformation
+let Double(x: Number): Number = (x, 2) -> Std.Multiply;
+
+// Two-stage transformation
+let DoubleThenAddTen(x: Number): Number =
+  (x, 2) -> Std.Multiply -> (_, 10) -> Std.Add;
+
+// Three-stage transformation
+let AddMultiplySquare(x: Number, y: Number): Number =
+  (x, y) -> Std.Add -> (_, 3) -> Std.Multiply -> (_, 2) -> Std.Pow;
+
+// ============================================================================
+// SECTION 2: TUPLE MANIPULATION
+// ============================================================================
+
+// Extract first element from pair
+let FirstOfPair(pair: Tuple(Number, Number)): Number =
+  pair -> Std.Take(1) -> Std.Unwrap;
+
+// Extract second element from pair
+let SecondOfPair(pair: Tuple(Number, Number)): Number =
+  pair -> Std.Drop(1) -> Std.Unwrap;
+
+// Get tuple length
+let TupleSize(data: Tuple(Number, Number, Number)): Number =
+  data -> Std.Length;
+
+// Build tuple from components
+let MakePair(x: Number, y: Number): Tuple(Number, Number) =
+  (x, y);
+
+// ============================================================================
+// SECTION 3: MATHEMATICAL OPERATIONS
+// ============================================================================
+
+// Pythagorean theorem: c = √(a² + b²)
+let Hypotenuse(a: Number, b: Number): Number =
+  (a, a) -> Std.Multiply ->
+  ((_, (b, b) -> Std.Multiply)) -> Std.Add ->
+  Std.Sqrt;
+
+// Quadratic formula component: (-b) / (2a)
+let QuadraticTerm(b: Number, a: Number): Number =
+  (b, -1) -> Std.Multiply -> (_, (2, a) -> Std.Multiply) -> Std.Divide;
+
+// Compound interest: A = P(1 + r)^t
+let CompoundInterest(principal: Number, rate: Number, time: Number): Number =
+  (1, rate) -> Std.Add ->
+  (_, time) -> Std.Pow ->
+  (_, principal) -> Std.Multiply;
+
+// ============================================================================
+// SECTION 4: COMPARISONS AND LOGIC
+// ============================================================================
+
+// Check if number is in range
+let InRange(x: Number, min: Number, max: Number): Bool =
+  (x, min) -> Std.GreaterOrEqual ->
+  ((_, (x, max) -> Std.LessOrEqual)) -> Std.And;
+
+// Check if number is positive
+let IsPositive(x: Number): Bool =
+  (x, 0) -> Std.GreaterThan;
+
+// Check if two numbers are equal
+let AreEqual(x: Number, y: Number): Bool =
+  (x, y) -> Std.Equal;
+
+// ============================================================================
+// SECTION 5: MULTI-PARAMETER OPERATIONS
+// ============================================================================
+
+// Average of two numbers
+let Average(x: Number, y: Number): Number =
+  (x, y) -> Std.Add -> (_, 2) -> Std.Divide;
+
+// Maximum of two numbers (using comparison)
+let Max(x: Number, y: Number): Number =
+  (x, y) -> Std.GreaterThan ->
+  ((_, x)) -> Std.Add;  // Simplified version (actual max would need conditionals)
+
+// Sum of three numbers
+let Sum3(a: Number, b: Number, c: Number): Number =
+  (a, b) -> Std.Add -> (_, c) -> Std.Add;
+
+// Product of three numbers
+let Product3(a: Number, b: Number, c: Number): Number =
+  (a, b) -> Std.Multiply -> (_, c) -> Std.Multiply;
+
+// ============================================================================
+// SECTION 6: CONVERSION OPERATIONS
+// ============================================================================
+
+// Convert number to string via wrapping
+let NumberToString(x: Number): Number =
+  x -> Std.Wrap -> Std.Unwrap;  // Roundtrip through wrapping
+
+// Apply ToNum to convert string representations
+let ParseAndDouble(s: Number): Number =
+  (s, 2) -> Std.Multiply;
+
+// ============================================================================
+// SECTION 7: COMPLEX DATAFLOWS
+// ============================================================================
+
+// Temperature conversion: F to C
+let FahrenheitToCelsius(f: Number): Number =
+  (f, 32) -> Std.Subtract ->
+  (_, 5) -> Std.Divide ->
+  (_, 9) -> Std.Multiply;
+
+// Simplified: sum of squares
+let SumOfSquares(a: Number, b: Number): Number =
+  (a, a) -> Std.Multiply ->
+  ((_, (b, b) -> Std.Multiply)) -> Std.Add;
+
+// ============================================================================
+// SECTION 8: EXECUTION - TEST ALL PATTERNS
+// ============================================================================
+
+// Test basic transformations
+(5) -> Double -> Std.Println;
+(3) -> DoubleThenAddTen -> Std.Println;
+(2, 3) -> AddMultiplySquare -> Std.Println;
+
+// Test tuple manipulation
+((5, 10)) -> FirstOfPair -> Std.Println;
+((5, 10)) -> SecondOfPair -> Std.Println;
+
+// Test mathematical operations
+(3, 4) -> Hypotenuse -> Std.Println;
+(212) -> FahrenheitToCelsius -> Std.Println;
+
+// Test comparisons
+(5, 10) -> Std.LessThan -> Std.Println;
+
+// Test multi-parameter
+(10, 20) -> Average -> Std.Println;
+(5, 10, 15) -> Sum3 -> Std.Println;
+(2, 3, 4) -> Product3 -> Std.Println;
+
+// Test complex dataflows
+(100000, 0.05, 10) -> CompoundInterest -> Std.Println;
+
