@@ -1,0 +1,25 @@
+import Std;
+
+// -- ToString: convert any value to its string representation --
+(42) -> Std.ToString -> Std.Println;                              // 42
+(3.14) -> Std.ToString -> Std.Println;                            // 3.14
+(True) -> Std.ToString -> Std.Println;                            // True
+
+// -- Combining ToString with string operations --
+(256) -> Std.ToString -> (_, " bytes") -> Std.String.Join -> Std.Println; // 256 bytes
+
+// -- Printf: C-style formatted output --
+// First argument is the format string; remaining are substitutions via %s.
+("%s + %s = %s", 1, 2, 3) -> Std.Printf -> Std.Println;          // 1 + 2 = 3
+
+("Hello, %s!", "World") -> Std.Printf -> Std.Println;             // Hello, World!
+
+("Result: %s", (6, 7) -> Std.Multiply) -> Std.Printf -> Std.Println; // Result: 42
+
+// -- Formatting a report line --
+let FormatScore(name: String, score: Number): String =
+    ("%s scored %s points", name, score) -> Std.Printf;
+
+("Alice", 98) -> FormatScore -> Std.Println;                      // Alice scored 98 points
+("Bob", 75) -> FormatScore -> Std.Println;                        // Bob scored 75 points
+

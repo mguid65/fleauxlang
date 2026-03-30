@@ -1,0 +1,43 @@
+import Std;
+
+// -- Basic arithmetic functions --
+
+(10, 3) -> Std.Add -> Std.Println;               // 13
+(10, 3) -> Std.Subtract -> Std.Println;           // 7
+(10, 3) -> Std.Multiply -> Std.Println;           // 30
+(10, 3) -> Std.Divide -> Std.Println;             // 3.333...
+(10, 3) -> Std.Mod -> Std.Println;                // 1
+(2, 10) -> Std.Pow -> Std.Println;                // 1024
+(16) -> Std.Sqrt -> Std.Println;                  // 4.0
+
+// -- Operators used directly as pipeline call targets --
+// These are shorthand for the corresponding Std.* functions.
+
+(10, 3) -> + -> Std.Println;                      // 13
+(10, 3) -> - -> Std.Println;                      // 7
+(10, 3) -> * -> Std.Println;                      // 30
+(10, 3) -> / -> Std.Println;                      // 3.333...
+(10, 3) -> % -> Std.Println;                      // 1
+(2, 10) -> ^ -> Std.Println;                      // 1024
+
+// -- Composing arithmetic in pipelines --
+
+// (4 + 6) * 2 = 20
+(4, 6) -> Std.Add -> (_, 2) -> Std.Multiply -> Std.Println;
+
+// Square: x * x
+let Square(x: Number): Number = (x, x) -> Std.Multiply;
+
+// Cube: x * x * x
+let Cube(x: Number): Number =
+    ((x, x) -> Std.Multiply, x) -> Std.Multiply;
+
+(5) -> Square -> Std.Println;                     // 25
+(3) -> Cube -> Std.Println;                       // 27
+
+// Hypotenuse of a 3-4-5 right triangle: sqrt(3^2 + 4^2)
+let Hypotenuse(a: Number, b: Number): Number =
+    ((a, a) -> Std.Multiply, (b, b) -> Std.Multiply) -> Std.Add -> Std.Sqrt;
+
+(3, 4) -> Hypotenuse -> Std.Println;              // 5.0
+

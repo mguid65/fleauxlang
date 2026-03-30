@@ -18,7 +18,9 @@ The second on is piping a single argument into Std.Println, that being the tuple
 
 # Parser Source Of Truth
 
-`fleaux_grammar.tx` is the canonical Fleaux grammar and parser source of truth.
+`fleaux_parser.py` is the runtime parser source of truth.
+
+`fleaux_grammar.tx` is the reference syntax specification used to document and evolve the language grammar.
 
 For now, `FlowExpression` intentionally requires a parenthesized left-hand side. This keeps the grammar simpler, even if it means extra parentheses in chained flows.
 
@@ -36,10 +38,43 @@ Transpile a Fleaux file to Python:
 python3 fleaux_transpiler.py test.fleaux
 ```
 
-Transpile and immediately execute:
+Transpile and immediately execute (preferred):
+
+```bash
+./fleaux test.fleaux
+```
+
+You can still use:
 
 ```bash
 python3 run_fleaux.py test.fleaux
+```
+
+Emit a graph and still execute:
+
+```bash
+./fleaux test.fleaux --emit-graph --graph-format svg --graph-out /tmp/test.svg
+```
+
+Emit only the graph (skip transpile/execute):
+
+```bash
+./fleaux test.fleaux --emit-graph --graph-only --graph-format dot --graph-out /tmp/test.dot
+```
+
+Optional one-time setup to call it like `python3` from anywhere:
+
+```bash
+chmod +x fleaux
+mkdir -p "$HOME/.local/bin"
+ln -sf "$PWD/fleaux" "$HOME/.local/bin/fleaux"
+# Ensure ~/.local/bin is on PATH (add to ~/.bashrc if needed)
+```
+
+Then run:
+
+```bash
+fleaux test.fleaux
 ```
 
 Run smoke tests:
@@ -48,3 +83,22 @@ Run smoke tests:
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
+
+# Todo
+
+- [ ] Add more samples to samples/*.fleaux
+- [ ] Maybe add a shorter file extension like .flx?
+- [ ] Add more examples to documentation
+- [ ] Add more tests for edge cases and error handling
+- [ ] Explore more complex pipeline patterns and transformations
+- [ ] Consider adding a REPL for interactive experimentation
+- [ ] Finalize core language features in python before expanding to C++ transpiler
+- [ ] From C++ transpiler, transition to a true compiler and runtime for better performance and standalone executables
+- [ ] Explore embedding within C++
+- [ ] Better diagnostics that point back at the fleaux source code with line numbers and suggestions
+- [ ] Formal analysis of the language grammar to identify ambiguities and ensure it is LL(1) for the hand-rolled parser
+- [ ] Possibly create a frontend visual programming interface that generates Fleaux code
+- [ ] Syntax highlighting support for editors (VSCode, Jetbrains Tools, etc.)
+- [ ] Performance optimizations in the transpiler and runtime, especially for larger programs
+- [ ] More exploration into the type system, including generics, type inference, and better error messages for type errors
+- [ ] Consider making a setup script for easier installation and usage of the `fleaux` command

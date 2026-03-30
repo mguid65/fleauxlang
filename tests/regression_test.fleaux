@@ -1,0 +1,20 @@
+// Comprehensive regression test for the Fleaux compiler.
+// Exercises: imports, user-defined functions, pipeline chaining, tuple manipulation,
+// and operators - all in one program.
+
+import Std;
+
+// Simple single-parameter function with pipeline.
+let Add2(x: Number): Number = (x, 2) -> Std.Add;
+
+// Function demonstrating comparison operators.
+let IsGreaterThan5(x: Number): Number = (x, 5) -> Std.GreaterThan;
+
+// Multiply two numbers.
+let Multiply(x: Number, y: Number): Number = (x, y) -> Std.Multiply;
+
+// Execute a series of operations.
+(3) -> Add2;
+(7) -> IsGreaterThan5;
+(2, 5) -> Multiply;
+
