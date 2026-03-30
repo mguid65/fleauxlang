@@ -1,4 +1,4 @@
 structlog
 textX
-parglare
 rich
+pytest
