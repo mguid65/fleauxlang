@@ -41,21 +41,37 @@ Type:
 TupleType:
   'Tuple' '(' TypeList ')';
 
+// Expression hierarchy:
+// Expression -> FlowExpression (left-associative: a -> b -> c parses as (a -> b) -> c)
+// FlowExpression -> Primary Term
+// Primary Term -> Base (with optional parenthesization and tuple construction)
+
 Expression:
-  expr=FlowExpression |
-  expr=TermExpression;
+  expr=FlowExpression;
 
 FlowExpression:
-  lhs=ParenthesizedExpression '->' rhs=OpOrGraphId;
+  lhs=Primary ('->' rhs=Primary)*;
 
-OpOrGraphId:
+Primary:
+  base=Atom (extra=TupleConstruction)*;
+
+Atom:
+  '(' inner=DelimitedExpression ')' |
+  constant=Constant |
+  qualified_var=QualifiedId |
+  var=Identifier;
+
+TupleConstruction:
+  '->' target=CallTarget;
+
+CallTarget:
   qualified_var=QualifiedId |
   var=Identifier |
   op=Operator;
 
 Operator:
   '^'|
-  '//'|
+  '/'|
   '*'|
   '%'|
   '+'|
@@ -71,25 +87,18 @@ Operator:
   '||';
 
 DelimitedExpression:
-  exprs*=Expression[','];
+  items*=Expression[','];
 
-TermExpression:
-  expr=Term;
-
-Term:
-  constant=Constant |
+OpOrGraphId:
   qualified_var=QualifiedId |
   var=Identifier |
-  ParenthesizedExpression;
-
-ParenthesizedExpression:
-  '(' expr=DelimitedExpression ')';
+  op=Operator;
 
 QualifiedId:
   qualifier=Qualifier id=Identifier;
 
 Qualifier:
-  qualifier=Identifier '.';
+  qualifier=Identifier ('.' Identifier)* '.';
 
 Identifier:
   !Keyword ID;

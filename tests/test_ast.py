@@ -23,6 +23,14 @@ class IRLoweringImportTests(unittest.TestCase):
         self.assertIsInstance(stmt, IRImport)
         self.assertEqual(stmt.module_name, "Std")
 
+    def test_lowers_digit_prefixed_import_to_IRImport(self) -> None:
+        program = _lower("import 20_export;")
+
+        self.assertEqual(len(program.statements), 1)
+        stmt = program.statements[0]
+        self.assertIsInstance(stmt, IRImport)
+        self.assertEqual(stmt.module_name, "20_export")
+
 
 class IRLoweringLetTests(unittest.TestCase):
     def test_simple_let_name_and_params(self) -> None:
@@ -116,6 +124,14 @@ class IRLoweringExpressionTests(unittest.TestCase):
         self.assertEqual(rhs.qualifier, "Std")
         self.assertEqual(rhs.name, "Sqrt")
 
+    def test_flow_expr_nested_qualified_rhs(self) -> None:
+        program = _lower("let Id(path: String): String = (path, \"x\") -> Std.Path.Join;")
+        rhs = program.statements[0].body.rhs
+
+        self.assertIsInstance(rhs, IRNameRef)
+        self.assertEqual(rhs.qualifier, "Std.Path")
+        self.assertEqual(rhs.name, "Join")
+
     def test_operator_call_target(self) -> None:
         program = _lower("(1, 2) -> +;")
         stmt = program.statements[0]
@@ -154,6 +170,23 @@ class IRLoweringExpressionTests(unittest.TestCase):
         self.assertIsInstance(flow, IRFlowExpr)
         self.assertIsInstance(flow.lhs, IRTupleExpr)
         self.assertEqual(flow.lhs.items, [])
+
+    def test_tuple_template_stage_threads_previous_value(self) -> None:
+        program = _lower("(10, 20) -> Std.Add -> (_, 2) -> Std.Divide;")
+        stmt = program.statements[0]
+
+        self.assertIsInstance(stmt, IRExprStatement)
+        self.assertIsInstance(stmt.expr, IRFlowExpr)
+        self.assertIsInstance(stmt.expr.rhs, IRNameRef)
+        self.assertEqual(stmt.expr.rhs.qualifier, "Std")
+        self.assertEqual(stmt.expr.rhs.name, "Divide")
+
+        lhs = stmt.expr.lhs
+        self.assertIsInstance(lhs, IRTupleExpr)
+        self.assertEqual(len(lhs.items), 2)
+        self.assertIsInstance(lhs.items[0], IRFlowExpr)
+        self.assertIsInstance(lhs.items[1], IRConstant)
+        self.assertEqual(lhs.items[1].val, 2)
 
 
 if __name__ == "__main__":

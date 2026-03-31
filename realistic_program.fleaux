@@ -1,0 +1,92 @@
+import Std;
+
+// -----------------------------------------------------------------------------
+// Pricing / checkout flow
+// -----------------------------------------------------------------------------
+
+let Sum3(a: Number, b: Number, c: Number): Number =
+    (a, b) -> Std.Add -> (_, c) -> Std.Add;
+
+let ComputeSubtotal(unit_price: Number, qty: Number): Number =
+    (unit_price, qty) -> Std.Multiply;
+
+let NoDiscount(subtotal: Number): Number = subtotal;
+
+let VipDiscount(subtotal: Number): Number =
+    (subtotal, 0.90) -> Std.Multiply;
+
+let SelectDiscountFn(is_vip: Bool): Any =
+    (is_vip, VipDiscount, NoDiscount) -> Std.Select;
+
+let ApplyDiscount(subtotal: Number, is_vip: Bool): Number =
+    (is_vip) -> SelectDiscountFn -> (subtotal, _) -> Std.Apply;
+
+let SalesTax(subtotal: Number): Number =
+    (subtotal, 0.08) -> Std.Multiply;
+
+let FreeShipping(subtotal: Number): Number = 0;
+
+let StandardShipping(subtotal: Number): Number = 7.5;
+
+let ShippingCost(subtotal: Number): Number =
+    ((subtotal, 100) -> Std.GreaterThan, subtotal, FreeShipping, StandardShipping) -> Std.Branch;
+
+let FinalizeTotal(discounted_subtotal: Number): Number =
+    (discounted_subtotal,
+     (discounted_subtotal) -> SalesTax,
+     (discounted_subtotal) -> ShippingCost) -> Sum3;
+
+let CheckoutTotal(unit_price: Number, qty: Number, is_vip: Bool): Number =
+    ((unit_price, qty) -> ComputeSubtotal, is_vip) -> ApplyDiscount -> FinalizeTotal;
+
+// -----------------------------------------------------------------------------
+// Loan payoff simulation flow (iterative state machine)
+// state = (month, remaining_balance, total_paid)
+// -----------------------------------------------------------------------------
+
+let ContinuePayoff(month: Number, balance: Number, paid: Number): Bool =
+    ((balance, 0) -> Std.GreaterThan, (month, 120) -> Std.LessThan) -> Std.And;
+
+let StepPayoff(month: Number, balance: Number, paid: Number): Tuple(Number, Number, Number) =
+    (
+      (month, 1) -> Std.Add,
+      (balance, ((balance, 500) -> Std.GreaterThan, 500, balance) -> Std.Select) -> Std.Subtract,
+      (paid, ((balance, 500) -> Std.GreaterThan, 500, balance) -> Std.Select) -> Std.Add
+    );
+
+let PayoffLoop(balance: Number): Tuple(Number, Number, Number) =
+    ((0, balance, 0), ContinuePayoff, StepPayoff) -> Std.Loop;
+
+let PayoffLoopN(balance: Number, max_months: Number): Tuple(Number, Number, Number) =
+    ((0, balance, 0), ContinuePayoff, StepPayoff, max_months) -> Std.LoopN;
+
+let GetMonth(state: Tuple(Number, Number, Number)): Number =
+    (state, 0) -> Std.ElementAt;
+
+let GetRemaining(state: Tuple(Number, Number, Number)): Number =
+    (state, 1) -> Std.ElementAt;
+
+let GetPaid(state: Tuple(Number, Number, Number)): Number =
+    (state, 2) -> Std.ElementAt;
+
+// -----------------------------------------------------------------------------
+// Demo run
+// -----------------------------------------------------------------------------
+
+// VIP order: VIP condition computed from external signal (1200 > 1000)
+(50, 3, (1200, 1000) -> Std.GreaterThan) -> CheckoutTotal -> Std.Println;
+
+// Non-VIP order: (800 > 1000) == false
+(20, 4, (800, 1000) -> Std.GreaterThan) -> CheckoutTotal -> Std.Println;
+
+// Loan payoff with unbounded loop builtin
+(6200) -> PayoffLoop -> Std.Println;
+
+// Loan payoff with bounded loop builtin
+(6200, 24) -> PayoffLoopN -> Std.Println;
+
+// Extract and print individual fields from bounded result
+(6200, 24) -> PayoffLoopN -> GetMonth -> Std.Println;
+(6200, 24) -> PayoffLoopN -> GetRemaining -> Std.Println;
+(6200, 24) -> PayoffLoopN -> GetPaid -> Std.Println;
+

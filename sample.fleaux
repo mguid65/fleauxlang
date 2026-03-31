@@ -1,0 +1,87 @@
+// ============================================================================
+// sample.fleaux - A Fleaux sample program
+// Demonstrates pipelines, function definitions, and dataflow composition.
+// ============================================================================
+
+import Std;
+
+// --- Basic arithmetic combinators ---
+
+// x^2
+let Square(x: Number): Number =
+    (x, x) -> Std.Multiply;
+
+// x^3  =  x^2 * x
+let Cube(x: Number): Number =
+    ((x, x) -> Std.Multiply, x) -> Std.Multiply;
+
+// Hypotenuse of a right triangle: sqrt(a^2 + b^2)
+let Hypotenuse(a: Number, b: Number): Number =
+    ((a, a) -> Std.Multiply, (b, b) -> Std.Multiply) -> Std.Add -> Std.Sqrt;
+
+// --- Statistics on a 3-element tuple ---
+
+let Sum3(a: Number, b: Number, c: Number): Number =
+    (a, b) -> Std.Add -> (_, c) -> Std.Add;
+
+let Mean3(a: Number, b: Number, c: Number): Number =
+    (a, b, c) -> Sum3 -> (_, 3) -> Std.Divide;
+
+// --- Polynomial: 2x^2 + 3x + 1 ---
+let Poly(x: Number): Number =
+    ((2, (x, x) -> Std.Multiply) -> Std.Multiply,
+     (3, x) -> Std.Multiply,
+     1) -> Sum3;
+
+// --- Conditional combinators using Select ---
+
+// Absolute value: x if x >= 0, else -x
+let Abs(x: Number): Number =
+    ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
+
+// Maximum of two numbers
+let Max(a: Number, b: Number): Number =
+    ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
+
+// Minimum of two numbers
+let Min(a: Number, b: Number): Number =
+    ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
+
+// Clamp x to the range [lo, hi]
+let Clamp(x: Number, lo: Number, hi: Number): Number =
+    (x, lo) -> Max -> (_, hi) -> Min;
+
+// ============================================================================
+// Run the program - results printed to stdout
+// ============================================================================
+
+// Square and cube
+(4) -> Square -> Std.Println;             // 16
+(3) -> Cube -> Std.Println;               // 27
+
+// Hypotenuse of 3-4-5 triangle
+(3, 4) -> Hypotenuse -> Std.Println;      // 5
+
+// Sum and mean
+(10, 20, 30) -> Sum3 -> Std.Println;      // 60
+(10, 20, 30) -> Mean3 -> Std.Println;     // 20
+
+// Polynomial 2x^2 + 3x + 1 at x=5  =>  2*25 + 15 + 1 = 66
+(5) -> Poly -> Std.Println;               // 66
+
+// Abs
+(-7) -> Abs -> Std.Println;               // 7
+(3) -> Abs -> Std.Println;                // 3
+
+// Max / Min
+(4, 9) -> Max -> Std.Println;             // 9
+(4, 9) -> Min -> Std.Println;             // 4
+
+// Clamp
+(15, 0, 10) -> Clamp -> Std.Println;      // 10
+(-5, 0, 10) -> Clamp -> Std.Println;      // 0
+(7, 0, 10) -> Clamp -> Std.Println;       // 7
+
+
+
+

@@ -1,0 +1,18 @@
+import Std;
+// -- Current working directory --
+() -> Std.OS.Cwd -> Std.Println;
+// -- Home and temp directories --
+() -> Std.OS.Home -> Std.Println;
+() -> Std.OS.TempDir -> Std.Println;
+// -- Platform detection --
+() -> Std.OS.IsLinux -> Std.Println;
+() -> Std.OS.IsWindows -> Std.Println;
+() -> Std.OS.IsMacOS -> Std.Println;
+// -- Environment variables --
+("HOME") -> Std.OS.Env -> Std.Println;
+("HOME") -> Std.OS.HasEnv -> Std.Println;                         // True
+("DEFINITELY_NOT_SET_XYZ") -> Std.OS.HasEnv -> Std.Println;      // False
+// -- Set and read back an env variable --
+("FLEAUX_TEST_VAR", "hello") -> Std.OS.SetEnv -> Std.Println;    // hello
+("FLEAUX_TEST_VAR") -> Std.OS.Env -> Std.Println;                 // hello
+("FLEAUX_TEST_VAR") -> Std.OS.UnsetEnv -> Std.Println;            // True
