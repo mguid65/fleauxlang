@@ -1,0 +1,24 @@
+import Std;
+
+// -- Path construction --
+() -> Std.OS.Home -> (_, "projects") -> Std.Path.Join -> Std.Println;
+
+("some/path/../other") -> Std.Path.Normalize -> Std.Println;
+
+// -- Path components --
+("/home/user/projects/main.fleaux") -> Std.Path.Basename -> Std.Println;   // main.fleaux
+("/home/user/projects/main.fleaux") -> Std.Path.Dirname -> Std.Println;    // /home/user/projects
+("/home/user/projects/main.fleaux") -> Std.Path.Extension -> Std.Println;  // .fleaux
+("/home/user/projects/main.fleaux") -> Std.Path.Stem -> Std.Println;       // main
+
+("/home/user/projects/main.fleaux", "txt") -> Std.Path.WithExtension -> Std.Println;
+("/home/user/projects/main.fleaux", "other.fleaux") -> Std.Path.WithBasename -> Std.Println;
+
+// -- Absolute path --
+(".") -> Std.Path.Absolute -> Std.Println;
+
+// -- Existence checks --
+() -> Std.OS.Home -> Std.Path.Exists -> Std.Println;              // True
+() -> Std.OS.Home -> Std.Path.IsDir -> Std.Println;               // True
+() -> Std.OS.Home -> Std.Path.IsFile -> Std.Println;              // False
+

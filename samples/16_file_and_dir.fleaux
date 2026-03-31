@@ -1,0 +1,33 @@
+import Std;
+
+// -- Write, read back, and delete a temp file --
+let TmpFile(): String =
+    () -> Std.OS.TempDir -> (_, "fleaux_sample.txt") -> Std.Path.Join;
+
+() -> TmpFile -> (_, "hello from fleaux") -> Std.File.WriteText -> Std.Println;
+
+() -> TmpFile -> Std.File.ReadText -> Std.Println;                // hello from fleaux
+
+() -> TmpFile -> Std.File.Size -> Std.Println;                    // 17
+
+// -- Append and re-read --
+() -> TmpFile -> (_, "\nline two") -> Std.File.AppendText -> Std.Println;
+
+() -> TmpFile -> Std.File.ReadText -> Std.Println;
+
+// -- ReadLines returns a tuple of lines --
+() -> TmpFile -> Std.File.ReadLines -> Std.Println;
+
+// -- Delete --
+() -> TmpFile -> Std.File.Delete -> Std.Println;                  // True
+() -> TmpFile -> Std.Path.Exists -> Std.Println;                  // False
+
+// -- Directory operations --
+let TmpDir(): String =
+    () -> Std.OS.TempDir -> (_, "fleaux_sample_dir") -> Std.Path.Join;
+
+() -> TmpDir -> Std.Dir.Create -> Std.Println;
+() -> TmpDir -> Std.Path.IsDir -> Std.Println;                    // True
+() -> TmpDir -> Std.Dir.List -> Std.Println;                      // ()
+() -> TmpDir -> Std.Dir.Delete -> Std.Println;                    // True
+

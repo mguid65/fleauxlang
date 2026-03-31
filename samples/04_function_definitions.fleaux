@@ -1,0 +1,46 @@
+import Std;
+
+// -- Zero-parameter function (constant) --
+let Pi(): Number = 3.14159265358979;
+
+() -> Pi -> Std.Println;                                          // 3.14159...
+
+// -- Single-parameter function --
+let Negate(x: Number): Number = (0, x) -> Std.Subtract;
+
+(7) -> Negate -> Std.Println;                                     // -7
+
+// -- Multi-parameter function --
+let Average(a: Number, b: Number): Number =
+    (a, b) -> Std.Add -> (_, 2) -> Std.Divide;
+
+(10, 20) -> Average -> Std.Println;                               // 15.0
+
+// -- Qualified function name (namespace prefix) --
+let MyMath.Square(x: Number): Number = (x, x) -> Std.Multiply;
+
+(6) -> MyMath.Square -> Std.Println;                              // 36
+
+// -- Functions referencing other user functions --
+let Square(x: Number): Number = (x, x) -> Std.Multiply;
+
+let SumOfSquares(a: Number, b: Number): Number =
+    (a) -> Square -> (_, (b) -> Square) -> Std.Add;
+
+(3, 4) -> SumOfSquares -> Std.Println;                            // 25
+
+// -- The :: and = separators are both valid in let definitions --
+let AddAlt(x: Number, y: Number): Number :: (x, y) -> +;
+
+(8, 5) -> AddAlt -> Std.Println;                                  // 13
+
+// -- Function with separate min/max helpers --
+let Min(a: Number, b: Number): Number =
+    ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
+
+let Max(a: Number, b: Number): Number =
+    ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
+
+(3, 9) -> Min -> Std.Println;                                     // 3
+(3, 9) -> Max -> Std.Println;                                     // 9
+

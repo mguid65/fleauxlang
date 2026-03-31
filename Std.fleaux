@@ -77,6 +77,8 @@ let Std.TwoDivRootPi(): Number :: 1.12837916709551257389615890312154517168810125
 let Std.Println(args: Any...) : Tuple(Any...) :: __builtin__;
 let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __builtin__;
 let Std.In(count: Number) : Tuple(Any...) :: __builtin__;
+let Std.Input() : String :: __builtin__;
+let Std.Exit(code: Number) : Any :: __builtin__;
 let Std.Add(lhs: Number, rhs: Number) : Number :: __builtin__;
 let Std.Subtract(lhs: Number, rhs: Number) : Number :: __builtin__;
 let Std.Multiply(lhs: Number, rhs: Number) : Number :: __builtin__;
@@ -96,9 +98,94 @@ let Std.NotEqual(lhs: Any, rhs: Any) : Bool :: __builtin__;
 let Std.Not(val: Any) : Any :: __builtin__;
 let Std.And(lhs: Any, rhs: Any) : Bool :: __builtin__;
 let Std.Or(lhs: Any, rhs: Any) : Bool :: __builtin__;
+// @brief Return true_val if condition is truthy, false_val otherwise.
+// ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
+// Note: both branches are always evaluated before Select is called.
+let Std.Select(condition: Bool, true_val: Any, false_val: Any) : Any :: __builtin__;
+// @brief Apply a function reference to a value.
+// (5, Double) -> Std.Apply;  is equivalent to  (5) -> Double
+let Std.Apply(value: Any, func: Any) : Any :: __builtin__;
+// @brief Conditionally apply one of two function references to a value.
+// Only the chosen function executes - the other branch is never called.
+// ((x, 0) -> Std.GreaterThan, x, Double, Negate) -> Std.Branch;
+let Std.Branch(condition: Bool, value: Any, true_func: Any, false_func: Any) : Any :: __builtin__;
+// @brief Iterate state while continue_func(state) is truthy.
+// Returns final state when condition becomes false.
+// ((n, acc), Continue, Step) -> Std.Loop;
+let Std.Loop(state: Any, continue_func: Any, step_func: Any) : Any :: __builtin__;
+// @brief Iterate with a hard iteration cap; raises if cap is exceeded.
+// ((n, acc), Continue, Step, 1000) -> Std.LoopN;
+let Std.LoopN(state: Any, continue_func: Any, step_func: Any, max_iters: Number) : Any :: __builtin__;
 let Std.UnaryPlus(val: Any) : Any :: __builtin__;
 let Std.UnaryMinus(val: Any) : Any :: __builtin__;
 let Std.ToString(val: Any) : String :: __builtin__;
+// Math builtins (nested namespace API)
+let Std.Math.Sqrt(x: Number) : Number :: __builtin__;
+let Std.Math.Sin(x: Number) : Number :: __builtin__;
+let Std.Math.Cos(x: Number) : Number :: __builtin__;
+let Std.Math.Tan(x: Number) : Number :: __builtin__;
+let Std.Math.Floor(x: Number) : Number :: __builtin__;
+let Std.Math.Ceil(x: Number) : Number :: __builtin__;
+let Std.Math.Abs(x: Number) : Number :: __builtin__;
+let Std.Math.Log(x: Number) : Number :: __builtin__;
+let Std.Math.Clamp(x: Number, lo: Number, hi: Number) : Number :: __builtin__;
+// String builtins (nested namespace API)
+let Std.String.Upper(s: String) : String :: __builtin__;
+let Std.String.Lower(s: String) : String :: __builtin__;
+let Std.String.Trim(s: String) : String :: __builtin__;
+let Std.String.TrimStart(s: String) : String :: __builtin__;
+let Std.String.TrimEnd(s: String) : String :: __builtin__;
+let Std.String.Split(s: String, sep: String) : Tuple(Any...) :: __builtin__;
+let Std.String.Join(sep: String, parts: Tuple(Any...)) : String :: __builtin__;
+let Std.String.Replace(s: String, old: String, new: String) : String :: __builtin__;
+let Std.String.Contains(s: String, sub: String) : Bool :: __builtin__;
+let Std.String.StartsWith(s: String, prefix: String) : Bool :: __builtin__;
+let Std.String.EndsWith(s: String, suffix: String) : Bool :: __builtin__;
+let Std.String.Length(s: String) : Number :: __builtin__;
+// Path/filesystem builtins (nested namespace API)
+let Std.OS.Cwd() : String :: __builtin__;
+let Std.OS.Home() : String :: __builtin__;
+let Std.OS.TempDir() : String :: __builtin__;
+let Std.OS.MakeTempFile() : String :: __builtin__;
+let Std.OS.MakeTempDir() : String :: __builtin__;
+let Std.OS.Env(name: String) : Any :: __builtin__;
+let Std.OS.HasEnv(name: String) : Bool :: __builtin__;
+let Std.OS.SetEnv(name: String, value: String) : String :: __builtin__;
+let Std.OS.UnsetEnv(name: String) : Bool :: __builtin__;
+let Std.OS.IsWindows() : Bool :: __builtin__;
+let Std.OS.IsLinux() : Bool :: __builtin__;
+let Std.OS.IsMacOS() : Bool :: __builtin__;
+let Std.Path.Join(lhs: String, rhs: String) : String :: __builtin__;
+let Std.Path.Normalize(path: String) : String :: __builtin__;
+let Std.Path.Basename(path: String) : String :: __builtin__;
+let Std.Path.Dirname(path: String) : String :: __builtin__;
+let Std.Path.Exists(path: String) : Bool :: __builtin__;
+let Std.Path.IsFile(path: String) : Bool :: __builtin__;
+let Std.Path.IsDir(path: String) : Bool :: __builtin__;
+let Std.Path.Absolute(path: String) : String :: __builtin__;
+let Std.Path.Extension(path: String) : String :: __builtin__;
+let Std.Path.Stem(path: String) : String :: __builtin__;
+let Std.Path.WithExtension(path: String, ext: String) : String :: __builtin__;
+let Std.Path.WithBasename(path: String, name: String) : String :: __builtin__;
+let Std.File.ReadText(path: String) : String :: __builtin__;
+let Std.File.WriteText(path: String, text: String) : String :: __builtin__;
+let Std.File.AppendText(path: String, text: String) : String :: __builtin__;
+let Std.File.ReadLines(path: String) : Tuple(Any...) :: __builtin__;
+let Std.File.Delete(path: String) : Bool :: __builtin__;
+let Std.File.Size(path: String) : Number :: __builtin__;
+// Directory builtins (nested namespace API)
+let Std.Dir.Create(path: String) : String :: __builtin__;
+let Std.Dir.Delete(path: String) : Bool :: __builtin__;
+let Std.Dir.List(path: String) : Tuple(Any...) :: __builtin__;
+let Std.Dir.ListFull(path: String) : Tuple(Any...) :: __builtin__;
+// Tuple builtins (nested namespace API)
+let Std.Tuple.Append(t: Tuple(Any...), item: Any) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Prepend(t: Tuple(Any...), item: Any) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Reverse(t: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Contains(t: Tuple(Any...), item: Any) : Bool :: __builtin__;
+let Std.Tuple.Zip(a: Tuple(Any...), b: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Map(t: Tuple(Any...), func: Any) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Filter(t: Tuple(Any...), pred: Any) : Tuple(Any...) :: __builtin__;
 // @brief Take the first `count` items from `tuple` and return them as a new Tuple
 // ((1, 2, 3, 4), 2) -> Std.Take;
 // Result: (1, 2)
@@ -111,3 +198,26 @@ let Std.Drop(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__
 // ((1, 2, 3, 4), 2) -> Std.ElementAt;
 // Result: 3
 let Std.ElementAt(tuple: Tuple(Any...), count: Number) : Any :: __builtin__;
+// @brief Return the number of elements in `tuple`
+// ((1, 2, 3),) -> Std.Length;
+// Result: 3
+let Std.Length(tuple: Tuple(Any...)) : Number :: __builtin__;
+// @brief Slice a tuple. Accepts (tuple, stop), (tuple, start, stop), or (tuple, start, stop, step)
+// ((1, 2, 3, 4), 1, 3) -> Std.Slice;
+// Result: (2, 3)
+let Std.Slice(tuple: Tuple(Any...), stop: Number) : Tuple(Any...) :: __builtin__;
+// @brief Parse a string to a number
+// ("42") -> Std.ToNum;
+// Result: 42
+let Std.ToNum(val: String) : Number :: __builtin__;
+// @brief Return command-line arguments as a tuple of strings
+// () -> Std.GetArgs;
+let Std.GetArgs() : Tuple(Any...) :: __builtin__;
+// @brief Lift a single value into a 1-tuple
+// (42) -> Std.Wrap;
+// Result: (42,)
+let Std.Wrap(val: Any) : Tuple(Any) :: __builtin__;
+// @brief Extract the single value from a 1-tuple
+// ((42,)) -> Std.Unwrap;
+// Result: 42
+let Std.Unwrap(tuple: Tuple(Any)) : Any :: __builtin__;
