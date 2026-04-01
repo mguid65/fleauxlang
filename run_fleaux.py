@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 
+from fleaux_cpp_transpiler import FleauxCppTranspiler
 from fleaux_graphviz import GraphEmitError, write_graph_for_source
 from fleaux_transpiler import FleauxTranspiler
 
@@ -33,6 +35,12 @@ def main() -> int:
         action="store_true",
         help="Emit graph output only and skip transpile/execute.",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["python", "cpp"],
+        default="python",
+        help="Execution backend (default: python).",
+    )
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -55,17 +63,48 @@ def main() -> int:
             print("Skipped execution (--graph-only).")
             return 0
 
-    output = FleauxTranspiler().process(source)
     runtime_dir = Path(__file__).resolve().parent
-    original_sys_path = list(sys.path)
-    try:
-        for entry in (output.parent.resolve(), runtime_dir):
-            entry_str = str(entry)
-            if entry_str not in sys.path:
-                sys.path.insert(0, entry_str)
-        runpy.run_path(str(output), run_name="__main__")
-    finally:
-        sys.path[:] = original_sys_path
+
+    if args.backend == "python":
+        output = FleauxTranspiler().process(source)
+        original_sys_path = list(sys.path)
+        try:
+            for entry in (output.parent.resolve(), runtime_dir):
+                entry_str = str(entry)
+                if entry_str not in sys.path:
+                    sys.path.insert(0, entry_str)
+            runpy.run_path(str(output), run_name="__main__")
+        finally:
+            sys.path[:] = original_sys_path
+        return 0
+
+    output = FleauxCppTranspiler().process(source)
+    binary = output.with_suffix("")
+    compile_cmd = [
+        "c++",
+        "-std=c++20",
+        "-O2",
+        str(output),
+        "-I",
+        str(runtime_dir / "cpp"),
+        "-I",
+        str(runtime_dir / "third_party" / "datatree" / "include"),
+        "-I",
+        str(runtime_dir / "third_party" / "tl" / "include"),
+        "-o",
+        str(binary),
+    ]
+    compile_proc = subprocess.run(compile_cmd, text=True, capture_output=True, check=False)
+    if compile_proc.returncode != 0:
+        if compile_proc.stdout:
+            print(compile_proc.stdout)
+        if compile_proc.stderr:
+            print(compile_proc.stderr)
+        return compile_proc.returncode
+
+    run_proc = subprocess.run([str(binary)], check=False)
+    if run_proc.returncode != 0:
+        return run_proc.returncode
 
     return 0
 

@@ -1,0 +1,596 @@
+from __future__ import annotations
+
+import argparse
+import json
+import keyword
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from fleaux_ast import (
+    IRProgram, IRImport, IRLet, IRExprStatement,
+    IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IROperatorRef,
+    IRExpr, IRCallTarget,
+)
+from fleaux_diagnostics import format_diagnostic
+from fleaux_lowering import lower
+from fleaux_parser import parse_file
+
+
+class FleauxCppTranspilerError(Exception):
+    def __init__(self, message: str, *, hint: str | None = None):
+        self.stage = "transpile-cpp"
+        self.message = message
+        self.hint = hint
+        super().__init__(
+            format_diagnostic(
+                stage=self.stage,
+                message=self.message,
+                hint=self.hint,
+            )
+        )
+
+
+@dataclass
+class _ModuleInfo:
+    source: Path
+    module_name: str
+    program: IRProgram
+    import_sources: dict[str, Path]
+    known_symbols: dict[tuple[str | None, str], str]
+
+
+class FleauxCppTranspiler:
+    RUNTIME_ROOT = Path(__file__).resolve().parent
+    BUNDLED_MODULE_SOURCES = {
+        "Std": RUNTIME_ROOT / "Std.fleaux",
+    }
+
+    OPERATOR_TO_BUILTIN = {
+        "+": "Add",
+        "-": "Subtract",
+        "*": "Multiply",
+        "/": "Divide",
+        "%": "Mod",
+        "^": "Pow",
+        "==": "Equal",
+        "!=": "NotEqual",
+        "<": "LessThan",
+        ">": "GreaterThan",
+        ">=": "GreaterOrEqual",
+        "<=": "LessOrEqual",
+        "!": "Not",
+        "&&": "And",
+        "||": "Or",
+    }
+
+    BUILTIN_NAME_MAP = {
+        "Std.Printf": "Printf",
+        "Std.Path.Join": "PathJoin",
+        "Std.Path.Normalize": "PathNormalize",
+        "Std.Path.Basename": "PathBasename",
+        "Std.Path.Dirname": "PathDirname",
+        "Std.Path.Exists": "PathExists",
+        "Std.Path.IsFile": "PathIsFile",
+        "Std.Path.IsDir": "PathIsDir",
+        "Std.Path.Absolute": "PathAbsolute",
+        "Std.File.ReadText": "FileReadText",
+        "Std.File.WriteText": "FileWriteText",
+        "Std.OS.Cwd": "Cwd",
+        "Std.OS.Env": "OSEnv",
+        "Std.OS.HasEnv": "OSHasEnv",
+        "Std.OS.SetEnv": "OSSetEnv",
+        "Std.OS.UnsetEnv": "OSUnsetEnv",
+        "Std.OS.IsWindows": "OSIsWindows",
+        "Std.OS.IsLinux": "OSIsLinux",
+        "Std.OS.IsMacOS": "OSIsMacOS",
+        "Std.Math.Sqrt": "Sqrt",
+        "Std.Math.Sin": "Sin",
+        "Std.Math.Cos": "Cos",
+        "Std.Math.Tan": "Tan",
+        "Std.Math.Floor": "MathFloor",
+        "Std.Math.Ceil": "MathCeil",
+        "Std.Math.Abs": "MathAbs",
+        "Std.Math.Log": "MathLog",
+        "Std.Math.Clamp": "MathClamp",
+        "Std.String.Upper": "StringUpper",
+        "Std.String.Lower": "StringLower",
+        "Std.String.Trim": "StringTrim",
+        "Std.String.TrimStart": "StringTrimStart",
+        "Std.String.TrimEnd": "StringTrimEnd",
+        "Std.String.Split": "StringSplit",
+        "Std.String.Join": "StringJoin",
+        "Std.String.Replace": "StringReplace",
+        "Std.String.Contains": "StringContains",
+        "Std.String.StartsWith": "StringStartsWith",
+        "Std.String.EndsWith": "StringEndsWith",
+        "Std.String.Length": "StringLength",
+        "Std.OS.Home": "OSHome",
+        "Std.OS.TempDir": "OSTempDir",
+        "Std.OS.MakeTempFile": "OSMakeTempFile",
+        "Std.OS.MakeTempDir": "OSMakeTempDir",
+        "Std.Path.Extension": "PathExtension",
+        "Std.Path.Stem": "PathStem",
+        "Std.Path.WithExtension": "PathWithExtension",
+        "Std.Path.WithBasename": "PathWithBasename",
+        "Std.File.AppendText": "FileAppendText",
+        "Std.File.ReadLines": "FileReadLines",
+        "Std.File.Delete": "FileDelete",
+        "Std.File.Size": "FileSize",
+        "Std.Dir.Create": "DirCreate",
+        "Std.Dir.Delete": "DirDelete",
+        "Std.Dir.List": "DirList",
+        "Std.Dir.ListFull": "DirListFull",
+        "Std.Tuple.Append": "TupleAppend",
+        "Std.Tuple.Prepend": "TuplePrepend",
+        "Std.Tuple.Reverse": "TupleReverse",
+        "Std.Tuple.Contains": "TupleContains",
+        "Std.Tuple.Zip": "TupleZip",
+        "Std.Tuple.Map": "TupleMap",
+        "Std.Tuple.Filter": "TupleFilter",
+    }
+
+    # Runtime nodes currently implemented in cpp/fleaux_runtime.hpp.
+    CPP_RUNTIME_BUILTINS = {
+        "Wrap", "Unwrap", "ElementAt", "Length", "Take", "Drop", "Slice",
+        "Add", "Subtract", "Multiply", "Divide", "Mod", "Pow", "Sqrt",
+        "UnaryPlus", "UnaryMinus", "Sin", "Cos", "Tan",
+        "GreaterThan", "LessThan", "GreaterOrEqual", "LessOrEqual",
+        "Equal", "NotEqual", "Not", "And", "Or",
+        "ToString", "ToNum", "Println", "Printf", "Input", "GetArgs", "Exit",
+        "Select", "Apply", "Branch", "Loop", "LoopN",
+        "StringUpper", "StringLower", "StringTrim", "StringTrimStart", "StringTrimEnd",
+        "StringSplit", "StringJoin", "StringReplace", "StringContains",
+        "StringStartsWith", "StringEndsWith", "StringLength",
+        "MathFloor", "MathCeil", "MathAbs", "MathLog", "MathClamp",
+        "Cwd", "PathJoin", "PathNormalize", "PathBasename", "PathDirname",
+        "PathExists", "PathIsFile", "PathIsDir", "PathAbsolute",
+        "PathExtension", "PathStem", "PathWithExtension", "PathWithBasename",
+        "FileReadText", "FileWriteText", "FileAppendText", "FileReadLines",
+        "FileDelete", "FileSize",
+        "DirCreate", "DirDelete", "DirList", "DirListFull",
+        "OSEnv", "OSHasEnv", "OSSetEnv", "OSUnsetEnv",
+        "OSIsWindows", "OSIsLinux", "OSIsMacOS", "OSHome", "OSTempDir",
+        "OSMakeTempFile", "OSMakeTempDir",
+        "TupleAppend", "TuplePrepend", "TupleReverse", "TupleContains", "TupleZip",
+        "TupleMap", "TupleFilter",
+    }
+
+    CONTROL_BUILTINS: set[str] = set()
+
+    def __init__(self):
+        self._modules: dict[Path, _ModuleInfo] = {}
+        self._in_progress: set[Path] = set()
+
+    def process(self, filename: str | Path) -> Path:
+        root = Path(filename).resolve()
+        self._collect_module(root)
+        return self._emit_cpp(root)
+
+    def _collect_module(self, source: Path) -> None:
+        source = source.resolve()
+        if source in self._modules:
+            return
+        if source in self._in_progress:
+            raise FleauxCppTranspilerError(
+                f"Cyclic import detected while transpiling '{source.stem}'.",
+                hint="Break the cycle by moving shared definitions into a third module.",
+            )
+
+        self._in_progress.add(source)
+        try:
+            try:
+                parsed_model = parse_file(source)
+                program: IRProgram = lower(parsed_model)
+            except Exception as exc:
+                raise FleauxCppTranspilerError(
+                    f"Failed to parse/lower '{source.name}': {exc}",
+                    hint="Fix parse/lowering errors in the source module and retry.",
+                ) from exc
+
+            import_sources: dict[str, Path] = {}
+            for stmt in program.statements:
+                if not isinstance(stmt, IRImport):
+                    continue
+                if stmt.module_name == "StdBuiltins":
+                    continue
+                imported_source = self._resolve_import_source(source, stmt.module_name)
+                self._collect_module(imported_source)
+                import_sources[stmt.module_name] = imported_source
+
+            known_symbols: dict[tuple[str | None, str], str] = {}
+            for stmt in program.statements:
+                if not isinstance(stmt, IRLet):
+                    continue
+                sym = self._symbol_name(stmt.qualifier, stmt.name)
+                known_symbols[(stmt.qualifier, stmt.name)] = sym
+                known_symbols[(None, stmt.name)] = sym
+
+            # Re-export imported module symbols so unqualified references like
+            # Add4 and transitive qualified refs like Std.Println resolve in
+            # modules that only import an intermediate module.
+            for imported_source in import_sources.values():
+                imported_module = self._modules[imported_source]
+                imported_ns = self._module_namespace(imported_source)
+                for (qual, name), imported_sym in imported_module.known_symbols.items():
+                    resolved = imported_sym if "::" in imported_sym else f"{imported_ns}::{imported_sym}"
+                    known_symbols.setdefault((qual, name), resolved)
+                    known_symbols.setdefault((None, name), resolved)
+
+            self._modules[source] = _ModuleInfo(
+                source=source,
+                module_name=source.stem,
+                program=program,
+                import_sources=import_sources,
+                known_symbols=known_symbols,
+            )
+        finally:
+            self._in_progress.discard(source)
+
+    def _emit_cpp(self, root_source: Path) -> Path:
+        root_source = root_source.resolve()
+        if root_source not in self._modules:
+            raise FleauxCppTranspilerError("Internal error: root module not collected.")
+
+        lines: list[str] = [
+            '#include "fleaux_runtime.hpp"',
+            "",
+            "using namespace fleaux::runtime;",
+            "",
+            "namespace {",
+            "struct _FleauxMissingBuiltin {",
+            "    const char* name;",
+            "    Value operator()(Value) const {",
+            "        throw std::runtime_error(std::string(\"Builtin '\") + name + \"' is not yet implemented in cpp/fleaux_runtime.hpp\");",
+            "    }",
+            "};",
+            "inline _FleauxMissingBuiltin _fleaux_missing_builtin(const char* name) {",
+            "    return _FleauxMissingBuiltin{name};",
+            "}",
+            "}",
+            "",
+        ]
+
+        ordered_sources = self._module_order(root_source)
+        ordered = [self._modules[s] for s in ordered_sources]
+        for module in ordered:
+            lines.extend(self._emit_module(module))
+
+        init_calls = [
+            f"    {self._module_namespace(source)}::_fleaux_init_module();"
+            for source in ordered_sources
+        ]
+        lines.extend([
+            "int main(int argc, char** argv) {",
+            "    set_process_args(argc, argv);",
+            *init_calls,
+            "    return 0;",
+            "}",
+            "",
+        ])
+
+        out = root_source.with_name(f"fleaux_generated_module_{root_source.stem}.cpp")
+        out.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return out
+
+    def _module_order(self, root_source: Path) -> list[Path]:
+        visited: set[Path] = set()
+        ordered: list[Path] = []
+
+        def visit(source: Path) -> None:
+            source = source.resolve()
+            if source in visited:
+                return
+            visited.add(source)
+            module = self._modules[source]
+            for imported_source in module.import_sources.values():
+                visit(imported_source)
+            ordered.append(source)
+
+        visit(root_source)
+        return ordered
+
+    def _emit_module(self, module: _ModuleInfo) -> list[str]:
+        ns = self._module_namespace(module.source)
+        import_aliases = {
+            name: self._module_namespace(src)
+            for name, src in module.import_sources.items()
+        }
+
+        lines: list[str] = [
+            f"namespace {ns} {{",
+            f"// Source: {module.source}",
+            "",
+            "Value _fleaux_run_module();",
+            "void _fleaux_init_module();",
+            "extern Value _fleaux_last_value;",
+            "",
+        ]
+
+        for stmt in module.program.statements:
+            if isinstance(stmt, IRLet) and not stmt.is_builtin:
+                symbol_name = self._symbol_name(stmt.qualifier, stmt.name)
+                lines.append(f"Value {symbol_name}(Value _fleaux_arg);")
+        lines.append("")
+
+        for stmt in module.program.statements:
+            if isinstance(stmt, IRLet):
+                lines.extend(
+                    self._emit_let(stmt, import_aliases, module.known_symbols)
+                )
+
+        lines.extend([
+            "Value _fleaux_run_module() {",
+            "    Value _fleaux_last_value = make_null();",
+        ])
+        for stmt in module.program.statements:
+            if not isinstance(stmt, IRExprStatement):
+                continue
+            compiled = self._compile_expr(
+                stmt.expr,
+                local_bindings={},
+                import_aliases=import_aliases,
+                known_symbols=module.known_symbols,
+            )
+            lines.append(f"    _fleaux_last_value = {compiled};")
+        lines.extend([
+            "    return _fleaux_last_value;",
+            "}",
+            "",
+            "Value _fleaux_last_value = make_null();",
+            "void _fleaux_init_module() {",
+            "    _fleaux_last_value = _fleaux_run_module();",
+            "}",
+            "",
+        ])
+
+        lines.append(f"}} // namespace {ns}")
+        lines.append("")
+        return lines
+
+    def _emit_let(
+        self,
+        let: IRLet,
+        import_aliases: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> list[str]:
+        symbol_name = self._symbol_name(let.qualifier, let.name)
+
+        if let.is_builtin:
+            builtin_key = let.name
+            if let.qualifier:
+                qualified = f"{let.qualifier}.{let.name}"
+                if "." in let.qualifier or qualified in self.BUILTIN_NAME_MAP:
+                    builtin_key = qualified
+            mapped = self.BUILTIN_NAME_MAP.get(builtin_key, builtin_key)
+            if mapped in self.CONTROL_BUILTINS:
+                node_expr = f"_fleaux_missing_builtin({json.dumps(builtin_key)})"
+            else:
+                node_expr = self._builtin_node_expr(builtin_key)
+            return [
+                f"Value {symbol_name}(Value _fleaux_arg) {{",
+                f"    return (_fleaux_arg | {node_expr});",
+                "}",
+                "",
+            ]
+
+        local_bindings = {p.name: self._sanitize(p.name) for p in let.params}
+        body = self._compile_expr(let.body, local_bindings, import_aliases, known_symbols)
+
+        setup: list[str] = []
+        n = len(let.params)
+        if n == 1:
+            lone = local_bindings[let.params[0].name]
+            setup.append(f"    Value {lone} = unwrap_singleton_arg(_fleaux_arg);")
+        elif n > 1:
+            setup.append("    const Value& _fleaux_args = _fleaux_arg;")
+            for idx, p in enumerate(let.params):
+                setup.append(f"    Value {local_bindings[p.name]} = array_at(_fleaux_args, {idx});")
+
+        return [
+            f"Value {symbol_name}(Value _fleaux_arg) {{",
+            *setup,
+            f"    return {body};",
+            "}",
+            "",
+        ]
+
+    def _compile_expr(
+        self,
+        expr: IRExpr,
+        local_bindings: dict[str, str],
+        import_aliases: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str:
+        if isinstance(expr, IRFlowExpr):
+            if isinstance(expr.rhs, IRNameRef):
+                special = self._compile_control_builtin_flow(
+                    expr.lhs,
+                    expr.rhs,
+                    local_bindings,
+                    import_aliases,
+                    known_symbols,
+                )
+                if special is not None:
+                    return special
+            lhs = self._compile_expr(expr.lhs, local_bindings, import_aliases, known_symbols)
+            rhs = self._compile_call_target(expr.rhs, local_bindings, import_aliases, known_symbols)
+            return f"({lhs} | {rhs})"
+
+        if isinstance(expr, IRTupleExpr):
+            items: list[str] = []
+            for e in expr.items:
+                if isinstance(e, IRNameRef):
+                    # Function refs are passed as data via callable handles when
+                    # they are tuple elements (e.g. (value, Func) -> Std.Apply).
+                    if e.qualifier is not None:
+                        ref = self._compile_qualified_ref(e, import_aliases, known_symbols)
+                        items.append(f"make_callable_ref({ref})")
+                        continue
+                    if e.name not in local_bindings:
+                        ref = self._compile_name_ref(e.name, local_bindings, known_symbols)
+                        items.append(f"make_callable_ref({ref})")
+                        continue
+                items.append(self._compile_expr(e, local_bindings, import_aliases, known_symbols))
+            return f"make_tuple({', '.join(items)})"
+
+        if isinstance(expr, IRConstant):
+            return self._compile_constant(expr.val)
+
+        if isinstance(expr, IRNameRef):
+            if expr.qualifier is not None:
+                return self._compile_qualified_ref(expr, import_aliases, known_symbols)
+            if expr.name in local_bindings:
+                return local_bindings[expr.name]
+            return self._compile_name_ref(expr.name, local_bindings, known_symbols)
+
+        raise FleauxCppTranspilerError(
+            f"Cannot compile IR expression type '{type(expr).__name__}'.",
+            hint="Use a flow expression, tuple expression, constant, or name reference.",
+        )
+
+    def _compile_control_builtin_flow(
+        self,
+        lhs_expr: IRExpr,
+        target: IRNameRef,
+        local_bindings: dict[str, str],
+        import_aliases: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str | None:
+        # Control builtins now use the same Value-based flow as all other builtins.
+        return None
+
+    def _compile_constant(self, val: int | float | bool | str | None) -> str:
+        if val is None:
+            return "make_null()"
+        if isinstance(val, bool):
+            return "make_bool(true)" if val else "make_bool(false)"
+        if isinstance(val, int):
+            return f"make_int({val})"
+        if isinstance(val, float):
+            return f"make_float({repr(val)})"
+        if isinstance(val, str):
+            return f"make_string({json.dumps(val)})"
+        raise FleauxCppTranspilerError(f"Unsupported constant value: {val!r}")
+
+    def _compile_call_target(
+        self,
+        target: IRCallTarget,
+        local_bindings: dict[str, str],
+        import_aliases: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str:
+        if isinstance(target, IROperatorRef):
+            builtin = self.OPERATOR_TO_BUILTIN.get(target.op)
+            if builtin is None:
+                raise FleauxCppTranspilerError(
+                    f"Unsupported operator '{target.op}'.",
+                    hint="Use a supported operator mapping.",
+                )
+            return self._builtin_node_expr(builtin)
+
+        if isinstance(target, IRNameRef):
+            if target.qualifier is not None:
+                return self._compile_qualified_ref(target, import_aliases, known_symbols)
+            return self._compile_name_ref(target.name, local_bindings, known_symbols)
+
+        raise FleauxCppTranspilerError(
+            f"Cannot compile call target type '{type(target).__name__}'.",
+            hint="Use an operator reference or name reference as the call target.",
+        )
+
+    def _compile_qualified_ref(
+        self,
+        ref: IRNameRef,
+        import_aliases: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str:
+        sym = known_symbols.get(
+            (ref.qualifier, ref.name),
+            self._symbol_name(ref.qualifier, ref.name),
+        )
+        if "::" in sym:
+            return sym
+        if ref.qualifier in import_aliases:
+            return f"{import_aliases[ref.qualifier]}::{sym}"
+        root = ref.qualifier.split(".")[0]
+        if root in import_aliases:
+            return f"{import_aliases[root]}::{sym}"
+        return sym
+
+    def _compile_name_ref(
+        self,
+        name: str,
+        local_bindings: dict[str, str],
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str:
+        if name in local_bindings:
+            return local_bindings[name]
+        if (None, name) in known_symbols:
+            return known_symbols[(None, name)]
+        return self._sanitize(name)
+
+    def _builtin_node_expr(self, name: str) -> str:
+        mapped = self.BUILTIN_NAME_MAP.get(name, name)
+        if mapped in self.CPP_RUNTIME_BUILTINS:
+            return f"{mapped}{{}}"
+        quoted = json.dumps(name)
+        return f"_fleaux_missing_builtin({quoted})"
+
+    def _resolve_import_source(self, source: Path, module_name: str) -> Path:
+        local_source = source.with_name(f"{module_name}.fleaux").resolve()
+        if local_source.exists():
+            return local_source
+
+        bundled_source = self.BUNDLED_MODULE_SOURCES.get(module_name)
+        if bundled_source is not None and bundled_source.exists():
+            return bundled_source.resolve()
+
+        bundled_hint = ""
+        if bundled_source is not None:
+            bundled_hint = f" and bundled module '{bundled_source}'"
+        raise FleauxCppTranspilerError(
+            f"Unable to resolve import '{module_name}' from '{source}'. "
+            f"Looked for '{local_source}'{bundled_hint}.",
+            hint="Place the module beside the importing source file, or use a bundled module such as 'Std'.",
+        )
+
+    @staticmethod
+    def _module_namespace(source: Path) -> str:
+        return f"fleaux_gen_{FleauxCppTranspiler._sanitize(source.stem)}"
+
+    @staticmethod
+    def _symbol_name(qualifier: str | None, name: str) -> str:
+        safe = FleauxCppTranspiler._sanitize(name)
+        if qualifier is None:
+            return safe
+        return f"{FleauxCppTranspiler._sanitize(qualifier)}_{safe}"
+
+    @staticmethod
+    def _sanitize(raw: str) -> str:
+        safe = re.sub(r"[^a-zA-Z0-9_]", "_", raw)
+        if not safe:
+            safe = "_"
+        if safe[0].isdigit():
+            safe = f"_{safe}"
+        if keyword.iskeyword(safe):
+            safe = f"{safe}_"
+        return safe
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Transpile a Fleaux source file to a C++ module."
+    )
+    parser.add_argument(
+        "source", nargs="?", default="test.fleaux", help="Input .fleaux file path"
+    )
+    args = parser.parse_args()
+
+    output = FleauxCppTranspiler().process(args.source)
+    print(output)
+
+
+if __name__ == "__main__":
+    main()
+
