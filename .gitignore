@@ -160,3 +160,5 @@ cython_debug/
 .idea/
 
 fleaux_generated_module*
+
+cpp/test_runtime_bin
