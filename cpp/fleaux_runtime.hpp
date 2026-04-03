@@ -61,6 +61,7 @@ using Float = mguid::DoubleType;            // double
 
 using RuntimeCallable = std::function<Value(Value)>;
 inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
+inline constexpr std::string_view k_handle_tag   = "__fleaux_handle__";
 
 inline std::vector<std::string>& process_args_storage() {
     static std::vector<std::string> args;
@@ -136,6 +137,122 @@ Value make_callable_ref(F&& fn) {
             return static_cast<UInt>(d);
         }
     );
+}
+
+// ── File handle registry ──────────────────────────────────────────────────────
+
+struct HandleEntry {
+    std::fstream  stream;
+    std::string   path;
+    std::string   mode;
+    bool          closed{false};
+    UInt          generation{0};
+};
+
+struct HandleRegistry {
+    std::vector<HandleEntry> entries;
+
+    UInt open(const std::string& path, const std::string& mode) {
+        // find a closed slot to reuse
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            if (entries[i].closed) {
+                auto& e = entries[i];
+                e.generation++;
+                e.closed = false;
+                e.path = path;
+                e.mode = mode;
+                open_stream(e);
+                return static_cast<UInt>(i);
+            }
+        }
+        entries.push_back({});
+        auto& e = entries.back();
+        e.path = path;
+        e.mode = mode;
+        e.generation = 0;
+        open_stream(e);
+        return static_cast<UInt>(entries.size() - 1);
+    }
+
+    static void open_stream(HandleEntry& e) {
+        std::ios::openmode flags{};
+        bool is_read  = (e.mode.find('r') != std::string::npos);
+        bool is_write = (e.mode.find('w') != std::string::npos);
+        bool is_append= (e.mode.find('a') != std::string::npos);
+        bool is_binary= (e.mode.find('b') != std::string::npos);
+        if (is_read)   flags |= std::ios::in;
+        if (is_write)  flags |= std::ios::out | std::ios::trunc;
+        if (is_append) flags |= std::ios::out | std::ios::app;
+        if (is_binary) flags |= std::ios::binary;
+        if (!is_read && !is_write && !is_append) flags |= std::ios::in;
+        e.stream.open(e.path, flags);
+        if (!e.stream.is_open()) {
+            throw std::runtime_error{"FileOpen: cannot open '" + e.path + "' with mode '" + e.mode + "'"};
+        }
+    }
+
+    // returns (slot, generation) or nullopt if invalid/closed
+    [[nodiscard]] HandleEntry* get(UInt slot, UInt gen) {
+        if (slot >= entries.size()) return nullptr;
+        auto& e = entries[slot];
+        if (e.closed || e.generation != gen) return nullptr;
+        return &e;
+    }
+
+    bool close(UInt slot, UInt gen) {
+        if (slot >= entries.size()) return false;
+        auto& e = entries[slot];
+        if (e.closed || e.generation != gen) return false;
+        e.stream.close();
+        e.closed = true;
+        return true;
+    }
+};
+
+inline HandleRegistry& handle_registry() {
+    static HandleRegistry reg;
+    return reg;
+}
+
+// Token = Array["__fleaux_handle__", slot, generation]
+[[nodiscard]] inline Value make_handle_token(UInt slot, UInt gen) {
+    Array a;
+    a.Reserve(3);
+    a.PushBack(Value{String{k_handle_tag}});
+    a.PushBack(Value{slot});
+    a.PushBack(Value{gen});
+    return Value{std::move(a)};
+}
+
+struct HandleId { UInt slot; UInt gen; };
+
+[[nodiscard]] inline std::optional<HandleId> handle_id_from_value(const Value& v) {
+    const auto& arr = v.TryGetArray();
+    if (!arr || arr->Size() != 3) return std::nullopt;
+    const auto& tag = arr->TryGet(0)->TryGetString();
+    if (!tag || *tag != k_handle_tag) return std::nullopt;
+    const auto& sn = arr->TryGet(1)->TryGetNumber();
+    const auto& gn = arr->TryGet(2)->TryGetNumber();
+    if (!sn || !gn) return std::nullopt;
+    auto as_uint = [](const Number& n) -> std::optional<UInt> {
+        return n.Visit(
+            [](Int i)   -> std::optional<UInt> { return i >= 0 ? std::optional<UInt>(static_cast<UInt>(i)) : std::nullopt; },
+            [](UInt u)  -> std::optional<UInt> { return u; },
+            [](Float d) -> std::optional<UInt> { return d >= 0 && std::floor(d)==d ? std::optional<UInt>(static_cast<UInt>(d)) : std::nullopt; }
+        );
+    };
+    auto slot = as_uint(*sn);
+    auto gen  = as_uint(*gn);
+    if (!slot || !gen) return std::nullopt;
+    return HandleId{*slot, *gen};
+}
+
+[[nodiscard]] inline HandleEntry& require_handle(const Value& token, const char* op) {
+    auto id = handle_id_from_value(token);
+    if (!id) throw std::runtime_error{std::string(op) + ": not a valid handle token"};
+    HandleEntry* e = handle_registry().get(id->slot, id->gen);
+    if (!e) throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+    return *e;
 }
 
 [[nodiscard]] inline Value invoke_callable_ref(const Value& ref, Value arg) {
@@ -1612,6 +1729,133 @@ struct LoopN {
             ++steps;
         }
         return state;
+    }
+};
+
+// ── File streaming builtins ───────────────────────────────────────────────────
+
+struct FileOpen {
+    // arg = (path, mode)  OR  (path,) defaults mode to "r"
+    Value operator()(Value arg) const {
+        const auto& arr = arg.TryGetArray();
+        std::string path, mode = "r";
+        if (arr && arr->Size() == 2) {
+            path = as_string(*arr->TryGet(0));
+            mode = as_string(*arr->TryGet(1));
+        } else if (arr && arr->Size() == 1) {
+            path = as_string(*arr->TryGet(0));
+        } else if (arr) {
+            throw std::runtime_error{"FileOpen: expected (path,) or (path, mode)"};
+        } else {
+            path = as_string(arg);
+        }
+        const UInt slot = handle_registry().open(path, mode);
+        const UInt gen  = handle_registry().entries[slot].generation;
+        return make_handle_token(slot, gen);
+    }
+};
+
+struct FileReadLine {
+    // arg = handle_token   →  (handle_token, line, eof_bool)
+    Value operator()(Value arg) const {
+        const Value token = unwrap_singleton_arg(std::move(arg));
+        auto& e = require_handle(token, "FileReadLine");
+        if (e.mode.find('r') == std::string::npos) {
+            throw std::runtime_error{"FileReadLine: read failed"};
+        }
+        std::string line;
+        bool eof = false;
+        if (!std::getline(e.stream, line)) {
+            if (e.stream.eof()) {
+                eof = true;
+                line.clear();
+            } else {
+                throw std::runtime_error{"FileReadLine: read failed"};
+            }
+        }
+        auto [slot, gen] = handle_id_from_value(token).value();
+        return make_tuple(
+            make_handle_token(slot, gen),
+            make_string(std::move(line)),
+            make_bool(eof)
+        );
+    }
+};
+
+struct FileReadChunk {
+    // arg = (handle_token, nbytes)  →  (handle_token, chunk_string, eof_bool)
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "FileReadChunk");
+        auto& e = require_handle(*args.TryGet(0), "FileReadChunk");
+        const std::size_t nbytes = as_index(*args.TryGet(1));
+        std::string buf(nbytes, '\0');
+        e.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
+        const std::streamsize n = e.stream.gcount();
+        buf.resize(static_cast<std::size_t>(n));
+        const bool eof = (n == 0 || e.stream.eof());
+        auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
+        return make_tuple(
+            make_handle_token(slot, gen),
+            make_string(std::move(buf)),
+            make_bool(eof)
+        );
+    }
+};
+
+struct FileWriteChunk {
+    // arg = (handle_token, data_string)  →  handle_token
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "FileWriteChunk");
+        auto& e = require_handle(*args.TryGet(0), "FileWriteChunk");
+        const std::string& data = as_string(*args.TryGet(1));
+        e.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
+        if (!e.stream) throw std::runtime_error{"FileWriteChunk: write failed"};
+        auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
+        return make_handle_token(slot, gen);
+    }
+};
+
+struct FileFlush {
+    // arg = handle_token  →  handle_token
+    Value operator()(Value arg) const {
+        const Value token = unwrap_singleton_arg(std::move(arg));
+        auto& e = require_handle(token, "FileFlush");
+        e.stream.flush();
+        if (!e.stream) throw std::runtime_error{"FileFlush: flush failed"};
+        auto [slot, gen] = handle_id_from_value(token).value();
+        return make_handle_token(slot, gen);
+    }
+};
+
+struct FileClose {
+    // arg = handle_token  →  Bool (true if was open, false if already closed)
+    Value operator()(Value arg) const {
+        const Value token = unwrap_singleton_arg(std::move(arg));
+        const auto id = handle_id_from_value(token);
+        if (!id) return make_bool(false);
+        return make_bool(handle_registry().close(id->slot, id->gen));
+    }
+};
+
+struct FileWithOpen {
+    // arg = (path, mode, func_ref)  →  result of func_ref(handle_token)
+    // Guarantees close even if func throws.
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 3, "FileWithOpen");
+        const std::string path = as_string(*args.TryGet(0));
+        const std::string mode = as_string(*args.TryGet(1));
+        const Value& fn = *args.TryGet(2);
+        const UInt slot = handle_registry().open(path, mode);
+        const UInt gen = handle_registry().entries[slot].generation;
+        const Value token = make_handle_token(slot, gen);
+        try {
+            Value result = invoke_callable_ref(fn, token);
+            handle_registry().close(slot, gen);
+            return result;
+        } catch (...) {
+            handle_registry().close(slot, gen);
+            throw;
+        }
     }
 };
 

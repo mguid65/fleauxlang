@@ -89,6 +89,9 @@ class FleauxTranspiler:
         # tuple
         "TupleAppend", "TuplePrepend", "TupleReverse", "TupleContains",
         "TupleZip", "TupleMap", "TupleFilter",
+        # streaming file handles
+        "FileOpen", "FileReadLine", "FileReadChunk", "FileWriteChunk",
+        "FileFlush", "FileClose", "FileWithOpen",
     }
 
     BUILTIN_NAME_MAP = {
@@ -162,6 +165,14 @@ class FleauxTranspiler:
         "Std.Tuple.Zip": "TupleZip",
         "Std.Tuple.Map": "TupleMap",
         "Std.Tuple.Filter": "TupleFilter",
+        # streaming file handles
+        "Std.File.Open": "FileOpen",
+        "Std.File.ReadLine": "FileReadLine",
+        "Std.File.ReadChunk": "FileReadChunk",
+        "Std.File.WriteChunk": "FileWriteChunk",
+        "Std.File.Flush": "FileFlush",
+        "Std.File.Close": "FileClose",
+        "Std.File.WithOpen": "FileWithOpen",
     }
 
     def __init__(self):

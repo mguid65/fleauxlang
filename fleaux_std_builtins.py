@@ -1211,3 +1211,147 @@ def make_node(func):
             return decompose_call(self.func, tuple_args)
 
     return Node
+
+# ── Streaming file handle builtins ────────────────────────────────────────────
+
+import threading
+
+_handle_lock = threading.Lock()
+
+class _HandleEntry:
+    def __init__(self, fp, path: str, mode: str, generation: int):
+        self.fp = fp
+        self.path = path
+        self.mode = mode
+        self.generation = generation
+        self.closed = False
+
+_handle_slots: list[_HandleEntry | None] = []
+_HANDLE_TAG = "__fleaux_handle__"
+
+
+def _make_handle_token(slot: int, gen: int) -> tuple:
+    return (_HANDLE_TAG, slot, gen)
+
+
+def _resolve_handle(token, op: str) -> _HandleEntry:
+    # The transpiler wraps single expressions in a 1-tuple: (h) -> ReadLine
+    # becomes (h,) | ReadLine().  Unwrap one level if needed.
+    if isinstance(token, tuple) and len(token) == 1:
+        token = token[0]
+    if not isinstance(token, tuple) or len(token) != 3 or token[0] != _HANDLE_TAG:
+        raise RuntimeError(f"{op}: not a valid handle token")
+    _, slot, gen = token
+    with _handle_lock:
+        if slot >= len(_handle_slots):
+            raise RuntimeError(f"{op}: handle is closed or invalid")
+        entry = _handle_slots[slot]
+        if entry is None or entry.closed or entry.generation != gen:
+            raise RuntimeError(f"{op}: handle is closed or invalid")
+        return entry
+
+
+def _open_handle(path: str, mode: str) -> tuple:
+    fp = open(str(path), mode, encoding=None if 'b' in mode else 'utf-8')
+    with _handle_lock:
+        for i, slot in enumerate(_handle_slots):
+            if slot is None or slot.closed:
+                gen = (slot.generation + 1) if slot is not None else 0
+                entry = _HandleEntry(fp, path, mode, gen)
+                _handle_slots[i] = entry
+                return _make_handle_token(i, gen)
+        slot = len(_handle_slots)
+        entry = _HandleEntry(fp, path, mode, 0)
+        _handle_slots.append(entry)
+        return _make_handle_token(slot, 0)
+
+
+def _close_handle(token) -> bool:
+    if not isinstance(token, tuple) or len(token) != 3 or token[0] != _HANDLE_TAG:
+        return False
+    _, slot, gen = token
+    with _handle_lock:
+        if slot >= len(_handle_slots):
+            return False
+        entry = _handle_slots[slot]
+        if entry is None or entry.closed or entry.generation != gen:
+            return False
+        entry.fp.close()
+        entry.closed = True
+        return True
+
+
+class FileOpen:
+    def __init__(self): pass
+    def __ror__(self, tuple_args) -> tuple:
+        if isinstance(tuple_args, tuple):
+            if len(tuple_args) == 2:
+                path, mode = tuple_args
+            elif len(tuple_args) == 1:
+                path, mode = tuple_args[0], 'r'
+            else:
+                raise RuntimeError("File.Open: expected (path,) or (path, mode)")
+        else:
+            path, mode = tuple_args, 'r'
+        return _open_handle(str(path), mode)
+
+
+class FileReadLine:
+    def __init__(self): pass
+    def __ror__(self, token) -> tuple:
+        e = _resolve_handle(token, "File.ReadLine")
+        line = e.fp.readline()
+        eof = (line == '')
+        return (token, line.rstrip('\n') if not eof else '', eof)
+
+
+class FileReadChunk:
+    def __init__(self): pass
+    def __ror__(self, tuple_args) -> tuple:
+        token, nbytes = tuple_args
+        e = _resolve_handle(token, "File.ReadChunk")
+        chunk = e.fp.read(nbytes)
+        eof = (chunk == '' or chunk == b'')
+        return (token, chunk, eof)
+
+
+class FileWriteChunk:
+    def __init__(self): pass
+    def __ror__(self, tuple_args) -> tuple:
+        token, data = tuple_args
+        e = _resolve_handle(token, "File.WriteChunk")
+        e.fp.write(data)
+        return token
+
+
+class FileFlush:
+    def __init__(self): pass
+    def __ror__(self, token) -> tuple:
+        e = _resolve_handle(token, "File.Flush")
+        e.fp.flush()
+        return token
+
+
+class FileClose:
+    def __init__(self): pass
+    def __ror__(self, token) -> bool:
+        return _close_handle(token)
+
+
+class FileWithOpen:
+    def __init__(self): pass
+    def __ror__(self, tuple_args) -> typing.Any:
+        if not isinstance(tuple_args, tuple) or len(tuple_args) != 3:
+            raise TypeError(f"File.WithOpen expects (path, mode, func), got {tuple_args!r}")
+        path, mode, func = tuple_args
+        token = _open_handle(str(path), mode)
+        try:
+            # Handle tokens are tuples; wrap once so make_node callables receive
+            # a single `h` parameter instead of token fields as multiple args.
+            result = _apply_node(func, (token,))
+        finally:
+            _close_handle(token)
+        return result
+
+
+
