@@ -11,12 +11,9 @@ Tests cover:
 from __future__ import annotations
 
 import unittest
-import tempfile
 
 from fleaux_lowering import FleauxLoweringError, lower
 from fleaux_parser import FleauxSyntaxError, parse_program, parse_file
-from fleaux_transpiler import FleauxTranspiler, FleauxTranspilerError
-from fleaux_ast import IROperatorRef
 from pathlib import Path
 
 
@@ -412,49 +409,6 @@ class LoweringDiagnosticsTests(unittest.TestCase):
         err = ctx.exception
         self.assertIn("missing a following call target", str(err))
         self.assertIsNotNone(err.hint)
-
-
-class TranspilerDiagnosticsTests(unittest.TestCase):
-    def test_transpiler_error_exposes_stage_and_hint(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            bad = Path(tmpdir) / "broken.fleaux"
-            bad.write_text("(1 2) -> Std.Add;", encoding="utf-8")
-
-            transpiler = FleauxTranspiler()
-
-            with self.assertRaises(FleauxTranspilerError) as ctx:
-                transpiler.process(bad)
-
-            err = ctx.exception
-            self.assertEqual(err.stage, "transpile")
-            self.assertIsNotNone(err.hint)
-            self.assertIn("[transpile]", str(err))
-
-    def test_unsupported_operator_uses_structured_transpiler_error(self) -> None:
-        transpiler = FleauxTranspiler()
-
-        with self.assertRaises(FleauxTranspilerError) as ctx:
-            transpiler._compile_call_target(IROperatorRef(op="??"), {}, {}, {})
-
-        err = ctx.exception
-        self.assertEqual(err.stage, "transpile")
-        self.assertIn("Unsupported operator", str(err))
-        self.assertIn("Hint:", str(err))
-
-    def test_unresolved_import_reports_lookup_locations(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            source = Path(tmpdir) / "missing_import.fleaux"
-            source.write_text("import MissingModule;\n", encoding="utf-8")
-
-            transpiler = FleauxTranspiler()
-
-            with self.assertRaises(FleauxTranspilerError) as ctx:
-                transpiler.process(source)
-
-            err = ctx.exception
-            self.assertIn("Unable to resolve import 'MissingModule'", str(err))
-            self.assertIn(str(source.with_name("MissingModule.fleaux")), str(err))
-            self.assertIn("bundled module such as 'Std'", str(err))
 
 
 class RegressionAndStabilityTests(unittest.TestCase):

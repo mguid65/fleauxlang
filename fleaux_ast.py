@@ -91,7 +91,7 @@ class IRLet:
     """A let-binding: a named function/constant definition.
 
     If is_builtin is True, body is None and the implementation is
-    looked up in fleaux_std_builtins.py by name.
+    provided by the active runtime backend (C++ runtime builtins).
     """
     qualifier: str | None
     name: str

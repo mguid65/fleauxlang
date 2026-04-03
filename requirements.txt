@@ -1,4 +1,2 @@
-structlog
 textX
-rich
 pytest
