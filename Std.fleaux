@@ -212,6 +212,37 @@ let Std.ToNum(val: String) : Number :: __builtin__;
 // @brief Return command-line arguments as a tuple of strings
 // () -> Std.GetArgs;
 let Std.GetArgs() : Tuple(Any...) :: __builtin__;
+
+// ── Streaming file handle builtins ────────────────────────────────────────────
+// @brief Open a file and return an opaque handle token.
+// ("path/to/file", "r") -> Std.File.Open;
+let Std.File.Open(path: String, mode: String) : Any :: __builtin__;
+
+// @brief Read the next line from an open handle.
+// Returns (handle, line, eof) — eof is True when no more lines remain.
+// (handle) -> Std.File.ReadLine;
+let Std.File.ReadLine(handle: Any) : Tuple(Any, String, Bool) :: __builtin__;
+
+// @brief Read up to nbytes bytes from an open handle.
+// Returns (handle, chunk, eof).
+// (handle, 4096) -> Std.File.ReadChunk;
+let Std.File.ReadChunk(handle: Any, nbytes: Number) : Tuple(Any, String, Bool) :: __builtin__;
+
+// @brief Write a string chunk to an open handle. Returns the handle.
+// (handle, "data") -> Std.File.WriteChunk;
+let Std.File.WriteChunk(handle: Any, data: String) : Any :: __builtin__;
+
+// @brief Flush an open handle. Returns the handle.
+// (handle) -> Std.File.Flush;
+let Std.File.Flush(handle: Any) : Any :: __builtin__;
+
+// @brief Close an open handle. Returns True if was open, False if already closed.
+// (handle) -> Std.File.Close;
+let Std.File.Close(handle: Any) : Bool :: __builtin__;
+
+// @brief Open a file, call func(handle), then always close. Returns func's result.
+// ("path", "r", MyReader) -> Std.File.WithOpen;
+let Std.File.WithOpen(path: String, mode: String, func: Any) : Any :: __builtin__;
 // @brief Lift a single value into a 1-tuple
 // (42) -> Std.Wrap;
 // Result: (42,)

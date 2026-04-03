@@ -582,7 +582,8 @@ class CppBackendTests(unittest.TestCase):
     # ── OS.Env / OS.HasEnv / OS.SetEnv / OS.UnsetEnv edge cases ─────────────
 
     def _run_cpp(self, tmp_dir: str, source_name: str, code: str,
-                 extra_env: dict | None = None) -> subprocess.CompletedProcess:
+                 extra_env: dict | None = None,
+                 extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
         """Helper: write *code* to a .fleaux file, compile + run with cpp backend."""
         repo_root = Path(__file__).resolve().parents[1]
         launcher = repo_root / "fleaux"
@@ -591,14 +592,83 @@ class CppBackendTests(unittest.TestCase):
         env = dict(os.environ)
         if extra_env:
             env.update(extra_env)
+        cmd = [str(launcher), str(source), "--backend", "cpp"]
+        if extra_args:
+            cmd.extend(extra_args)
         return subprocess.run(
-            [str(launcher), str(source), "--backend", "cpp"],
+            cmd,
             cwd=tmp_dir,
             text=True,
             capture_output=True,
             check=False,
             env=env,
         )
+
+    def test_cpp_backend_compiler_flag_explicit_cxx(self) -> None:
+        """--compiler c++ selects the c++ compiler explicitly."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "compiler_flag_cxx.fleaux",
+                'import Std;\n'
+                '(1, 2) -> Std.Add -> Std.Println;\n',
+                extra_args=["--compiler", "c++"],
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("3", r.stdout)
+
+    def test_cpp_backend_compiler_flag_absolute_path(self) -> None:
+        """--compiler accepts an absolute path to a compiler binary."""
+        found = shutil.which("c++")
+        if found is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "compiler_flag_abspath.fleaux",
+                'import Std;\n'
+                '(10, 5) -> Std.Subtract -> Std.Println;\n',
+                extra_args=["--compiler", found],
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("5", r.stdout)
+
+    def test_cpp_backend_compiler_flag_clangpp(self) -> None:
+        """--compiler clang++ selects clang++ if available."""
+        if shutil.which("clang++") is None:
+            self.skipTest("clang++ not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "compiler_flag_clangpp.fleaux",
+                'import Std;\n'
+                '(1, 2) -> Std.Add -> Std.Println;\n',
+                extra_args=["--compiler", "clang++"],
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("3", r.stdout)
+
+    def test_cpp_backend_compiler_flag_nonexistent_fails(self) -> None:
+        """--compiler with a non-existent binary exits with error code 2."""
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "compiler_flag_bad.fleaux",
+                'import Std;\n'
+                '(1, 2) -> Std.Add -> Std.Println;\n',
+                extra_args=["--compiler", "no_such_compiler_xyzzy"],
+            )
+            self.assertEqual(r.returncode, 2)
+
+    def test_cpp_backend_compiler_flag_bad_path_fails(self) -> None:
+        """--compiler with a non-existent absolute path exits with error code 2."""
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "compiler_flag_badpath.fleaux",
+                'import Std;\n'
+                '(1, 2) -> Std.Add -> Std.Println;\n',
+                extra_args=["--compiler", "/no/such/compiler/clang++"],
+            )
+            self.assertEqual(r.returncode, 2)
+
 
 
     def test_cpp_backend_samples_logical_smoke(self) -> None:
@@ -1048,6 +1118,121 @@ class CppBackendTests(unittest.TestCase):
                 '("only",) -> Std.Path.Join -> Std.Println;\n',
             )
             self.assertNotEqual(r.returncode, 0)
+
+    # ── Streaming file handle builtins ────────────────────────────────────────
+
+    def test_cpp_backend_file_open_readline_close(self) -> None:
+        """File.Open / File.ReadLine / File.Close stream lines one-by-one."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            data_file = Path(tmp) / "data.txt"
+            data_file.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+            r = self._run_cpp(
+                tmp, "file_readline.fleaux",
+                'import Std;\n'
+                'let PrintLineGetHandle(h: Any, line: String): Any =\n'
+                '    (line -> Std.Println, h) -> (_, 1) -> Std.ElementAt;\n'
+                'let Continue(h: Any, line: String, eof: Bool): Bool = (eof) -> Std.Not;\n'
+                'let Step(h: Any, line: String, eof: Bool): Tuple(Any, String, Bool) =\n'
+                '    (h, line) -> PrintLineGetHandle -> Std.File.ReadLine;\n'
+                'let ReadFile(path: String): Any =\n'
+                '    ((path, "r") -> Std.File.Open -> Std.File.ReadLine, Continue, Step) -> Std.Loop;\n'
+                '("data.txt") -> ReadFile;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("alpha", r.stdout)
+            self.assertIn("beta", r.stdout)
+            self.assertIn("gamma", r.stdout)
+            self.assertNotIn("__fleaux_handle__", r.stdout)
+
+    def test_cpp_backend_file_close_is_idempotent(self) -> None:
+        """File.Close on an already-closed handle returns False without throwing."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            data_file = Path(tmp) / "close_test.txt"
+            data_file.write_text("x\n", encoding="utf-8")
+            r = self._run_cpp(
+                tmp, "file_close_idempotent.fleaux",
+                'import Std;\n'
+                '("close_test.txt", "r") -> Std.File.Open -> Std.File.Close -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("True", r.stdout)
+
+    def test_cpp_backend_file_writechunk_and_readback(self) -> None:
+        """File.WriteChunk writes data that can be read back with ReadText."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "file_writechunk.fleaux",
+                'import Std;\n'
+                '("chunk_out.txt", "w") -> Std.File.Open\n'
+                '    -> (_, "hello from chunk") -> Std.File.WriteChunk\n'
+                '    -> Std.File.Close;\n'
+                '("chunk_out.txt") -> Std.File.ReadText -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("hello from chunk", r.stdout)
+
+    def test_cpp_backend_file_withopen_guarantees_close(self) -> None:
+        """File.WithOpen calls func and returns its result."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            data_file = Path(tmp) / "withopen.txt"
+            data_file.write_text("scoped\n", encoding="utf-8")
+            r = self._run_cpp(
+                tmp, "file_withopen.fleaux",
+                'import Std;\n'
+                'let ReadFirst(h: Any): String =\n'
+                '    (h) -> Std.File.ReadLine -> (_, 1) -> Std.ElementAt;\n'
+                '("withopen.txt", "r", ReadFirst) -> Std.File.WithOpen -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("scoped", r.stdout)
+
+    def test_cpp_backend_file_open_missing_raises(self) -> None:
+        """File.Open on a non-existent file raises a runtime error."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "file_open_missing.fleaux",
+                'import Std;\n'
+                '("no_such_file_xyzzy.txt", "r") -> Std.File.Open -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+
+    def test_cpp_backend_file_open_wrong_arity_raises(self) -> None:
+        """File.Open rejects arity other than 1 or 2 arguments."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            data_file = Path(tmp) / "ok.txt"
+            data_file.write_text("x\n", encoding="utf-8")
+            r = self._run_cpp(
+                tmp, "file_open_wrong_arity.fleaux",
+                'import Std;\n'
+                '("ok.txt", "r", "extra") -> Std.File.Open -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("FileOpen: expected (path,) or (path, mode)", r.stderr)
+
+    def test_cpp_backend_file_readline_on_write_only_handle_raises(self) -> None:
+        """File.ReadLine raises a read-failure error on non-readable handles."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "file_readline_write_only_error.fleaux",
+                'import Std;\n'
+                '("write_only.txt", "w") -> Std.File.Open -> Std.File.ReadLine -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("FileReadLine: read failed", r.stderr)
 
 
 if __name__ == "__main__":

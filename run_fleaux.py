@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import runpy
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +11,41 @@ from pathlib import Path
 from fleaux_cpp_transpiler import FleauxCppTranspiler
 from fleaux_graphviz import GraphEmitError, write_graph_for_source
 from fleaux_transpiler import FleauxTranspiler
+
+
+_COMPILER_CANDIDATES = ["clang++", "g++", "c++"]
+
+
+def _resolve_compiler(requested: str | None) -> str:
+    """Return the compiler executable to use.
+
+    *requested* may be:
+      - None           → auto-select first available from _COMPILER_CANDIDATES
+      - a plain name   → e.g. "clang++-18"; resolved via PATH with shutil.which
+      - an absolute or relative path → e.g. "/usr/bin/clang++-18"; checked
+                        directly for existence and execute permission
+
+    Exits with code 2 and a diagnostic if the compiler cannot be found.
+    """
+    if requested:
+        # Treat as a filesystem path if it contains a separator character.
+        if os.sep in requested or (os.altsep and os.altsep in requested):
+            p = Path(requested)
+            if p.is_file() and os.access(p, os.X_OK):
+                return str(p)
+            print(f"Compiler path '{requested}' does not exist or is not executable.")
+            raise SystemExit(2)
+        # Plain name — search PATH (also works for versioned names like clang++-18).
+        found = shutil.which(requested)
+        if found is None:
+            print(f"Compiler '{requested}' not found on PATH.")
+            raise SystemExit(2)
+        return found
+    for candidate in _COMPILER_CANDIDATES:
+        if shutil.which(candidate):
+            return candidate
+    print("No C++ compiler found on PATH (tried: " + ", ".join(_COMPILER_CANDIDATES) + ").")
+    raise SystemExit(2)
 
 
 def main() -> int:
@@ -55,6 +92,17 @@ def main() -> int:
         action="store_true",
         help="For --backend cpp, transpile and compile but do not run the produced binary.",
     )
+    parser.add_argument(
+        "--compiler",
+        default=None,
+        metavar="EXE",
+        help=(
+            "C++ compiler to use with --backend cpp. "
+            "Accepts a plain name searched on PATH (e.g. 'clang++-18', 'g++'), "
+            "or an absolute/relative path (e.g. '/usr/bin/clang++-18'). "
+            "Defaults to auto-selecting clang++, g++, or c++ in that order."
+        ),
+    )
     args = parser.parse_args(cli_argv)
 
     source = Path(args.source)
@@ -83,6 +131,9 @@ def main() -> int:
         if args.no_run:
             print("--no-run is only supported with --backend cpp.")
             return 2
+        if args.compiler:
+            print("--compiler is only supported with --backend cpp.")
+            return 2
         output = FleauxTranspiler().process(source)
         original_sys_path = list(sys.path)
         original_argv = list(sys.argv)
@@ -100,8 +151,9 @@ def main() -> int:
 
     output = FleauxCppTranspiler().process(source)
     binary = output.with_suffix("")
+    compiler = _resolve_compiler(args.compiler)
     compile_cmd = [
-        "c++",
+        compiler,
         "-std=c++20",
         "-O2",
         str(output),

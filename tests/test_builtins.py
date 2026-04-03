@@ -417,6 +417,24 @@ class FileBuiltinTests(unittest.TestCase):
             (str(file_path), "second") | fstd.FileWriteText()
             self.assertEqual(file_path.read_text(encoding="utf-8"), "second")
 
+    def test_file_with_open_accepts_make_node_class_ref(self) -> None:
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "with_open.txt"
+            file_path.write_text("line1\nline2\n", encoding="utf-8")
+
+            ReadFirst = fstd.make_node(lambda h: ((h,) | fstd.FileReadLine())[1])
+            out = (str(file_path), "r", ReadFirst) | fstd.FileWithOpen()
+            self.assertEqual(out, "line1")
+
+    def test_file_with_open_accepts_callable_instance(self) -> None:
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "with_open_instance.txt"
+            file_path.write_text("value\n", encoding="utf-8")
+
+            ReadFirstNode = fstd.make_node(lambda h: ((h,) | fstd.FileReadLine())[1])
+            out = (str(file_path), "r", ReadFirstNode()) | fstd.FileWithOpen()
+            self.assertEqual(out, "value")
+
 
 class LoopTests(unittest.TestCase):
     def test_loop_countdown_scalar(self) -> None:

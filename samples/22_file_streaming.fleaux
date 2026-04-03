@@ -1,0 +1,73 @@
+import Std;
+
+// -- Streaming file I/O with handles --
+//
+// Unlike Std.File.ReadText / Std.File.ReadLines, streaming handles let you
+// process arbitrarily large files without loading them into memory.
+//
+// Core API:
+//   (path, mode)         -> Std.File.Open      -> handle
+//   handle               -> Std.File.ReadLine   -> (handle, line, eof)
+//   (handle, nbytes)     -> Std.File.ReadChunk  -> (handle, chunk, eof)
+//   (handle, data)       -> Std.File.WriteChunk -> handle
+//   handle               -> Std.File.Flush      -> handle
+//   handle               -> Std.File.Close      -> Bool
+//   (path, mode, func)   -> Std.File.WithOpen   -> result
+//
+// Modes: "r" read, "w" write/truncate, "a" append; append "b" for binary.
+
+// ── Setup: temp file path ─────────────────────────────────────────────────────
+let TmpPath(): String =
+    () -> Std.OS.TempDir -> (_, "fleaux_stream_sample.txt") -> Std.Path.Join;
+
+// ── 1. Write a multi-line file with WriteChunk ────────────────────────────────
+let WriteSample(path: String): Bool =
+    (path, "w") -> Std.File.Open
+        -> (_, "alpha\n")  -> Std.File.WriteChunk
+        -> (_, "beta\n")   -> Std.File.WriteChunk
+        -> (_, "gamma\n")  -> Std.File.WriteChunk
+        -> Std.File.Flush
+        -> Std.File.Close;
+
+() -> TmpPath -> WriteSample -> Std.Println;           // True
+
+// ── 2. Read line-by-line with ReadLine + Loop ─────────────────────────────────
+// PrintGetHandle: prints a value as a side-effect and returns the handle.
+// This lets the loop step print the current line before fetching the next one.
+let PrintGetHandle(h: Any, val: Any): Any =
+    (val -> Std.Println, h) -> (_, 1) -> Std.ElementAt;
+
+let LineContinue(h: Any, line: String, eof: Bool): Bool = (eof) -> Std.Not;
+let LineStep(h: Any, line: String, eof: Bool): Tuple(Any, String, Bool) =
+    (h, line) -> PrintGetHandle -> Std.File.ReadLine;
+
+let ReadLines(path: String): Any =
+    ((path, "r") -> Std.File.Open -> Std.File.ReadLine,
+     LineContinue, LineStep) -> Std.Loop;
+
+() -> TmpPath -> ReadLines;                            // alpha / beta / gamma
+
+// ── 3. Read in fixed-size chunks with ReadChunk + Loop ────────────────────────
+let ChunkContinue(h: Any, chunk: String, eof: Bool): Bool = (eof) -> Std.Not;
+let ChunkStep(h: Any, chunk: String, eof: Bool): Tuple(Any, String, Bool) =
+    (h, chunk) -> PrintGetHandle -> (_, 4) -> Std.File.ReadChunk;
+
+let ReadChunks(path: String): Any =
+    ((path, "r") -> Std.File.Open -> (_, 4) -> Std.File.ReadChunk,
+     ChunkContinue, ChunkStep) -> Std.Loop;
+
+() -> TmpPath -> ReadChunks;                           // alph / a\nbe / ta\ng / amma\n
+
+// ── 4. WithOpen: scoped handle, guaranteed close ──────────────────────────────
+// func receives the open handle; the file is closed automatically when done.
+let FirstLine(h: Any): String =
+    (h) -> Std.File.ReadLine -> (_, 1) -> Std.ElementAt;
+
+let FirstLineOf(path: String): String =
+    (path, "r", FirstLine) -> Std.File.WithOpen;
+
+() -> TmpPath -> FirstLineOf -> Std.Println;           // alpha
+
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+() -> TmpPath -> Std.File.Delete -> Std.Println;       // True
+

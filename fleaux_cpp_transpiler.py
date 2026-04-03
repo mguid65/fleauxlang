@@ -128,6 +128,13 @@ class FleauxCppTranspiler:
         "Std.Tuple.Zip": "TupleZip",
         "Std.Tuple.Map": "TupleMap",
         "Std.Tuple.Filter": "TupleFilter",
+        "Std.File.Open": "FileOpen",
+        "Std.File.ReadLine": "FileReadLine",
+        "Std.File.ReadChunk": "FileReadChunk",
+        "Std.File.WriteChunk": "FileWriteChunk",
+        "Std.File.Flush": "FileFlush",
+        "Std.File.Close": "FileClose",
+        "Std.File.WithOpen": "FileWithOpen",
     }
 
     # Runtime nodes currently implemented in cpp/fleaux_runtime.hpp.
@@ -154,6 +161,8 @@ class FleauxCppTranspiler:
         "OSMakeTempFile", "OSMakeTempDir",
         "TupleAppend", "TuplePrepend", "TupleReverse", "TupleContains", "TupleZip",
         "TupleMap", "TupleFilter",
+        "FileOpen", "FileReadLine", "FileReadChunk", "FileWriteChunk",
+        "FileFlush", "FileClose", "FileWithOpen",
     }
 
     def __init__(self):
