@@ -85,14 +85,15 @@ int main() {
                               make_int(static_cast<Int>(acc + n)));
         };
         Value init = make_tuple(make_int(5), make_int(0));
-        Value final_state = std::tuple{std::move(init), cf, sf} | Loop{};
+        Value arg = make_tuple(std::move(init), make_callable_ref(cf), make_callable_ref(sf));
+        Value final_state = std::move(arg) | Loop{};
         Value result = make_tuple(final_state, make_int(1)) | ElementAt{};
         assert(to_double(result) == 15.0);
     }
     // ToString / Println
     {
         assert(to_string(make_int(42))         == "42");
-        assert(to_string(make_bool(true))      == "true");
+        assert(to_string(make_bool(true))      == "True");
         assert(to_string(make_string("hello")) == "hello");
         assert(to_string(make_tuple(make_int(1), make_int(2), make_int(3))) == "(1, 2, 3)");
         Value v2 = make_int(7) | Println{};

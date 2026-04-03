@@ -202,6 +202,18 @@ class PathBuiltinTests(unittest.TestCase):
         joined = ("a", "b") | fstd.PathJoin()
         self.assertEqual(joined, str(Path("a") / "b"))
 
+    def test_path_join_three_segments(self) -> None:
+        joined = ("a", "b", "c") | fstd.PathJoin()
+        self.assertEqual(joined, str(Path("a") / "b" / "c"))
+
+    def test_path_join_four_segments(self) -> None:
+        joined = ("root", "sub", "dir", "file.txt") | fstd.PathJoin()
+        self.assertEqual(joined, str(Path("root") / "sub" / "dir" / "file.txt"))
+
+    def test_path_join_too_few_segments_raises(self) -> None:
+        with self.assertRaises((ValueError, TypeError)):
+            ("only_one",) | fstd.PathJoin()
+
     def test_path_normalize(self) -> None:
         self.assertEqual(("a/./b/..",) | fstd.PathNormalize(), str(Path("a")))
 

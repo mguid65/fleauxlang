@@ -76,7 +76,6 @@ let Std.TwoDivRootPi(): Number :: 1.12837916709551257389615890312154517168810125
 
 let Std.Println(args: Any...) : Tuple(Any...) :: __builtin__;
 let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __builtin__;
-let Std.In(count: Number) : Tuple(Any...) :: __builtin__;
 let Std.Input() : String :: __builtin__;
 let Std.Exit(code: Number) : Any :: __builtin__;
 let Std.Add(lhs: Number, rhs: Number) : Number :: __builtin__;

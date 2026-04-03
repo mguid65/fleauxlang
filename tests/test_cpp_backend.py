@@ -51,6 +51,31 @@ class CppBackendTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             generated = Path(tmp_dir) / "fleaux_generated_module_emit_cpp_only.cpp"
             self.assertTrue(generated.exists())
+            generated_code = generated.read_text(encoding="utf-8")
+            self.assertNotIn("using namespace fleaux::runtime;", generated_code)
+            self.assertIn("fleaux::runtime::set_process_args", generated_code)
+
+    def test_cpp_backend_no_run_compiles_without_executing(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "no_run_cpp_only.fleaux"
+            source.write_text(
+                "import Std;\n"
+                "(7) -> Std.Exit;\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp", "--no-run"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue((Path(tmp_dir) / "fleaux_generated_module_no_run_cpp_only").exists())
 
     def test_cpp_backend_loop_builtin(self) -> None:
         if shutil.which("c++") is None:
@@ -138,6 +163,138 @@ class CppBackendTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("name=matt, score=42", completed.stdout)
 
+    def test_cpp_backend_printf_builtin_more_than_eight_args(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "printf_cpp_backend_many_args_test.fleaux"
+            source.write_text(
+                "import Std;\n"
+                '("{} {} {} {} {} {} {} {} {} {}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("0 1 2 3 4 5 6 7 8 9", completed.stdout)
+
+    def test_cpp_backend_printf_fallback_semantics(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "printf_cpp_backend_fallback_semantics.fleaux"
+            source.write_text(
+                "import Std;\n"
+                '("{} {} {} {} {} {} {} {} {} {}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n'
+                '("{9}|{0}|{5}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n'
+                '("{{left}}:{}:{{right}}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n'
+                '("{0:>5}|{1:<4}", 9, 2, 3, 4, 5, 6, 7, 8, 9, 10) -> Std.Printf;\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            lines = [ln for ln in completed.stdout.splitlines() if ln.strip()]
+            self.assertIn("0 1 2 3 4 5 6 7 8 9", lines[0])
+            self.assertIn("9|0|5", lines[1])
+            self.assertIn("{left}:0:{right}", lines[2])
+            self.assertIn("    9|2   ", lines[3])
+
+    def test_cpp_backend_printf_fallback_mixed_auto_manual_rejected(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "printf_cpp_backend_mixed_index_error.fleaux"
+            source.write_text(
+                "import Std;\n"
+                '("{} {1}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("cannot mix automatic and manual field numbering", completed.stderr)
+
+    def test_cpp_backend_printf_fallback_missing_argument_rejected(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "printf_cpp_backend_missing_arg_error.fleaux"
+            source.write_text(
+                "import Std;\n"
+                '("{15}", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("references a missing argument", completed.stderr)
+
+    def test_cpp_backend_printf_fallback_unmatched_brace_rejected(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "printf_cpp_backend_unmatched_brace_error.fleaux"
+            source.write_text(
+                "import Std;\n"
+                '("{", 0, 1, 2, 3, 4, 5, 6, 7, 8, 9) -> Std.Printf;\n',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("unmatched '{'", completed.stderr)
+
     def test_cpp_backend_get_args_builtin(self) -> None:
         if shutil.which("c++") is None:
             self.skipTest("c++ compiler is required for cpp backend test")
@@ -162,6 +319,32 @@ class CppBackendTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("fleaux_generated_module_getargs_cpp_backend_test", completed.stdout)
+
+    def test_cpp_backend_get_args_builtin_forwards_runtime_args(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "getargs_cpp_backend_forwarded_args_test.fleaux"
+            source.write_text(
+                "import Std;\n"
+                "() -> Std.GetArgs -> Std.Println;\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--backend", "cpp", "--", "alpha", "beta"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("alpha", completed.stdout)
+            self.assertIn("beta", completed.stdout)
 
     def test_cpp_backend_input_builtin_no_prompt(self) -> None:
         if shutil.which("c++") is None:
@@ -354,6 +537,48 @@ class CppBackendTests(unittest.TestCase):
             self.assertIn("True", completed.stdout)
             self.assertIn("cpp_backend_io_test.txt", completed.stdout)
 
+    def test_cpp_backend_file_delete_missing_returns_false(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp,
+                "file_delete_missing.fleaux",
+                'import Std;\n'
+                '("missing-file.txt") -> Std.File.Delete -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("False", r.stdout)
+
+    def test_cpp_backend_dir_delete_missing_returns_false(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp,
+                "dir_delete_missing.fleaux",
+                'import Std;\n'
+                '("missing-dir") -> Std.Dir.Delete -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("False", r.stdout)
+
+    def test_cpp_backend_file_delete_non_empty_directory_errors(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = Path(tmp) / "not-a-file"
+            nested.mkdir()
+            (nested / "child.txt").write_text("x", encoding="utf-8")
+            r = self._run_cpp(
+                tmp,
+                "file_delete_non_empty_dir_error.fleaux",
+                'import Std;\n'
+                '("not-a-file") -> Std.File.Delete;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("FileDelete failed", r.stderr)
+
     # ── OS.Env / OS.HasEnv / OS.SetEnv / OS.UnsetEnv edge cases ─────────────
 
     def _run_cpp(self, tmp_dir: str, source_name: str, code: str,
@@ -375,72 +600,6 @@ class CppBackendTests(unittest.TestCase):
             env=env,
         )
 
-    def test_cpp_backend_compiles_all_samples(self) -> None:
-        if shutil.which("c++") is None:
-            self.skipTest("c++ compiler is required for cpp backend test")
-
-        repo_root = Path(__file__).resolve().parents[1]
-        samples = sorted((repo_root / "samples").glob("*.fleaux"))
-        self.assertGreater(len(samples), 0, "No sample files found in samples/")
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            for sample in samples:
-                shutil.copy2(sample, tmp_path / sample.name)
-
-            for sample in samples:
-                with self.subTest(sample=sample.name):
-                    local_source = tmp_path / sample.name
-                    generated_cpp = FleauxCppTranspiler().process(local_source)
-                    binary = generated_cpp.with_suffix("")
-                    compile_cmd = [
-                        "c++", "-std=c++20", "-O2", str(generated_cpp),
-                        "-I", str(repo_root / "cpp"),
-                        "-I", str(repo_root / "third_party" / "datatree" / "include"),
-                        "-I", str(repo_root / "third_party" / "tl" / "include"),
-                        "-o", str(binary),
-                    ]
-                    compiled = subprocess.run(
-                        compile_cmd,
-                        cwd=tmp_dir,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
-                    self.assertEqual(
-                        compiled.returncode,
-                        0,
-                        f"{sample.name} failed C++ compilation:\n{compiled.stderr}",
-                    )
-
-    def test_cpp_backend_runs_all_samples_without_crash(self) -> None:
-        if shutil.which("c++") is None:
-            self.skipTest("c++ compiler is required for cpp backend test")
-
-        repo_root = Path(__file__).resolve().parents[1]
-        launcher = repo_root / "fleaux"
-        samples = sorted((repo_root / "samples").glob("*.fleaux"))
-        self.assertGreater(len(samples), 0, "No sample files found in samples/")
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            for sample in samples:
-                shutil.copy2(sample, tmp_path / sample.name)
-
-            for sample in samples:
-                with self.subTest(sample=sample.name):
-                    completed = subprocess.run(
-                        [str(launcher), str(tmp_path / sample.name), "--backend", "cpp"],
-                        cwd=tmp_dir,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
-                    self.assertEqual(
-                        completed.returncode,
-                        0,
-                        f"{sample.name} crashed in cpp backend:\n{completed.stderr}",
-                    )
 
     def test_cpp_backend_samples_logical_smoke(self) -> None:
         """Guard key sample outputs by logic (no strict formatting parity required)."""
@@ -453,7 +612,7 @@ class CppBackendTests(unittest.TestCase):
             "02_arithmetic.fleaux": ["13", "30", "5"],
             "03_pipeline_chaining.fleaux": ["14", "30"],
             "12_math.fleaux": ["256", "100", "0", "50"],
-            "13_comparison_and_logic.fleaux": ["true", "false"],
+            "13_comparison_and_logic.fleaux": ["True", "False"],
             "17_printf_and_tostring.fleaux": ["42", "3.14"],
         }
 
@@ -475,58 +634,6 @@ class CppBackendTests(unittest.TestCase):
                     out_lc = completed.stdout.lower()
                     for snippet in expected_snippets:
                         self.assertIn(snippet.lower(), out_lc)
-
-    def test_cpp_backend_compiles_all_samples(self) -> None:
-        if shutil.which("c++") is None:
-            self.skipTest("c++ compiler is required for cpp backend test")
-
-        repo_root = Path(__file__).resolve().parents[1]
-        samples_dir = repo_root / "samples"
-        samples = sorted(samples_dir.glob("*.fleaux"))
-        self.assertGreater(len(samples), 0, "No sample files found in samples/")
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-
-            # Keep relative imports between samples working (e.g. 21_import -> 20_export).
-            for sample in samples:
-                shutil.copy2(sample, tmp_path / sample.name)
-
-            for sample in samples:
-                with self.subTest(sample=sample.name):
-                    local_source = tmp_path / sample.name
-                    generated_cpp = FleauxCppTranspiler().process(local_source)
-                    binary = generated_cpp.with_suffix("")
-
-                    compile_cmd = [
-                        "c++",
-                        "-std=c++20",
-                        "-O2",
-                        str(generated_cpp),
-                        "-I",
-                        str(repo_root / "cpp"),
-                        "-I",
-                        str(repo_root / "third_party" / "datatree" / "include"),
-                        "-I",
-                        str(repo_root / "third_party" / "tl" / "include"),
-                        "-o",
-                        str(binary),
-                    ]
-                    compiled = subprocess.run(
-                        compile_cmd,
-                        cwd=tmp_dir,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
-
-                    self.assertEqual(
-                        compiled.returncode,
-                        0,
-                        f"{sample.name} failed C++ compilation:\n{compiled.stderr}",
-                    )
-                    generated = tmp_path / f"fleaux_generated_module_{sample.stem}.cpp"
-                    self.assertTrue(generated.exists(), f"Missing generated C++ file for {sample.name}")
 
     def test_cpp_backend_runs_all_samples_without_crash(self) -> None:
         if shutil.which("c++") is None:
@@ -584,7 +691,7 @@ class CppBackendTests(unittest.TestCase):
                 '("FLEAUX_MISSING_KEY_ZZZZZZZZZZ") -> Std.OS.Env -> Std.Println;\n',
             )
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("None", r.stdout)
+            self.assertIn("Null", r.stdout)
 
     def test_cpp_backend_os_has_env_true(self) -> None:
         """OSHasEnv returns true for a key present in the environment."""
@@ -866,6 +973,82 @@ class CppBackendTests(unittest.TestCase):
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("10", r.stdout)
+
+    # ── Path.Join multi-segment tests ─────────────────────────────────────────
+
+    def test_cpp_backend_path_join_two_segments(self) -> None:
+        """Path.Join with 2 segments works as before."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "path_join_two.fleaux",
+                'import Std;\n'
+                '("a", "b") -> Std.Path.Join -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            import os as _os
+            expected = _os.path.join("a", "b")
+            self.assertIn(expected, r.stdout)
+
+    def test_cpp_backend_path_join_three_segments(self) -> None:
+        """Path.Join with 3 segments joins all three."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "path_join_three.fleaux",
+                'import Std;\n'
+                '("a", "b", "c") -> Std.Path.Join -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            import os as _os
+            expected = _os.path.join("a", "b", "c")
+            self.assertIn(expected, r.stdout)
+
+    def test_cpp_backend_path_join_four_segments(self) -> None:
+        """Path.Join with 4 segments joins all four."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "path_join_four.fleaux",
+                'import Std;\n'
+                '("root", "sub", "dir", "file.txt") -> Std.Path.Join -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            import os as _os
+            expected = _os.path.join("root", "sub", "dir", "file.txt")
+            self.assertIn(expected, r.stdout)
+
+    def test_cpp_backend_path_join_absolute_mid_segment_overrides(self) -> None:
+        """Joining an absolute segment mid-way resets the path (POSIX semantics)."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        import sys as _sys
+        if _sys.platform == "win32":
+            self.skipTest("POSIX-only semantics test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "path_join_absolute.fleaux",
+                'import Std;\n'
+                '("a", "/abs", "c") -> Std.Path.Join -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("/abs/c", r.stdout)
+
+    def test_cpp_backend_path_join_one_segment_raises(self) -> None:
+        """Path.Join with fewer than 2 segments raises a runtime error."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "path_join_one.fleaux",
+                'import Std;\n'
+                '("only",) -> Std.Path.Join -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,15 @@ from fleaux_transpiler import FleauxTranspiler
 
 
 def main() -> int:
+    raw_argv = sys.argv[1:]
+    runtime_args: list[str] = []
+    if "--" in raw_argv:
+        split_idx = raw_argv.index("--")
+        runtime_args = raw_argv[split_idx + 1 :]
+        cli_argv = raw_argv[:split_idx]
+    else:
+        cli_argv = raw_argv
+
     parser = argparse.ArgumentParser(description="Transpile and execute a Fleaux source file.")
     parser.add_argument("source", nargs="?", default="test.fleaux", help="Input .fleaux file path")
     parser.add_argument(
@@ -41,7 +50,12 @@ def main() -> int:
         default="python",
         help="Execution backend (default: python).",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--no-run",
+        action="store_true",
+        help="For --backend cpp, transpile and compile but do not run the produced binary.",
+    )
+    args = parser.parse_args(cli_argv)
 
     source = Path(args.source)
     if args.graph_only and not args.emit_graph:
@@ -66,16 +80,22 @@ def main() -> int:
     runtime_dir = Path(__file__).resolve().parent
 
     if args.backend == "python":
+        if args.no_run:
+            print("--no-run is only supported with --backend cpp.")
+            return 2
         output = FleauxTranspiler().process(source)
         original_sys_path = list(sys.path)
+        original_argv = list(sys.argv)
         try:
             for entry in (output.parent.resolve(), runtime_dir):
                 entry_str = str(entry)
                 if entry_str not in sys.path:
                     sys.path.insert(0, entry_str)
+            sys.argv = [str(output), *runtime_args]
             runpy.run_path(str(output), run_name="__main__")
         finally:
             sys.path[:] = original_sys_path
+            sys.argv = original_argv
         return 0
 
     output = FleauxCppTranspiler().process(source)
@@ -102,7 +122,10 @@ def main() -> int:
             print(compile_proc.stderr)
         return compile_proc.returncode
 
-    run_proc = subprocess.run([str(binary)], check=False)
+    if args.no_run:
+        return 0
+
+    run_proc = subprocess.run([str(binary), *runtime_args], check=False)
     if run_proc.returncode != 0:
         return run_proc.returncode
 
