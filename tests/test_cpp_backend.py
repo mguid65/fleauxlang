@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from fleaux_cpp_transpiler import FleauxCppTranspiler
+
 class CppBackendTests(unittest.TestCase):
     def test_cpp_backend_runs_simple_program(self) -> None:
         if shutil.which("c++") is None:
@@ -29,6 +30,7 @@ class CppBackendTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("3", completed.stdout)
+
     def test_cpp_backend_generates_cpp_file(self) -> None:
         if shutil.which("c++") is None:
             self.skipTest("c++ compiler is required for cpp backend test")
@@ -735,6 +737,51 @@ class CppBackendTests(unittest.TestCase):
                         0,
                         f"{sample.name} crashed in cpp backend:\n{completed.stderr}",
                     )
+
+    def test_cpp_backend_os_home_prefers_non_empty_env(self) -> None:
+        """OSHome returns HOME when present and non-empty."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "os_home_prefers_env.fleaux",
+                'import Std;\n'
+                '() -> Std.OS.Home -> Std.Println;\n',
+                extra_env={"HOME": "/tmp/fleaux-home-test", "USERPROFILE": ""},
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("/tmp/fleaux-home-test", r.stdout)
+
+    def test_cpp_backend_os_home_fallback_when_no_home_env(self) -> None:
+        """OSHome falls back to current working directory when no home env exists."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "os_home_fallback.fleaux"
+            source.write_text(
+                'import Std;\n'
+                '() -> Std.OS.Home -> Std.Println;\n',
+                encoding="utf-8",
+            )
+            repo_root = Path(__file__).resolve().parents[1]
+            env = {
+                k: v for k, v in os.environ.items()
+                if k not in {"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"}
+            }
+            env["HOME"] = ""
+            env["USERPROFILE"] = ""
+            env["HOMEDRIVE"] = ""
+            env["HOMEPATH"] = ""
+            r = subprocess.run(
+                [str(repo_root / "fleaux"), str(source), "--backend", "cpp"],
+                cwd=tmp,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(tmp, r.stdout)
 
     def test_cpp_backend_os_env_existing_key(self) -> None:
         """OSEnv returns the value string of a key present in the environment."""

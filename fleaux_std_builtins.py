@@ -655,7 +655,10 @@ class OSHome:
     def __ror__(self, tuple_args: tuple) -> str:
         if tuple_args != ():
             raise TypeError("OS.Home expects no arguments")
-        return str(Path.home())
+        try:
+            return str(Path.home())
+        except Exception:
+            return "."
 
 
 class OSTempDir:
