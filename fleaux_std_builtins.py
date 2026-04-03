@@ -875,11 +875,13 @@ class PathJoin:
     def __init__(self):
         pass
 
-    def __ror__(self, tuple_args: tuple[str, str]) -> str:
-        def join(lhs: str, rhs: str) -> str:
-            return os.path.join(str(lhs), str(rhs))
-
-        return decompose_call(join, tuple_args)
+    def __ror__(self, tuple_args) -> str:
+        if not isinstance(tuple_args, tuple):
+            raise TypeError("PathJoin expects a tuple of at least 2 path segments")
+        if len(tuple_args) < 2:
+            raise ValueError("PathJoin expects at least 2 path segments")
+        head, *tail = tuple_args
+        return str(Path(str(head)).joinpath(*(str(s) for s in tail)))
 
 
 class PathNormalize:
@@ -1109,7 +1111,7 @@ class DirList:
 
     def __ror__(self, tuple_args: tuple[str] | str) -> tuple:
         def list_dir(path: str) -> tuple:
-            return tuple(sorted(os.listdir(str(path))))
+            return tuple(os.listdir(str(path)))
 
         return decompose_call(list_dir, tuple_args)
 
@@ -1121,7 +1123,7 @@ class DirListFull:
     def __ror__(self, tuple_args: tuple[str] | str) -> tuple:
         def list_full(path: str) -> tuple:
             p = str(path)
-            return tuple(sorted(os.path.join(p, name) for name in os.listdir(p)))
+            return tuple(os.path.join(p, name) for name in os.listdir(p))
 
         return decompose_call(list_full, tuple_args)
 

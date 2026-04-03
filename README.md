@@ -50,6 +50,12 @@ You can still use:
 python3 run_fleaux.py test.fleaux
 ```
 
+Transpile, compile, and execute with the C++ runtime backend:
+
+```bash
+./fleaux test.fleaux --backend cpp
+```
+
 Emit a graph and still execute:
 
 ```bash
