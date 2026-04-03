@@ -1044,6 +1044,129 @@ class CppBackendTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("False", r.stdout)
 
+    def test_cpp_backend_tuple_sort_numbers(self) -> None:
+        """Std.Tuple.Sort sorts values in ascending order."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_sort_numbers.fleaux",
+                'import Std;\n'
+                '((3, 1, 2, 2)) -> Std.Tuple.Sort -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("1 2 2 3", r.stdout)
+
+    def test_cpp_backend_tuple_sort_mixed_types_fails(self) -> None:
+        """Std.Tuple.Sort rejects mixed incomparable types."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_sort_mixed_types.fleaux",
+                'import Std;\n'
+                '((1, "a")) -> Std.Tuple.Sort -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("homogeneous comparable values only", r.stderr)
+
+    def test_cpp_backend_tuple_unique(self) -> None:
+        """Std.Tuple.Unique keeps first occurrence of each value."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_unique.fleaux",
+                'import Std;\n'
+                '((3, 1, 3, 2, 1, 2)) -> Std.Tuple.Unique -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("3 1 2", r.stdout)
+
+    def test_cpp_backend_tuple_min_max(self) -> None:
+        """Std.Tuple.Min and Std.Tuple.Max return expected values."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_min_max.fleaux",
+                'import Std;\n'
+                '((7, 2, 4, 2)) -> Std.Tuple.Min -> Std.Println;\n'
+                '((7, 2, 4, 2)) -> Std.Tuple.Max -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "2")
+            self.assertEqual(lines[1], "7")
+
+    def test_cpp_backend_tuple_reduce(self) -> None:
+        """Std.Tuple.Reduce folds a tuple with an accumulator function."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_reduce.fleaux",
+                'import Std;\n'
+                'let AddPair(acc: Number, x: Number): Number = (acc, x) -> Std.Add;\n'
+                '((1, 2, 3, 4), 0, AddPair) -> Std.Tuple.Reduce -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("10", r.stdout)
+
+    def test_cpp_backend_tuple_find_index_any_all(self) -> None:
+        """Std.Tuple.FindIndex/Any/All support predicate-based tuple queries."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_find_any_all.fleaux",
+                'import Std;\n'
+                'let IsEven(x: Number): Bool = ((x, 2) -> Std.Mod, 0) -> Std.Equal;\n'
+                '((1, 3, 4, 7), IsEven) -> Std.Tuple.FindIndex -> Std.Println;\n'
+                '((1, 3, 5), IsEven) -> Std.Tuple.FindIndex -> Std.Println;\n'
+                '((1, 3, 4), IsEven) -> Std.Tuple.Any -> Std.Println;\n'
+                '((2, 4, 6), IsEven) -> Std.Tuple.All -> Std.Println;\n'
+                '((2, 3, 6), IsEven) -> Std.Tuple.All -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "2")
+            self.assertEqual(lines[1], "-1")
+            self.assertEqual(lines[2], "True")
+            self.assertEqual(lines[3], "True")
+            self.assertEqual(lines[4], "False")
+
+    def test_cpp_backend_tuple_range(self) -> None:
+        """Std.Tuple.Range supports 1/2/3 argument forms."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_range.fleaux",
+                'import Std;\n'
+                '(5) -> Std.Tuple.Range -> Std.Println;\n'
+                '(2, 6) -> Std.Tuple.Range -> Std.Println;\n'
+                '(6, 2, -2) -> Std.Tuple.Range -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertIn("0 1 2 3 4", lines[0])
+            self.assertIn("2 3 4 5", lines[1])
+            self.assertIn("6 4", lines[2])
+
+    def test_cpp_backend_tuple_range_zero_step_fails(self) -> None:
+        """Std.Tuple.Range rejects a zero step."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "tuple_range_zero_step.fleaux",
+                'import Std;\n'
+                '(0, 3, 0) -> Std.Tuple.Range -> Std.Println;\n',
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("TupleRange step cannot be 0", r.stderr)
+
     def test_cpp_backend_tuple_map_filter_empty(self) -> None:
         """Std.Tuple.Map and Std.Tuple.Filter preserve empty tuples."""
         if shutil.which("c++") is None:
@@ -1059,6 +1182,54 @@ class CppBackendTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             # Println on an empty tuple is equivalent to Python print(*()): blank line.
             self.assertEqual(r.stdout, "\n\n")
+
+    def test_cpp_backend_binary_search_dogfood(self) -> None:
+        """Binary search can be written in Fleaux with Std.LoopN and tuple state."""
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp,
+                "binary_search_dogfood.fleaux",
+                'import Std;\n'
+                'let BS_Mid(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =\n'
+                '    ((lo, hi) -> Std.Add, 2) -> Std.Divide -> Std.Math.Floor;\n'
+                'let BS_MidValue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =\n'
+                '    (arr, (arr, target, lo, hi, result) -> BS_Mid) -> Std.ElementAt;\n'
+                'let BS_FoundState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n'
+                '    Tuple(Any, Number, Number, Number, Number) =\n'
+                '    (arr, target, 1, 0, (arr, target, lo, hi, result) -> BS_Mid);\n'
+                'let BS_SearchRightState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n'
+                '    Tuple(Any, Number, Number, Number, Number) =\n'
+                '    (arr, target, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Add, hi, result);\n'
+                'let BS_SearchLeftState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n'
+                '    Tuple(Any, Number, Number, Number, Number) =\n'
+                '    (arr, target, lo, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Subtract, result);\n'
+                'let BS_DecideDirection(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n'
+                '    Tuple(Any, Number, Number, Number, Number) =\n'
+                '    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.LessThan,\n'
+                '     (arr, target, lo, hi, result),\n'
+                '     BS_SearchRightState,\n'
+                '     BS_SearchLeftState) -> Std.Branch;\n'
+                'let BS_Continue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Bool =\n'
+                '    (lo, hi) -> Std.LessOrEqual;\n'
+                'let BS_Step(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n'
+                '    Tuple(Any, Number, Number, Number, Number) =\n'
+                '    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.Equal,\n'
+                '     (arr, target, lo, hi, result),\n'
+                '     BS_FoundState,\n'
+                '     BS_DecideDirection) -> Std.Branch;\n'
+                'let BinarySearchIndex(arr: Tuple(Any...), target: Number): Number =\n'
+                '    ((arr, target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract, -1), BS_Continue, BS_Step, 256)\n'
+                '        -> Std.LoopN\n'
+                '        -> (_, 4) -> Std.ElementAt;\n'
+                '((1, 3, 5, 7, 9), 7) -> BinarySearchIndex -> Std.Println;\n'
+                '((1, 3, 5, 7, 9), 4) -> BinarySearchIndex -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "3")
+            self.assertEqual(lines[1], "-1")
 
     def test_cpp_backend_user_apply_callable_param(self) -> None:
         if shutil.which("c++") is None:

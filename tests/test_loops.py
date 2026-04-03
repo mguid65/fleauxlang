@@ -397,6 +397,67 @@ class CountdownTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Binary Search dogfooding (built in language using Std.LoopN)
+# ---------------------------------------------------------------------------
+
+_BINARY_SEARCH = (
+    _STD +
+    "let BS_Mid(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =\n"
+    "    ((lo, hi) -> Std.Add, 2) -> Std.Divide -> Std.Math.Floor;\n"
+    "let BS_MidValue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =\n"
+    "    (arr, (arr, target, lo, hi, result) -> BS_Mid) -> Std.ElementAt;\n"
+    "let BS_FoundState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n"
+    "    Tuple(Any, Number, Number, Number, Number) =\n"
+    "    (arr, target, 1, 0, (arr, target, lo, hi, result) -> BS_Mid);\n"
+    "let BS_SearchRightState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n"
+    "    Tuple(Any, Number, Number, Number, Number) =\n"
+    "    (arr, target, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Add, hi, result);\n"
+    "let BS_SearchLeftState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n"
+    "    Tuple(Any, Number, Number, Number, Number) =\n"
+    "    (arr, target, lo, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Subtract, result);\n"
+    "let BS_DecideDirection(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n"
+    "    Tuple(Any, Number, Number, Number, Number) =\n"
+    "    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.LessThan,\n"
+    "     (arr, target, lo, hi, result),\n"
+    "     BS_SearchRightState,\n"
+    "     BS_SearchLeftState) -> Std.Branch;\n"
+    "let BS_Continue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Bool =\n"
+    "    (lo, hi) -> Std.LessOrEqual;\n"
+    "let BS_Step(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):\n"
+    "    Tuple(Any, Number, Number, Number, Number) =\n"
+    "    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.Equal,\n"
+    "     (arr, target, lo, hi, result),\n"
+    "     BS_FoundState,\n"
+    "     BS_DecideDirection) -> Std.Branch;\n"
+    "let BinarySearchIndex(arr: Tuple(Any...), target: Number): Number =\n"
+    "    ((arr, target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract, -1), BS_Continue, BS_Step, 256)\n"
+    "        -> Std.LoopN\n"
+    "        -> (_, 4) -> Std.ElementAt;\n"
+)
+
+
+class BinarySearchDogfoodTests(unittest.TestCase):
+    def test_binary_search_finds_middle(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((1, 3, 5, 7, 9), 5) -> BinarySearchIndex;"), 2)
+
+    def test_binary_search_finds_first(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((1, 3, 5, 7, 9), 1) -> BinarySearchIndex;"), 0)
+
+    def test_binary_search_finds_last(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((1, 3, 5, 7, 9), 9) -> BinarySearchIndex;"), 4)
+
+    def test_binary_search_not_found(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((1, 3, 5, 7, 9), 6) -> BinarySearchIndex;"), -1)
+
+    def test_binary_search_empty_tuple(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((), 42) -> BinarySearchIndex;"), -1)
+
+    def test_binary_search_two_items_hit_and_miss(self):
+        self.assertEqual(_run(_BINARY_SEARCH + "((8, 11), 8) -> BinarySearchIndex;"), 0)
+        self.assertEqual(_run(_BINARY_SEARCH + "((8, 11), 5) -> BinarySearchIndex;"), -1)
+
+
+# ---------------------------------------------------------------------------
 # IR / parse-level: recursion is syntactically valid
 # ---------------------------------------------------------------------------
 

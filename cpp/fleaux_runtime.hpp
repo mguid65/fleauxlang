@@ -388,6 +388,14 @@ Value make_tuple(Values&&... vals) {
     );
 }
 
+[[nodiscard]] inline Int as_int_value(const Value& val) {
+    return as_number(val).Visit(
+        [](const Int i) -> Int { return i; },
+        [](const UInt u) -> Int { return static_cast<Int>(u); },
+        [](const Float d) -> Int { return static_cast<Int>(d); }
+    );
+}
+
 // Python make_node semantics: when one argument is provided, the callee sees
 // the scalar value instead of a 1-tuple wrapper.
 [[nodiscard]] inline Value unwrap_singleton_arg(Value val) {
@@ -459,6 +467,81 @@ inline std::string to_string(const Value& v) {
     std::ostringstream oss;
     print_value_repr(oss, v);
     return oss.str();
+}
+
+enum class SortTag {
+    Array,
+    Object,
+    Null,
+    Bool,
+    Number,
+    String,
+};
+
+[[nodiscard]] inline SortTag sort_tag_of(const Value& v) {
+    const auto tag = v.Visit(
+        [](const Array&) { return SortTag::Array; },
+        [](const Object&) { return SortTag::Object; },
+        [](const ValueNode& vn)-> SortTag {
+            return vn.Visit(
+                [](const Null&)-> SortTag { return SortTag::Null; },
+                [](const Bool&)-> SortTag { return SortTag::Bool; },
+                [](const Number&)-> SortTag { return SortTag::Number; },
+                [](const String&)-> SortTag { return SortTag::String; }
+            );
+        }
+    );
+    return tag;
+}
+
+[[nodiscard]] inline int compare_values_for_sort(const Value& lhs, const Value& rhs);
+
+[[nodiscard]] inline int compare_arrays_for_sort(const Array& lhs, const Array& rhs) {
+    const std::size_t n = std::min(lhs.Size(), rhs.Size());
+    for (std::size_t i = 0; i < n; ++i) {
+        if (const int c = compare_values_for_sort(*lhs.TryGet(i), *rhs.TryGet(i)); c != 0) {
+            return c;
+        }
+    }
+    if (lhs.Size() < rhs.Size()) {
+        return -1;
+    }
+    if (lhs.Size() > rhs.Size()) {
+        return 1;
+    }
+    return 0;
+}
+
+[[nodiscard]] inline int compare_values_for_sort(const Value& lhs, const Value& rhs) {
+    const SortTag lhs_tag = sort_tag_of(lhs);
+    if (const SortTag rhs_tag = sort_tag_of(rhs); lhs_tag != rhs_tag) {
+        throw std::invalid_argument{"TupleSort supports homogeneous comparable values only"};
+    }
+
+    switch (lhs_tag) {
+        case SortTag::Null:
+            return 0;
+        case SortTag::Bool: {
+            const bool l = as_bool(lhs);
+            const bool r = as_bool(rhs);
+            return (l < r) ? -1 : ((l > r) ? 1 : 0);
+        }
+        case SortTag::Number: {
+            const double l = to_double(lhs);
+            const double r = to_double(rhs);
+            return (l < r) ? -1 : ((l > r) ? 1 : 0);
+        }
+        case SortTag::String: {
+            const String& l = as_string(lhs);
+            const String& r = as_string(rhs);
+            return (l < r) ? -1 : ((l > r) ? 1 : 0);
+        }
+        case SortTag::Array:
+            return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
+        case SortTag::Object:
+            throw std::invalid_argument{"TupleSort does not support sorting object values"};
+    }
+    throw std::invalid_argument{"TupleSort internal error"};
 }
 
 [[nodiscard]] inline const Array& require_args(const Value& arg, std::size_t n, const char* name) {
@@ -1672,6 +1755,188 @@ struct TupleFilter {
             const Value& item = *src.TryGet(i);
             if (as_bool(invoke_callable_ref(pred, item))) {
                 out.PushBack(item);
+            }
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct TupleSort {
+    // arg = [sequence]
+    Value operator()(Value arg) const {
+        const auto& src = as_array(array_at(arg, 0));
+        std::vector<Value> items;
+        items.reserve(src.Size());
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            items.push_back(*src.TryGet(i));
+        }
+
+        std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) {
+            return compare_values_for_sort(lhs, rhs) < 0;
+        });
+
+        Array out;
+        out.Reserve(items.size());
+        for (const auto& item : items) {
+            out.PushBack(item);
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct TupleUnique {
+    // arg = [sequence]
+    Value operator()(Value arg) const {
+        const auto& src = as_array(array_at(arg, 0));
+        Array out;
+        out.Reserve(src.Size());
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            const Value& item = *src.TryGet(i);
+            bool seen = false;
+            for (std::size_t j = 0; j < out.Size(); ++j) {
+                if (*out.TryGet(j) == item) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                out.PushBack(item);
+            }
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct TupleMin {
+    // arg = [sequence]
+    Value operator()(Value arg) const {
+        const auto& src = as_array(array_at(arg, 0));
+        if (src.Size() == 0) {
+            throw std::invalid_argument{"TupleMin expects non-empty tuple"};
+        }
+        const Value& first = *src.TryGet(0);
+        const Value* best = &first;
+        for (std::size_t i = 1; i < src.Size(); ++i) {
+            const Value& item = *src.TryGet(i);
+            if (compare_values_for_sort(item, *best) < 0) {
+                best = &item;
+            }
+        }
+        return *best;
+    }
+};
+
+struct TupleMax {
+    // arg = [sequence]
+    Value operator()(Value arg) const {
+        const auto& src = as_array(array_at(arg, 0));
+        if (src.Size() == 0) {
+            throw std::invalid_argument{"TupleMax expects non-empty tuple"};
+        }
+        const Value& first = *src.TryGet(0);
+        const Value* best = &first;
+        for (std::size_t i = 1; i < src.Size(); ++i) {
+            const Value& item = *src.TryGet(i);
+            if (compare_values_for_sort(item, *best) > 0) {
+                best = &item;
+            }
+        }
+        return *best;
+    }
+};
+
+struct TupleReduce {
+    // arg = [sequence, initial, func_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 3, "TupleReduce");
+        const auto& src = as_array(*args.TryGet(0));
+        Value acc = *args.TryGet(1);
+        const Value& fn = *args.TryGet(2);
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            acc = invoke_callable_ref(fn, make_tuple(std::move(acc), *src.TryGet(i)));
+        }
+        return acc;
+    }
+};
+
+struct TupleFindIndex {
+    // arg = [sequence, pred_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "TupleFindIndex");
+        const auto& src = as_array(*args.TryGet(0));
+        const Value& pred = *args.TryGet(1);
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            if (as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
+                return make_int(static_cast<Int>(i));
+            }
+        }
+        return make_int(-1);
+    }
+};
+
+struct TupleAny {
+    // arg = [sequence, pred_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "TupleAny");
+        const auto& src = as_array(*args.TryGet(0));
+        const Value& pred = *args.TryGet(1);
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            if (as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
+                return make_bool(true);
+            }
+        }
+        return make_bool(false);
+    }
+};
+
+struct TupleAll {
+    // arg = [sequence, pred_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "TupleAll");
+        const auto& src = as_array(*args.TryGet(0));
+        const Value& pred = *args.TryGet(1);
+        for (std::size_t i = 0; i < src.Size(); ++i) {
+            if (!as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
+                return make_bool(false);
+            }
+        }
+        return make_bool(true);
+    }
+};
+
+struct TupleRange {
+    // arg = [stop] | [start, stop] | [start, stop, step]
+    Value operator()(Value arg) const {
+        const auto& args = as_array(arg);
+        Int start = 0;
+        Int stop = 0;
+        Int step = 1;
+
+        if (args.Size() == 1) {
+            stop = as_int_value(*args.TryGet(0));
+        } else if (args.Size() == 2) {
+            start = as_int_value(*args.TryGet(0));
+            stop = as_int_value(*args.TryGet(1));
+        } else if (args.Size() == 3) {
+            start = as_int_value(*args.TryGet(0));
+            stop = as_int_value(*args.TryGet(1));
+            step = as_int_value(*args.TryGet(2));
+        } else {
+            throw std::invalid_argument{"TupleRange expects 1, 2, or 3 arguments"};
+        }
+
+        if (step == 0) {
+            throw std::invalid_argument{"TupleRange step cannot be 0"};
+        }
+
+        Array out;
+        if (step > 0) {
+            for (Int i = start; i < stop; i += step) {
+                out.PushBack(make_int(i));
+            }
+        } else {
+            for (Int i = start; i > stop; i += step) {
+                out.PushBack(make_int(i));
             }
         }
         return Value{std::move(out)};

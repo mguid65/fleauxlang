@@ -185,6 +185,15 @@ let Std.Tuple.Contains(t: Tuple(Any...), item: Any) : Bool :: __builtin__;
 let Std.Tuple.Zip(a: Tuple(Any...), b: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
 let Std.Tuple.Map(t: Tuple(Any...), func: Any) : Tuple(Any...) :: __builtin__;
 let Std.Tuple.Filter(t: Tuple(Any...), pred: Any) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Sort(t: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Unique(t: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Min(t: Tuple(Any...)) : Any :: __builtin__;
+let Std.Tuple.Max(t: Tuple(Any...)) : Any :: __builtin__;
+let Std.Tuple.Reduce(t: Tuple(Any...), initial: Any, func: Any) : Any :: __builtin__;
+let Std.Tuple.FindIndex(t: Tuple(Any...), pred: Any) : Number :: __builtin__;
+let Std.Tuple.Any(t: Tuple(Any...), pred: Any) : Bool :: __builtin__;
+let Std.Tuple.All(t: Tuple(Any...), pred: Any) : Bool :: __builtin__;
+let Std.Tuple.Range(stop: Number) : Tuple(Any...) :: __builtin__;
 // @brief Take the first `count` items from `tuple` and return them as a new Tuple
 // ((1, 2, 3, 4), 2) -> Std.Take;
 // Result: (1, 2)

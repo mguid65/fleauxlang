@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import typing
+import functools
 from pathlib import Path
 from typing import TypeVar
 from rich.traceback import install
@@ -1203,6 +1204,190 @@ class TupleFilter:
             return tuple(item for item in t if _apply_node(pred, item))
 
         return decompose_call(filter_tuple, tuple_args)
+
+
+class TupleSort:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> tuple:
+        def sort_tuple(t: tuple) -> tuple:
+            return _sort_tuple_values(t)
+
+        return decompose_call(sort_tuple, tuple_args)
+
+
+def _sort_tag_of(value: typing.Any) -> str:
+    if isinstance(value, tuple):
+        return "tuple"
+    if isinstance(value, dict):
+        return "object"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    raise TypeError("TupleSort supports tuples, null, bool, number, and string values only")
+
+
+def _compare_tuple_values_for_sort(lhs: typing.Any, rhs: typing.Any) -> int:
+    lhs_tag = _sort_tag_of(lhs)
+    rhs_tag = _sort_tag_of(rhs)
+    if lhs_tag != rhs_tag:
+        raise TypeError("TupleSort supports homogeneous comparable values only")
+
+    if lhs_tag == "null":
+        return 0
+    if lhs_tag == "bool":
+        return -1 if lhs < rhs else (1 if lhs > rhs else 0)
+    if lhs_tag == "number":
+        return -1 if lhs < rhs else (1 if lhs > rhs else 0)
+    if lhs_tag == "string":
+        return -1 if lhs < rhs else (1 if lhs > rhs else 0)
+    if lhs_tag == "object":
+        raise TypeError("TupleSort does not support sorting object values")
+    if lhs_tag == "tuple":
+        n = min(len(lhs), len(rhs))
+        for i in range(n):
+            c = _compare_tuple_values_for_sort(lhs[i], rhs[i])
+            if c != 0:
+                return c
+        return -1 if len(lhs) < len(rhs) else (1 if len(lhs) > len(rhs) else 0)
+    raise TypeError("TupleSort internal error")
+
+
+def _sort_tuple_values(t: tuple) -> tuple:
+    return tuple(sorted(t, key=functools.cmp_to_key(_compare_tuple_values_for_sort)))
+
+
+class TupleUnique:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> tuple:
+        def unique_tuple(t: tuple) -> tuple:
+            out: list[typing.Any] = []
+            for item in t:
+                if not any(existing == item for existing in out):
+                    out.append(item)
+            return tuple(out)
+
+        return decompose_call(unique_tuple, tuple_args)
+
+
+class TupleMin:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> typing.Any:
+        def min_tuple(t: tuple) -> typing.Any:
+            if len(t) == 0:
+                raise ValueError("TupleMin expects non-empty tuple")
+            best = t[0]
+            for item in t[1:]:
+                if _compare_tuple_values_for_sort(item, best) < 0:
+                    best = item
+            return best
+
+        return decompose_call(min_tuple, tuple_args)
+
+
+class TupleMax:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> typing.Any:
+        def max_tuple(t: tuple) -> typing.Any:
+            if len(t) == 0:
+                raise ValueError("TupleMax expects non-empty tuple")
+            best = t[0]
+            for item in t[1:]:
+                if _compare_tuple_values_for_sort(item, best) > 0:
+                    best = item
+            return best
+
+        return decompose_call(max_tuple, tuple_args)
+
+
+class TupleReduce:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> typing.Any:
+        def reduce_tuple(t: tuple, initial: typing.Any, func: typing.Any) -> typing.Any:
+            acc = initial
+            for item in t:
+                acc = _apply_node(func, (acc, item))
+            return acc
+
+        return decompose_call(reduce_tuple, tuple_args)
+
+
+class TupleFindIndex:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> int:
+        def find_index_tuple(t: tuple, pred: typing.Any) -> int:
+            for i, item in enumerate(t):
+                if _apply_node(pred, item):
+                    return i
+            return -1
+
+        return decompose_call(find_index_tuple, tuple_args)
+
+
+class TupleAny:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> bool:
+        def any_tuple(t: tuple, pred: typing.Any) -> bool:
+            for item in t:
+                if _apply_node(pred, item):
+                    return True
+            return False
+
+        return decompose_call(any_tuple, tuple_args)
+
+
+class TupleAll:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> bool:
+        def all_tuple(t: tuple, pred: typing.Any) -> bool:
+            for item in t:
+                if not _apply_node(pred, item):
+                    return False
+            return True
+
+        return decompose_call(all_tuple, tuple_args)
+
+
+class TupleRange:
+    def __init__(self):
+        pass
+
+    def __ror__(self, tuple_args: tuple) -> tuple:
+        if not isinstance(tuple_args, tuple):
+            raise TypeError("TupleRange expects tuple arguments")
+        if len(tuple_args) == 1:
+            stop = int(tuple_args[0])
+            return tuple(range(stop))
+        if len(tuple_args) == 2:
+            start, stop = tuple_args
+            return tuple(range(int(start), int(stop)))
+        if len(tuple_args) == 3:
+            start, stop, step = tuple_args
+            step_i = int(step)
+            if step_i == 0:
+                raise ValueError("TupleRange step cannot be 0")
+            return tuple(range(int(start), int(stop), step_i))
+        raise TypeError(f"TupleRange expects 1, 2, or 3 arguments, got {len(tuple_args)}")
 
 
 def make_node(func):
