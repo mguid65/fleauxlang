@@ -156,8 +156,6 @@ class FleauxCppTranspiler:
         "TupleMap", "TupleFilter",
     }
 
-    CONTROL_BUILTINS: set[str] = set()
-
     def __init__(self):
         self._modules: dict[Path, _ModuleInfo] = {}
         self._in_progress: set[Path] = set()
@@ -235,12 +233,12 @@ class FleauxCppTranspiler:
         lines: list[str] = [
             '#include "fleaux_runtime.hpp"',
             "",
-            "using namespace fleaux::runtime;",
+            "using fleaux::runtime::operator|;",
             "",
             "namespace {",
             "struct _FleauxMissingBuiltin {",
             "    const char* name;",
-            "    Value operator()(Value) const {",
+            "    fleaux::runtime::Value operator()(fleaux::runtime::Value) const {",
             "        throw std::runtime_error(std::string(\"Builtin '\") + name + \"' is not yet implemented in cpp/fleaux_runtime.hpp\");",
             "    }",
             "};",
@@ -262,7 +260,7 @@ class FleauxCppTranspiler:
         ]
         lines.extend([
             "int main(int argc, char** argv) {",
-            "    set_process_args(argc, argv);",
+            "    fleaux::runtime::set_process_args(argc, argv);",
             *init_calls,
             "    return 0;",
             "}",
@@ -301,16 +299,18 @@ class FleauxCppTranspiler:
             f"namespace {ns} {{",
             f"// Source: {module.source}",
             "",
-            "Value _fleaux_run_module();",
+            "fleaux::runtime::Value _fleaux_run_module();",
             "void _fleaux_init_module();",
-            "extern Value _fleaux_last_value;",
+            "extern fleaux::runtime::Value _fleaux_last_value;",
             "",
         ]
 
         for stmt in module.program.statements:
             if isinstance(stmt, IRLet) and not stmt.is_builtin:
                 symbol_name = self._symbol_name(stmt.qualifier, stmt.name)
-                lines.append(f"Value {symbol_name}(Value _fleaux_arg);")
+                lines.append(
+                    f"fleaux::runtime::Value {symbol_name}(fleaux::runtime::Value _fleaux_arg);"
+                )
         lines.append("")
 
         for stmt in module.program.statements:
@@ -320,8 +320,8 @@ class FleauxCppTranspiler:
                 )
 
         lines.extend([
-            "Value _fleaux_run_module() {",
-            "    Value _fleaux_last_value = make_null();",
+            "fleaux::runtime::Value _fleaux_run_module() {",
+            "    fleaux::runtime::Value _fleaux_last_value = fleaux::runtime::make_null();",
         ])
         for stmt in module.program.statements:
             if not isinstance(stmt, IRExprStatement):
@@ -337,7 +337,7 @@ class FleauxCppTranspiler:
             "    return _fleaux_last_value;",
             "}",
             "",
-            "Value _fleaux_last_value = make_null();",
+            "fleaux::runtime::Value _fleaux_last_value = fleaux::runtime::make_null();",
             "void _fleaux_init_module() {",
             "    _fleaux_last_value = _fleaux_run_module();",
             "}",
@@ -362,13 +362,9 @@ class FleauxCppTranspiler:
                 qualified = f"{let.qualifier}.{let.name}"
                 if "." in let.qualifier or qualified in self.BUILTIN_NAME_MAP:
                     builtin_key = qualified
-            mapped = self.BUILTIN_NAME_MAP.get(builtin_key, builtin_key)
-            if mapped in self.CONTROL_BUILTINS:
-                node_expr = f"_fleaux_missing_builtin({json.dumps(builtin_key)})"
-            else:
-                node_expr = self._builtin_node_expr(builtin_key)
+            node_expr = self._builtin_node_expr(builtin_key)
             return [
-                f"Value {symbol_name}(Value _fleaux_arg) {{",
+                f"fleaux::runtime::Value {symbol_name}(fleaux::runtime::Value _fleaux_arg) {{",
                 f"    return (_fleaux_arg | {node_expr});",
                 "}",
                 "",
@@ -381,14 +377,18 @@ class FleauxCppTranspiler:
         n = len(let.params)
         if n == 1:
             lone = local_bindings[let.params[0].name]
-            setup.append(f"    Value {lone} = unwrap_singleton_arg(_fleaux_arg);")
+            setup.append(
+                f"    fleaux::runtime::Value {lone} = fleaux::runtime::unwrap_singleton_arg(_fleaux_arg);"
+            )
         elif n > 1:
-            setup.append("    const Value& _fleaux_args = _fleaux_arg;")
+            setup.append("    const fleaux::runtime::Value& _fleaux_args = _fleaux_arg;")
             for idx, p in enumerate(let.params):
-                setup.append(f"    Value {local_bindings[p.name]} = array_at(_fleaux_args, {idx});")
+                setup.append(
+                    f"    fleaux::runtime::Value {local_bindings[p.name]} = fleaux::runtime::array_at(_fleaux_args, {idx});"
+                )
 
         return [
-            f"Value {symbol_name}(Value _fleaux_arg) {{",
+            f"fleaux::runtime::Value {symbol_name}(fleaux::runtime::Value _fleaux_arg) {{",
             *setup,
             f"    return {body};",
             "}",
@@ -403,16 +403,6 @@ class FleauxCppTranspiler:
         known_symbols: dict[tuple[str | None, str], str],
     ) -> str:
         if isinstance(expr, IRFlowExpr):
-            if isinstance(expr.rhs, IRNameRef):
-                special = self._compile_control_builtin_flow(
-                    expr.lhs,
-                    expr.rhs,
-                    local_bindings,
-                    import_aliases,
-                    known_symbols,
-                )
-                if special is not None:
-                    return special
             lhs = self._compile_expr(expr.lhs, local_bindings, import_aliases, known_symbols)
             rhs = self._compile_call_target(expr.rhs, local_bindings, import_aliases, known_symbols)
             return f"({lhs} | {rhs})"
@@ -425,14 +415,14 @@ class FleauxCppTranspiler:
                     # they are tuple elements (e.g. (value, Func) -> Std.Apply).
                     if e.qualifier is not None:
                         ref = self._compile_qualified_ref(e, import_aliases, known_symbols)
-                        items.append(f"make_callable_ref({ref})")
+                        items.append(f"fleaux::runtime::make_callable_ref({ref})")
                         continue
                     if e.name not in local_bindings:
                         ref = self._compile_name_ref(e.name, local_bindings, known_symbols)
-                        items.append(f"make_callable_ref({ref})")
+                        items.append(f"fleaux::runtime::make_callable_ref({ref})")
                         continue
                 items.append(self._compile_expr(e, local_bindings, import_aliases, known_symbols))
-            return f"make_tuple({', '.join(items)})"
+            return f"fleaux::runtime::make_tuple({', '.join(items)})"
 
         if isinstance(expr, IRConstant):
             return self._compile_constant(expr.val)
@@ -449,28 +439,18 @@ class FleauxCppTranspiler:
             hint="Use a flow expression, tuple expression, constant, or name reference.",
         )
 
-    def _compile_control_builtin_flow(
-        self,
-        lhs_expr: IRExpr,
-        target: IRNameRef,
-        local_bindings: dict[str, str],
-        import_aliases: dict[str, str],
-        known_symbols: dict[tuple[str | None, str], str],
-    ) -> str | None:
-        # Control builtins now use the same Value-based flow as all other builtins.
-        return None
 
     def _compile_constant(self, val: int | float | bool | str | None) -> str:
         if val is None:
-            return "make_null()"
+            return "fleaux::runtime::make_null()"
         if isinstance(val, bool):
-            return "make_bool(true)" if val else "make_bool(false)"
+            return "fleaux::runtime::make_bool(true)" if val else "fleaux::runtime::make_bool(false)"
         if isinstance(val, int):
-            return f"make_int({val})"
+            return f"fleaux::runtime::make_int({val})"
         if isinstance(val, float):
-            return f"make_float({repr(val)})"
+            return f"fleaux::runtime::make_float({repr(val)})"
         if isinstance(val, str):
-            return f"make_string({json.dumps(val)})"
+            return f"fleaux::runtime::make_string({json.dumps(val)})"
         raise FleauxCppTranspilerError(f"Unsupported constant value: {val!r}")
 
     def _compile_call_target(
@@ -533,7 +513,7 @@ class FleauxCppTranspiler:
     def _builtin_node_expr(self, name: str) -> str:
         mapped = self.BUILTIN_NAME_MAP.get(name, name)
         if mapped in self.CPP_RUNTIME_BUILTINS:
-            return f"{mapped}{{}}"
+            return f"fleaux::runtime::{mapped}{{}}"
         quoted = json.dumps(name)
         return f"_fleaux_missing_builtin({quoted})"
 

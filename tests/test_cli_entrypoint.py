@@ -132,6 +132,43 @@ class CliEntrypointTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("3", completed.stdout)
 
+    def test_fleaux_launcher_forwards_runtime_args_to_python_backend(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "forward_args_python_backend.fleaux"
+            source.write_text(
+                "import Std;\n"
+                "() -> Std.GetArgs -> Std.Println;\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [str(launcher), str(source), "--", "one", "two"],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("one", completed.stdout)
+            self.assertIn("two", completed.stdout)
+
+    def test_fleaux_launcher_no_run_requires_cpp_backend(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+        completed = subprocess.run(
+            [str(launcher), "test.fleaux", "--no-run"],
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("--no-run is only supported with --backend cpp.", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

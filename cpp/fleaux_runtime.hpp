@@ -35,8 +35,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -60,14 +60,14 @@ using UInt  = mguid::UnsignedIntegerType;   // uint64_t
 using Float = mguid::DoubleType;            // double
 
 using RuntimeCallable = std::function<Value(Value)>;
-constexpr const char* kCallableTag = "__fleaux_callable__";
+inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
 
 inline std::vector<std::string>& process_args_storage() {
     static std::vector<std::string> args;
     return args;
 }
 
-inline void set_process_args(int argc, char** argv) {
+inline void set_process_args(const int argc, char** argv) {
     auto& args = process_args_storage();
     args.clear();
     if (argc <= 0) {
@@ -83,15 +83,15 @@ inline void set_process_args(int argc, char** argv) {
     return process_args_storage();
 }
 
-inline std::unordered_map<UInt, RuntimeCallable>& callable_registry() {
-    static std::unordered_map<UInt, RuntimeCallable> registry;
+inline std::vector<RuntimeCallable>& callable_registry() {
+    static std::vector<RuntimeCallable> registry;
     return registry;
 }
 
 inline UInt register_callable(RuntimeCallable fn) {
-    static UInt next_id = 1;
-    const UInt id = next_id++;
-    callable_registry().emplace(id, std::move(fn));
+    auto& call_reg = callable_registry();
+    const UInt id = static_cast<UInt>(call_reg.size());
+    call_reg.push_back(std::move(fn));
     return id;
 }
 
@@ -99,7 +99,7 @@ inline UInt register_callable(RuntimeCallable fn) {
     const UInt id = register_callable(std::move(fn));
     Array out;
     out.Reserve(2);
-    out.PushBack(Value{String{kCallableTag}});
+    out.PushBack(Value{String{k_callable_tag}});
     out.PushBack(Value{id});
     return Value{std::move(out)};
 }
@@ -110,28 +110,28 @@ Value make_callable_ref(F&& fn) {
 }
 
 [[nodiscard]] inline std::optional<UInt> callable_id_from_value(const Value& ref) {
-    const auto arr = ref.TryGetArray();
+    const auto& arr = ref.TryGetArray();
     if (!arr) {
         return std::nullopt;
     }
     if (arr->Size() != 2) {
         return std::nullopt;
     }
-    const auto tag = (*arr->TryGet(0)).TryGetString();
-    if (!tag || *tag != kCallableTag) {
+    const auto& tag = arr->TryGet(0)->TryGetString();
+    if (!tag || *tag != k_callable_tag) {
         return std::nullopt;
     }
-    const auto num = (*arr->TryGet(1)).TryGetNumber();
+    const auto& num = arr->TryGet(1)->TryGetNumber();
     if (!num) {
         return std::nullopt;
     }
     return num->Visit(
-        [](Int i) -> std::optional<UInt> {
+        [](const Int i) -> std::optional<UInt> {
             if (i < 0) return std::nullopt;
             return static_cast<UInt>(i);
         },
-        [](UInt u) -> std::optional<UInt> { return u; },
-        [](Float d) -> std::optional<UInt> {
+        [](const UInt u) -> std::optional<UInt> { return u; },
+        [](const Float d) -> std::optional<UInt> {
             if (d < 0.0 || std::floor(d) != d) return std::nullopt;
             return static_cast<UInt>(d);
         }
@@ -143,19 +143,26 @@ Value make_callable_ref(F&& fn) {
     if (!id) {
         throw std::runtime_error{"Expected callable reference"};
     }
-    auto it = callable_registry().find(*id);
-    if (it == callable_registry().end()) {
+    const auto& call_reg = callable_registry();
+    if (*id >= call_reg.size()) {
         throw std::runtime_error{"Unknown callable reference"};
     }
-    return it->second(std::move(arg));
+    const auto& callable = call_reg.at(*id);
+
+    return callable(std::move(arg));
 }
 
-// Pipeline for builtins that receive a Value and return a Value.
+/**
+ * @brief A node has a call operator that accepts a Value and returns a Value
+ */
 template <typename Node>
-requires requires(Node&& node, Value arg) {
-    std::invoke(std::forward<Node>(node), std::move(arg));
-}
-inline Value operator|(Value arg, Node&& node) {
+concept NodeLike = requires(Node&& node, Value arg) {
+    { std::invoke(std::forward<Node>(node), std::move(arg)) } -> std::same_as<Value>;
+};
+
+// Pipeline for builtins that receive a Value and return a Value.
+template <NodeLike Node>
+Value operator|(Value arg, Node&& node) {
     return std::invoke(std::forward<Node>(node), std::move(arg));
 }
 
@@ -163,16 +170,6 @@ inline Value operator|(Value arg, const Value& callable_ref) {
     return invoke_callable_ref(callable_ref, std::move(arg));
 }
 
-// Pipeline for control-flow builtins (Loop, LoopN, Branch, Apply) whose
-// argument is a std::tuple containing a mix of Values and C++ callables.
-template <typename L, typename Node>
-requires (!std::same_as<std::remove_cvref_t<L>, Value>) &&
-    requires(Node&& node, L arg) {
-        { std::invoke(std::forward<Node>(node), std::move(arg)) } -> std::convertible_to<Value>;
-    }
-constexpr Value operator|(L&& lhs, Node&& node) {
-    return std::invoke(std::forward<Node>(node), std::forward<L>(lhs));
-}
 
 // ── Construction helpers ──────────────────────────────────────────────────────
 
@@ -185,12 +182,17 @@ inline Value make_string(String v)       { return Value{std::move(v)}; }
 inline Value make_array()                { return Value{Array{}}; }
 
 // Build a tuple Value from a variadic list of Values.
-template <typename... Vs>
-requires (std::same_as<std::remove_cvref_t<Vs>, Value> && ...)
-Value make_tuple(Vs&&... vals) {
+
+template <typename MaybeValue>
+concept ValueLike = requires(MaybeValue&& vals) {
+    requires (std::same_as<std::remove_cvref_t<MaybeValue>, Value>);
+};
+
+template <ValueLike... Values>
+Value make_tuple(Values&&... vals) {
     Array arr;
-    arr.Reserve(sizeof...(Vs));
-    (arr.PushBack(std::forward<Vs>(vals)), ...);
+    arr.Reserve(sizeof...(Values));
+    (arr.PushBack(std::forward<Values>(vals)), ...);
     return Value{std::move(arr)};
 }
 
@@ -227,13 +229,13 @@ Value make_tuple(Vs&&... vals) {
 }
 
 // Get the Nth element of an Array Value (throws on out-of-range).
-[[nodiscard]] inline const Value& array_at(const Value& v, std::size_t i) {
+[[nodiscard]] inline const Value& array_at(const Value& v, const std::size_t i) {
     auto r = as_array(v).TryGet(i);
     if (!r) throw std::out_of_range{"fleaux::runtime: array index out of range"};
     return *r;
 }
 
-[[nodiscard]] inline Value& array_at(Value& v, std::size_t i) {
+[[nodiscard]] inline Value& array_at(Value& v, const std::size_t i) {
     auto r = v.TryGetArray();
     if (!r) throw std::runtime_error{"fleaux::runtime: expected Array"};
     Array& arr = *r;
@@ -242,61 +244,55 @@ Value make_tuple(Vs&&... vals) {
 }
 
 // Convert any numeric Value to double.
-[[nodiscard]] inline double to_double(const Value& v) {
-    return as_number(v).Visit(
-        [](Int   i) -> double { return static_cast<double>(i); },
-        [](UInt  u) -> double { return static_cast<double>(u); },
-        [](Float d) -> double { return d; }
+[[nodiscard]] inline double to_double(const Value& val) {
+    return as_number(val).Visit(
+        [](const Int   i) -> double { return static_cast<double>(i); },
+        [](const UInt  u) -> double { return static_cast<double>(u); },
+        [](const Float d) -> double { return d; }
     );
 }
 
-// Convert a double result back to the most compact Number Value.
-[[nodiscard]] inline Value num_result(double d) {
-    if (d == std::floor(d) &&
-        d >= static_cast<double>(std::numeric_limits<Int>::min()) &&
-        d <= static_cast<double>(std::numeric_limits<Int>::max())) {
-        return make_int(static_cast<Int>(d));
+// Convert a double result back to the most correct Number Value.
+[[nodiscard]] inline Value num_result(const double val) {
+    if (val == std::floor(val) &&
+        val >= static_cast<double>(std::numeric_limits<Int>::min()) &&
+        val <= static_cast<double>(std::numeric_limits<Int>::max())) {
+        return make_int(static_cast<Int>(val));
     }
-    return make_float(d);
+    return make_float(val);
 }
 
 // Extract the integer index embedded in a Number Value.
-[[nodiscard]] inline std::size_t as_index(const Value& v) {
-    return as_number(v).Visit(
-        [](Int   i) -> std::size_t { return static_cast<std::size_t>(i); },
-        [](UInt  u) -> std::size_t { return static_cast<std::size_t>(u); },
-        [](Float d) -> std::size_t { return static_cast<std::size_t>(d); }
+[[nodiscard]] inline std::size_t as_index(const Value& val) {
+    return as_number(val).Visit(
+        [](const Int   i) -> std::size_t { return static_cast<std::size_t>(i); },
+        [](const UInt  u) -> std::size_t { return static_cast<std::size_t>(u); },
+        [](const Float d) -> std::size_t { return static_cast<std::size_t>(d); }
     );
 }
 
 // Python make_node semantics: when one argument is provided, the callee sees
 // the scalar value instead of a 1-tuple wrapper.
-[[nodiscard]] inline Value unwrap_singleton_arg(Value v) {
-    if (v.HasArray()) {
-        const auto& arr = as_array(v);
-        if (arr.Size() == 1) {
+[[nodiscard]] inline Value unwrap_singleton_arg(Value val) {
+    if (val.HasArray()) {
+        if (const auto& arr = as_array(val); arr.Size() == 1) {
             return *arr.TryGet(0);
         }
     }
-    return v;
+    return val;
 }
 
 // ── Value printing ────────────────────────────────────────────────────────────
 
-[[nodiscard]] inline std::string format_number_python_style(const Number& n) {
-    return n.Visit(
-        [](Int i) -> std::string { return std::to_string(i); },
-        [](UInt u) -> std::string { return std::to_string(u); },
-        [](Float d) -> std::string {
-            std::ostringstream oss;
-            // Keep stable, high-precision decimal output close to Python str(float).
-            oss << std::setprecision(std::numeric_limits<Float>::max_digits10) << d;
-            return oss.str();
-        }
+[[nodiscard]] inline std::string format_number(const Number& num) {
+    return num.Visit(
+        [](const Int i) -> std::string { return std::format("{}", i); },
+        [](const UInt u) -> std::string { return std::format("{}", u); },
+        [](const Float d) -> std::string { return std::format("{}", d); }
     );
 }
 
-// Print a Value as a Python-like scalar/tuple repr.
+// Print a Value as a scalar/tuple repr for the C++ runtime.
 inline void print_value_repr(std::ostream& os, const Value& v) {
     v.Visit(
         [&](const Array& arr) {
@@ -317,16 +313,16 @@ inline void print_value_repr(std::ostream& os, const Value& v) {
         },
         [&](const ValueNode& vn) {
             vn.Visit(
-                [&](const Null&)    { os << "None"; },
-                [&](Bool b)         { os << (b ? "True" : "False"); },
-                [&](const Number& n) { os << format_number_python_style(n); },
-                [&](const String& s) { os << s; }
+                [&](const Null&)    { os << "Null"; },
+                [&](const Bool val)         { os << (val ? "True" : "False"); },
+                [&](const Number& val) { os << format_number(val); },
+                [&](const String& val) { os << val; }
             );
         }
     );
 }
 
-// Python Println semantics: tuple args are printed as varargs, space-separated.
+// Tuple args are printed as varargs, space-separated.
 inline void print_value_varargs(std::ostream& os, const Value& v) {
     if (!v.HasArray()) {
         print_value_repr(os, v);
@@ -351,7 +347,7 @@ inline std::string to_string(const Value& v) {
 [[nodiscard]] inline const Array& require_args(const Value& arg, std::size_t n, const char* name) {
     const auto& args = as_array(arg);
     if (args.Size() != n) {
-        throw std::invalid_argument(std::string{name} + " expects " + std::to_string(n) + " arguments");
+        throw std::invalid_argument(std::format("{} expects {} arguments", name, n));
     }
     return args;
 }
@@ -360,7 +356,7 @@ inline std::string to_string(const Value& v) {
     return to_string(unwrap_singleton_arg(std::move(arg)));
 }
 
-[[nodiscard]] inline std::string random_suffix(std::size_t size = 12) {
+[[nodiscard]] inline std::string random_suffix(const std::size_t size = 12) {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     static constexpr char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
     std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
@@ -372,8 +368,14 @@ inline std::string to_string(const Value& v) {
     return out;
 }
 
+inline void throw_if_filesystem_error(const std::error_code& ec, std::string_view op) {
+    if (ec) {
+        throw std::runtime_error(std::format("{} failed: {}", op, ec.message()));
+    }
+}
+
 [[nodiscard]] inline std::string trim_left(std::string s) {
-    const auto it = std::find_if_not(s.begin(), s.end(), [](unsigned char c) {
+    const auto it = std::ranges::find_if_not(s, [](const unsigned char c) {
         return std::isspace(c) != 0;
     });
     s.erase(s.begin(), it);
@@ -388,6 +390,135 @@ inline std::string to_string(const Value& v) {
     return s;
 }
 
+inline void append_values_unrolled4(
+    std::string& out,
+    const std::vector<std::size_t>& indices,
+    const std::vector<std::string>& values
+) {
+    std::size_t i = 0;
+    const std::size_t n = indices.size();
+    for (; i + 4 <= n; i += 4) {
+        out += values[indices[i + 0]];
+        out += values[indices[i + 1]];
+        out += values[indices[i + 2]];
+        out += values[indices[i + 3]];
+    }
+    for (; i < n; ++i) {
+        out += values[indices[i]];
+    }
+}
+
+[[nodiscard]] inline std::string format_values_fallback(const std::string& fmt, const std::vector<std::string>& values) {
+    std::string out;
+    out.reserve(fmt.size());
+
+    std::size_t next_auto_index = 0;
+    bool saw_auto_index = false;
+    bool saw_manual_index = false;
+    std::vector<std::size_t> pending_plain_indices;
+    pending_plain_indices.reserve(8);
+
+    const auto flush_pending_plain = [&]() {
+        if (pending_plain_indices.empty()) {
+            return;
+        }
+        append_values_unrolled4(out, pending_plain_indices, values);
+        pending_plain_indices.clear();
+    };
+
+    for (std::size_t i = 0; i < fmt.size();) {
+        const std::size_t next_special = fmt.find_first_of("{}", i);
+        if (next_special == std::string::npos) {
+            flush_pending_plain();
+            out.append(fmt, i, fmt.size() - i);
+            break;
+        }
+
+        if (next_special > i) {
+            flush_pending_plain();
+            out.append(fmt, i, next_special - i);
+            i = next_special;
+            continue;
+        }
+
+        const char ch = fmt[i];
+        if (ch == '{') {
+            if (i + 1 < fmt.size() && fmt[i + 1] == '{') {
+                flush_pending_plain();
+                out.push_back('{');
+                i += 2;
+                continue;
+            }
+
+            const std::size_t close = fmt.find('}', i + 1);
+            if (close == std::string::npos) {
+                throw std::invalid_argument{"Printf format string has unmatched '{'"};
+            }
+
+            const std::string field = fmt.substr(i + 1, close - (i + 1));
+            std::size_t index = 0;
+            std::string spec;
+
+            const std::size_t colon = field.find(':');
+            const std::string index_part = (colon == std::string::npos) ? field : field.substr(0, colon);
+            if (colon != std::string::npos) {
+                spec = field.substr(colon + 1);
+            }
+
+            if (index_part.empty()) {
+                if (saw_manual_index) {
+                    throw std::invalid_argument{"Printf format cannot mix automatic and manual field numbering"};
+                }
+                saw_auto_index = true;
+                index = next_auto_index++;
+            } else {
+                if (saw_auto_index) {
+                    throw std::invalid_argument{"Printf format cannot mix automatic and manual field numbering"};
+                }
+                saw_manual_index = true;
+                for (const char c : index_part) {
+                    if (!std::isdigit(static_cast<unsigned char>(c))) {
+                        throw std::invalid_argument{"Printf fallback supports only '{}'/'{N}' with optional ':spec'"};
+                    }
+                }
+                index = static_cast<std::size_t>(std::stoull(index_part));
+            }
+
+            if (index >= values.size()) {
+                throw std::invalid_argument{"Printf format references a missing argument"};
+            }
+
+            if (spec.empty()) {
+                pending_plain_indices.push_back(index);
+            } else {
+                flush_pending_plain();
+#if FLEAUX_HAS_STD_FORMAT
+                // Segment formatting: format one placeholder at a time and concatenate.
+                out += std::vformat(std::format("{{0:{}}}", spec), std::make_format_args(values[index]));
+#else
+                throw std::invalid_argument{"Printf format specs require <format> support"};
+#endif
+            }
+
+            i = close + 1;
+            continue;
+        }
+
+        if (ch == '}') {
+            if (i + 1 < fmt.size() && fmt[i + 1] == '}') {
+                flush_pending_plain();
+                out.push_back('}');
+                i += 2;
+                continue;
+            }
+            throw std::invalid_argument{"Printf format string has unmatched '}'"};
+        }
+    }
+
+    flush_pending_plain();
+    return out;
+}
+
 [[nodiscard]] inline std::string format_values(const std::string& fmt, const std::vector<std::string>& values) {
 #if FLEAUX_HAS_STD_FORMAT
     switch (values.size()) {
@@ -400,12 +531,10 @@ inline std::string to_string(const Value& v) {
         case 6: return std::vformat(fmt, std::make_format_args(values[0], values[1], values[2], values[3], values[4], values[5]));
         case 7: return std::vformat(fmt, std::make_format_args(values[0], values[1], values[2], values[3], values[4], values[5], values[6]));
         case 8: return std::vformat(fmt, std::make_format_args(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]));
-        default:
-            throw std::invalid_argument{"Printf supports up to 8 formatting arguments"};
+        default: return format_values_fallback(fmt, values);
     }
 #else
-    (void)values;
-    return fmt;
+    return format_values_fallback(fmt, values);
 #endif
 }
 
@@ -479,15 +608,14 @@ struct Slice {
         if (arr.Size() < 2) throw std::invalid_argument{"Slice: need at least 2 arguments"};
         const auto& seq = as_array(*arr.TryGet(0));
 
-        std::size_t real_start, real_stop, real_step;
+        std::size_t real_start{0};
+        std::size_t real_stop{0};
+        std::size_t real_step{1};
         if (arr.Size() == 2) {
-            real_start = 0;
             real_stop  = as_index(*arr.TryGet(1));
-            real_step  = 1;
         } else if (arr.Size() == 3) {
             real_start = as_index(*arr.TryGet(1));
             real_stop  = as_index(*arr.TryGet(2));
-            real_step  = 1;
         } else {
             real_start = as_index(*arr.TryGet(1));
             real_stop  = as_index(*arr.TryGet(2));
@@ -615,7 +743,7 @@ struct Equal {
 };
 struct NotEqual {
     Value operator()(Value arg) const {
-        return make_bool(!(array_at(arg, 0) == array_at(arg, 1)));
+        return make_bool(array_at(arg, 0) != array_at(arg, 1));
     }
 };
 
@@ -659,7 +787,7 @@ struct ToNum {
 struct StringUpper {
     Value operator()(Value arg) const {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
-        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        std::ranges::transform(s, s.begin(), [](const unsigned char c) {
             return static_cast<char>(std::toupper(c));
         });
         return make_string(std::move(s));
@@ -669,7 +797,7 @@ struct StringUpper {
 struct StringLower {
     Value operator()(Value arg) const {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
-        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        std::ranges::transform(s, s.begin(), [](const unsigned char c) {
             return static_cast<char>(std::tolower(c));
         });
         return make_string(std::move(s));
@@ -797,7 +925,7 @@ struct StringStartsWith {
         }
         const std::string s = to_string(*args.TryGet(0));
         const std::string prefix = to_string(*args.TryGet(1));
-        return make_bool(s.rfind(prefix, 0) == 0);
+        return make_bool(s.starts_with(prefix));
     }
 };
 
@@ -812,7 +940,7 @@ struct StringEndsWith {
         if (suffix.size() > s.size()) {
             return make_bool(false);
         }
-        return make_bool(s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0);
+        return make_bool(s.ends_with(suffix));
     }
 };
 
@@ -856,7 +984,7 @@ struct MathClamp {
         const double x = to_double(*args.TryGet(0));
         const double lo = to_double(*args.TryGet(1));
         const double hi = to_double(*args.TryGet(2));
-        return num_result(std::max(lo, std::min(x, hi)));
+        return num_result(std::clamp(x, lo, hi));
     }
 };
 
@@ -964,11 +1092,17 @@ struct Cwd {
 };
 
 struct PathJoin {
+    // arg = [seg0, seg1, ...]  — at least 2 segments required.
     Value operator()(Value arg) const {
-        const auto& args = require_args(arg, 2, "PathJoin");
-        const std::filesystem::path lhs = to_string(*args.TryGet(0));
-        const std::filesystem::path rhs = to_string(*args.TryGet(1));
-        return make_string((lhs / rhs).string());
+        const auto& args = as_array(arg);
+        if (args.Size() < 2) {
+            throw std::invalid_argument{"PathJoin expects at least 2 arguments"};
+        }
+        std::filesystem::path result = to_string(*args.TryGet(0));
+        for (std::size_t i = 1; i < args.Size(); ++i) {
+            result /= to_string(*args.TryGet(i));
+        }
+        return make_string(result.string());
     }
 };
 
@@ -1105,6 +1239,7 @@ struct FileDelete {
     Value operator()(Value arg) const {
         std::error_code ec;
         const bool removed = std::filesystem::remove(std::filesystem::path(as_path_string_unary(std::move(arg))), ec);
+        throw_if_filesystem_error(ec, "FileDelete");
         return make_bool(removed);
     }
 };
@@ -1127,6 +1262,7 @@ struct DirDelete {
     Value operator()(Value arg) const {
         std::error_code ec;
         const auto removed = std::filesystem::remove_all(std::filesystem::path(as_path_string_unary(std::move(arg))), ec);
+        throw_if_filesystem_error(ec, "DirDelete");
         return make_bool(removed > 0);
     }
 };
@@ -1137,7 +1273,6 @@ struct DirList {
         for (const auto& entry : std::filesystem::directory_iterator(std::filesystem::path(as_path_string_unary(std::move(arg))))) {
             names.push_back(entry.path().filename().string());
         }
-        std::sort(names.begin(), names.end());
         Array out;
         out.Reserve(names.size());
         for (const auto& n : names) {
@@ -1153,7 +1288,6 @@ struct DirListFull {
         for (const auto& entry : std::filesystem::directory_iterator(std::filesystem::path(as_path_string_unary(std::move(arg))))) {
             names.push_back(entry.path().string());
         }
-        std::sort(names.begin(), names.end());
         Array out;
         out.Reserve(names.size());
         for (const auto& n : names) {
@@ -1273,31 +1407,35 @@ struct OSTempDir {
 struct OSMakeTempFile {
     Value operator()(Value arg) const {
         (void)require_args(arg, 0, "OSMakeTempFile");
-        const auto dir = std::filesystem::temp_directory_path();
+        std::error_code ec;
+        const auto dir = std::filesystem::temp_directory_path(ec);
+        if (ec) { return make_null(); }
         for (int i = 0; i < 100; ++i) {
             const auto candidate = dir / ("fleaux_" + random_suffix() + ".tmp");
-            if (!std::filesystem::exists(candidate)) {
+            if (!std::filesystem::exists(candidate, ec) && !ec) {
                 std::ofstream out(candidate);
                 if (out.good()) {
                     return make_string(candidate.string());
                 }
             }
         }
-        throw std::runtime_error{"OSMakeTempFile failed"};
+        return make_null();
     }
 };
 
 struct OSMakeTempDir {
     Value operator()(Value arg) const {
         (void)require_args(arg, 0, "OSMakeTempDir");
-        const auto dir = std::filesystem::temp_directory_path();
+        std::error_code ec;
+        const auto dir = std::filesystem::temp_directory_path(ec);
+        if (ec) { return make_null(); }
         for (int i = 0; i < 100; ++i) {
             const auto candidate = dir / ("fleaux_" + random_suffix());
-            if (std::filesystem::create_directory(candidate)) {
+            if (std::filesystem::create_directory(candidate, ec) && !ec) {
                 return make_string(candidate.string());
             }
         }
-        throw std::runtime_error{"OSMakeTempDir failed"};
+        return make_null();
     }
 };
 
