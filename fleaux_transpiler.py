@@ -88,7 +88,8 @@ class FleauxTranspiler:
         "DirCreate", "DirDelete", "DirList", "DirListFull",
         # tuple
         "TupleAppend", "TuplePrepend", "TupleReverse", "TupleContains",
-        "TupleZip", "TupleMap", "TupleFilter",
+        "TupleZip", "TupleMap", "TupleFilter", "TupleSort", "TupleUnique", "TupleMin", "TupleMax",
+        "TupleReduce", "TupleFindIndex", "TupleAny", "TupleAll", "TupleRange",
         # streaming file handles
         "FileOpen", "FileReadLine", "FileReadChunk", "FileWriteChunk",
         "FileFlush", "FileClose", "FileWithOpen",
@@ -165,6 +166,15 @@ class FleauxTranspiler:
         "Std.Tuple.Zip": "TupleZip",
         "Std.Tuple.Map": "TupleMap",
         "Std.Tuple.Filter": "TupleFilter",
+        "Std.Tuple.Sort": "TupleSort",
+        "Std.Tuple.Unique": "TupleUnique",
+        "Std.Tuple.Min": "TupleMin",
+        "Std.Tuple.Max": "TupleMax",
+        "Std.Tuple.Reduce": "TupleReduce",
+        "Std.Tuple.FindIndex": "TupleFindIndex",
+        "Std.Tuple.Any": "TupleAny",
+        "Std.Tuple.All": "TupleAll",
+        "Std.Tuple.Range": "TupleRange",
         # streaming file handles
         "Std.File.Open": "FileOpen",
         "Std.File.ReadLine": "FileReadLine",

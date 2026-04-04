@@ -369,6 +369,59 @@ class TupleBuiltinTests(unittest.TestCase):
         IsEven = fstd.make_node(lambda x: x % 2 == 0)
         self.assertEqual(((1, 2, 3, 4, 5), IsEven) | fstd.TupleFilter(), (2, 4))
 
+    def test_sort_numbers(self) -> None:
+        self.assertEqual(((3, 1, 2, 2),) | fstd.TupleSort(), (1, 2, 2, 3))
+
+    def test_sort_strings(self) -> None:
+        self.assertEqual((("c", "a", "b"),) | fstd.TupleSort(), ("a", "b", "c"))
+
+    def test_sort_nested_tuples(self) -> None:
+        self.assertEqual((((2, 1), (1, 9), (1, 2)),) | fstd.TupleSort(), ((1, 2), (1, 9), (2, 1)))
+
+    def test_sort_mixed_types_raises(self) -> None:
+        with self.assertRaises(TypeError):
+            ((1, "a"),) | fstd.TupleSort()
+
+    def test_unique_preserves_first_occurrence_order(self) -> None:
+        self.assertEqual(((3, 1, 3, 2, 1, 2),) | fstd.TupleUnique(), (3, 1, 2))
+
+    def test_min_and_max_numbers(self) -> None:
+        self.assertEqual(((7, 2, 4, 2),) | fstd.TupleMin(), 2)
+        self.assertEqual(((7, 2, 4, 2),) | fstd.TupleMax(), 7)
+
+    def test_min_empty_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            (((),)) | fstd.TupleMin()
+
+    def test_max_empty_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            (((),)) | fstd.TupleMax()
+
+    def test_reduce_sum(self) -> None:
+        AddPair = fstd.make_node(lambda acc, x: acc + x)
+        self.assertEqual(((1, 2, 3, 4), 0, AddPair) | fstd.TupleReduce(), 10)
+
+    def test_find_index(self) -> None:
+        IsEven = fstd.make_node(lambda x: x % 2 == 0)
+        self.assertEqual(((1, 3, 4, 7), IsEven) | fstd.TupleFindIndex(), 2)
+        self.assertEqual(((1, 3, 5), IsEven) | fstd.TupleFindIndex(), -1)
+
+    def test_any_and_all(self) -> None:
+        IsEven = fstd.make_node(lambda x: x % 2 == 0)
+        self.assertTrue(((1, 3, 4), IsEven) | fstd.TupleAny())
+        self.assertFalse(((1, 3, 5), IsEven) | fstd.TupleAny())
+        self.assertTrue(((2, 4, 6), IsEven) | fstd.TupleAll())
+        self.assertFalse(((2, 3, 6), IsEven) | fstd.TupleAll())
+
+    def test_range_forms(self) -> None:
+        self.assertEqual((5,) | fstd.TupleRange(), (0, 1, 2, 3, 4))
+        self.assertEqual((2, 6) | fstd.TupleRange(), (2, 3, 4, 5))
+        self.assertEqual((6, 2, -2) | fstd.TupleRange(), (6, 4))
+
+    def test_range_zero_step_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            (0, 3, 0) | fstd.TupleRange()
+
 
 class MathBuiltinTests(unittest.TestCase):
     def test_floor(self) -> None:
@@ -532,7 +585,8 @@ class BuiltinParityTests(unittest.TestCase):
         "StringSplit", "StringJoin", "StringReplace", "StringContains", "StringStartsWith",
         "StringEndsWith", "StringLength",
         "TupleAppend", "TuplePrepend", "TupleReverse", "TupleContains",
-        "TupleZip", "TupleMap", "TupleFilter",
+        "TupleZip", "TupleMap", "TupleFilter", "TupleSort", "TupleUnique", "TupleMin", "TupleMax",
+        "TupleReduce", "TupleFindIndex", "TupleAny", "TupleAll", "TupleRange",
     ]
 
     def test_all_declared_builtins_are_importable(self) -> None:

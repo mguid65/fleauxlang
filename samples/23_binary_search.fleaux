@@ -1,0 +1,46 @@
+import Std;
+
+let BS_Mid(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =
+    ((lo, hi) -> Std.Add, 2) -> Std.Divide -> Std.Math.Floor;
+
+let BS_MidValue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =
+    (arr, (arr, target, lo, hi, result) -> BS_Mid) -> Std.ElementAt;
+
+let BS_FoundState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
+    Tuple(Any, Number, Number, Number, Number) =
+    (arr, target, 1, 0, (arr, target, lo, hi, result) -> BS_Mid);
+
+let BS_SearchRightState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
+    Tuple(Any, Number, Number, Number, Number) =
+    (arr, target, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Add, hi, result);
+
+let BS_SearchLeftState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
+    Tuple(Any, Number, Number, Number, Number) =
+    (arr, target, lo, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Subtract, result);
+
+let BS_DecideDirection(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
+    Tuple(Any, Number, Number, Number, Number) =
+    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.LessThan,
+     (arr, target, lo, hi, result),
+     BS_SearchRightState,
+     BS_SearchLeftState) -> Std.Branch;
+
+let BS_Continue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Bool =
+    (lo, hi) -> Std.LessOrEqual;
+
+let BS_Step(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
+    Tuple(Any, Number, Number, Number, Number) =
+    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.Equal,
+     (arr, target, lo, hi, result),
+     BS_FoundState,
+     BS_DecideDirection) -> Std.Branch;
+
+let BinarySearchIndex(arr: Tuple(Any...), target: Number): Number =
+    ((arr, target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract, -1), BS_Continue, BS_Step, 256)
+        -> Std.LoopN
+        -> (_, 4) -> Std.ElementAt;
+
+((1, 3, 5, 7, 9, 11), 7) -> BinarySearchIndex -> Std.Println;
+((1, 3, 5, 7, 9, 11), 4) -> BinarySearchIndex -> Std.Println;
+
+
