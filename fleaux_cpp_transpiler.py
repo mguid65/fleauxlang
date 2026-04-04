@@ -7,6 +7,34 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+# Full set of C++ (up to C++20) reserved keywords.
+# `keyword.iskeyword` only covers Python; these cover the C++ side.
+_CPP_KEYWORDS: frozenset[str] = frozenset({
+    "alignas", "alignof", "and", "and_eq", "asm", "auto",
+    "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+    "class", "compl", "concept", "const", "consteval", "constexpr",
+    "constinit", "const_cast", "continue",
+    "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "do", "double", "dynamic_cast",
+    "else", "enum", "explicit", "export", "extern",
+    "false", "float", "for", "friend",
+    "goto", "if", "inline", "int",
+    "long", "mutable",
+    "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+    "operator", "or", "or_eq",
+    "private", "protected", "public",
+    "register", "reinterpret_cast", "requires", "return",
+    "short", "signed", "sizeof", "static", "static_assert",
+    "static_cast", "struct", "switch",
+    "template", "this", "thread_local", "throw", "true",
+    "typedef", "typeid", "typename",
+    "union", "unsigned", "using",
+    "virtual", "void", "volatile",
+    "wchar_t", "while",
+    "xor", "xor_eq",
+})
+
 from fleaux_ast import (
     IRProgram, IRImport, IRLet, IRExprStatement,
     IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IROperatorRef,
@@ -144,6 +172,17 @@ class FleauxCppTranspiler:
         "Std.File.Flush": "FileFlush",
         "Std.File.Close": "FileClose",
         "Std.File.WithOpen": "FileWithOpen",
+        "Std.Dict.Create": "DictCreate",
+        "Std.Dict.Set": "DictSet",
+        "Std.Dict.Get": "DictGet",
+        "Std.Dict.GetDefault": "DictGetDefault",
+        "Std.Dict.Contains": "DictContains",
+        "Std.Dict.Delete": "DictDelete",
+        "Std.Dict.Keys": "DictKeys",
+        "Std.Dict.Values": "DictValues",
+        "Std.Dict.Entries": "DictEntries",
+        "Std.Dict.Clear": "DictClear",
+        "Std.Dict.Length": "DictLength",
     }
 
     # Runtime nodes currently implemented in cpp/fleaux_runtime.hpp.
@@ -173,6 +212,8 @@ class FleauxCppTranspiler:
         "TupleReduce", "TupleFindIndex", "TupleAny", "TupleAll", "TupleRange",
         "FileOpen", "FileReadLine", "FileReadChunk", "FileWriteChunk",
         "FileFlush", "FileClose", "FileWithOpen",
+        "DictCreate", "DictSet", "DictGet", "DictGetDefault", "DictContains",
+        "DictDelete", "DictKeys", "DictValues", "DictEntries", "DictClear", "DictLength",
     }
 
     def __init__(self):
@@ -572,7 +613,7 @@ class FleauxCppTranspiler:
             safe = "_"
         if safe[0].isdigit():
             safe = f"_{safe}"
-        if keyword.iskeyword(safe):
+        if keyword.iskeyword(safe) or safe in _CPP_KEYWORDS:
             safe = f"{safe}_"
         return safe
 

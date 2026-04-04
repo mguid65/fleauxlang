@@ -1,0 +1,14 @@
+import Std;
+
+let Build(): Any =
+    () -> Std.Dict.Create
+    -> (_, "name", "fleaux") -> Std.Dict.Set
+    -> (_, "year", 2026) -> Std.Dict.Set
+;
+
+() -> Build -> Std.Dict.Keys -> Std.Println;
+() -> Build -> Std.Dict.Values -> Std.Println;
+(() -> Build, "name") -> Std.Dict.Get -> Std.Println;
+(() -> Build, "missing", "n/a") -> Std.Dict.GetDefault -> Std.Println;
+() -> Build -> Std.Dict.Length -> Std.Println;
+

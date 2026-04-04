@@ -41,6 +41,22 @@
 
 namespace mguid {
 
+/**
+ * @brief Main DataTree type alias for TreeNode
+ *
+ * DataTree (TreeNode) can hold one of four node types:
+ * 1. ObjectNodeType   - For user-facing associative arrays/dictionaries
+ * 2. ArrayNodeType    - For ordered collections/arrays
+ * 3. ValueNodeType    - For primitive values (null, bool, numbers, strings)
+ * 4. GenericNodeType  - For special internal types (functions, file handles, etc.)
+ *
+ * Usage patterns:
+ * - Use ObjectNodeType for creating JSON-like structures and user data
+ * - Use ArrayNodeType for ordered lists of elements
+ * - Use ValueNodeType for primitive data
+ * - Use GenericNodeType for host-managed special types that shouldn't be
+ *   exposed to user code (functions, file handles, system resources)
+ */
 using DataTree = TreeNode;
 
 /*
@@ -145,6 +161,9 @@ inline std::ostream& operator<<(std::ostream& os, const DataTree& dt) {
             },
             [&os](const mguid::StringType& value) { os << '"' << value << '"'; },
             [&os](const auto& value) { os << value; });
+      },
+      [&os](const mguid::GenericNodeType&) {
+        os << "<generic>";
       });
   return os;
 }
