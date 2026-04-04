@@ -34,6 +34,7 @@
 #define DATATREE_NODE_TYPES_INC
 
 #include "data_tree/node_types/detail/array_node_type.hpp"
+#include "data_tree/node_types/detail/generic_node_type.hpp"
 #include "data_tree/node_types/detail/object_node_type.hpp"
 #include "data_tree/node_types/detail/value_node_type.hpp"
 

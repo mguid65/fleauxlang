@@ -8,6 +8,10 @@ from pathlib import Path
 
 from fleaux_cpp_transpiler import FleauxCppTranspiler
 
+
+# Speed up repeated compile-heavy cpp backend tests.
+os.environ.setdefault("FLEAUX_FAST_COMPILE", "1")
+
 class CppBackendTests(unittest.TestCase):
     def test_cpp_backend_runs_simple_program(self) -> None:
         if shutil.which("c++") is None:
@@ -1451,6 +1455,191 @@ class CppBackendTests(unittest.TestCase):
             )
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("FileReadLine: read failed", r.stderr)
+
+    # ── Dictionary builtins ────────────────────────────────────────────────────
+
+    def test_cpp_backend_dict_basic_ops(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "dict_basic.fleaux",
+                'import Std;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "name", "fleaux") -> Std.Dict.Set\n'
+                '    -> (_, "year", 2026) -> Std.Dict.Set\n'
+                '    -> Std.Dict.Length -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "name", "fleaux") -> Std.Dict.Set\n'
+                '    -> (_, "name") -> Std.Dict.Get -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "name", "fleaux") -> Std.Dict.Set\n'
+                '    -> (_, "missing", "n/a") -> Std.Dict.GetDefault -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "x", 1) -> Std.Dict.Set\n'
+                '    -> (_, "x") -> Std.Dict.Contains -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "2")
+            self.assertEqual(lines[1], "fleaux")
+            self.assertEqual(lines[2], "n/a")
+            self.assertEqual(lines[3], "True")
+
+    def test_cpp_backend_dict_keys_values_entries_and_immutability(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required for cpp backend test")
+        with tempfile.TemporaryDirectory() as tmp:
+            r = self._run_cpp(
+                tmp, "dict_keys_values_immutability.fleaux",
+                'import Std;\n'
+                'let CheckImmutable(d: Any): Tuple(Number, Number) =\n'
+                '    ((d, "b", 2) -> Std.Dict.Set -> Std.Dict.Length,\n'
+                '     (d) -> Std.Dict.Length);\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "b", 2) -> Std.Dict.Set\n'
+                '    -> (_, "a", 1) -> Std.Dict.Set\n'
+                '    -> Std.Dict.Keys -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "b", 2) -> Std.Dict.Set\n'
+                '    -> (_, "a", 1) -> Std.Dict.Set\n'
+                '    -> Std.Dict.Values -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "a", 1) -> Std.Dict.Set\n'
+                '    -> CheckImmutable\n'
+                '    -> (_, 0) -> Std.ElementAt -> Std.Println;\n'
+                '() -> Std.Dict.Create\n'
+                '    -> (_, "a", 1) -> Std.Dict.Set\n'
+                '    -> CheckImmutable\n'
+                '    -> (_, 1) -> Std.ElementAt -> Std.Println;\n',
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "a b")
+            self.assertEqual(lines[1], "1 2")
+            self.assertEqual(lines[2], "2")
+            self.assertEqual(lines[3], "1")
+
+
+class SanitizeTests(unittest.TestCase):
+    """Unit tests for FleauxCppTranspiler._sanitize name mangling."""
+
+    def _s(self, name: str) -> str:
+        return FleauxCppTranspiler._sanitize(name)
+
+    # ── C++ keyword collisions ─────────────────────────────────────────────────
+    def test_sanitize_cpp_keyword_double(self) -> None:
+        self.assertEqual(self._s("double"), "double_")
+
+    def test_sanitize_cpp_keyword_int(self) -> None:
+        self.assertEqual(self._s("int"), "int_")
+
+    def test_sanitize_cpp_keyword_float(self) -> None:
+        self.assertEqual(self._s("float"), "float_")
+
+    def test_sanitize_cpp_keyword_long(self) -> None:
+        self.assertEqual(self._s("long"), "long_")
+
+    def test_sanitize_cpp_keyword_short(self) -> None:
+        self.assertEqual(self._s("short"), "short_")
+
+    def test_sanitize_cpp_keyword_auto(self) -> None:
+        self.assertEqual(self._s("auto"), "auto_")
+
+    def test_sanitize_cpp_keyword_namespace(self) -> None:
+        self.assertEqual(self._s("namespace"), "namespace_")
+
+    def test_sanitize_cpp_keyword_template(self) -> None:
+        self.assertEqual(self._s("template"), "template_")
+
+    def test_sanitize_cpp_keyword_class(self) -> None:
+        # Also a Python keyword — caught by either check.
+        self.assertEqual(self._s("class"), "class_")
+
+    def test_sanitize_cpp_keyword_new(self) -> None:
+        self.assertEqual(self._s("new"), "new_")
+
+    def test_sanitize_cpp_keyword_delete(self) -> None:
+        self.assertEqual(self._s("delete"), "delete_")
+
+    def test_sanitize_cpp_keyword_true_lower(self) -> None:
+        self.assertEqual(self._s("true"), "true_")
+
+    def test_sanitize_cpp_keyword_false_lower(self) -> None:
+        self.assertEqual(self._s("false"), "false_")
+
+    def test_sanitize_cpp_keyword_nullptr(self) -> None:
+        self.assertEqual(self._s("nullptr"), "nullptr_")
+
+    def test_sanitize_cpp_keyword_void(self) -> None:
+        self.assertEqual(self._s("void"), "void_")
+
+    def test_sanitize_cpp_keyword_virtual(self) -> None:
+        self.assertEqual(self._s("virtual"), "virtual_")
+
+    def test_sanitize_cpp_keyword_operator(self) -> None:
+        self.assertEqual(self._s("operator"), "operator_")
+
+    # ── Normal identifiers must not be mangled ─────────────────────────────────
+    def test_sanitize_normal_identifier(self) -> None:
+        self.assertEqual(self._s("Double"), "Double")
+
+    def test_sanitize_normal_identifier_with_underscores(self) -> None:
+        self.assertEqual(self._s("my_func"), "my_func")
+
+    def test_sanitize_digit_leading(self) -> None:
+        self.assertEqual(self._s("42foo"), "_42foo")
+
+    # ── Integration: C++ keyword as function name compiles and runs ────────────
+    def test_cpp_keyword_function_name_compiles(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required")
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "kw_clash.fleaux"
+            source.write_text(
+                "import Std;\n"
+                "let double(x: Number): Number = (x, 2) -> Std.Multiply;\n"
+                "(21) -> double -> Std.Println;\n",
+                encoding="utf-8",
+            )
+            r = subprocess.run(
+                [str(launcher), str(source)],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("42", r.stdout)
+
+    def test_multiple_cpp_keywords_as_function_names(self) -> None:
+        if shutil.which("c++") is None:
+            self.skipTest("c++ compiler is required")
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "multi_kw.fleaux"
+            source.write_text(
+                "import Std;\n"
+                "let int(x: Number): Number = (x, 10) -> Std.Multiply;\n"
+                "let float(x: Number): Number = (x, 100) -> Std.Multiply;\n"
+                "(3) -> int -> Std.Println;\n"
+                "(3) -> float -> Std.Println;\n",
+                encoding="utf-8",
+            )
+            r = subprocess.run(
+                [str(launcher), str(source)],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+            self.assertEqual(lines[0], "30")
+            self.assertEqual(lines[1], "300")
 
 
 if __name__ == "__main__":

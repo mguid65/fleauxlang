@@ -11,7 +11,14 @@ from fleaux_cpp_transpiler import FleauxCppTranspiler
 from fleaux_graphviz import GraphEmitError, write_graph_for_source
 
 
-_COMPILER_CANDIDATES = ["clang++", "g++", "c++"]
+_COMPILER_CANDIDATES = ["clang++-20", "clang++", "g++", "c++"]
+
+
+def _env_flag(name: str) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_compiler(requested: str | None) -> str:
@@ -92,7 +99,16 @@ def main() -> int:
             "C++ compiler to use. "
             "Accepts a plain name searched on PATH (e.g. 'clang++-18', 'g++'), "
             "or an absolute/relative path (e.g. '/usr/bin/clang++-18'). "
-            "Defaults to auto-selecting clang++, g++, or c++ in that order."
+            "Defaults to auto-selecting clang++-20, clang++, g++, or c++ in that order."
+        ),
+    )
+    parser.add_argument(
+        "--unoptimized",
+        action="store_true",
+        help=(
+            "Use faster compile settings intended for tests/dev loops "
+            "(currently -O0 instead of -O2). "
+            "Can also be enabled with FLEAUX_UNOPTIMIZED=1 or FLEAUX_FAST_COMPILE=1."
         ),
     )
     args = parser.parse_args(cli_argv)
@@ -122,11 +138,13 @@ def main() -> int:
 
     output = FleauxCppTranspiler().process(source)
     binary = output.with_suffix("")
-    compiler = _resolve_compiler(args.compiler)
+    compiler = _resolve_compiler(args.compiler or os.environ.get("FLEAUX_COMPILER"))
+    unoptimized = args.unoptimized or _env_flag("FLEAUX_UNOPTIMIZED") or _env_flag("FLEAUX_FAST_COMPILE")
+    opt_flag = "-O0" if unoptimized else "-O2"
     compile_cmd = [
         compiler,
         "-std=c++20",
-        "-O2",
+        opt_flag,
         str(output),
         "-I",
         str(runtime_dir / "cpp"),

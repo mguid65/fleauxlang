@@ -1,0 +1,14 @@
+import Std;
+
+// ── Experiment: syntactically-valid Fleaux that the transpiler accepts
+//    but that the C++ compiler refuses to build.
+//
+// 'Ghost' is never defined anywhere.  The Fleaux parser sees it as a
+// perfectly legal identifier.  The transpiler emits it verbatim as a
+// C++ name.  Only the C++ compiler catches the missing symbol.
+
+let Double(x: Number): Number =
+    (x, 2) -> Std.Multiply;
+
+(21) -> Double -> Ghost -> Std.Println;
+

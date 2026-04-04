@@ -260,3 +260,40 @@ let Std.Wrap(val: Any) : Tuple(Any) :: __builtin__;
 // ((42,)) -> Std.Unwrap;
 // Result: 42
 let Std.Unwrap(tuple: Tuple(Any)) : Any :: __builtin__;
+
+// ── Dictionary builtins (C++ backend) ─────────────────────────────────────────
+// @brief Create an empty dictionary, or clone from an existing dictionary.
+// () -> Std.Dict.Create;
+// (dict) -> Std.Dict.Create;
+let Std.Dict.Create() : Any :: __builtin__;
+// @brief Return a new dictionary with key set to value.
+// (dict, key, value) -> Std.Dict.Set;
+let Std.Dict.Set(dict: Any, key: Any, value: Any) : Any :: __builtin__;
+// @brief Get a value by key. Raises if key is missing.
+// (dict, key) -> Std.Dict.Get;
+let Std.Dict.Get(dict: Any, key: Any) : Any :: __builtin__;
+// @brief Get a value by key, returning default when key is missing.
+// (dict, key, default) -> Std.Dict.GetDefault;
+let Std.Dict.GetDefault(dict: Any, key: Any, default: Any) : Any :: __builtin__;
+// @brief Check if key exists.
+// (dict, key) -> Std.Dict.Contains;
+let Std.Dict.Contains(dict: Any, key: Any) : Bool :: __builtin__;
+// @brief Return a new dictionary without the given key.
+// (dict, key) -> Std.Dict.Delete;
+let Std.Dict.Delete(dict: Any, key: Any) : Any :: __builtin__;
+// @brief Return keys as tuple sorted by key string.
+// (dict) -> Std.Dict.Keys;
+let Std.Dict.Keys(dict: Any) : Tuple(Any...) :: __builtin__;
+// @brief Return values as tuple sorted by key string.
+// (dict) -> Std.Dict.Values;
+let Std.Dict.Values(dict: Any) : Tuple(Any...) :: __builtin__;
+// @brief Return (key, value) entries sorted by key string.
+// (dict) -> Std.Dict.Entries;
+let Std.Dict.Entries(dict: Any) : Tuple(Any...) :: __builtin__;
+// @brief Return a new empty dictionary.
+// (dict) -> Std.Dict.Clear;
+let Std.Dict.Clear(dict: Any) : Any :: __builtin__;
+// @brief Number of entries in dictionary.
+// (dict) -> Std.Dict.Length;
+let Std.Dict.Length(dict: Any) : Number :: __builtin__;
+

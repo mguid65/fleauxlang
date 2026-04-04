@@ -49,6 +49,7 @@ namespace fleaux::runtime {
 using Value     = mguid::DataTree;
 using Array     = mguid::ArrayNodeType;
 using Object    = mguid::ObjectNodeType;
+using Generic   = mguid::GenericNodeType;
 using ValueNode = mguid::ValueNodeType;
 using Number    = mguid::NumberType;
 using Null      = mguid::NullType;
@@ -60,8 +61,15 @@ using UInt  = mguid::UnsignedIntegerType;   // uint64_t
 using Float = mguid::DoubleType;            // double
 
 using RuntimeCallable = std::function<Value(Value)>;
+
 inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
 inline constexpr std::string_view k_handle_tag   = "__fleaux_handle__";
+
+// Global registry for storing callables (functions)
+inline std::vector<RuntimeCallable>& callable_registry() {
+    static std::vector<RuntimeCallable> registry;
+    return registry;
+}
 
 inline std::vector<std::string>& process_args_storage() {
     static std::vector<std::string> args;
@@ -84,10 +92,7 @@ inline void set_process_args(const int argc, char** argv) {
     return process_args_storage();
 }
 
-inline std::vector<RuntimeCallable>& callable_registry() {
-    static std::vector<RuntimeCallable> registry;
-    return registry;
-}
+// ── Callable/Function handling ────────────────────────────────────────────────
 
 inline UInt register_callable(RuntimeCallable fn) {
     auto& call_reg = callable_registry();
@@ -96,8 +101,27 @@ inline UInt register_callable(RuntimeCallable fn) {
     return id;
 }
 
+// Global function registry stored as GenericNodeType
+inline Value& function_registry() {
+    static Value registry{mguid::NodeTypeTag::Generic};
+    return registry;
+}
+
 [[nodiscard]] inline Value make_callable_ref(RuntimeCallable fn) {
     const UInt id = register_callable(std::move(fn));
+
+    // Store in Generic node with metadata
+    auto& gen = function_registry().Unsafe([](auto&& proxy) -> decltype(auto) {
+        return proxy.GetGeneric();
+    });
+
+    Object callable_entry;
+    callable_entry["type"] = Value{String{k_callable_tag}};
+    callable_entry["id"] = Value{id};
+
+    gen["fn_" + std::to_string(id)] = Value{std::move(callable_entry)};
+
+    // Return simple array with type tag and id for passing around
     Array out;
     out.Reserve(2);
     out.PushBack(Value{String{k_callable_tag}});
@@ -139,7 +163,7 @@ Value make_callable_ref(F&& fn) {
     );
 }
 
-// ── File handle registry ──────────────────────────────────────────────────────
+// ── File handle registry ─────────────────────────────────────────────────────
 
 struct HandleEntry {
     std::fstream  stream;
@@ -191,7 +215,7 @@ struct HandleRegistry {
         }
     }
 
-    // returns (slot, generation) or nullopt if invalid/closed
+    // returns HandleEntry* or nullptr if invalid/closed
     [[nodiscard]] HandleEntry* get(UInt slot, UInt gen) {
         if (slot >= entries.size()) return nullptr;
         auto& e = entries[slot];
@@ -214,17 +238,36 @@ inline HandleRegistry& handle_registry() {
     return reg;
 }
 
-// Token = Array["__fleaux_handle__", slot, generation]
-[[nodiscard]] inline Value make_handle_token(UInt slot, UInt gen) {
-    Array a;
-    a.Reserve(3);
-    a.PushBack(Value{String{k_handle_tag}});
-    a.PushBack(Value{slot});
-    a.PushBack(Value{gen});
-    return Value{std::move(a)};
+// Global handle registry stored as GenericNodeType
+inline Value& file_handle_registry() {
+    static Value registry{mguid::NodeTypeTag::Generic};
+    return registry;
 }
 
+// Handle token with type checking
 struct HandleId { UInt slot; UInt gen; };
+
+[[nodiscard]] inline Value make_handle_token(UInt slot, UInt gen) {
+    // Store in Generic node with metadata
+    auto& gen_node = file_handle_registry().Unsafe([](auto&& proxy) -> decltype(auto) {
+        return proxy.GetGeneric();
+    });
+
+    Object handle_entry;
+    handle_entry["type"] = Value{String{k_handle_tag}};
+    handle_entry["slot"] = Value{slot};
+    handle_entry["gen"] = Value{gen};
+
+    gen_node["handle_" + std::to_string(slot) + "_" + std::to_string(gen)] = Value{std::move(handle_entry)};
+
+    // Return array with type tag, slot, and gen for passing around
+    Array token;
+    token.Reserve(3);
+    token.PushBack(Value{String{k_handle_tag}});
+    token.PushBack(Value{slot});
+    token.PushBack(Value{gen});
+    return Value{std::move(token)};
+}
 
 [[nodiscard]] inline std::optional<HandleId> handle_id_from_value(const Value& v) {
     const auto& arr = v.TryGetArray();
@@ -345,6 +388,18 @@ Value make_tuple(Values&&... vals) {
     return *r;
 }
 
+[[nodiscard]] inline const Object& as_object(const Value& v) {
+    auto r = v.TryGetObject();
+    if (!r) throw std::runtime_error{"fleaux::runtime: expected Object"};
+    return *r;
+}
+
+[[nodiscard]] inline Object& as_object(Value& v) {
+    auto r = v.TryGetObject();
+    if (!r) throw std::runtime_error{"fleaux::runtime: expected Object"};
+    return *r;
+}
+
 // Get the Nth element of an Array Value (throws on out-of-range).
 [[nodiscard]] inline const Value& array_at(const Value& v, const std::size_t i) {
     auto r = as_array(v).TryGet(i);
@@ -433,8 +488,38 @@ inline void print_value_repr(std::ostream& os, const Value& v) {
             }
             os << ')';
         },
-        [&](const Object& /*obj*/) {
-            os << "{...}";  // objects are not a first-class Fleaux concept yet
+        [&](const Object& obj) {
+            // Objects are the backing store for Fleaux dicts.
+            // Keys carry a type prefix ("s:", "n:", "b:", "z:") so that
+            // different key types never collide (e.g. int 1 vs string "1").
+            os << '{';
+            // Collect and sort internal keys so output is deterministic.
+            std::vector<std::string> sorted_keys;
+            sorted_keys.reserve(obj.Size());
+            for (const auto &k: obj | std::views::keys) sorted_keys.push_back(k);
+            std::ranges::sort(sorted_keys);
+            bool first = true;
+            for (const auto& ikey : sorted_keys) {
+                if (!first) os << ", ";
+                first = false;
+                // Strip the type prefix and render the original key value.
+                if (ikey.size() >= 2 && ikey[1] == ':') {
+                    const char tag  = ikey[0];
+                    const auto& pay = ikey.substr(2);
+                    if      (tag == 's') os << pay;
+                    else if (tag == 'b') os << (pay == "true" ? "True" : "False");
+                    else if (tag == 'z') os << "Null";
+                    else                 os << pay;   // 'n' (number) or unknown
+                } else {
+                    os << ikey;  // legacy key without a prefix
+                }
+                os << ": ";
+                if (const auto got = obj.TryGet(ikey)) print_value_repr(os, *got);
+            }
+            os << '}';
+        },
+        [&](const Generic& /*gen*/) {
+            os << "<generic>";
         },
         [&](const ValueNode& vn) {
             vn.Visit(
@@ -471,6 +556,7 @@ inline std::string to_string(const Value& v) {
 
 enum class SortTag {
     Array,
+    Generic,
     Object,
     Null,
     Bool,
@@ -481,6 +567,7 @@ enum class SortTag {
 [[nodiscard]] inline SortTag sort_tag_of(const Value& v) {
     const auto tag = v.Visit(
         [](const Array&) { return SortTag::Array; },
+        [](const Generic&) { return SortTag::Generic; },
         [](const Object&) { return SortTag::Object; },
         [](const ValueNode& vn)-> SortTag {
             return vn.Visit(
@@ -538,6 +625,8 @@ enum class SortTag {
         }
         case SortTag::Array:
             return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
+        case SortTag::Generic:
+            throw std::invalid_argument{"TupleSort does not support sorting generic values"};
         case SortTag::Object:
             throw std::invalid_argument{"TupleSort does not support sorting object values"};
     }
@@ -1752,8 +1841,7 @@ struct TupleFilter {
 
         Array out;
         for (std::size_t i = 0; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
-            if (as_bool(invoke_callable_ref(pred, item))) {
+            if (const Value& item = *src.TryGet(i); as_bool(invoke_callable_ref(pred, item))) {
                 out.PushBack(item);
             }
         }
@@ -2133,6 +2221,218 @@ struct FileWithOpen {
             handle_registry().close(slot, gen);
             throw;
         }
+    }
+};
+
+// ── Dictionary builtins (immutable-style updates) ────────────────────────────
+
+// Keys are stored as type-prefixed strings to avoid collisions between types
+// that have the same serialised form (e.g. integer 1 vs string "1").
+//   string  → "s:<value>"
+//   number  → "n:<value>"
+//   bool    → "b:<true|false>"
+//   null    → "z:"
+[[nodiscard]] inline std::string dict_key_from_value(const Value& key_val) {
+    switch (sort_tag_of(key_val)) {
+        case SortTag::String:
+            return "s:" + as_string(key_val);
+        case SortTag::Number:
+            return "n:" + to_string(key_val);
+        case SortTag::Bool:
+            return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
+        case SortTag::Null:
+            return "z:";
+        case SortTag::Array:
+        case SortTag::Object:
+        case SortTag::Generic:
+            throw std::invalid_argument{"Dict keys must be scalar values (null/bool/number/string)"};
+    }
+    throw std::invalid_argument{"Dict key conversion failed"};
+}
+
+// Returns the raw (prefixed) internal keys, sorted.
+[[nodiscard]] inline std::vector<std::string> sorted_dict_keys(const Object& obj) {
+    std::vector<std::string> keys;
+    keys.reserve(obj.Size());
+    for (const auto &k: obj | std::views::keys) {
+        keys.push_back(k);
+    }
+    std::ranges::sort(keys);
+    return keys;
+}
+
+// Strips the type prefix added by dict_key_from_value and converts back to a
+// Fleaux Value so callers (DictKeys, DictEntries) expose the original key type.
+[[nodiscard]] inline Value dict_key_to_value(const std::string& internal_key) {
+    if (internal_key.size() >= 2 && internal_key[1] == ':') {
+        const char tag = internal_key[0];
+        const std::string payload = internal_key.substr(2);
+        if (tag == 's') return make_string(payload);
+        if (tag == 'b') return make_bool(payload == "true");
+        if (tag == 'z') return make_null();
+        if (tag == 'n') {
+            // parse as number
+            std::size_t consumed = 0;
+            const double d = std::stod(payload, &consumed);
+            if (consumed == payload.size()) return num_result(d);
+        }
+    }
+    // Fallback: return as-is (handles any legacy unadorned string keys)
+    return make_string(internal_key);
+}
+
+struct DictCreate {
+    // arg = () -> {}  or  (dict,) -> clone(dict)
+    Value operator()(Value arg) const {
+        const auto& arr = arg.TryGetArray();
+        if (arr && arr->Size() == 0) {
+            return Value{Object{}};
+        }
+
+        if (arr) {
+            if (arr->Size() != 1) {
+                throw std::invalid_argument{"DictCreate expects 0 or 1 arguments"};
+            }
+            return Value{as_object(*arr->TryGet(0))};
+        }
+
+        return Value{as_object(arg)};
+    }
+};
+
+struct DictSet {
+    // arg = (dict, key, value) -> new_dict
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 3, "DictSet");
+        Object out = as_object(*args.TryGet(0));
+        out[dict_key_from_value(*args.TryGet(1))] = *args.TryGet(2);
+        return Value{std::move(out)};
+    }
+};
+
+struct DictGet {
+    // arg = (dict, key) -> value
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "DictGet");
+        const auto& obj = as_object(*args.TryGet(0));
+        const auto key = dict_key_from_value(*args.TryGet(1));
+        const auto got = obj.TryGet(key);
+        if (!got) {
+            throw std::runtime_error{"DictGet: key not found"};
+        }
+        return *got;
+    }
+};
+
+struct DictGetDefault {
+    // arg = (dict, key, default) -> value_or_default
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 3, "DictGetDefault");
+        const auto& obj = as_object(*args.TryGet(0));
+        const auto key = dict_key_from_value(*args.TryGet(1));
+        const auto got = obj.TryGet(key);
+        if (!got) {
+            return *args.TryGet(2);
+        }
+        return *got;
+    }
+};
+
+struct DictContains {
+    // arg = (dict, key) -> bool
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "DictContains");
+        const auto& obj = as_object(*args.TryGet(0));
+        return make_bool(obj.Contains(dict_key_from_value(*args.TryGet(1))));
+    }
+};
+
+struct DictDelete {
+    // arg = (dict, key) -> new_dict
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "DictDelete");
+        Object out = as_object(*args.TryGet(0));
+        out.Erase(dict_key_from_value(*args.TryGet(1)));
+        return Value{std::move(out)};
+    }
+};
+
+struct DictKeys {
+    // arg = (dict) or dict -> (k1, k2, ...), sorted by key
+    Value operator()(Value arg) const {
+        const Value dict_val = unwrap_singleton_arg(std::move(arg));
+        const auto& obj = as_object(dict_val);
+        const auto keys = sorted_dict_keys(obj);
+        Array out;
+        out.Reserve(keys.size());
+        for (const auto& key : keys) {
+            out.PushBack(dict_key_to_value(key));
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct DictValues {
+    // arg = (dict) or dict -> values sorted by key
+    Value operator()(Value arg) const {
+        const Value dict_val = unwrap_singleton_arg(std::move(arg));
+        const auto& obj = as_object(dict_val);
+        const auto keys = sorted_dict_keys(obj);
+        Array out;
+        out.Reserve(keys.size());
+        for (const auto& key : keys) {
+            const auto got = obj.TryGet(key);
+            if (got) out.PushBack(*got);
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct DictEntries {
+    // arg = (dict) or dict -> ((k1,v1), (k2,v2), ...), sorted by key
+    Value operator()(Value arg) const {
+        const Value dict_val = unwrap_singleton_arg(std::move(arg));
+        const auto& obj = as_object(dict_val);
+        const auto keys = sorted_dict_keys(obj);
+        Array out;
+        out.Reserve(keys.size());
+        for (const auto& key : keys) {
+            const auto got = obj.TryGet(key);
+            if (got) out.PushBack(make_tuple(dict_key_to_value(key), *got));
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct DictClear {
+    // arg = (dict) or dict -> {}
+    Value operator()(Value arg) const {
+        // Validate that the argument is actually a dict, then discard it.
+        const Value dict_val = unwrap_singleton_arg(std::move(arg));
+        (void)as_object(dict_val);
+        return Value{Object{}};
+    }
+};
+
+struct DictMerge {
+    // arg = (dict_base, dict_overlay) -> new_dict
+    // Keys in dict_overlay overwrite those in dict_base.
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "DictMerge");
+        Object out = as_object(*args.TryGet(0));
+        const auto& overlay = as_object(*args.TryGet(1));
+        for (const auto& [k, v] : overlay) {
+            out[k] = v;
+        }
+        return Value{std::move(out)};
+    }
+};
+
+struct DictLength {
+    // arg = (dict) or dict -> Number
+    Value operator()(Value arg) const {
+        const Value dict_val = unwrap_singleton_arg(std::move(arg));
+        return make_int(static_cast<Int>(as_object(dict_val).Size()));
     }
 };
 

@@ -4,17 +4,27 @@ Program:
 Statement:
   (ImportStatement | LetStatement | ExpressionStatement) ';';
 
+// Runtime parser allows import names like `Std` and digit-leading forms
+// like `20_export` (implemented as NUMBER + adjacent IDENT/NUMBER tokens).
 ImportStatement:
-  'import' module_name=Identifier;
+  'import' module_name=ImportModuleName;
+
+ImportModuleName:
+  name=Identifier |
+  first=NUMBER rest*=ImportModuleNamePart;
+
+ImportModuleNamePart:
+  part=NUMBER | part=Identifier;
 
 OptionallyQualifiedId:
   QualifiedId | Identifier;
 
 LetStatement:
-    'let' id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+  'let' id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type
+  DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
 
 DeclarationDefinitionSeparator:
-    '::' | '=';
+  '::' | '=';
 
 ExpressionStatement:
   expr=Expression;
@@ -28,93 +38,86 @@ Parameter:
 TypeList:
   types*=Type[','];
 
+SimpleType:
+  'Number' | 'String' | 'Bool' | 'Null' | 'Any';
+
+// Runtime parser only accepts variadic suffix on simple type names.
 Type:
-  ('Number' |
-  'String' |
-  'Bool' |
-  'Null' |
-  'Any' |
-  Identifier |
-  QualifiedId |
-  TupleType) '...'?;
+  (base=SimpleType variadic?='...') |
+  base=TupleType |
+  base=QualifiedId |
+  base=Identifier;
 
 TupleType:
   'Tuple' '(' TypeList ')';
 
-// Expression hierarchy:
-// Expression -> FlowExpression (left-associative: a -> b -> c parses as (a -> b) -> c)
-// FlowExpression -> Primary Term
-// Primary Term -> Base (with optional parenthesization and tuple construction)
-
+// Expression hierarchy in runtime parser:
+// Expression -> FlowExpression
+// FlowExpression -> Primary ('->' Primary)*
 Expression:
   expr=FlowExpression;
 
 FlowExpression:
-  lhs=Primary ('->' rhs=Primary)*;
+  lhs=Primary ('->' rhs+=Primary)*;
 
 Primary:
-  base=Atom (extra=TupleConstruction)*;
+  base=Atom;
 
 Atom:
   '(' inner=DelimitedExpression ')' |
   constant=Constant |
   qualified_var=QualifiedId |
-  var=Identifier;
-
-TupleConstruction:
-  '->' target=CallTarget;
-
-CallTarget:
-  qualified_var=QualifiedId |
   var=Identifier |
   op=Operator;
 
 Operator:
-  '^'|
-  '/'|
-  '*'|
-  '%'|
-  '+'|
-  '-'|
-  '=='|
-  '!='|
-  '<'|
-  '>'|
-  '>='|
-  '<='|
-  '!'|
+  '^' |
+  '/' |
+  '*' |
+  '%' |
+  '+' |
+  '-' |
+  '==' |
+  '!=' |
+  '<' |
+  '>' |
+  '>=' |
+  '<=' |
+  '!' |
   '&&' |
   '||';
 
 DelimitedExpression:
   items*=Expression[','];
 
-OpOrGraphId:
-  qualified_var=QualifiedId |
-  var=Identifier |
-  op=Operator;
-
 QualifiedId:
-  qualifier=Qualifier id=Identifier;
+  qualifier=Qualifier id=NamespaceIdentifier;
 
 Qualifier:
-  qualifier=Identifier ('.' Identifier)* '.';
+  head=NamespaceIdentifier ('.' tail*=NamespaceIdentifier)* '.';
 
 Identifier:
   !Keyword ID;
 
+// Namespace segments allow type keywords (String, Number, Tuple, ...)
+// but reject structural keywords.
+NamespaceIdentifier:
+  !StructuralKeyword ID;
+
 Constant:
   val=NUMBER | val=STRING | val=BOOL | val='null';
 
-Keyword: 'let' |
-         'Number' |
-         'String' |
-         'Bool' |
-         'Null' |
-         'True' |
-         'False' |
-         'Any' |
-         'Tuple' |
-         '__builtin__';
+StructuralKeyword:
+  'let' | 'import' | '__builtin__';
 
-Comment: /\/\/.*/;
+Keyword:
+  StructuralKeyword |
+  'Number' |
+  'String' |
+  'Bool' |
+  'Null' |
+  'Any' |
+  'Tuple';
+
+Comment:
+  /\/\/.*/;
