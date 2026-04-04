@@ -22,7 +22,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -44,7 +44,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -70,7 +70,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp", "--no-run"],
+                [str(launcher), str(source), "--no-run"],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -99,7 +99,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -127,7 +127,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -155,7 +155,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -180,7 +180,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -208,7 +208,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -237,7 +237,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -262,7 +262,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -287,7 +287,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -312,7 +312,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -337,7 +337,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp", "--", "alpha", "beta"],
+                [str(launcher), str(source), "--", "alpha", "beta"],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -363,7 +363,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 input="hello-from-stdin\n",
@@ -389,7 +389,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 input="typed-value\n",
@@ -416,7 +416,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -441,7 +441,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -465,7 +465,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -492,7 +492,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -526,7 +526,7 @@ class CppBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [str(launcher), str(source), "--backend", "cpp"],
+                [str(launcher), str(source)],
                 cwd=tmp_dir,
                 text=True,
                 capture_output=True,
@@ -594,7 +594,7 @@ class CppBackendTests(unittest.TestCase):
         env = dict(os.environ)
         if extra_env:
             env.update(extra_env)
-        cmd = [str(launcher), str(source), "--backend", "cpp"]
+        cmd = [str(launcher), str(source)]
         if extra_args:
             cmd.extend(extra_args)
         return subprocess.run(
@@ -696,7 +696,7 @@ class CppBackendTests(unittest.TestCase):
             for sample_name, expected_snippets in checks.items():
                 with self.subTest(sample=sample_name):
                     completed = subprocess.run(
-                        [str(launcher), str(tmp_path / sample_name), "--backend", "cpp"],
+                        [str(launcher), str(tmp_path / sample_name)],
                         cwd=tmp_dir,
                         text=True,
                         capture_output=True,
@@ -726,7 +726,7 @@ class CppBackendTests(unittest.TestCase):
                 with self.subTest(sample=sample.name):
                     local_source = tmp_path / sample.name
                     completed = subprocess.run(
-                        [str(launcher), str(local_source), "--backend", "cpp"],
+                        [str(launcher), str(local_source)],
                         cwd=tmp_dir,
                         text=True,
                         capture_output=True,
@@ -773,7 +773,7 @@ class CppBackendTests(unittest.TestCase):
             env["HOMEDRIVE"] = ""
             env["HOMEPATH"] = ""
             r = subprocess.run(
-                [str(repo_root / "fleaux"), str(source), "--backend", "cpp"],
+                [str(repo_root / "fleaux"), str(source)],
                 cwd=tmp,
                 text=True,
                 capture_output=True,
@@ -839,7 +839,7 @@ class CppBackendTests(unittest.TestCase):
             )
             repo_root = Path(__file__).resolve().parents[1]
             r = subprocess.run(
-                [str(repo_root / "fleaux"), str(source), "--backend", "cpp"],
+                [str(repo_root / "fleaux"), str(source)],
                 cwd=tmp, text=True, capture_output=True, check=False,
                 env=env_without_key,
             )
@@ -890,7 +890,7 @@ class CppBackendTests(unittest.TestCase):
             )
             repo_root = Path(__file__).resolve().parents[1]
             r = subprocess.run(
-                [str(repo_root / "fleaux"), str(source), "--backend", "cpp"],
+                [str(repo_root / "fleaux"), str(source)],
                 cwd=tmp, text=True, capture_output=True, check=False,
                 env=env_without_key,
             )

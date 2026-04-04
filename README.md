@@ -32,28 +32,22 @@ let AddPrint(x: Number, y: Number): Number = ((x, y) -> Std.Add) -> Std.Println;
 
 # Vertical Slice Workflow
 
-Transpile a Fleaux file to Python:
-
-```bash
-python3 fleaux_transpiler.py test.fleaux
-```
-
 Transpile and immediately execute (preferred):
 
 ```bash
 ./fleaux test.fleaux
 ```
 
-You can still use:
+Transpile, compile, and execute with the C++ backend:
+
+```bash
+./fleaux test.fleaux
+```
+
+Direct runner invocation:
 
 ```bash
 python3 run_fleaux.py test.fleaux
-```
-
-Transpile, compile, and execute with the C++ runtime backend:
-
-```bash
-./fleaux test.fleaux --backend cpp
 ```
 
 Emit a graph and still execute:
@@ -98,8 +92,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 - [ ] Add more tests for edge cases and error handling
 - [ ] Explore more complex pipeline patterns and transformations
 - [ ] Consider adding a REPL for interactive experimentation
-- [ ] Finalize core language features in python before expanding to C++ transpiler
-- [ ] From C++ transpiler, transition to a true compiler and runtime for better performance and standalone executables
+- [ ] Continue evolving the C++ transpiler/runtime for better performance and standalone executables
 - [ ] Explore embedding within C++
 - [ ] Better diagnostics that point back at the fleaux source code with line numbers and suggestions
 - [ ] Formal analysis of the language grammar to identify ambiguities and ensure it is LL(1) for the hand-rolled parser

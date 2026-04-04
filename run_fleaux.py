@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import runpy
 import shutil
 import subprocess
 import sys
@@ -10,7 +9,6 @@ from pathlib import Path
 
 from fleaux_cpp_transpiler import FleauxCppTranspiler
 from fleaux_graphviz import GraphEmitError, write_graph_for_source
-from fleaux_transpiler import FleauxTranspiler
 
 
 _COMPILER_CANDIDATES = ["clang++", "g++", "c++"]
@@ -82,22 +80,16 @@ def main() -> int:
         help="Emit graph output only and skip transpile/execute.",
     )
     parser.add_argument(
-        "--backend",
-        choices=["python", "cpp"],
-        default="python",
-        help="Execution backend (default: python).",
-    )
-    parser.add_argument(
         "--no-run",
         action="store_true",
-        help="For --backend cpp, transpile and compile but do not run the produced binary.",
+        help="Transpile and compile but do not run the produced binary.",
     )
     parser.add_argument(
         "--compiler",
         default=None,
         metavar="EXE",
         help=(
-            "C++ compiler to use with --backend cpp. "
+            "C++ compiler to use. "
             "Accepts a plain name searched on PATH (e.g. 'clang++-18', 'g++'), "
             "or an absolute/relative path (e.g. '/usr/bin/clang++-18'). "
             "Defaults to auto-selecting clang++, g++, or c++ in that order."
@@ -127,27 +119,6 @@ def main() -> int:
 
     runtime_dir = Path(__file__).resolve().parent
 
-    if args.backend == "python":
-        if args.no_run:
-            print("--no-run is only supported with --backend cpp.")
-            return 2
-        if args.compiler:
-            print("--compiler is only supported with --backend cpp.")
-            return 2
-        output = FleauxTranspiler().process(source)
-        original_sys_path = list(sys.path)
-        original_argv = list(sys.argv)
-        try:
-            for entry in (output.parent.resolve(), runtime_dir):
-                entry_str = str(entry)
-                if entry_str not in sys.path:
-                    sys.path.insert(0, entry_str)
-            sys.argv = [str(output), *runtime_args]
-            runpy.run_path(str(output), run_name="__main__")
-        finally:
-            sys.path[:] = original_sys_path
-            sys.argv = original_argv
-        return 0
 
     output = FleauxCppTranspiler().process(source)
     binary = output.with_suffix("")
