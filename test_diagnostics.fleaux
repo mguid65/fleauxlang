@@ -1,0 +1,5 @@
+import Std;
+
+let MyAdd(x: Number, y: Number): Number :: (x, y) -> +;
+
+(1, 1) -> MAdd -> Std.Println;

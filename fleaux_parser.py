@@ -4,25 +4,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
-from fleaux_diagnostics import format_diagnostic
+from fleaux_diagnostics import SourceSpan, format_diagnostic, merge_source_spans
 
 
 class FleauxSyntaxError(Exception):
-    def __init__(self, msg: str, src: str, line: int, col: int, hint: str | None = None):
+    def __init__(
+        self,
+        msg: str,
+        src: str,
+        line: int,
+        col: int,
+        hint: str | None = None,
+        *,
+        source_name: str | None = None,
+        span: SourceSpan | None = None,
+    ):
         self.msg, self.src, self.line, self.col = msg, src, line, col
         self.stage = "parse"
         self.hint = hint
+        self.source_name = source_name
+        self.span = span or SourceSpan(source_name, src, line, col)
         super().__init__(self._fmt())
 
     def _fmt(self) -> str:
-        lines = self.src.splitlines() or [""]
-        bad = lines[self.line - 1] if 1 <= self.line <= len(lines) else ""
         return format_diagnostic(
             stage=self.stage,
             message=self.msg,
-            line=self.line,
-            col=self.col,
-            source_line=bad,
+            span=self.span,
             hint=self.hint,
         )
 
@@ -33,6 +41,11 @@ class Tok:
     v: str
     line: int
     col: int
+    text: str
+
+    @property
+    def end_col(self) -> int:
+        return self.col + len(self.text)
 
 
 _TOKEN_RE = re.compile(
@@ -50,7 +63,7 @@ _TOKEN_RE = re.compile(
 )
 
 
-def _lex(src: str) -> list[Tok]:
+def _lex(src: str, source_name: str | None = None) -> list[Tok]:
     out: list[Tok] = []
     i = 0
     line = 1
@@ -58,7 +71,13 @@ def _lex(src: str) -> list[Tok]:
     while i < len(src):
         m = _TOKEN_RE.match(src, i)
         if not m:
-            raise FleauxSyntaxError(f"Unexpected character '{src[i]}'", src, line, col)
+            raise FleauxSyntaxError(
+                f"Unexpected character '{src[i]}'",
+                src,
+                line,
+                col,
+                source_name=source_name,
+            )
         text = m.group(0)
         kind = m.lastgroup
         if kind == "NL":
@@ -76,43 +95,111 @@ def _lex(src: str) -> list[Tok]:
                 k = "BOOL"
             if kind == "IDENT" and text == "null":
                 k = "NULL"
-            out.append(Tok(k, v, line, col))
+            out.append(Tok(k, v, line, col, text))
             col += len(text)
         i = m.end()
-    out.append(Tok("EOF", "", line, col))
+    out.append(Tok("EOF", "", line, col, ""))
     return out
 
 
 @dataclass
-class Program: statements: list[object]
+class Program:
+    statements: list[object]
+    span: SourceSpan | None = None
+
+
 @dataclass
-class ImportStatement: module_name: str
+class ImportStatement:
+    module_name: str
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Qualifier: qualifier: str
+class Qualifier:
+    qualifier: str
+    span: SourceSpan | None = None
+
+
 @dataclass
-class QualifiedId: qualifier: Qualifier; id: str
+class QualifiedId:
+    qualifier: Qualifier
+    id: str
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Parameter: param_name: str; type: object
+class Parameter:
+    param_name: str
+    type: object
+    span: SourceSpan | None = None
+
+
 @dataclass
-class ParameterDeclList: params: list[Parameter]
+class ParameterDeclList:
+    params: list[Parameter]
+    span: SourceSpan | None = None
+
+
 @dataclass
-class TypeList: types: list[object]
+class TypeList:
+    types: list[object]
+    span: SourceSpan | None = None
+
+
 @dataclass
-class LetStatement: id: object; params: ParameterDeclList; rtype: object; expr: object
+class LetStatement:
+    id: object
+    params: ParameterDeclList
+    rtype: object
+    expr: object
+    span: SourceSpan | None = None
+
+
 @dataclass
-class ExpressionStatement: expr: object
+class ExpressionStatement:
+    expr: object
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Expression: expr: object
+class Expression:
+    expr: object
+    span: SourceSpan | None = None
+
+
 @dataclass
-class FlowExpression: lhs: object; rhs: list[object]
+class FlowExpression:
+    lhs: object
+    rhs: list[object]
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Primary: base: object; extra: list[object] = field(default_factory=list)
+class Primary:
+    base: object
+    extra: list[object] = field(default_factory=list)
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Atom: inner: object | None = None; constant: object | None = None; qualified_var: object | None = None; var: str | None = None
+class Atom:
+    inner: object | None = None
+    constant: object | None = None
+    qualified_var: object | None = None
+    var: str | None = None
+    span: SourceSpan | None = None
+
+
 @dataclass
-class DelimitedExpression: items: list[Expression]
+class DelimitedExpression:
+    items: list[Expression]
+    span: SourceSpan | None = None
+
+
 @dataclass
-class Constant: val: object
+class Constant:
+    val: object
+    span: SourceSpan | None = None
 
 
 class Parser:
@@ -122,9 +209,10 @@ class Parser:
     OPS = {"^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||"}
     SIMPLE_TYPES = {"Number", "String", "Bool", "Null", "Any"}
 
-    def __init__(self, src: str):
+    def __init__(self, src: str, source_name: str | None = None):
         self.src = src
-        self.t = _lex(src)
+        self.source_name = source_name
+        self.t = _lex(src, source_name=source_name)
         self.i = 0
 
     def p(self) -> Program:
@@ -132,14 +220,17 @@ class Parser:
         while not self._is("EOF"):
             s.append(self._stmt())
             self._eat(";")
-        return Program(s)
+        return Program(s, span=merge_source_spans(*(getattr(stmt, "span", None) for stmt in s)))
 
     def _stmt(self):
         if self._is_ident("import"):
-            self._next(); return ImportStatement(self._import_module_name())
+            start = self.i
+            self._next()
+            return ImportStatement(self._import_module_name(), span=self._span_from_mark(start))
         if self._is_ident("let"):
             return self._let()
-        return ExpressionStatement(self._expr())
+        start = self.i
+        return ExpressionStatement(self._expr(), span=self._span_from_mark(start))
 
     def _import_module_name(self) -> str:
         """Parse module names for `import`.
@@ -159,7 +250,7 @@ class Parser:
             while self._peek().k in ("NUMBER", "IDENT"):
                 nxt = self._peek()
                 prev = parts[-1]
-                prev_end_col = prev.col + len(prev.v)
+                prev_end_col = prev.end_col
                 # Only stitch tokens that are lexically adjacent on the same line.
                 if nxt.line != prev.line or nxt.col != prev_end_col:
                     break
@@ -173,25 +264,40 @@ class Parser:
         )
 
     def _let(self):
+        start = self.i
         self._eat_ident("let")
         lid = self._opt_qid()
         self._eat("(")
         params = []
+        params_paren_start = self.i - 1
         if not self._is(")"):
             while True:
-                n = self._ident(); self._eat(":"); ty = self._type(); params.append(Parameter(n, ty))
+                param_start = self.i
+                n = self._ident(); self._eat(":"); ty = self._type(); params.append(Parameter(n, ty, span=self._span_from_mark(param_start)))
                 if not self._m(","): break
-        self._eat(")"); self._eat(":")
+        self._eat(")")
+        params_span = self._span_from_mark(params_paren_start)
+        self._eat(":")
         rty = self._type()
         if not (self._m("::") or self._m("=")):
-            self._err("Expected '::' or '='")
+            self._err(
+                "Expected '::' or '='",
+                hint="After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions.",
+            )
         if self._is_ident("__builtin__"):
             self._next(); ex = "__builtin__"
         else:
             ex = self._expr()
-        return LetStatement(lid, ParameterDeclList(params), rty, ex)
+        return LetStatement(
+            lid,
+            ParameterDeclList(params, span=params_span),
+            rty,
+            ex,
+            span=self._span_from_mark(start),
+        )
 
     def _type(self):
+        start = self.i
         if self._is_ident("Tuple"):
             self._next(); self._eat("(")
             ts = []
@@ -200,7 +306,7 @@ class Parser:
                     ts.append(self._type())
                     if not self._m(","): break
             self._eat(")")
-            base = TypeList(ts)
+            base = TypeList(ts, span=self._span_from_mark(start))
         elif self._peek().k == "IDENT" and self._peek().v in self.SIMPLE_TYPES:
             base = self._next().v
         elif self._is("IDENT"):
@@ -214,58 +320,74 @@ class Parser:
         return base
 
     def _expr(self):
-        return Expression(self._flow())
+        start = self.i
+        return Expression(self._flow(), span=self._span_from_mark(start))
 
     def _flow(self):
+        start = self.i
         lhs = self._primary(); rhs = []
         while self._m("->"):
             rhs.append(self._primary())
-        return FlowExpression(lhs, rhs)
+        return FlowExpression(lhs, rhs, span=self._span_from_mark(start))
 
     def _primary(self):
-        return Primary(self._atom(), [])
+        start = self.i
+        return Primary(self._atom(), [], span=self._span_from_mark(start))
 
     def _atom(self):
+        start = self.i
         if self._m("("):
             if self._m(")"):
-                return Atom(None, None, None, None)
+                return Atom(None, None, None, None, span=self._span_from_mark(start))
             items = []
             while True:
                 items.append(self._expr())
                 if not self._m(","): break
             self._eat(")")
-            return Atom(inner=DelimitedExpression(items))
+            return Atom(inner=DelimitedExpression(items, span=self._span_from_mark(start)), span=self._span_from_mark(start))
         # Handle unary minus before a number
         if self._peek().v == "-" and self._peek_ahead(1) and self._peek_ahead(1).k == "NUMBER":
             self._next()  # consume '-'
             raw = self._next().v
             val = float(raw) if any(c in raw for c in ".eE") else int(raw)
-            return Atom(constant=Constant(-val))
+            constant_span = self._span_from_mark(start)
+            return Atom(constant=Constant(-val, span=constant_span), span=constant_span)
         if self._is("NUMBER"):
             raw = self._next().v
             val = float(raw) if any(c in raw for c in ".eE") else int(raw)
-            return Atom(constant=Constant(val))
+            constant_span = self._span_from_mark(start)
+            return Atom(constant=Constant(val, span=constant_span), span=constant_span)
         if self._is("STRING"):
-            return Atom(constant=Constant(self._next().v))
+            self._next()
+            constant_span = self._span_from_mark(start)
+            return Atom(constant=Constant(self.t[self.i - 1].v, span=constant_span), span=constant_span)
         if self._is("BOOL"):
-            return Atom(constant=Constant(self._next().v == "True"))
+            self._next()
+            constant_span = self._span_from_mark(start)
+            return Atom(constant=Constant(self.t[self.i - 1].v == "True", span=constant_span), span=constant_span)
         if self._is("NULL"):
-            self._next(); return Atom(constant=Constant(None))
+            self._next(); constant_span = self._span_from_mark(start); return Atom(constant=Constant(None, span=constant_span), span=constant_span)
         if self._peek().k in self.OPS:
-            return Atom(var=self._next().v)
+            return Atom(var=self._next().v, span=self._span_from_mark(start))
         q = self._opt_qid()
         if isinstance(q, QualifiedId):
-            return Atom(qualified_var=q)
-        return Atom(var=q)
+            return Atom(qualified_var=q, span=self._span_from_mark(start))
+        return Atom(var=q, span=self._span_from_mark(start))
 
     def _opt_qid(self):
+        start = self.i
         head = self._ident()
         parts = [head]
         while self._m("."):
             parts.append(self._ns_ident())
         if len(parts) == 1:
             return head
-        return QualifiedId(Qualifier(".".join(parts[:-1])), parts[-1])
+        qualifier_span = self._span_from_mark(start)
+        return QualifiedId(
+            Qualifier(".".join(parts[:-1]), span=qualifier_span),
+            parts[-1],
+            span=self._span_from_mark(start),
+        )
 
     def _ident(self):
         t = self._eat("IDENT")
@@ -293,6 +415,10 @@ class Parser:
         return None
     def _next(self):
         x = self.t[self.i]; self.i += 1; return x
+    def _previous_token(self):
+        if self.i == 0:
+            return self.t[0]
+        return self.t[self.i - 1]
     def _is(self, k): return self._peek().k == k
     def _is_ident(self, v):
         t = self._peek(); return t.k == "IDENT" and t.v == v
@@ -306,7 +432,7 @@ class Parser:
             self._err(
                 f"Expected '{k}', got {got}",
                 t,
-                hint="Check for a missing token earlier in the statement.",
+                hint=self._hint_for_expected_token(k, t),
             )
         return self._next()
     def _eat_ident(self, v):
@@ -321,14 +447,89 @@ class Parser:
         return self._next()
     def _err(self, msg, t=None, hint: str | None = None):
         tok = t or self._peek()
-        raise FleauxSyntaxError(msg, self.src, tok.line, tok.col, hint=hint)
+        raise FleauxSyntaxError(
+            msg,
+            self.src,
+            tok.line,
+            tok.col,
+            hint=hint,
+            source_name=self.source_name,
+            span=self._span_from_token(tok),
+        )
 
+    def _span_from_token(self, tok: Tok) -> SourceSpan:
+        end_col = tok.end_col if tok.k != "EOF" else tok.col
+        return SourceSpan(
+            self.source_name,
+            self.src,
+            tok.line,
+            tok.col,
+            end_line=tok.line,
+            end_col=end_col,
+        )
 
-def parse_program(source: str) -> Program:
-    return Parser(source).p()
+    def _span_from_mark(self, start: int) -> SourceSpan:
+        start_tok = self.t[start]
+        end_tok = self._previous_token() if self.i > start else start_tok
+        end_col = end_tok.end_col if end_tok.k != "EOF" else end_tok.col
+        return SourceSpan(
+            self.source_name,
+            self.src,
+            start_tok.line,
+            start_tok.col,
+            end_line=end_tok.line,
+            end_col=end_col,
+        )
+
+    def _hint_for_expected_token(self, expected: str, got_tok: Tok) -> str:
+        prev_tok = self._previous_token()
+
+        if expected == ";":
+            if got_tok.k == "EOF":
+                return "Add ';' to terminate the final statement. Every statement in Fleaux must end with a semicolon."
+            if self._is_statement_start(got_tok):
+                return "Add ';' before this next statement. Fleaux requires semicolons between statements."
+            return "Terminate the current statement with ';'."
+
+        if expected == ",":
+            if self._is_expression_start(got_tok):
+                return "Add ',' between tuple elements or argument entries."
+            return "Separate entries with ','."
+
+        if expected == ")":
+            if got_tok.k == "->":
+                return "Close the current tuple/parameter list with ')' before continuing the pipeline."
+            if self._is_expression_start(got_tok):
+                if prev_tok.k in {"NUMBER", "STRING", "BOOL", "NULL", "IDENT", ")"}:
+                    return "Did you forget a comma? Add ',' between tuple elements or function arguments."
+            return "Close the current tuple/parameter list with ')'."
+
+        if expected == ":":
+            return "Add ':' before a type annotation (for example: x: Number)."
+
+        if expected == "IDENT":
+            if prev_tok.k == "->":
+                return "A pipeline stage is missing after '->'. Use a call target like Std.Add, MyFunc, or +."
+            return "Use a valid identifier (letters/underscore, then letters/digits/underscore)."
+
+        return "Check for a missing or misplaced token earlier in the statement."
+
+    def _is_expression_start(self, tok: Tok) -> bool:
+        if tok.k in {"NUMBER", "STRING", "BOOL", "NULL", "IDENT", "("}:
+            return True
+        if tok.k in self.OPS:
+            return True
+        return tok.k == "-"
+
+    def _is_statement_start(self, tok: Tok) -> bool:
+        return tok.k in {"IDENT", "(", "NUMBER", "STRING", "BOOL", "NULL"} or tok.k in self.OPS
+
+def parse_program(source: str, source_name: str | Path | None = None) -> Program:
+    normalized_name = str(source_name) if source_name is not None else None
+    return Parser(source, source_name=normalized_name).p()
 
 
 def parse_file(file_path: str | Path) -> Program:
     p = Path(file_path)
-    return parse_program(p.read_text(encoding="utf-8"))
+    return parse_program(p.read_text(encoding="utf-8"), source_name=p)
 

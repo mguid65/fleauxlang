@@ -41,19 +41,23 @@ from fleaux_ast import (
     IRExpr, IRCallTarget,
 )
 from fleaux_diagnostics import format_diagnostic
-from fleaux_lowering import lower
-from fleaux_parser import parse_file
+from fleaux_lowering import FleauxLoweringError, lower
+from fleaux_parser import FleauxSyntaxError, parse_file
 
 
 class FleauxCppTranspilerError(Exception):
-    def __init__(self, message: str, *, hint: str | None = None):
+    def __init__(self, message: str, *, hint: str | None = None, span=None):
         self.stage = "transpile-cpp"
         self.message = message
         self.hint = hint
+        self.span = span
+        self.line = span.line if span is not None else None
+        self.col = span.col if span is not None else None
         super().__init__(
             format_diagnostic(
                 stage=self.stage,
                 message=self.message,
+                span=self.span,
                 hint=self.hint,
             )
         )
@@ -240,6 +244,8 @@ class FleauxCppTranspiler:
             try:
                 parsed_model = parse_file(source)
                 program: IRProgram = lower(parsed_model)
+            except (FleauxSyntaxError, FleauxLoweringError):
+                raise
             except Exception as exc:
                 raise FleauxCppTranspilerError(
                     f"Failed to parse/lower '{source.name}': {exc}",
@@ -252,7 +258,7 @@ class FleauxCppTranspiler:
                     continue
                 if stmt.module_name == "StdBuiltins":
                     continue
-                imported_source = self._resolve_import_source(source, stmt.module_name)
+                imported_source = self._resolve_import_source(source, stmt.module_name, span=stmt.span)
                 self._collect_module(imported_source)
                 import_sources[stmt.module_name] = imported_source
 
@@ -478,7 +484,7 @@ class FleauxCppTranspiler:
                         items.append(f"fleaux::runtime::make_callable_ref({ref})")
                         continue
                     if e.name not in local_bindings:
-                        ref = self._compile_name_ref(e.name, local_bindings, known_symbols)
+                        ref = self._compile_name_ref(e, local_bindings, known_symbols)
                         items.append(f"fleaux::runtime::make_callable_ref({ref})")
                         continue
                 items.append(self._compile_expr(e, local_bindings, import_aliases, known_symbols))
@@ -492,11 +498,12 @@ class FleauxCppTranspiler:
                 return self._compile_qualified_ref(expr, import_aliases, known_symbols)
             if expr.name in local_bindings:
                 return local_bindings[expr.name]
-            return self._compile_name_ref(expr.name, local_bindings, known_symbols)
+            return self._compile_name_ref(expr, local_bindings, known_symbols)
 
         raise FleauxCppTranspilerError(
             f"Cannot compile IR expression type '{type(expr).__name__}'.",
             hint="Use a flow expression, tuple expression, constant, or name reference.",
+            span=getattr(expr, "span", None),
         )
 
 
@@ -526,17 +533,19 @@ class FleauxCppTranspiler:
                 raise FleauxCppTranspilerError(
                     f"Unsupported operator '{target.op}'.",
                     hint="Use a supported operator mapping.",
+                    span=target.span,
                 )
             return self._builtin_node_expr(builtin)
 
         if isinstance(target, IRNameRef):
             if target.qualifier is not None:
                 return self._compile_qualified_ref(target, import_aliases, known_symbols)
-            return self._compile_name_ref(target.name, local_bindings, known_symbols)
+            return self._compile_name_ref(target, local_bindings, known_symbols)
 
         raise FleauxCppTranspilerError(
             f"Cannot compile call target type '{type(target).__name__}'.",
             hint="Use an operator reference or name reference as the call target.",
+            span=getattr(target, "span", None),
         )
 
     def _compile_qualified_ref(
@@ -545,10 +554,27 @@ class FleauxCppTranspiler:
         import_aliases: dict[str, str],
         known_symbols: dict[tuple[str | None, str], str],
     ) -> str:
-        sym = known_symbols.get(
-            (ref.qualifier, ref.name),
-            self._symbol_name(ref.qualifier, ref.name),
-        )
+        symbol_key = (ref.qualifier, ref.name)
+        if symbol_key not in known_symbols:
+            target = f"{ref.qualifier}.{ref.name}"
+            candidates = [
+                f"{qual}.{name}"
+                for (qual, name) in known_symbols.keys()
+                if qual is not None
+            ]
+            suggestion = self._best_levenshtein_candidate(target, candidates)
+            hint = (
+                f"Did you mean '{suggestion}'?"
+                if suggestion is not None
+                else "Check symbol spelling, module qualification, and imports."
+            )
+            raise FleauxCppTranspilerError(
+                f"Unknown symbol '{target}'.",
+                hint=hint,
+                span=ref.span,
+            )
+
+        sym = known_symbols[symbol_key]
         if "::" in sym:
             return sym
         if ref.qualifier in import_aliases:
@@ -560,15 +586,122 @@ class FleauxCppTranspiler:
 
     def _compile_name_ref(
         self,
-        name: str,
+        ref: IRNameRef,
         local_bindings: dict[str, str],
         known_symbols: dict[tuple[str | None, str], str],
     ) -> str:
+        name = ref.name
         if name in local_bindings:
             return local_bindings[name]
         if (None, name) in known_symbols:
             return known_symbols[(None, name)]
-        return self._sanitize(name)
+
+        # Suggest from local bindings and module-local unqualified symbols.
+        # Imported symbols are commonly stored with '::' namespace prefixes in
+        # known_symbols[(None, name)] and are excluded to avoid misleading
+        # suggestions like 'Add' for a misspelling of local 'MyAdd'.
+        candidates: list[str] = list(local_bindings.keys())
+        for (qual, candidate_name), resolved in known_symbols.items():
+            if qual is not None:
+                continue
+            if "::" in resolved:
+                continue
+            candidates.append(candidate_name)
+
+        suggestion = self._best_levenshtein_candidate(name, candidates)
+        if suggestion is None:
+            suggestion = self._best_qualified_candidate_for_unqualified(name, known_symbols)
+
+        hint = (
+            f"Did you mean '{suggestion}'?"
+            if suggestion is not None
+            else "Check symbol spelling or define/import the missing symbol."
+        )
+        raise FleauxCppTranspilerError(
+            f"Unknown symbol '{name}'.",
+            hint=hint,
+            span=ref.span,
+        )
+
+    @staticmethod
+    def _best_levenshtein_candidate(target: str, candidates: list[str]) -> str | None:
+        normalized = target.strip()
+        if not normalized:
+            return None
+
+        unique_candidates = sorted({c for c in candidates if c and c != normalized})
+        if not unique_candidates:
+            return None
+
+        best = min(
+            unique_candidates,
+            key=lambda c: (FleauxCppTranspiler._levenshtein_distance(normalized, c), len(c), c),
+        )
+        dist = FleauxCppTranspiler._levenshtein_distance(normalized, best)
+        max_dist = 1 if len(normalized) <= 4 else 2 if len(normalized) <= 8 else 3
+        return best if dist <= max_dist else None
+
+    @staticmethod
+    def _best_qualified_candidate_for_unqualified(
+        target: str,
+        known_symbols: dict[tuple[str | None, str], str],
+    ) -> str | None:
+        normalized = target.strip()
+        if not normalized:
+            return None
+
+        qualified = [
+            (f"{qual}.{name}", name)
+            for (qual, name) in known_symbols.keys()
+            if qual is not None
+        ]
+        if not qualified:
+            return None
+
+        best_display: str | None = None
+        best_name: str | None = None
+        best_dist: int | None = None
+        for display, tail_name in qualified:
+            dist = FleauxCppTranspiler._levenshtein_distance(normalized, tail_name)
+            if (
+                best_dist is None
+                or dist < best_dist
+                or (dist == best_dist and len(tail_name) < len(best_name or tail_name))
+                or (dist == best_dist and tail_name == (best_name or tail_name) and display < (best_display or display))
+            ):
+                best_display = display
+                best_name = tail_name
+                best_dist = dist
+
+        if best_display is None or best_name is None or best_dist is None:
+            return None
+
+        max_dist = 1 if len(best_name) <= 4 else 2 if len(best_name) <= 8 else 3
+        return best_display if best_dist <= max_dist else None
+
+    @staticmethod
+    def _levenshtein_distance(a: str, b: str) -> int:
+        if a == b:
+            return 0
+        if not a:
+            return len(b)
+        if not b:
+            return len(a)
+
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, start=1):
+            curr = [i]
+            for j, cb in enumerate(b, start=1):
+                cost = 0 if ca == cb else 1
+                curr.append(
+                    min(
+                        prev[j] + 1,
+                        curr[j - 1] + 1,
+                        prev[j - 1] + cost,
+                    )
+                )
+            prev = curr
+        return prev[-1]
 
     def _builtin_node_expr(self, name: str) -> str:
         mapped = self.BUILTIN_NAME_MAP.get(name, name)
@@ -577,7 +710,7 @@ class FleauxCppTranspiler:
         quoted = json.dumps(name)
         return f"_fleaux_missing_builtin({quoted})"
 
-    def _resolve_import_source(self, source: Path, module_name: str) -> Path:
+    def _resolve_import_source(self, source: Path, module_name: str, *, span=None) -> Path:
         local_source = source.with_name(f"{module_name}.fleaux").resolve()
         if local_source.exists():
             return local_source
@@ -593,6 +726,7 @@ class FleauxCppTranspiler:
             f"Unable to resolve import '{module_name}' from '{source}'. "
             f"Looked for '{local_source}'{bundled_hint}.",
             hint="Place the module beside the importing source file, or use a bundled module such as 'Std'.",
+            span=span,
         )
 
     @staticmethod
