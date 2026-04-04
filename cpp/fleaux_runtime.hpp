@@ -1504,13 +1504,25 @@ struct OSIsMacOS {
 struct OSHome {
     Value operator()(Value arg) const {
         (void)require_args(arg, 0, "OSHome");
-        if (const char* home = std::getenv("HOME")) {
+        if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
             return make_string(home);
         }
-        if (const char* userprofile = std::getenv("USERPROFILE")) {
+        if (const char* userprofile = std::getenv("USERPROFILE");
+            userprofile != nullptr && userprofile[0] != '\0') {
             return make_string(userprofile);
         }
-        return make_string(std::filesystem::current_path().string());
+        const char* homedrive = std::getenv("HOMEDRIVE");
+        const char* homepath = std::getenv("HOMEPATH");
+        if (homedrive != nullptr && homepath != nullptr && homedrive[0] != '\0' && homepath[0] != '\0') {
+            return make_string(std::string(homedrive) + std::string(homepath));
+        }
+
+        std::error_code ec;
+        const auto cwd = std::filesystem::current_path(ec);
+        if (!ec) {
+            return make_string(cwd.string());
+        }
+        return make_string(".");
     }
 };
 

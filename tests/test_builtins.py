@@ -258,6 +258,10 @@ class OSBuiltinTests(unittest.TestCase):
     def test_os_home(self) -> None:
         self.assertEqual(() | fstd.OSHome(), str(Path.home()))
 
+    def test_os_home_falls_back_to_dot_when_path_home_fails(self) -> None:
+        with patch("fleaux_std_builtins.Path.home", side_effect=RuntimeError("no home")):
+            self.assertEqual(() | fstd.OSHome(), ".")
+
     def test_os_tempdir(self) -> None:
         import tempfile
         self.assertEqual(() | fstd.OSTempDir(), tempfile.gettempdir())
