@@ -10,8 +10,10 @@ Tests cover:
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 
+from fleaux_cpp_transpiler import FleauxCppTranspiler, FleauxCppTranspilerError
 from fleaux_lowering import FleauxLoweringError, lower
 from fleaux_parser import FleauxSyntaxError, parse_program, parse_file
 from pathlib import Path
@@ -373,7 +375,8 @@ class RecoveryAndDiagnosticsTests(unittest.TestCase):
             parse_program("(1, 2) -> Std.Add")
 
         self.assertIn("end of input", str(ctx.exception))
-        self.assertIn("Hint:", str(ctx.exception))
+        self.assertNotIn("Hint:", str(ctx.exception))
+        self.assertIn("Add ';'", str(ctx.exception))
 
     def test_parse_error_exposes_stage_and_hint_fields(self) -> None:
         source = "(1 2) -> Std.Add;"
@@ -386,10 +389,43 @@ class RecoveryAndDiagnosticsTests(unittest.TestCase):
         self.assertTrue(hasattr(err, "hint"))
         self.assertIn("[parse]", str(err))
 
+    def test_missing_comma_hint_is_actionable(self) -> None:
+        with self.assertRaises(FleauxSyntaxError) as ctx:
+            parse_program("(1 2) -> Std.Add;")
+
+        self.assertIn("forget a comma", str(ctx.exception))
+        self.assertIn("tuple elements", str(ctx.exception))
+
+    def test_missing_pipeline_target_hint_is_actionable(self) -> None:
+        with self.assertRaises(FleauxSyntaxError) as ctx:
+            parse_program("(1, 2) -> ;")
+
+        err = ctx.exception
+        self.assertIsNotNone(err.hint)
+        self.assertIn("pipeline stage is missing", err.hint)
+        self.assertIn("after '->'", err.hint)
+
+    def test_parse_file_error_includes_source_path_and_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "broken_parse.fleaux"
+            source_path.write_text("(1 2) -> Std.Add;\n", encoding="utf-8")
+
+            with self.assertRaises(FleauxSyntaxError) as ctx:
+                parse_file(source_path)
+
+            err = ctx.exception
+            self.assertEqual(err.source_name, str(source_path))
+            self.assertIsNotNone(err.span)
+            self.assertIn(str(source_path), str(err))
+            self.assertIn("(1 2) -> Std.Add;", str(err))
+
 
 class LoweringDiagnosticsTests(unittest.TestCase):
     def test_invalid_non_call_stage_reports_stage_index_and_hint(self) -> None:
-        model = parse_program("(1, 2) -> Std.Add -> 3 -> Std.Println;")
+        model = parse_program(
+            "(1, 2) -> Std.Add -> 3 -> Std.Println;",
+            source_name="inline_invalid_stage.fleaux",
+        )
 
         with self.assertRaises(FleauxLoweringError) as ctx:
             lower(model)
@@ -398,7 +434,11 @@ class LoweringDiagnosticsTests(unittest.TestCase):
         self.assertEqual(err.stage, "lowering")
         self.assertIsNotNone(err.stage_index)
         self.assertIsNotNone(err.hint)
+        self.assertIsNotNone(err.span)
+        self.assertEqual(err.line, 1)
         self.assertIn("stage", str(err))
+        self.assertIn("inline_invalid_stage.fleaux", str(err))
+        self.assertIn("(1, 2) -> Std.Add -> 3 -> Std.Println;", str(err))
 
     def test_template_stage_missing_call_target_reports_actionable_error(self) -> None:
         model = parse_program("(1, 2) -> Std.Add -> (_, 3);")
@@ -409,6 +449,74 @@ class LoweringDiagnosticsTests(unittest.TestCase):
         err = ctx.exception
         self.assertIn("missing a following call target", str(err))
         self.assertIsNotNone(err.hint)
+
+
+class TranspilerDiagnosticsTests(unittest.TestCase):
+    def test_missing_import_reports_fleaux_source_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "missing_import.fleaux"
+            source_path.write_text("import DoesNotExist;\n", encoding="utf-8")
+
+            with self.assertRaises(FleauxCppTranspilerError) as ctx:
+                FleauxCppTranspiler().process(source_path)
+
+            err = ctx.exception
+            self.assertIsNotNone(err.span)
+            self.assertIn(str(source_path), str(err))
+            self.assertIn("import DoesNotExist;", str(err))
+            self.assertIn("Unable to resolve import 'DoesNotExist'", str(err))
+
+    def test_unknown_qualified_symbol_suggests_closest_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "misspelled_qualified_symbol.fleaux"
+            source_path.write_text(
+                "import Std;\n"
+                "(1) -> Std.Pritnln;\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(FleauxCppTranspilerError) as ctx:
+                FleauxCppTranspiler().process(source_path)
+
+            err = ctx.exception
+            self.assertIn("Unknown symbol 'Std.Pritnln'", str(err))
+            self.assertIsNotNone(err.hint)
+            self.assertIn("Std.Println", err.hint)
+
+    def test_unknown_unqualified_symbol_suggests_closest_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "misspelled_unqualified_symbol.fleaux"
+            source_path.write_text(
+                "import Std;\n"
+                "(1) -> Pritnln;\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(FleauxCppTranspilerError) as ctx:
+                FleauxCppTranspiler().process(source_path)
+
+            err = ctx.exception
+            self.assertIn("Unknown symbol 'Pritnln'", str(err))
+            self.assertIsNotNone(err.hint)
+            self.assertIn("Println", err.hint)
+
+    def test_unknown_unqualified_symbol_prefers_local_match_over_imported_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "local_vs_imported_suggestion.fleaux"
+            source_path.write_text(
+                "import Std;\n"
+                "let MyAdd(x: Number, y: Number): Number :: (x, y) -> +;\n"
+                "(1, 1) -> MAdd -> Std.Println;\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(FleauxCppTranspilerError) as ctx:
+                FleauxCppTranspiler().process(source_path)
+
+            err = ctx.exception
+            self.assertIsNotNone(err.hint)
+            self.assertIn("MyAdd", err.hint)
+            self.assertNotIn("Did you mean 'Add'?", err.hint)
 
 
 class RegressionAndStabilityTests(unittest.TestCase):

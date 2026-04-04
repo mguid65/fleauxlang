@@ -7,8 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fleaux_cpp_transpiler import FleauxCppTranspiler
+from fleaux_cpp_transpiler import FleauxCppTranspiler, FleauxCppTranspilerError
 from fleaux_graphviz import GraphEmitError, write_graph_for_source
+from fleaux_lowering import FleauxLoweringError
+from fleaux_parser import FleauxSyntaxError
 
 
 _COMPILER_CANDIDATES = ["clang++-20", "clang++", "g++", "c++"]
@@ -136,7 +138,11 @@ def main() -> int:
     runtime_dir = Path(__file__).resolve().parent
 
 
-    output = FleauxCppTranspiler().process(source)
+    try:
+        output = FleauxCppTranspiler().process(source)
+    except (FleauxSyntaxError, FleauxLoweringError, FleauxCppTranspilerError) as exc:
+        print(exc, file=sys.stderr)
+        return 2
     binary = output.with_suffix("")
     compiler = _resolve_compiler(args.compiler or os.environ.get("FLEAUX_COMPILER"))
     unoptimized = args.unoptimized or _env_flag("FLEAUX_UNOPTIMIZED") or _env_flag("FLEAUX_FAST_COMPILE")

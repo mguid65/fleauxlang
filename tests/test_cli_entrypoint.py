@@ -170,6 +170,28 @@ class CliEntrypointTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_fleaux_launcher_reports_parse_diagnostic_without_traceback(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        launcher = repo_root / "fleaux"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir) / "broken_cli_parse.fleaux"
+            source.write_text("(1 2) -> Std.Add;\n", encoding="utf-8")
+
+            completed = subprocess.run(
+                [str(launcher), str(source)],
+                cwd=tmp_dir,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("[parse]", completed.stderr)
+            self.assertIn(str(source), completed.stderr)
+            self.assertIn("(1 2) -> Std.Add;", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -105,6 +105,17 @@ class IRLoweringTypeTests(unittest.TestCase):
 
 
 class IRLoweringExpressionTests(unittest.TestCase):
+    def test_ir_nodes_preserve_source_spans(self) -> None:
+        program = _lower("let Id(x: Number): Number = (x) -> Std.Sqrt;")
+        stmt = program.statements[0]
+
+        self.assertIsNotNone(program.span)
+        self.assertIsNotNone(stmt.span)
+        self.assertIsNotNone(stmt.params[0].span)
+        self.assertIsNotNone(stmt.body.span)
+        self.assertIsNotNone(stmt.body.lhs.span)
+        self.assertIsNotNone(stmt.body.rhs.span)
+
     def test_flow_expr_structure(self) -> None:
         program = _lower("let Id(x: Number): Number = (x) -> Std.Sqrt;")
         body = program.statements[0].body

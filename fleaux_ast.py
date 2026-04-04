@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
+from fleaux_diagnostics import SourceSpan
+
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,7 @@ class IRSimpleType:
     """A primitive or user-defined type name: Number, String, Bool, Null, Any, MyType."""
     name: str
     variadic: bool = False
+    span: SourceSpan | None = None
 
 
 @dataclass
@@ -25,6 +28,7 @@ class IRTupleType:
     """Tuple(T1, T2, ...) structural type."""
     types: list[IRType]
     variadic: bool = False
+    span: SourceSpan | None = None
 
 
 IRType = Union[IRSimpleType, IRTupleType]
@@ -36,6 +40,7 @@ IRType = Union[IRSimpleType, IRTupleType]
 class IRParam:
     name: str
     type: IRType
+    span: SourceSpan | None = None
 
 
 # ── Expressions ───────────────────────────────────────────────────────────────
@@ -44,6 +49,7 @@ class IRParam:
 class IRConstant:
     """A literal constant: a number, string, bool, or null."""
     val: int | float | bool | str | None
+    span: SourceSpan | None = None
 
 
 @dataclass
@@ -51,12 +57,14 @@ class IRNameRef:
     """A reference to an identifier, optionally qualified: Foo or Std.Add."""
     qualifier: str | None
     name: str
+    span: SourceSpan | None = None
 
 
 @dataclass
 class IROperatorRef:
     """An operator used as a pipeline call target: +, -, *, /, ^, etc."""
     op: str
+    span: SourceSpan | None = None
 
 
 @dataclass
@@ -66,6 +74,7 @@ class IRTupleExpr:
     A single-item tuple (x,) is still represented here with len(items) == 1.
     """
     items: list[IRExpr]
+    span: SourceSpan | None = None
 
 
 @dataclass
@@ -73,6 +82,7 @@ class IRFlowExpr:
     """A pipeline expression: (lhs) -> rhs."""
     lhs: IRTupleExpr
     rhs: IRCallTarget
+    span: SourceSpan | None = None
 
 
 IRExpr = Union[IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef]
@@ -84,6 +94,7 @@ IRCallTarget = Union[IRNameRef, IROperatorRef]
 @dataclass
 class IRImport:
     module_name: str
+    span: SourceSpan | None = None
 
 
 @dataclass
@@ -99,11 +110,13 @@ class IRLet:
     return_type: IRType
     body: IRExpr | None
     is_builtin: bool = False
+    span: SourceSpan | None = None
 
 
 @dataclass
 class IRExprStatement:
     expr: IRExpr
+    span: SourceSpan | None = None
 
 
 IRStatement = Union[IRImport, IRLet, IRExprStatement]
@@ -114,4 +127,5 @@ IRStatement = Union[IRImport, IRLet, IRExprStatement]
 @dataclass
 class IRProgram:
     statements: list[IRStatement] = field(default_factory=list)
+    span: SourceSpan | None = None
 
