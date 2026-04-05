@@ -1,0 +1,2 @@
+/usr/bin/ar qc libfleaux_frontend_parser.a CMakeFiles/fleaux_frontend_parser.dir/src/frontend/parser.cpp.o
+/usr/bin/ranlib libfleaux_frontend_parser.a
