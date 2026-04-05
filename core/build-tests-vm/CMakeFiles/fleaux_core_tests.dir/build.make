@@ -142,13 +142,43 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/matthew/CLionProjects/fleauxlang/core/tests/bytecode_tests.cpp -o CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.s
 
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o: CMakeFiles/fleaux_core_tests.dir/flags.make
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o: /home/matthew/CLionProjects/fleauxlang/core/tests/vm_runtime_tests.cpp
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o: CMakeFiles/fleaux_core_tests.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o -MF CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o.d -o CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o -c /home/matthew/CLionProjects/fleauxlang/core/tests/vm_runtime_tests.cpp
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/matthew/CLionProjects/fleauxlang/core/tests/vm_runtime_tests.cpp > CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.i
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/matthew/CLionProjects/fleauxlang/core/tests/vm_runtime_tests.cpp -o CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.s
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o: CMakeFiles/fleaux_core_tests.dir/flags.make
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o: /home/matthew/CLionProjects/fleauxlang/core/tests/vm_samples_tests.cpp
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o: CMakeFiles/fleaux_core_tests.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o -MF CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o.d -o CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o -c /home/matthew/CLionProjects/fleauxlang/core/tests/vm_samples_tests.cpp
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/matthew/CLionProjects/fleauxlang/core/tests/vm_samples_tests.cpp > CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.i
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/matthew/CLionProjects/fleauxlang/core/tests/vm_samples_tests.cpp -o CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.s
+
 # Object files for target fleaux_core_tests
 fleaux_core_tests_OBJECTS = \
 "CMakeFiles/fleaux_core_tests.dir/tests/diagnostics_tests.cpp.o" \
 "CMakeFiles/fleaux_core_tests.dir/tests/parser_tests.cpp.o" \
 "CMakeFiles/fleaux_core_tests.dir/tests/lowering_tests.cpp.o" \
 "CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o" \
-"CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o"
+"CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o" \
+"CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o" \
+"CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o"
 
 # External object files for target fleaux_core_tests
 fleaux_core_tests_EXTERNAL_OBJECTS =
@@ -158,6 +188,8 @@ fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/parser_tests.cpp.o
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/lowering_tests.cpp.o
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o
+fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o
+fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/build.make
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/compiler_depend.ts
 fleaux_core_tests: libfleaux_frontend_diagnostics.a
@@ -165,13 +197,16 @@ fleaux_core_tests: libfleaux_frontend_parser.a
 fleaux_core_tests: libfleaux_frontend_lowering.a
 fleaux_core_tests: libfleaux_frontend_cpp_transpiler.a
 fleaux_core_tests: libfleaux_bytecode.a
+fleaux_core_tests: libfleaux_vm.a
+fleaux_core_tests: libfleaux_vm_interpreter.a
 fleaux_core_tests: /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2Maind.a
 fleaux_core_tests: /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2d.a
+fleaux_core_tests: libfleaux_bytecode.a
 fleaux_core_tests: libfleaux_frontend_lowering.a
 fleaux_core_tests: libfleaux_frontend_parser.a
 fleaux_core_tests: libfleaux_frontend_diagnostics.a
 fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Linking CXX executable fleaux_core_tests"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Linking CXX executable fleaux_core_tests"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/fleaux_core_tests.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

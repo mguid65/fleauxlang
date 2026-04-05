@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/matthew/CLionProjects/fleauxlang/core/include -I/home/matthew/CLionProjects/fleauxlang/core/../third_party/tl/include -I/home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include
+CXX_INCLUDES = -I/home/matthew/CLionProjects/fleauxlang/core/include -I/home/matthew/CLionProjects/fleauxlang/core/../cpp -I/home/matthew/CLionProjects/fleauxlang/core/src/vm -I/home/matthew/CLionProjects/fleauxlang/core/../third_party/tl/include -I/home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include
 
 CXX_FLAGS = -m64 -g -std=c++20
 

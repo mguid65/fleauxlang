@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)
 
-option(FLEAUX_ENABLE_VM_PLACEHOLDERS "Build bytecode/vm placeholder targets" OFF)
+option(FLEAUX_ENABLE_VM_PLACEHOLDERS "Build bytecode/vm placeholder targets" ON)
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
@@ -68,12 +68,34 @@ if(FLEAUX_ENABLE_VM_PLACEHOLDERS)
   target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected)
 
   add_library(fleaux_vm STATIC)
-  target_include_directories(fleaux_vm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_include_directories(fleaux_vm
+      PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
+      PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
   target_sources(fleaux_vm PRIVATE src/vm/runtime.cpp)
   target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree)
 
+  add_library(fleaux_vm_interpreter STATIC)
+  target_include_directories(fleaux_vm_interpreter
+      PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
+  target_sources(fleaux_vm_interpreter PRIVATE src/vm/interpreter.cpp)
+  target_link_libraries(fleaux_vm_interpreter PUBLIC
+      fleaux_frontend_parser
+      fleaux_frontend_lowering
+      fleaux_frontend_diagnostics
+      tl_expected
+      datatree)
+
+  add_executable(fleaux_vm_cli src/cli/vm_main.cpp)
+  target_link_libraries(fleaux_vm_cli PRIVATE fleaux_vm_interpreter fleaux_vm)
+
   if(BUILD_TESTING)
-    target_sources(fleaux_core_tests PRIVATE tests/bytecode_tests.cpp)
-    target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode)
+    target_sources(fleaux_core_tests PRIVATE
+        tests/bytecode_tests.cpp
+        tests/vm_runtime_tests.cpp
+        tests/vm_samples_tests.cpp)
+    target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_vm_interpreter)
   endif()
 endif()

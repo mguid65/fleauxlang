@@ -13,6 +13,8 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/matthew/CLionProjects/fleauxlang/core/tests/lowering_tests.cpp" "CMakeFiles/fleaux_core_tests.dir/tests/lowering_tests.cpp.o" "gcc" "CMakeFiles/fleaux_core_tests.dir/tests/lowering_tests.cpp.o.d"
   "/home/matthew/CLionProjects/fleauxlang/core/tests/parser_tests.cpp" "CMakeFiles/fleaux_core_tests.dir/tests/parser_tests.cpp.o" "gcc" "CMakeFiles/fleaux_core_tests.dir/tests/parser_tests.cpp.o.d"
   "/home/matthew/CLionProjects/fleauxlang/core/tests/transpiler_tests.cpp" "CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o" "gcc" "CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o.d"
+  "/home/matthew/CLionProjects/fleauxlang/core/tests/vm_runtime_tests.cpp" "CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o" "gcc" "CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o.d"
+  "/home/matthew/CLionProjects/fleauxlang/core/tests/vm_samples_tests.cpp" "CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o" "gcc" "CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o.d"
   "" "fleaux_core_tests" "gcc" "CMakeFiles/fleaux_core_tests.dir/link.d"
   )
 

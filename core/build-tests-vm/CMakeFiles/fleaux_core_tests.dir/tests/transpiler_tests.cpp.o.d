@@ -193,8 +193,44 @@ CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o: \
  /usr/include/c++/15/fstream \
  /usr/include/x86_64-linux-gnu/c++/15/bits/basic_file.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/c++io.h \
- /usr/include/c++/15/bits/fstream.tcc /usr/include/c++/15/optional \
+ /usr/include/c++/15/bits/fstream.tcc /usr/include/c++/15/array \
+ /usr/include/c++/15/optional \
  /usr/include/c++/15/bits/enable_special_members.h \
+ /usr/include/c++/15/set /usr/include/c++/15/bits/stl_tree.h \
+ /usr/include/c++/15/bits/node_handle.h \
+ /usr/include/c++/15/bits/stl_set.h \
+ /usr/include/c++/15/bits/stl_multiset.h \
+ /usr/include/c++/15/bits/erase_if.h \
+ /usr/include/x86_64-linux-gnu/sys/wait.h /usr/include/signal.h \
+ /usr/include/x86_64-linux-gnu/bits/signum-generic.h \
+ /usr/include/x86_64-linux-gnu/bits/signum-arch.h \
+ /usr/include/x86_64-linux-gnu/bits/types/sig_atomic_t.h \
+ /usr/include/x86_64-linux-gnu/bits/types/siginfo_t.h \
+ /usr/include/x86_64-linux-gnu/bits/types/__sigval_t.h \
+ /usr/include/x86_64-linux-gnu/bits/siginfo-arch.h \
+ /usr/include/x86_64-linux-gnu/bits/siginfo-consts.h \
+ /usr/include/x86_64-linux-gnu/bits/siginfo-consts-arch.h \
+ /usr/include/x86_64-linux-gnu/bits/types/sigval_t.h \
+ /usr/include/x86_64-linux-gnu/bits/types/sigevent_t.h \
+ /usr/include/x86_64-linux-gnu/bits/sigevent-consts.h \
+ /usr/include/x86_64-linux-gnu/bits/sigaction.h \
+ /usr/include/x86_64-linux-gnu/bits/sigcontext.h \
+ /usr/include/x86_64-linux-gnu/bits/types/stack_t.h \
+ /usr/include/x86_64-linux-gnu/sys/ucontext.h \
+ /usr/include/x86_64-linux-gnu/bits/sigstack.h \
+ /usr/include/x86_64-linux-gnu/bits/sigstksz.h /usr/include/unistd.h \
+ /usr/include/x86_64-linux-gnu/bits/posix_opt.h \
+ /usr/include/x86_64-linux-gnu/bits/environments.h \
+ /usr/include/x86_64-linux-gnu/bits/confname.h \
+ /usr/include/x86_64-linux-gnu/bits/getopt_posix.h \
+ /usr/include/x86_64-linux-gnu/bits/getopt_core.h \
+ /usr/include/x86_64-linux-gnu/bits/unistd_ext.h \
+ /usr/include/linux/close_range.h \
+ /usr/include/x86_64-linux-gnu/bits/ss_flags.h \
+ /usr/include/x86_64-linux-gnu/bits/types/struct_sigstack.h \
+ /usr/include/x86_64-linux-gnu/bits/sigthread.h \
+ /usr/include/x86_64-linux-gnu/bits/signal_ext.h \
+ /usr/include/x86_64-linux-gnu/bits/types/idtype_t.h \
  /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_test_macros.hpp \
  /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_test_macro_impl.hpp \
  /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_user_config.hpp \
@@ -223,8 +259,8 @@ CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o: \
  /usr/include/c++/15/bits/uniform_int_dist.h \
  /usr/include/c++/15/bits/stl_tempbuf.h \
  /usr/include/c++/15/bits/chrono_io.h /usr/include/c++/15/format \
- /usr/include/c++/15/array /usr/include/c++/15/charconv \
- /usr/include/c++/15/span /usr/include/c++/15/bits/monostate.h \
+ /usr/include/c++/15/charconv /usr/include/c++/15/span \
+ /usr/include/c++/15/bits/monostate.h \
  /usr/include/c++/15/bits/formatfwd.h \
  /usr/include/c++/15/bits/ranges_algobase.h \
  /usr/include/c++/15/bits/unicode.h \
@@ -259,9 +295,7 @@ CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o: \
  /usr/include/c++/15/unordered_map \
  /usr/include/c++/15/bits/unordered_map.h \
  /usr/include/c++/15/bits/hashtable.h \
- /usr/include/c++/15/bits/hashtable_policy.h \
- /usr/include/c++/15/bits/node_handle.h \
- /usr/include/c++/15/bits/erase_if.h /usr/include/c++/15/utility \
+ /usr/include/c++/15/bits/hashtable_policy.h /usr/include/c++/15/utility \
  /usr/include/c++/15/bits/stl_relops.h \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/ast.hpp \
  /usr/include/c++/15/memory \
@@ -277,14 +311,7 @@ CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o: \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
  /usr/include/x86_64-linux-gnu/bits/xopen_lim.h \
- /usr/include/x86_64-linux-gnu/bits/uio_lim.h /usr/include/unistd.h \
- /usr/include/x86_64-linux-gnu/bits/posix_opt.h \
- /usr/include/x86_64-linux-gnu/bits/environments.h \
- /usr/include/x86_64-linux-gnu/bits/confname.h \
- /usr/include/x86_64-linux-gnu/bits/getopt_posix.h \
- /usr/include/x86_64-linux-gnu/bits/getopt_core.h \
- /usr/include/x86_64-linux-gnu/bits/unistd_ext.h \
- /usr/include/linux/close_range.h /usr/include/syscall.h \
+ /usr/include/x86_64-linux-gnu/bits/uio_lim.h /usr/include/syscall.h \
  /usr/include/x86_64-linux-gnu/sys/syscall.h \
  /usr/include/x86_64-linux-gnu/asm/unistd.h \
  /usr/include/x86_64-linux-gnu/asm/unistd_64.h \

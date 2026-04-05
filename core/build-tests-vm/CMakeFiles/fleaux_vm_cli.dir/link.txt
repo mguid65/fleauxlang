@@ -1,0 +1,1 @@
+/usr/bin/c++ -m64 -g -m64 -Wl,--dependency-file=CMakeFiles/fleaux_vm_cli.dir/link.d CMakeFiles/fleaux_vm_cli.dir/src/cli/vm_main.cpp.o -o fleaux_vm_cli  libfleaux_vm_interpreter.a libfleaux_vm.a libfleaux_bytecode.a libfleaux_frontend_lowering.a libfleaux_frontend_parser.a libfleaux_frontend_diagnostics.a

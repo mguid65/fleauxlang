@@ -594,6 +594,32 @@ fleaux_vm/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm.dir/build.make CMakeFiles/fleaux_vm.dir/build
 .PHONY : fleaux_vm/fast
 
+#=============================================================================
+# Target rules for targets named fleaux_vm_interpreter
+
+# Build rule for target.
+fleaux_vm_interpreter: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 fleaux_vm_interpreter
+.PHONY : fleaux_vm_interpreter
+
+# fast build rule for target.
+fleaux_vm_interpreter/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/build
+.PHONY : fleaux_vm_interpreter/fast
+
+#=============================================================================
+# Target rules for targets named fleaux_vm_cli
+
+# Build rule for target.
+fleaux_vm_cli: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 fleaux_vm_cli
+.PHONY : fleaux_vm_cli
+
+# fast build rule for target.
+fleaux_vm_cli/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/build
+.PHONY : fleaux_vm_cli/fast
+
 src/bytecode/compiler.o: src/bytecode/compiler.cpp.o
 .PHONY : src/bytecode/compiler.o
 
@@ -641,6 +667,30 @@ src/cli/main.s: src/cli/main.cpp.s
 src/cli/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_transpile_cli.dir/build.make CMakeFiles/fleaux_transpile_cli.dir/src/cli/main.cpp.s
 .PHONY : src/cli/main.cpp.s
+
+src/cli/vm_main.o: src/cli/vm_main.cpp.o
+.PHONY : src/cli/vm_main.o
+
+# target to build an object file
+src/cli/vm_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/src/cli/vm_main.cpp.o
+.PHONY : src/cli/vm_main.cpp.o
+
+src/cli/vm_main.i: src/cli/vm_main.cpp.i
+.PHONY : src/cli/vm_main.i
+
+# target to preprocess a source file
+src/cli/vm_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/src/cli/vm_main.cpp.i
+.PHONY : src/cli/vm_main.cpp.i
+
+src/cli/vm_main.s: src/cli/vm_main.cpp.s
+.PHONY : src/cli/vm_main.s
+
+# target to generate assembly for a file
+src/cli/vm_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/src/cli/vm_main.cpp.s
+.PHONY : src/cli/vm_main.cpp.s
 
 src/frontend/cpp_transpiler.o: src/frontend/cpp_transpiler.cpp.o
 .PHONY : src/frontend/cpp_transpiler.o
@@ -737,6 +787,30 @@ src/frontend/parser.s: src/frontend/parser.cpp.s
 src/frontend/parser.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_parser.dir/build.make CMakeFiles/fleaux_frontend_parser.dir/src/frontend/parser.cpp.s
 .PHONY : src/frontend/parser.cpp.s
+
+src/vm/interpreter.o: src/vm/interpreter.cpp.o
+.PHONY : src/vm/interpreter.o
+
+# target to build an object file
+src/vm/interpreter.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/src/vm/interpreter.cpp.o
+.PHONY : src/vm/interpreter.cpp.o
+
+src/vm/interpreter.i: src/vm/interpreter.cpp.i
+.PHONY : src/vm/interpreter.i
+
+# target to preprocess a source file
+src/vm/interpreter.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/src/vm/interpreter.cpp.i
+.PHONY : src/vm/interpreter.cpp.i
+
+src/vm/interpreter.s: src/vm/interpreter.cpp.s
+.PHONY : src/vm/interpreter.s
+
+# target to generate assembly for a file
+src/vm/interpreter.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/src/vm/interpreter.cpp.s
+.PHONY : src/vm/interpreter.cpp.s
 
 src/vm/runtime.o: src/vm/runtime.cpp.o
 .PHONY : src/vm/runtime.o
@@ -882,6 +956,54 @@ tests/transpiler_tests.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.s
 .PHONY : tests/transpiler_tests.cpp.s
 
+tests/vm_runtime_tests.o: tests/vm_runtime_tests.cpp.o
+.PHONY : tests/vm_runtime_tests.o
+
+# target to build an object file
+tests/vm_runtime_tests.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o
+.PHONY : tests/vm_runtime_tests.cpp.o
+
+tests/vm_runtime_tests.i: tests/vm_runtime_tests.cpp.i
+.PHONY : tests/vm_runtime_tests.i
+
+# target to preprocess a source file
+tests/vm_runtime_tests.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.i
+.PHONY : tests/vm_runtime_tests.cpp.i
+
+tests/vm_runtime_tests.s: tests/vm_runtime_tests.cpp.s
+.PHONY : tests/vm_runtime_tests.s
+
+# target to generate assembly for a file
+tests/vm_runtime_tests.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.s
+.PHONY : tests/vm_runtime_tests.cpp.s
+
+tests/vm_samples_tests.o: tests/vm_samples_tests.cpp.o
+.PHONY : tests/vm_samples_tests.o
+
+# target to build an object file
+tests/vm_samples_tests.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o
+.PHONY : tests/vm_samples_tests.cpp.o
+
+tests/vm_samples_tests.i: tests/vm_samples_tests.cpp.i
+.PHONY : tests/vm_samples_tests.i
+
+# target to preprocess a source file
+tests/vm_samples_tests.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.i
+.PHONY : tests/vm_samples_tests.cpp.i
+
+tests/vm_samples_tests.s: tests/vm_samples_tests.cpp.s
+.PHONY : tests/vm_samples_tests.s
+
+# target to generate assembly for a file
+tests/vm_samples_tests.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.s
+.PHONY : tests/vm_samples_tests.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -927,12 +1049,17 @@ help:
 	@echo "... fleaux_frontend_parser"
 	@echo "... fleaux_transpile_cli"
 	@echo "... fleaux_vm"
+	@echo "... fleaux_vm_cli"
+	@echo "... fleaux_vm_interpreter"
 	@echo "... src/bytecode/compiler.o"
 	@echo "... src/bytecode/compiler.i"
 	@echo "... src/bytecode/compiler.s"
 	@echo "... src/cli/main.o"
 	@echo "... src/cli/main.i"
 	@echo "... src/cli/main.s"
+	@echo "... src/cli/vm_main.o"
+	@echo "... src/cli/vm_main.i"
+	@echo "... src/cli/vm_main.s"
 	@echo "... src/frontend/cpp_transpiler.o"
 	@echo "... src/frontend/cpp_transpiler.i"
 	@echo "... src/frontend/cpp_transpiler.s"
@@ -945,6 +1072,9 @@ help:
 	@echo "... src/frontend/parser.o"
 	@echo "... src/frontend/parser.i"
 	@echo "... src/frontend/parser.s"
+	@echo "... src/vm/interpreter.o"
+	@echo "... src/vm/interpreter.i"
+	@echo "... src/vm/interpreter.s"
 	@echo "... src/vm/runtime.o"
 	@echo "... src/vm/runtime.i"
 	@echo "... src/vm/runtime.s"
@@ -963,6 +1093,12 @@ help:
 	@echo "... tests/transpiler_tests.o"
 	@echo "... tests/transpiler_tests.i"
 	@echo "... tests/transpiler_tests.s"
+	@echo "... tests/vm_runtime_tests.o"
+	@echo "... tests/vm_runtime_tests.i"
+	@echo "... tests/vm_runtime_tests.s"
+	@echo "... tests/vm_samples_tests.o"
+	@echo "... tests/vm_samples_tests.i"
+	@echo "... tests/vm_samples_tests.s"
 .PHONY : help
 
 

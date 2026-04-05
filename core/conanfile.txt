@@ -4,6 +4,7 @@ catch2/3.6.0
 [generators]
 CMakeDeps
 CMakeToolchain
+CMakeConfigDeps
 
 [layout]
 cmake_layout
