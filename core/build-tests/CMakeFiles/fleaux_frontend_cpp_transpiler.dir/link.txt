@@ -1,0 +1,2 @@
+/usr/bin/ar qc libfleaux_frontend_cpp_transpiler.a CMakeFiles/fleaux_frontend_cpp_transpiler.dir/src/frontend/cpp_transpiler.cpp.o
+/usr/bin/ranlib libfleaux_frontend_cpp_transpiler.a

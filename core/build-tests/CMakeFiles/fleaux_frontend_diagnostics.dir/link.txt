@@ -1,0 +1,2 @@
+/usr/bin/ar qc libfleaux_frontend_diagnostics.a CMakeFiles/fleaux_frontend_diagnostics.dir/src/frontend/diagnostics.cpp.o
+/usr/bin/ranlib libfleaux_frontend_diagnostics.a
