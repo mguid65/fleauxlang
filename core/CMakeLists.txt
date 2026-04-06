@@ -97,5 +97,14 @@ if(FLEAUX_ENABLE_VM_PLACEHOLDERS)
         tests/vm_runtime_tests.cpp
         tests/vm_samples_tests.cpp)
     target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_vm_interpreter)
+
+    # Fast CI target: only the interpreter↔bytecode parity subset.
+    # Run with:  ctest -R fleaux_vm_parity_tests  (or cmake --build . --target test)
+    add_test(NAME fleaux_vm_parity_tests
+             COMMAND fleaux_core_tests "[vm][samples][parity]")
+
+    # Fast CI target: native jump opcode tests.
+    add_test(NAME fleaux_vm_jump_tests
+             COMMAND fleaux_core_tests "[vm][jump]")
   endif()
 endif()

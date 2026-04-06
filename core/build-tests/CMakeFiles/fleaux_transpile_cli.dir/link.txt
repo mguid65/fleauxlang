@@ -1,1 +1,0 @@
-/usr/bin/c++ -m64 -g -m64 -Wl,--dependency-file=CMakeFiles/fleaux_transpile_cli.dir/link.d CMakeFiles/fleaux_transpile_cli.dir/src/cli/main.cpp.o -o fleaux_transpile_cli  libfleaux_frontend_cpp_transpiler.a libfleaux_frontend_lowering.a libfleaux_frontend_parser.a libfleaux_frontend_diagnostics.a

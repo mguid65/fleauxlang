@@ -1,5 +1,6 @@
 #include "fleaux/vm/runtime.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <variant>
@@ -60,6 +61,16 @@ tl::expected<std::int64_t, RuntimeError> extract_int64(const Value& v,
       [](const fleaux::runtime::Float d) -> std::int64_t {
         return static_cast<std::int64_t>(d);
       });
+}
+
+template <typename Fn>
+tl::expected<Value, RuntimeError> run_native_op(const char* opname, Fn&& fn) {
+  try {
+    return fn();
+  } catch (const std::exception& ex) {
+    return tl::unexpected(RuntimeError{
+        std::string("native '") + opname + "' threw: " + ex.what()});
+  }
 }
 
 // ── Call frame ────────────────────────────────────────────────────────────────
@@ -358,6 +369,25 @@ LoopResult run_loop(const bytecode::Module& module,
         break;
       }
 
+      // ── Builtin → callable-ref (for higher-order use) ─────────────────────
+      case bytecode::Opcode::kMakeBuiltinFuncRef: {
+        const auto idx = static_cast<std::size_t>(operand);
+        if (idx >= module.builtin_names.size()) {
+          return tl::unexpected(RuntimeError{"builtin index out of range"});
+        }
+        const auto& name = module.builtin_names[idx];
+        const auto it = builtins.find(name);
+        if (it == builtins.end()) {
+          return tl::unexpected(RuntimeError{"unknown builtin: '" + name + "'"});
+        }
+        RuntimeCallable builtin_callable = it->second;
+        auto callable = [builtin_callable = std::move(builtin_callable)](Value arg) -> Value {
+          return builtin_callable(std::move(arg));
+        };
+        stack.push_back(fleaux::runtime::make_callable_ref(std::move(callable)));
+        break;
+      }
+
       // ── Return from current frame ─────────────────────────────────────────
       case bytecode::Opcode::kReturn: {
         auto ret_val = pop_stack(stack, "return");
@@ -389,6 +419,329 @@ LoopResult run_loop(const bytecode::Module& module,
         if (!val) return tl::unexpected(val.error());
         fleaux::runtime::print_value_varargs(output, *val);
         output << '\n';
+        break;
+      }
+
+      // ── Unconditional jump ────────────────────────────────────────────────
+      case bytecode::Opcode::kJump: {
+        const auto target = static_cast<std::size_t>(operand);
+        if (target > instr_list.size()) {
+          return tl::unexpected(RuntimeError{"jump target out of range"});
+        }
+        frames.back().ip = target;
+        break;
+      }
+
+      // ── Conditional jump (jump if TOS is truthy) ──────────────────────────
+      case bytecode::Opcode::kJumpIf: {
+        auto cond = pop_stack(stack, "jump_if");
+        if (!cond) return tl::unexpected(cond.error());
+        const auto target = static_cast<std::size_t>(operand);
+        if (target > instr_list.size()) {
+          return tl::unexpected(RuntimeError{"jump_if target out of range"});
+        }
+        if (fleaux::runtime::as_bool(*cond)) {
+          frames.back().ip = target;
+        }
+        break;
+      }
+
+      case bytecode::Opcode::kJumpIfNot: {
+        auto cond = pop_stack(stack, "jump_if_not");
+        if (!cond) return tl::unexpected(cond.error());
+        const auto target = static_cast<std::size_t>(operand);
+        if (target > instr_list.size()) {
+          return tl::unexpected(RuntimeError{"jump_if_not target out of range"});
+        }
+        if (!fleaux::runtime::as_bool(*cond)) {
+          frames.back().ip = target;
+        }
+        break;
+      }
+
+      case bytecode::Opcode::kAdd: {
+        auto rhs = pop_stack(stack, "add");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "add");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("add", [&]() -> Value {
+          if (lhs->HasString() && rhs->HasString()) {
+            return fleaux::runtime::make_string(
+                fleaux::runtime::as_string(*lhs) + fleaux::runtime::as_string(*rhs));
+          }
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kSub: {
+        auto rhs = pop_stack(stack, "sub");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "sub");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("sub", [&]() -> Value {
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) - fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kMul: {
+        auto rhs = pop_stack(stack, "mul");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "mul");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("mul", [&]() -> Value {
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) * fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kDiv: {
+        auto rhs = pop_stack(stack, "div");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "div");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("div", [&]() -> Value {
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) / fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kMod: {
+        auto rhs = pop_stack(stack, "mod");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "mod");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("mod", [&]() -> Value {
+          return fleaux::runtime::num_result(std::fmod(
+              fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kPow: {
+        auto rhs = pop_stack(stack, "pow");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "pow");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("pow", [&]() -> Value {
+          return fleaux::runtime::num_result(std::pow(
+              fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kNeg: {
+        auto value = pop_stack(stack, "neg");
+        if (!value) return tl::unexpected(value.error());
+        auto result = run_native_op("neg", [&]() -> Value {
+          return fleaux::runtime::num_result(-fleaux::runtime::to_double(*value));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpEq: {
+        auto rhs = pop_stack(stack, "cmp_eq");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_eq");
+        if (!lhs) return tl::unexpected(lhs.error());
+        stack.push_back(fleaux::runtime::make_bool(*lhs == *rhs));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpNe: {
+        auto rhs = pop_stack(stack, "cmp_ne");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_ne");
+        if (!lhs) return tl::unexpected(lhs.error());
+        stack.push_back(fleaux::runtime::make_bool(*lhs != *rhs));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpLt: {
+        auto rhs = pop_stack(stack, "cmp_lt");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_lt");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("cmp_lt", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::to_double(*lhs) < fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpGt: {
+        auto rhs = pop_stack(stack, "cmp_gt");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_gt");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("cmp_gt", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::to_double(*lhs) > fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpLe: {
+        auto rhs = pop_stack(stack, "cmp_le");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_le");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("cmp_le", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::to_double(*lhs) <= fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kCmpGe: {
+        auto rhs = pop_stack(stack, "cmp_ge");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "cmp_ge");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("cmp_ge", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::to_double(*lhs) >= fleaux::runtime::to_double(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kAnd: {
+        auto rhs = pop_stack(stack, "and");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "and");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("and", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::as_bool(*lhs) && fleaux::runtime::as_bool(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kOr: {
+        auto rhs = pop_stack(stack, "or");
+        if (!rhs) return tl::unexpected(rhs.error());
+        auto lhs = pop_stack(stack, "or");
+        if (!lhs) return tl::unexpected(lhs.error());
+        auto result = run_native_op("or", [&]() -> Value {
+          return fleaux::runtime::make_bool(
+              fleaux::runtime::as_bool(*lhs) || fleaux::runtime::as_bool(*rhs));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kNot: {
+        auto value = pop_stack(stack, "not");
+        if (!value) return tl::unexpected(value.error());
+        auto result = run_native_op("not", [&]() -> Value {
+          return fleaux::runtime::make_bool(!fleaux::runtime::as_bool(*value));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kSelect: {
+        auto false_val = pop_stack(stack, "select");
+        if (!false_val) return tl::unexpected(false_val.error());
+        auto true_val = pop_stack(stack, "select");
+        if (!true_val) return tl::unexpected(true_val.error());
+        auto cond = pop_stack(stack, "select");
+        if (!cond) return tl::unexpected(cond.error());
+        stack.push_back(fleaux::runtime::as_bool(*cond)
+                            ? std::move(*true_val)
+                            : std::move(*false_val));
+        break;
+      }
+
+      case bytecode::Opcode::kBranchCall: {
+        auto false_func = pop_stack(stack, "branch_call");
+        if (!false_func) return tl::unexpected(false_func.error());
+        auto true_func = pop_stack(stack, "branch_call");
+        if (!true_func) return tl::unexpected(true_func.error());
+        auto value = pop_stack(stack, "branch_call");
+        if (!value) return tl::unexpected(value.error());
+        auto cond = pop_stack(stack, "branch_call");
+        if (!cond) return tl::unexpected(cond.error());
+        auto result = run_native_op("branch_call", [&]() -> Value {
+          const Value& chosen = fleaux::runtime::as_bool(*cond) ? *true_func : *false_func;
+          return fleaux::runtime::invoke_callable_ref(chosen, std::move(*value));
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kLoopCall: {
+        auto step_func = pop_stack(stack, "loop_call");
+        if (!step_func) return tl::unexpected(step_func.error());
+        auto continue_func = pop_stack(stack, "loop_call");
+        if (!continue_func) return tl::unexpected(continue_func.error());
+        auto state = pop_stack(stack, "loop_call");
+        if (!state) return tl::unexpected(state.error());
+        auto result = run_native_op("loop_call", [&]() -> Value {
+          fleaux::runtime::Array args;
+          args.Reserve(3);
+          args.PushBack(std::move(*state));
+          args.PushBack(std::move(*continue_func));
+          args.PushBack(std::move(*step_func));
+          return fleaux::runtime::Loop{}(Value{std::move(args)});
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
+      case bytecode::Opcode::kLoopNCall: {
+        auto max_iters = pop_stack(stack, "loop_n_call");
+        if (!max_iters) return tl::unexpected(max_iters.error());
+        auto step_func = pop_stack(stack, "loop_n_call");
+        if (!step_func) return tl::unexpected(step_func.error());
+        auto continue_func = pop_stack(stack, "loop_n_call");
+        if (!continue_func) return tl::unexpected(continue_func.error());
+        auto state = pop_stack(stack, "loop_n_call");
+        if (!state) return tl::unexpected(state.error());
+        auto result = run_native_op("loop_n_call", [&]() -> Value {
+          fleaux::runtime::Array args;
+          args.Reserve(4);
+          args.PushBack(std::move(*state));
+          args.PushBack(std::move(*continue_func));
+          args.PushBack(std::move(*step_func));
+          args.PushBack(std::move(*max_iters));
+          return fleaux::runtime::LoopN{}(Value{std::move(args)});
+        });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
         break;
       }
 

@@ -1,2 +1,0 @@
-/usr/bin/ar qc libfleaux_vm_interpreter.a CMakeFiles/fleaux_vm_interpreter.dir/src/vm/interpreter.cpp.o
-/usr/bin/ranlib libfleaux_vm_interpreter.a

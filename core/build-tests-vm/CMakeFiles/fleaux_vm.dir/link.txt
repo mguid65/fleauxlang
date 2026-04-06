@@ -1,2 +1,0 @@
-/usr/bin/ar qc libfleaux_vm.a CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o
-/usr/bin/ranlib libfleaux_vm.a
