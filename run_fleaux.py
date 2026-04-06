@@ -55,6 +55,86 @@ def _resolve_compiler(requested: str | None) -> str:
     raise SystemExit(2)
 
 
+def _resolve_vm_cli(root_dir: Path) -> Path | None:
+    env_path = os.environ.get("FLEAUX_VM_CLI")
+    if env_path:
+        p = Path(env_path)
+        if p.is_file() and os.access(p, os.X_OK):
+            return p
+        print(f"FLEAUX_VM_CLI path '{env_path}' is not executable.", file=sys.stderr)
+        return None
+
+    candidates = [
+        root_dir / "core" / "build-tests-vm" / "fleaux_vm_cli",
+        root_dir / "core" / "build" / "fleaux_vm_cli",
+        root_dir / "core" / "cmake-build-debug" / "fleaux_vm_cli",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _transpile_compile_run(
+    source: Path,
+    runtime_dir: Path,
+    runtime_args: list[str],
+    compiler: str,
+    no_run: bool,
+    unoptimized: bool,
+) -> int:
+    try:
+        output = FleauxCppTranspiler().process(source)
+    except (FleauxSyntaxError, FleauxLoweringError, FleauxCppTranspilerError) as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    binary = output.with_suffix("")
+    opt_flag = "-O0" if unoptimized else "-O2"
+    compile_cmd = [
+        compiler,
+        "-std=c++20",
+        opt_flag,
+        str(output),
+        "-I",
+        str(runtime_dir / "cpp"),
+        "-I",
+        str(runtime_dir / "third_party" / "datatree" / "include"),
+        "-I",
+        str(runtime_dir / "third_party" / "tl" / "include"),
+        "-o",
+        str(binary),
+    ]
+    compile_proc = subprocess.run(compile_cmd, text=True, capture_output=True, check=False)
+    if compile_proc.returncode != 0:
+        if compile_proc.stdout:
+            print(compile_proc.stdout)
+        if compile_proc.stderr:
+            print(compile_proc.stderr)
+        return compile_proc.returncode
+
+    if no_run:
+        return 0
+
+    run_proc = subprocess.run([str(binary), *runtime_args], check=False)
+    return run_proc.returncode
+
+
+def _run_vm(source: Path, vm_cli: Path, runtime_args: list[str], mode: str) -> int:
+    engine = "hybrid"
+    if mode == "interpreter":
+        engine = "interpreter"
+    elif mode == "bytecode":
+        engine = "bytecode"
+
+    cmd = [str(vm_cli), "--engine", engine, str(source)]
+    if runtime_args:
+        cmd.append("--")
+        cmd.extend(runtime_args)
+    proc = subprocess.run(cmd, check=False)
+    return proc.returncode
+
+
 def main() -> int:
     raw_argv = sys.argv[1:]
     runtime_args: list[str] = []
@@ -65,7 +145,7 @@ def main() -> int:
     else:
         cli_argv = raw_argv
 
-    parser = argparse.ArgumentParser(description="Transpile and execute a Fleaux source file.")
+    parser = argparse.ArgumentParser(description="Run Fleaux in transpile, interpreter, bytecode, or hybrid VM mode.")
     parser.add_argument("source", nargs="?", default="test.fleaux", help="Input .fleaux file path")
     parser.add_argument(
         "--emit-graph",
@@ -92,6 +172,17 @@ def main() -> int:
         "--no-run",
         action="store_true",
         help="Transpile and compile but do not run the produced binary.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["transpile", "vm", "interpreter", "bytecode"],
+        default="transpile",
+        help="Execution mode (default: transpile). 'vm' means hybrid bytecode-first with interpreter fallback.",
+    )
+    parser.add_argument(
+        "--all-samples",
+        action="store_true",
+        help="Run all .fleaux files under samples/ instead of a single source file.",
     )
     parser.add_argument(
         "--compiler",
@@ -136,45 +227,54 @@ def main() -> int:
             return 0
 
     runtime_dir = Path(__file__).resolve().parent
-
-
-    try:
-        output = FleauxCppTranspiler().process(source)
-    except (FleauxSyntaxError, FleauxLoweringError, FleauxCppTranspilerError) as exc:
-        print(exc, file=sys.stderr)
-        return 2
-    binary = output.with_suffix("")
-    compiler = _resolve_compiler(args.compiler or os.environ.get("FLEAUX_COMPILER"))
     unoptimized = args.unoptimized or _env_flag("FLEAUX_UNOPTIMIZED") or _env_flag("FLEAUX_FAST_COMPILE")
-    opt_flag = "-O0" if unoptimized else "-O2"
-    compile_cmd = [
-        compiler,
-        "-std=c++20",
-        opt_flag,
-        str(output),
-        "-I",
-        str(runtime_dir / "cpp"),
-        "-I",
-        str(runtime_dir / "third_party" / "datatree" / "include"),
-        "-I",
-        str(runtime_dir / "third_party" / "tl" / "include"),
-        "-o",
-        str(binary),
-    ]
-    compile_proc = subprocess.run(compile_cmd, text=True, capture_output=True, check=False)
-    if compile_proc.returncode != 0:
-        if compile_proc.stdout:
-            print(compile_proc.stdout)
-        if compile_proc.stderr:
-            print(compile_proc.stderr)
-        return compile_proc.returncode
 
-    if args.no_run:
-        return 0
+    compiler: str | None = None
+    if args.mode == "transpile":
+        compiler = _resolve_compiler(args.compiler or os.environ.get("FLEAUX_COMPILER"))
 
-    run_proc = subprocess.run([str(binary), *runtime_args], check=False)
-    if run_proc.returncode != 0:
-        return run_proc.returncode
+    if args.all_samples:
+        samples_dir = runtime_dir / "samples"
+        if not samples_dir.is_dir():
+            print(f"samples directory not found: {samples_dir}", file=sys.stderr)
+            return 2
+        sources = sorted(p for p in samples_dir.glob("*.fleaux") if p.is_file())
+    else:
+        sources = [source]
+
+    vm_cli: Path | None = None
+    if args.mode in {"vm", "interpreter", "bytecode"}:
+        vm_cli = _resolve_vm_cli(runtime_dir)
+        if vm_cli is None:
+            print(
+                "VM/interpreter mode requested but fleaux_vm_cli was not found. "
+                "Build core first (for example: cmake --build core/build-tests-vm).",
+                file=sys.stderr,
+            )
+            return 2
+
+    for source_file in sources:
+        if args.mode in {"vm", "interpreter", "bytecode"}:
+            if args.no_run:
+                print(f"[{args.mode}] skipped run (--no-run): {source_file}")
+                continue
+            assert vm_cli is not None
+            vm_rc = _run_vm(source_file, vm_cli, runtime_args, args.mode)
+            if vm_rc != 0:
+                return vm_rc
+            continue
+
+        assert compiler is not None
+        rc = _transpile_compile_run(
+            source_file,
+            runtime_dir,
+            runtime_args,
+            compiler,
+            args.no_run,
+            unoptimized,
+        )
+        if rc != 0:
+            return rc
 
     return 0
 

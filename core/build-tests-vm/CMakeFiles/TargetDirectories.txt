@@ -34,6 +34,8 @@
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/fleaux_core_tests.dir
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/fleaux_bytecode.dir
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/fleaux_vm.dir
+/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/fleaux_vm_interpreter.dir
+/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/fleaux_vm_cli.dir
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/test.dir
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/edit_cache.dir
 /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles/rebuild_cache.dir

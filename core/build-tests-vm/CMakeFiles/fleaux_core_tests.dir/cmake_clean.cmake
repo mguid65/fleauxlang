@@ -10,6 +10,10 @@ file(REMOVE_RECURSE
   "CMakeFiles/fleaux_core_tests.dir/tests/parser_tests.cpp.o.d"
   "CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o"
   "CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o.d"
+  "CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o"
+  "CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o.d"
+  "CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o"
+  "CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o.d"
   "fleaux_core_tests"
   "fleaux_core_tests.pdb"
 )

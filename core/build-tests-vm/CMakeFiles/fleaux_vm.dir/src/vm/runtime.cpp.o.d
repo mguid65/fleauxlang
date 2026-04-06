@@ -23,12 +23,11 @@ CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
  /usr/include/x86_64-linux-gnu/bits/stdint-least.h \
- /usr/include/c++/15/string /usr/include/c++/15/bits/requires_hosted.h \
+ /usr/include/c++/15/iosfwd /usr/include/c++/15/bits/requires_hosted.h \
  /usr/include/c++/15/bits/stringfwd.h \
- /usr/include/c++/15/bits/memoryfwd.h \
- /usr/include/c++/15/bits/char_traits.h \
- /usr/include/c++/15/bits/postypes.h /usr/include/c++/15/cwchar \
- /usr/include/wchar.h /usr/include/x86_64-linux-gnu/bits/floatn.h \
+ /usr/include/c++/15/bits/memoryfwd.h /usr/include/c++/15/bits/postypes.h \
+ /usr/include/c++/15/cwchar /usr/include/wchar.h \
+ /usr/include/x86_64-linux-gnu/bits/floatn.h \
  /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
  /usr/lib/gcc/x86_64-linux-gnu/15/include/stddef.h \
  /usr/lib/gcc/x86_64-linux-gnu/15/include/stdarg.h \
@@ -39,6 +38,7 @@ CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
  /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+ /usr/include/c++/15/string /usr/include/c++/15/bits/char_traits.h \
  /usr/include/c++/15/type_traits /usr/include/c++/15/bits/version.h \
  /usr/include/c++/15/compare /usr/include/c++/15/concepts \
  /usr/include/c++/15/bits/stl_construct.h /usr/include/c++/15/new \
@@ -59,9 +59,8 @@ CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o: \
  /usr/include/c++/15/bits/localefwd.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/c++locale.h \
  /usr/include/c++/15/clocale /usr/include/locale.h \
- /usr/include/x86_64-linux-gnu/bits/locale.h /usr/include/c++/15/iosfwd \
- /usr/include/c++/15/cctype /usr/include/ctype.h \
- /usr/include/x86_64-linux-gnu/bits/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/locale.h /usr/include/c++/15/cctype \
+ /usr/include/ctype.h /usr/include/x86_64-linux-gnu/bits/endian.h \
  /usr/include/x86_64-linux-gnu/bits/endianness.h \
  /usr/include/c++/15/bits/ostream_insert.h \
  /usr/include/c++/15/bits/cxxabi_forced.h \
@@ -145,6 +144,8 @@ CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o: \
  /usr/include/c++/15/utility /usr/include/c++/15/bits/stl_relops.h \
  /usr/include/c++/15/cassert /usr/include/assert.h \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/bytecode/module.hpp \
+ /usr/include/c++/15/variant /usr/include/c++/15/bits/monostate.h \
+ /usr/include/c++/15/bits/parse_numbers.h \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/bytecode/opcode.hpp \
  /usr/include/c++/15/iostream /usr/include/c++/15/ostream \
  /usr/include/c++/15/bits/ostream.h /usr/include/c++/15/ios \
@@ -188,4 +189,113 @@ CMakeFiles/fleaux_vm.dir/src/vm/runtime.cpp.o: \
  /usr/include/c++/15/bits/locale_facets.tcc \
  /usr/include/c++/15/bits/basic_ios.tcc \
  /usr/include/c++/15/bits/ostream.tcc /usr/include/c++/15/istream \
- /usr/include/c++/15/bits/istream.tcc
+ /usr/include/c++/15/bits/istream.tcc \
+ /home/matthew/CLionProjects/fleauxlang/core/../cpp/fleaux_runtime.hpp \
+ /usr/include/c++/15/algorithm /usr/include/c++/15/bits/stl_algo.h \
+ /usr/include/c++/15/bits/algorithmfwd.h \
+ /usr/include/c++/15/bits/stl_heap.h \
+ /usr/include/c++/15/bits/uniform_int_dist.h \
+ /usr/include/c++/15/bits/stl_tempbuf.h \
+ /usr/include/c++/15/bits/ranges_algo.h \
+ /usr/include/c++/15/bits/ranges_algobase.h \
+ /usr/include/c++/15/pstl/glue_algorithm_defs.h \
+ /usr/include/c++/15/pstl/execution_defs.h /usr/include/c++/15/cmath \
+ /usr/include/math.h /usr/include/x86_64-linux-gnu/bits/math-vector.h \
+ /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h \
+ /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h \
+ /usr/include/x86_64-linux-gnu/bits/fp-logb.h \
+ /usr/include/x86_64-linux-gnu/bits/fp-fast.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls-macros.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls-narrow.h \
+ /usr/include/x86_64-linux-gnu/bits/iscanonical.h \
+ /usr/include/c++/15/bits/specfun.h /usr/include/c++/15/limits \
+ /usr/include/c++/15/tr1/gamma.tcc \
+ /usr/include/c++/15/tr1/special_function_util.h \
+ /usr/include/c++/15/tr1/bessel_function.tcc \
+ /usr/include/c++/15/tr1/beta_function.tcc \
+ /usr/include/c++/15/tr1/ell_integral.tcc \
+ /usr/include/c++/15/tr1/exp_integral.tcc \
+ /usr/include/c++/15/tr1/hypergeometric.tcc \
+ /usr/include/c++/15/tr1/legendre_function.tcc \
+ /usr/include/c++/15/tr1/modified_bessel_func.tcc \
+ /usr/include/c++/15/tr1/poly_hermite.tcc \
+ /usr/include/c++/15/tr1/poly_laguerre.tcc \
+ /usr/include/c++/15/tr1/riemann_zeta.tcc /usr/include/c++/15/filesystem \
+ /usr/include/c++/15/bits/fs_fwd.h /usr/include/c++/15/bits/chrono.h \
+ /usr/include/c++/15/ratio /usr/include/c++/15/ctime \
+ /usr/include/c++/15/bits/fs_path.h /usr/include/c++/15/locale \
+ /usr/include/c++/15/bits/locale_facets_nonio.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/time_members.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/messages_members.h \
+ /usr/include/libintl.h /usr/include/c++/15/bits/codecvt.h \
+ /usr/include/c++/15/bits/locale_facets_nonio.tcc \
+ /usr/include/c++/15/bits/locale_conv.h /usr/include/c++/15/iomanip \
+ /usr/include/c++/15/bits/quoted_string.h /usr/include/c++/15/sstream \
+ /usr/include/c++/15/bits/sstream.tcc /usr/include/c++/15/codecvt \
+ /usr/include/c++/15/ext/concurrence.h \
+ /usr/include/c++/15/bits/shared_ptr.h \
+ /usr/include/c++/15/bits/shared_ptr_base.h \
+ /usr/include/c++/15/bits/allocated_ptr.h \
+ /usr/include/c++/15/bits/unique_ptr.h /usr/include/c++/15/bits/align.h \
+ /usr/include/c++/15/bits/fs_dir.h /usr/include/c++/15/bits/fs_ops.h \
+ /usr/include/c++/15/fstream \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/basic_file.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/c++io.h \
+ /usr/include/c++/15/bits/fstream.tcc /usr/include/c++/15/format \
+ /usr/include/c++/15/charconv /usr/include/c++/15/optional \
+ /usr/include/c++/15/span /usr/include/c++/15/bits/formatfwd.h \
+ /usr/include/c++/15/bits/unicode.h \
+ /usr/include/c++/15/bits/unicode-data.h /usr/include/c++/15/random \
+ /usr/include/c++/15/bits/random.h \
+ /usr/include/x86_64-linux-gnu/c++/15/bits/opt_random.h \
+ /usr/include/c++/15/bits/random.tcc /usr/include/c++/15/numeric \
+ /usr/include/c++/15/bits/stl_numeric.h \
+ /usr/include/c++/15/pstl/glue_numeric_defs.h \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/data_tree.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/common/common.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/tree_node/tree_node.hpp \
+ /usr/include/c++/15/memory \
+ /usr/include/c++/15/bits/stl_raw_storage_iter.h \
+ /usr/include/c++/15/bits/shared_ptr_atomic.h \
+ /usr/include/c++/15/bits/atomic_base.h \
+ /usr/include/c++/15/bits/atomic_lockfree_defines.h \
+ /usr/include/c++/15/bits/atomic_wait.h /usr/include/c++/15/climits \
+ /usr/lib/gcc/x86_64-linux-gnu/15/include/limits.h \
+ /usr/lib/gcc/x86_64-linux-gnu/15/include/syslimits.h \
+ /usr/include/limits.h /usr/include/x86_64-linux-gnu/bits/posix1_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/local_lim.h \
+ /usr/include/linux/limits.h \
+ /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/xopen_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/uio_lim.h /usr/include/unistd.h \
+ /usr/include/x86_64-linux-gnu/bits/posix_opt.h \
+ /usr/include/x86_64-linux-gnu/bits/environments.h \
+ /usr/include/x86_64-linux-gnu/bits/confname.h \
+ /usr/include/x86_64-linux-gnu/bits/getopt_posix.h \
+ /usr/include/x86_64-linux-gnu/bits/getopt_core.h \
+ /usr/include/x86_64-linux-gnu/bits/unistd_ext.h \
+ /usr/include/linux/close_range.h /usr/include/syscall.h \
+ /usr/include/x86_64-linux-gnu/sys/syscall.h \
+ /usr/include/x86_64-linux-gnu/asm/unistd.h \
+ /usr/include/x86_64-linux-gnu/asm/unistd_64.h \
+ /usr/include/x86_64-linux-gnu/bits/syscall.h \
+ /usr/include/c++/15/bits/std_mutex.h \
+ /usr/include/c++/15/backward/auto_ptr.h \
+ /usr/include/c++/15/bits/ranges_uninitialized.h \
+ /usr/include/c++/15/pstl/glue_memory_defs.h /usr/include/c++/15/queue \
+ /usr/include/c++/15/deque /usr/include/c++/15/bits/stl_deque.h \
+ /usr/include/c++/15/bits/deque.tcc /usr/include/c++/15/bits/stl_queue.h \
+ /usr/include/c++/15/ranges /usr/include/c++/15/iterator \
+ /usr/include/c++/15/bits/stream_iterator.h \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/error/error_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/value_types/value_types.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/value_types/null_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/value_types/number_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/node_types.inc \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/array_node_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/value_node_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/generic_node_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/../third_party/datatree/include/data_tree/node_types/detail/object_node_type.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/src/vm/builtin_map.hpp

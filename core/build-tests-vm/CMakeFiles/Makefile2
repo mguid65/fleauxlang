@@ -71,6 +71,8 @@ all: CMakeFiles/fleaux_transpile_cli.dir/all
 all: CMakeFiles/fleaux_core_tests.dir/all
 all: CMakeFiles/fleaux_bytecode.dir/all
 all: CMakeFiles/fleaux_vm.dir/all
+all: CMakeFiles/fleaux_vm_interpreter.dir/all
+all: CMakeFiles/fleaux_vm_cli.dir/all
 .PHONY : all
 
 # The main recursive "codegen" target.
@@ -82,6 +84,8 @@ codegen: CMakeFiles/fleaux_transpile_cli.dir/codegen
 codegen: CMakeFiles/fleaux_core_tests.dir/codegen
 codegen: CMakeFiles/fleaux_bytecode.dir/codegen
 codegen: CMakeFiles/fleaux_vm.dir/codegen
+codegen: CMakeFiles/fleaux_vm_interpreter.dir/codegen
+codegen: CMakeFiles/fleaux_vm_cli.dir/codegen
 .PHONY : codegen
 
 # The main recursive "preinstall" target.
@@ -125,6 +129,8 @@ clean: CMakeFiles/fleaux_transpile_cli.dir/clean
 clean: CMakeFiles/fleaux_core_tests.dir/clean
 clean: CMakeFiles/fleaux_bytecode.dir/clean
 clean: CMakeFiles/fleaux_vm.dir/clean
+clean: CMakeFiles/fleaux_vm_interpreter.dir/clean
+clean: CMakeFiles/fleaux_vm_cli.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -1030,7 +1036,7 @@ CMakeFiles/ContinuousSubmit.dir/clean:
 CMakeFiles/fleaux_frontend_diagnostics.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_diagnostics.dir/build.make CMakeFiles/fleaux_frontend_diagnostics.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_diagnostics.dir/build.make CMakeFiles/fleaux_frontend_diagnostics.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=11,12 "Built target fleaux_frontend_diagnostics"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=13,14 "Built target fleaux_frontend_diagnostics"
 .PHONY : CMakeFiles/fleaux_frontend_diagnostics.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1047,7 +1053,7 @@ fleaux_frontend_diagnostics: CMakeFiles/fleaux_frontend_diagnostics.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_frontend_diagnostics.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_diagnostics.dir/build.make CMakeFiles/fleaux_frontend_diagnostics.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=11,12 "Finished codegen for target fleaux_frontend_diagnostics"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=13,14 "Finished codegen for target fleaux_frontend_diagnostics"
 .PHONY : CMakeFiles/fleaux_frontend_diagnostics.dir/codegen
 
 # clean rule for target.
@@ -1062,7 +1068,7 @@ CMakeFiles/fleaux_frontend_diagnostics.dir/clean:
 CMakeFiles/fleaux_frontend_parser.dir/all: CMakeFiles/fleaux_frontend_diagnostics.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_parser.dir/build.make CMakeFiles/fleaux_frontend_parser.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_parser.dir/build.make CMakeFiles/fleaux_frontend_parser.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=15,16 "Built target fleaux_frontend_parser"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=17,18 "Built target fleaux_frontend_parser"
 .PHONY : CMakeFiles/fleaux_frontend_parser.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1079,7 +1085,7 @@ fleaux_frontend_parser: CMakeFiles/fleaux_frontend_parser.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_frontend_parser.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_parser.dir/build.make CMakeFiles/fleaux_frontend_parser.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=15,16 "Finished codegen for target fleaux_frontend_parser"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=17,18 "Finished codegen for target fleaux_frontend_parser"
 .PHONY : CMakeFiles/fleaux_frontend_parser.dir/codegen
 
 # clean rule for target.
@@ -1095,7 +1101,7 @@ CMakeFiles/fleaux_frontend_lowering.dir/all: CMakeFiles/fleaux_frontend_diagnost
 CMakeFiles/fleaux_frontend_lowering.dir/all: CMakeFiles/fleaux_frontend_parser.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_lowering.dir/build.make CMakeFiles/fleaux_frontend_lowering.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_lowering.dir/build.make CMakeFiles/fleaux_frontend_lowering.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=13,14 "Built target fleaux_frontend_lowering"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=15,16 "Built target fleaux_frontend_lowering"
 .PHONY : CMakeFiles/fleaux_frontend_lowering.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1112,7 +1118,7 @@ fleaux_frontend_lowering: CMakeFiles/fleaux_frontend_lowering.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_frontend_lowering.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_lowering.dir/build.make CMakeFiles/fleaux_frontend_lowering.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=13,14 "Finished codegen for target fleaux_frontend_lowering"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=15,16 "Finished codegen for target fleaux_frontend_lowering"
 .PHONY : CMakeFiles/fleaux_frontend_lowering.dir/codegen
 
 # clean rule for target.
@@ -1129,7 +1135,7 @@ CMakeFiles/fleaux_frontend_cpp_transpiler.dir/all: CMakeFiles/fleaux_frontend_pa
 CMakeFiles/fleaux_frontend_cpp_transpiler.dir/all: CMakeFiles/fleaux_frontend_lowering.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_cpp_transpiler.dir/build.make CMakeFiles/fleaux_frontend_cpp_transpiler.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_cpp_transpiler.dir/build.make CMakeFiles/fleaux_frontend_cpp_transpiler.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=9,10 "Built target fleaux_frontend_cpp_transpiler"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=11,12 "Built target fleaux_frontend_cpp_transpiler"
 .PHONY : CMakeFiles/fleaux_frontend_cpp_transpiler.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1146,7 +1152,7 @@ fleaux_frontend_cpp_transpiler: CMakeFiles/fleaux_frontend_cpp_transpiler.dir/ru
 # codegen rule for target.
 CMakeFiles/fleaux_frontend_cpp_transpiler.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_frontend_cpp_transpiler.dir/build.make CMakeFiles/fleaux_frontend_cpp_transpiler.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=9,10 "Finished codegen for target fleaux_frontend_cpp_transpiler"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=11,12 "Finished codegen for target fleaux_frontend_cpp_transpiler"
 .PHONY : CMakeFiles/fleaux_frontend_cpp_transpiler.dir/codegen
 
 # clean rule for target.
@@ -1164,7 +1170,7 @@ CMakeFiles/fleaux_transpile_cli.dir/all: CMakeFiles/fleaux_frontend_lowering.dir
 CMakeFiles/fleaux_transpile_cli.dir/all: CMakeFiles/fleaux_frontend_cpp_transpiler.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_transpile_cli.dir/build.make CMakeFiles/fleaux_transpile_cli.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_transpile_cli.dir/build.make CMakeFiles/fleaux_transpile_cli.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=17,18 "Built target fleaux_transpile_cli"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=19,20 "Built target fleaux_transpile_cli"
 .PHONY : CMakeFiles/fleaux_transpile_cli.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1181,7 +1187,7 @@ fleaux_transpile_cli: CMakeFiles/fleaux_transpile_cli.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_transpile_cli.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_transpile_cli.dir/build.make CMakeFiles/fleaux_transpile_cli.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=17,18 "Finished codegen for target fleaux_transpile_cli"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=19,20 "Finished codegen for target fleaux_transpile_cli"
 .PHONY : CMakeFiles/fleaux_transpile_cli.dir/codegen
 
 # clean rule for target.
@@ -1198,14 +1204,16 @@ CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_frontend_parser.dir/all
 CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_frontend_lowering.dir/all
 CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_frontend_cpp_transpiler.dir/all
 CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_bytecode.dir/all
+CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_vm.dir/all
+CMakeFiles/fleaux_core_tests.dir/all: CMakeFiles/fleaux_vm_interpreter.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=3,4,5,6,7,8 "Built target fleaux_core_tests"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=3,4,5,6,7,8,9,10 "Built target fleaux_core_tests"
 .PHONY : CMakeFiles/fleaux_core_tests.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/fleaux_core_tests.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 16
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 22
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/fleaux_core_tests.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 0
 .PHONY : CMakeFiles/fleaux_core_tests.dir/rule
@@ -1217,7 +1225,7 @@ fleaux_core_tests: CMakeFiles/fleaux_core_tests.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_core_tests.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_core_tests.dir/build.make CMakeFiles/fleaux_core_tests.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=3,4,5,6,7,8 "Finished codegen for target fleaux_core_tests"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=3,4,5,6,7,8,9,10 "Finished codegen for target fleaux_core_tests"
 .PHONY : CMakeFiles/fleaux_core_tests.dir/codegen
 
 # clean rule for target.
@@ -1269,7 +1277,7 @@ CMakeFiles/fleaux_vm.dir/all: CMakeFiles/fleaux_frontend_lowering.dir/all
 CMakeFiles/fleaux_vm.dir/all: CMakeFiles/fleaux_bytecode.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm.dir/build.make CMakeFiles/fleaux_vm.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm.dir/build.make CMakeFiles/fleaux_vm.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=19,20 "Built target fleaux_vm"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=21,22 "Built target fleaux_vm"
 .PHONY : CMakeFiles/fleaux_vm.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1286,13 +1294,84 @@ fleaux_vm: CMakeFiles/fleaux_vm.dir/rule
 # codegen rule for target.
 CMakeFiles/fleaux_vm.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm.dir/build.make CMakeFiles/fleaux_vm.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=19,20 "Finished codegen for target fleaux_vm"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=21,22 "Finished codegen for target fleaux_vm"
 .PHONY : CMakeFiles/fleaux_vm.dir/codegen
 
 # clean rule for target.
 CMakeFiles/fleaux_vm.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm.dir/build.make CMakeFiles/fleaux_vm.dir/clean
 .PHONY : CMakeFiles/fleaux_vm.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/fleaux_vm_interpreter.dir
+
+# All Build rule for target.
+CMakeFiles/fleaux_vm_interpreter.dir/all: CMakeFiles/fleaux_frontend_diagnostics.dir/all
+CMakeFiles/fleaux_vm_interpreter.dir/all: CMakeFiles/fleaux_frontend_parser.dir/all
+CMakeFiles/fleaux_vm_interpreter.dir/all: CMakeFiles/fleaux_frontend_lowering.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=25,26 "Built target fleaux_vm_interpreter"
+.PHONY : CMakeFiles/fleaux_vm_interpreter.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/fleaux_vm_interpreter.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 8
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/fleaux_vm_interpreter.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 0
+.PHONY : CMakeFiles/fleaux_vm_interpreter.dir/rule
+
+# Convenience name for target.
+fleaux_vm_interpreter: CMakeFiles/fleaux_vm_interpreter.dir/rule
+.PHONY : fleaux_vm_interpreter
+
+# codegen rule for target.
+CMakeFiles/fleaux_vm_interpreter.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=25,26 "Finished codegen for target fleaux_vm_interpreter"
+.PHONY : CMakeFiles/fleaux_vm_interpreter.dir/codegen
+
+# clean rule for target.
+CMakeFiles/fleaux_vm_interpreter.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_interpreter.dir/build.make CMakeFiles/fleaux_vm_interpreter.dir/clean
+.PHONY : CMakeFiles/fleaux_vm_interpreter.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/fleaux_vm_cli.dir
+
+# All Build rule for target.
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_frontend_diagnostics.dir/all
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_frontend_parser.dir/all
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_frontend_lowering.dir/all
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_bytecode.dir/all
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_vm.dir/all
+CMakeFiles/fleaux_vm_cli.dir/all: CMakeFiles/fleaux_vm_interpreter.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=23,24 "Built target fleaux_vm_cli"
+.PHONY : CMakeFiles/fleaux_vm_cli.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/fleaux_vm_cli.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 14
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/fleaux_vm_cli.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles 0
+.PHONY : CMakeFiles/fleaux_vm_cli.dir/rule
+
+# Convenience name for target.
+fleaux_vm_cli: CMakeFiles/fleaux_vm_cli.dir/rule
+.PHONY : fleaux_vm_cli
+
+# codegen rule for target.
+CMakeFiles/fleaux_vm_cli.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/matthew/CLionProjects/fleauxlang/core/build-tests-vm/CMakeFiles --progress-num=23,24 "Finished codegen for target fleaux_vm_cli"
+.PHONY : CMakeFiles/fleaux_vm_cli.dir/codegen
+
+# clean rule for target.
+CMakeFiles/fleaux_vm_cli.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/fleaux_vm_cli.dir/build.make CMakeFiles/fleaux_vm_cli.dir/clean
+.PHONY : CMakeFiles/fleaux_vm_cli.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

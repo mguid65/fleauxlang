@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 
 #include <tl/expected.hpp>
@@ -22,6 +23,7 @@ using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 class Runtime {
  public:
   RuntimeResult execute(const bytecode::Module& module) const;
+  RuntimeResult execute(const bytecode::Module& module, std::ostream& output) const;
 };
 
 }  // namespace fleaux::vm

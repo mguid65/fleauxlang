@@ -7,13 +7,18 @@ fleaux_core_tests: \
   CMakeFiles/fleaux_core_tests.dir/tests/lowering_tests.cpp.o \
   CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o \
   CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o \
+  CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o \
+  CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o \
   libfleaux_frontend_diagnostics.a \
   libfleaux_frontend_parser.a \
   libfleaux_frontend_lowering.a \
   libfleaux_frontend_cpp_transpiler.a \
   libfleaux_bytecode.a \
+  libfleaux_vm.a \
+  libfleaux_vm_interpreter.a \
   /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2Maind.a \
   /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2d.a \
+  libfleaux_bytecode.a \
   libfleaux_frontend_lowering.a \
   libfleaux_frontend_parser.a \
   libfleaux_frontend_diagnostics.a \
@@ -61,6 +66,10 @@ CMakeFiles/fleaux_core_tests.dir/tests/transpiler_tests.cpp.o:
 
 CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o:
 
+CMakeFiles/fleaux_core_tests.dir/tests/vm_runtime_tests.cpp.o:
+
+CMakeFiles/fleaux_core_tests.dir/tests/vm_samples_tests.cpp.o:
+
 libfleaux_frontend_diagnostics.a:
 
 libfleaux_frontend_parser.a:
@@ -71,9 +80,15 @@ libfleaux_frontend_cpp_transpiler.a:
 
 libfleaux_bytecode.a:
 
+libfleaux_vm.a:
+
+libfleaux_vm_interpreter.a:
+
 /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2Maind.a:
 
 /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/lib/libCatch2d.a:
+
+libfleaux_bytecode.a:
 
 libfleaux_frontend_lowering.a:
 

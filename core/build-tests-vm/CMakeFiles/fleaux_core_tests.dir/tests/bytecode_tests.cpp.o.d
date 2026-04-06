@@ -1,14 +1,7 @@
 CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /home/matthew/CLionProjects/fleauxlang/core/tests/bytecode_tests.cpp \
- /usr/include/stdc-predef.h \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_test_macros.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_test_macro_impl.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_user_config.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_assertion_handler.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_assertion_info.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_result_type.hpp \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_source_line_info.hpp \
- /usr/include/c++/15/cstddef \
+ /usr/include/stdc-predef.h /usr/include/c++/15/string \
+ /usr/include/c++/15/bits/requires_hosted.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/os_defines.h \
  /usr/include/features.h /usr/include/features-time64.h \
@@ -20,15 +13,15 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/cpu_defines.h \
  /usr/include/c++/15/pstl/pstl_config.h \
- /usr/lib/gcc/x86_64-linux-gnu/15/include/stddef.h \
- /usr/include/c++/15/bits/version.h /usr/include/c++/15/iosfwd \
- /usr/include/c++/15/bits/requires_hosted.h \
  /usr/include/c++/15/bits/stringfwd.h \
- /usr/include/c++/15/bits/memoryfwd.h /usr/include/c++/15/bits/postypes.h \
- /usr/include/c++/15/cwchar /usr/include/wchar.h \
+ /usr/include/c++/15/bits/memoryfwd.h \
+ /usr/include/c++/15/bits/char_traits.h \
+ /usr/include/c++/15/bits/postypes.h /usr/include/c++/15/cwchar \
+ /usr/include/wchar.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/x86_64-linux-gnu/bits/floatn.h \
  /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
+ /usr/lib/gcc/x86_64-linux-gnu/15/include/stddef.h \
  /usr/lib/gcc/x86_64-linux-gnu/15/include/stdarg.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h \
  /usr/include/x86_64-linux-gnu/bits/types/wint_t.h \
@@ -38,12 +31,10 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
  /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
- /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_stringref.hpp \
- /usr/include/c++/15/string /usr/include/c++/15/bits/char_traits.h \
- /usr/include/c++/15/type_traits /usr/include/c++/15/compare \
- /usr/include/c++/15/concepts /usr/include/c++/15/bits/stl_construct.h \
- /usr/include/c++/15/new /usr/include/c++/15/bits/exception.h \
- /usr/include/c++/15/bits/move.h \
+ /usr/include/c++/15/type_traits /usr/include/c++/15/bits/version.h \
+ /usr/include/c++/15/compare /usr/include/c++/15/concepts \
+ /usr/include/c++/15/bits/stl_construct.h /usr/include/c++/15/new \
+ /usr/include/c++/15/bits/exception.h /usr/include/c++/15/bits/move.h \
  /usr/include/c++/15/bits/stl_iterator_base_types.h \
  /usr/include/c++/15/bits/iterator_concepts.h \
  /usr/include/c++/15/bits/ptr_traits.h \
@@ -60,8 +51,9 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/c++/15/bits/localefwd.h \
  /usr/include/x86_64-linux-gnu/c++/15/bits/c++locale.h \
  /usr/include/c++/15/clocale /usr/include/locale.h \
- /usr/include/x86_64-linux-gnu/bits/locale.h /usr/include/c++/15/cctype \
- /usr/include/ctype.h /usr/include/x86_64-linux-gnu/bits/types.h \
+ /usr/include/x86_64-linux-gnu/bits/locale.h /usr/include/c++/15/iosfwd \
+ /usr/include/c++/15/cctype /usr/include/ctype.h \
+ /usr/include/x86_64-linux-gnu/bits/types.h \
  /usr/include/x86_64-linux-gnu/bits/typesizes.h \
  /usr/include/x86_64-linux-gnu/bits/time64.h \
  /usr/include/x86_64-linux-gnu/bits/endian.h \
@@ -125,12 +117,20 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/types/error_t.h \
  /usr/include/c++/15/bits/charconv.h \
  /usr/include/c++/15/bits/basic_string.tcc \
- /usr/include/c++/15/bits/memory_resource.h \
+ /usr/include/c++/15/bits/memory_resource.h /usr/include/c++/15/cstddef \
  /usr/include/c++/15/bits/uses_allocator.h \
  /usr/include/c++/15/bits/uses_allocator_args.h /usr/include/c++/15/tuple \
- /usr/include/c++/15/bits/ranges_util.h /usr/include/c++/15/cassert \
- /usr/include/assert.h /usr/include/c++/15/cstring /usr/include/string.h \
- /usr/include/strings.h \
+ /usr/include/c++/15/bits/ranges_util.h \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_test_macros.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_test_macro_impl.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_user_config.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_assertion_handler.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_assertion_info.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_result_type.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_source_line_info.hpp \
+ /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_stringref.hpp \
+ /usr/include/c++/15/cassert /usr/include/assert.h \
+ /usr/include/c++/15/cstring /usr/include/string.h /usr/include/strings.h \
  /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/internal/catch_decomposer.hpp \
  /home/matthew/.conan2/p/b/catchf9ac63a49d1dc/p/include/catch2/catch_tostring.hpp \
  /usr/include/c++/15/vector /usr/include/c++/15/bits/stl_uninitialized.h \
@@ -261,6 +261,7 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/c++/15/bits/erase_if.h /usr/include/c++/15/utility \
  /usr/include/c++/15/bits/stl_relops.h \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/bytecode/module.hpp \
+ /usr/include/c++/15/variant \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/bytecode/opcode.hpp \
  /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/ast.hpp \
  /usr/include/c++/15/memory \
@@ -292,5 +293,7 @@ CMakeFiles/fleaux_core_tests.dir/tests/bytecode_tests.cpp.o: \
  /usr/include/c++/15/backward/auto_ptr.h \
  /usr/include/c++/15/bits/ranges_uninitialized.h \
  /usr/include/c++/15/pstl/glue_memory_defs.h \
- /usr/include/c++/15/pstl/execution_defs.h /usr/include/c++/15/variant \
- /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/diagnostics.hpp
+ /usr/include/c++/15/pstl/execution_defs.h \
+ /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/diagnostics.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/lowering.hpp \
+ /home/matthew/CLionProjects/fleauxlang/core/include/fleaux/frontend/parser.hpp
