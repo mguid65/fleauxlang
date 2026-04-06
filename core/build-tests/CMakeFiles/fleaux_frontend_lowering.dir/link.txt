@@ -1,2 +1,0 @@
-/usr/bin/ar qc libfleaux_frontend_lowering.a CMakeFiles/fleaux_frontend_lowering.dir/src/frontend/lowering.cpp.o
-/usr/bin/ranlib libfleaux_frontend_lowering.a

@@ -162,3 +162,5 @@ cython_debug/
 fleaux_generated_module*
 
 cpp/test_runtime_bin
+
+cmake-*

@@ -1,2 +1,0 @@
-/usr/bin/ar qc libfleaux_bytecode.a CMakeFiles/fleaux_bytecode.dir/src/bytecode/compiler.cpp.o
-/usr/bin/ranlib libfleaux_bytecode.a
