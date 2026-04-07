@@ -19,7 +19,7 @@ using TranspileResult = tl::expected<std::filesystem::path, TranspileError>;
 
 class FleauxCppTranspiler {
  public:
-  TranspileResult process(const std::filesystem::path& source_file) const;
+  [[nodiscard]] TranspileResult process(const std::filesystem::path& source_file) const;
 
  private:
   [[nodiscard]] std::string emit_cpp(const ir::IRProgram& program,

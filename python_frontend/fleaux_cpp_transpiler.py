@@ -35,14 +35,14 @@ _CPP_KEYWORDS: frozenset[str] = frozenset({
     "xor", "xor_eq",
 })
 
-from fleaux_ast import (
+from .fleaux_ast import (
     IRProgram, IRImport, IRLet, IRExprStatement,
     IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IROperatorRef,
     IRExpr, IRCallTarget,
 )
-from fleaux_diagnostics import format_diagnostic
-from fleaux_lowering import FleauxLoweringError, lower
-from fleaux_parser import FleauxSyntaxError, parse_file
+from .fleaux_diagnostics import format_diagnostic
+from .fleaux_lowering import FleauxLoweringError, lower
+from .fleaux_parser import FleauxSyntaxError, parse_file
 
 
 class FleauxCppTranspilerError(Exception):
@@ -73,7 +73,7 @@ class _ModuleInfo:
 
 
 class FleauxCppTranspiler:
-    RUNTIME_ROOT = Path(__file__).resolve().parent
+    RUNTIME_ROOT = Path(__file__).resolve().parent.parent
     BUNDLED_MODULE_SOURCES = {
         "Std": RUNTIME_ROOT / "Std.fleaux",
     }
@@ -767,4 +767,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
