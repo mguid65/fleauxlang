@@ -138,13 +138,13 @@ tl::expected<IRProgram, InterpretError> parse_and_lower(const std::filesystem::p
         "Check the file path and ensure it is not empty."));
   }
 
-  const frontend::parse::Parser parser;
+  constexpr frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_file.string());
   if (!parsed) {
     return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
   }
 
-  const frontend::lowering::Lowerer lowerer;
+  constexpr frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   if (!lowered) {
     return tl::unexpected(make_error(lowered.error().message, lowered.error().hint, lowered.error().span));
@@ -224,21 +224,21 @@ struct EvalState {
       return fleaux::runtime::make_null();
     }
 
-    if (std::holds_alternative<IRFlowExpr>(expr->node)) {
-      const auto& flow = std::get<IRFlowExpr>(expr->node);
-      const Value lhs = eval_expr(flow.lhs, locals);
-      const auto target = resolve_call_target(flow.rhs, locals);
+    if (const auto* flow = std::get_if<IRFlowExpr>(&expr->node); flow != nullptr) {
+      const Value lhs = eval_expr(flow->lhs, locals);
+      const auto target = resolve_call_target(flow->rhs, locals);
       return target(lhs);
     }
 
-    if (std::holds_alternative<IRTupleExpr>(expr->node)) {
-      const auto&[items, span] = std::get<IRTupleExpr>(expr->node);
+    if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
+      const auto& items = tuple->items;
       fleaux::runtime::Array arr;
       arr.Reserve(items.size());
       for (const auto& item : items) {
-        if (item && std::holds_alternative<IRNameRef>(item->node)) {
-          if (const auto& name_ref = std::get<IRNameRef>(item->node); name_ref.qualifier.has_value() || !locals.contains(name_ref.name)) {
-            arr.PushBack(fleaux::runtime::make_callable_ref(resolve_name_callable(name_ref, locals)));
+        if (item) {
+          if (const auto* name_ref = std::get_if<IRNameRef>(&item->node);
+              name_ref != nullptr && (name_ref->qualifier.has_value() || !locals.contains(name_ref->name))) {
+            arr.PushBack(fleaux::runtime::make_callable_ref(resolve_name_callable(*name_ref, locals)));
             continue;
           }
         }
@@ -247,21 +247,24 @@ struct EvalState {
       return Value{std::move(arr)};
     }
 
-    if (std::holds_alternative<frontend::ir::IRConstant>(expr->node)) {
-      const auto&[val, span] = std::get<frontend::ir::IRConstant>(expr->node);
-      if (std::holds_alternative<std::monostate>(val)) {
+    if (const auto* constant = std::get_if<frontend::ir::IRConstant>(&expr->node); constant != nullptr) {
+      const auto& val = constant->val;
+      if (std::get_if<std::monostate>(&val) != nullptr) {
         return fleaux::runtime::make_null();
       }
-      if (std::holds_alternative<bool>(val)) {
-        return fleaux::runtime::make_bool(std::get<bool>(val));
+      if (const auto* b = std::get_if<bool>(&val); b != nullptr) {
+        return fleaux::runtime::make_bool(*b);
       }
-      if (std::holds_alternative<std::int64_t>(val)) {
-        return fleaux::runtime::make_int(std::get<std::int64_t>(val));
+      if (const auto* i = std::get_if<std::int64_t>(&val); i != nullptr) {
+        return fleaux::runtime::make_int(*i);
       }
-      if (std::holds_alternative<double>(val)) {
-        return fleaux::runtime::make_float(std::get<double>(val));
+      if (const auto* d = std::get_if<double>(&val); d != nullptr) {
+        return fleaux::runtime::make_float(*d);
       }
-      return fleaux::runtime::make_string(std::get<std::string>(val));
+      if (const auto* s = std::get_if<std::string>(&val); s != nullptr) {
+        return fleaux::runtime::make_string(*s);
+      }
+      throw std::runtime_error("Unsupported constant type in VM interpreter.");
     }
 
     const auto&[qualifier, name, span] = std::get<IRNameRef>(expr->node);
@@ -320,8 +323,8 @@ struct EvalState {
 
   RuntimeCallable resolve_call_target(const IRCallTarget& target,
                                       const std::unordered_map<std::string, Value>& locals) const {
-    if (std::holds_alternative<frontend::ir::IROperatorRef>(target)) {
-      const auto& op = std::get<frontend::ir::IROperatorRef>(target).op;
+    if (const auto* op_ref = std::get_if<frontend::ir::IROperatorRef>(&target); op_ref != nullptr) {
+      const auto& op = op_ref->op;
       const auto dispatch = operator_dispatch_key(op);
       if (!dispatch.has_value()) {
         throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
@@ -363,7 +366,10 @@ struct EvalState {
       throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
     }
 
-    return resolve_name_callable(std::get<IRNameRef>(target), locals);
+    if (const auto* name_ref = std::get_if<IRNameRef>(&target); name_ref != nullptr) {
+      return resolve_name_callable(*name_ref, locals);
+    }
+    throw std::runtime_error("Unsupported call target in VM interpreter.");
   }
 
   Value invoke_let(const frontend::ir::IRLet& let, Value arg) const {

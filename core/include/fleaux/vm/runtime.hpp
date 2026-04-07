@@ -29,8 +29,8 @@ class Runtime {
  public:
   explicit Runtime(RuntimeOptions options = {});
 
-  RuntimeResult execute(const bytecode::Module& module) const;
-  RuntimeResult execute(const bytecode::Module& module, std::ostream& output) const;
+  [[nodiscard]] auto execute(const bytecode::Module& bytecode_module) const -> RuntimeResult;
+  auto execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult;
 
  private:
   RuntimeOptions options_;

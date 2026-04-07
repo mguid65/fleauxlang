@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <variant>
@@ -74,7 +75,7 @@ using LoopExit = std::variant<std::monostate, Value>;
 using LoopResult = tl::expected<LoopExit, RuntimeError>;
 
 // Forward declarations.
-LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
                     const std::unordered_map<std::string, RuntimeCallable>& builtins, bool allow_runtime_fallback,
                     std::ostream& output);
 
@@ -85,7 +86,8 @@ tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Valu
 // Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
 tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const std::string& name, const Value& arg);
 
-tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& module, std::size_t fn_idx, Value arg,
+tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx,
+                                                    Value arg,
                                                     const std::unordered_map<std::string, RuntimeCallable>& builtins,
                                                     bool allow_runtime_fallback, std::ostream& output);
 
@@ -106,11 +108,14 @@ tl::expected<Value, RuntimeError> run_loop_intrinsic(Value state, const Value& c
 
 // ── run_user_function ─────────────────────────────────────────────────────────
 
-tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& module, const std::size_t fn_idx, Value arg,
+tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& bytecode_module, const std::size_t fn_idx,
+                                                    Value arg,
                                                     const std::unordered_map<std::string, RuntimeCallable>& builtins,
                                                     const bool allow_runtime_fallback, std::ostream& output) {
-  if (fn_idx >= module.functions.size()) { return tl::unexpected(RuntimeError{"function index out of range"}); }
-  const auto& [name, arity, instructions] = module.functions[fn_idx];
+  if (fn_idx >= bytecode_module.functions.size()) {
+    return tl::unexpected(RuntimeError{"function index out of range"});
+  }
+  const auto& [name, arity, instructions] = bytecode_module.functions[fn_idx];
 
   std::vector<Value> inner_stack;
   std::vector<CallFrame> inner_frames;
@@ -139,18 +144,19 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& modu
 
   inner_frames.push_back(std::move(frame));
 
-  auto loop_result = run_loop(module, inner_stack, inner_frames, builtins, allow_runtime_fallback, output);
+  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, builtins, allow_runtime_fallback, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
-  if (std::holds_alternative<std::monostate>(*loop_result)) {
+  if (std::get_if<std::monostate>(&*loop_result) != nullptr) {
     return tl::unexpected(RuntimeError{"halt inside function '" + name + "'"});
   }
-  return std::get<Value>(std::move(*loop_result));
+  if (auto* value = std::get_if<Value>(&*loop_result); value != nullptr) { return std::move(*value); }
+  return tl::unexpected(RuntimeError{"invalid loop result variant"});
 }
 
 // ── run_loop ──────────────────────────────────────────────────────────────────
 
-LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
                     const std::unordered_map<std::string, RuntimeCallable>& builtins, const bool allow_runtime_fallback,
                     std::ostream& output) {
   while (!frames.empty()) {
@@ -171,8 +177,10 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
       // ── Push ────────────────────────────────────────────────────────────
       case bytecode::Opcode::kPushConst: {
         const auto idx = static_cast<std::size_t>(operand);
-        if (idx >= module.constants.size()) { return tl::unexpected(RuntimeError{"constant pool index out of range"}); }
-        stack.push_back(const_to_value(module.constants[idx]));
+        if (idx >= bytecode_module.constants.size()) {
+          return tl::unexpected(RuntimeError{"constant pool index out of range"});
+        }
+        stack.push_back(const_to_value(bytecode_module.constants[idx]));
         break;
       }
 
@@ -204,8 +212,10 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
       // ── Builtin call ──────────────────────────────────────────────────────
       case bytecode::Opcode::kCallBuiltin: {
         const auto idx = static_cast<std::size_t>(operand);
-        if (idx >= module.builtin_names.size()) { return tl::unexpected(RuntimeError{"builtin index out of range"}); }
-        const auto& name = module.builtin_names[idx];
+        if (idx >= bytecode_module.builtin_names.size()) {
+          return tl::unexpected(RuntimeError{"builtin index out of range"});
+        }
+        const auto& name = bytecode_module.builtin_names[idx];
 
         auto arg = pop_stack(stack, "call_builtin");
         if (!arg) return tl::unexpected(arg.error());
@@ -219,11 +229,13 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
       // ── User function call (frame-based) ──────────────────────────────────
       case bytecode::Opcode::kCallUserFunc: {
         const auto fn_idx = static_cast<std::size_t>(operand);
-        if (fn_idx >= module.functions.size()) { return tl::unexpected(RuntimeError{"function index out of range"}); }
+        if (fn_idx >= bytecode_module.functions.size()) {
+          return tl::unexpected(RuntimeError{"function index out of range"});
+        }
         auto arg = pop_stack(stack, "call_user_func");
         if (!arg) return tl::unexpected(arg.error());
 
-        const auto& [name, arity, instructions] = module.functions[fn_idx];
+        const auto& [name, arity, instructions] = bytecode_module.functions[fn_idx];
         CallFrame new_frame;
         new_frame.instructions = &instructions;
         new_frame.ip = 0;
@@ -253,12 +265,16 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
       // ── User function → callable-ref (for higher-order use) ───────────────
       case bytecode::Opcode::kMakeUserFuncRef: {
         const auto fn_idx = static_cast<std::size_t>(operand);
-        if (fn_idx >= module.functions.size()) { return tl::unexpected(RuntimeError{"function index out of range"}); }
+        if (fn_idx >= bytecode_module.functions.size()) {
+          return tl::unexpected(RuntimeError{"function index out of range"});
+        }
         // Create a RuntimeCallable that re-enters the VM for this function.
         // Captures by reference — valid because callables are always invoked
         // synchronously (inside kCallBuiltin) within the same run_loop call.
-        auto callable = [&module, fn_idx, &builtins, allow_runtime_fallback, &output](Value call_arg) -> Value {
-          auto r = run_user_function(module, fn_idx, std::move(call_arg), builtins, allow_runtime_fallback, output);
+        auto callable = [&bytecode_module, fn_idx, &builtins, allow_runtime_fallback,
+                         &output](Value call_arg) -> Value {
+          auto r =
+              run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, allow_runtime_fallback, output);
           if (!r) throw std::runtime_error(r.error().message);
           return std::move(*r);
         };
@@ -269,8 +285,10 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
       // ── Builtin → callable-ref (for higher-order use) ─────────────────────
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
         const auto idx = static_cast<std::size_t>(operand);
-        if (idx >= module.builtin_names.size()) { return tl::unexpected(RuntimeError{"builtin index out of range"}); }
-        const auto& name = module.builtin_names[idx];
+        if (idx >= bytecode_module.builtin_names.size()) {
+          return tl::unexpected(RuntimeError{"builtin index out of range"});
+        }
+        const auto& name = bytecode_module.builtin_names[idx];
         auto callable = [name, &builtins, allow_runtime_fallback](Value arg) -> Value {
           auto result = dispatch_builtin(name, std::move(arg), builtins, allow_runtime_fallback);
           if (!result) { throw std::runtime_error(result.error().message); }
@@ -579,7 +597,7 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
         if (!result) {
           const std::string prefix = "native 'loop' threw: ";
           std::string msg = result.error().message;
-          if (msg.rfind(prefix, 0) == 0) { msg.replace(0, prefix.size(), "native 'loop_call' threw: "); }
+          if (msg.starts_with(prefix)) { msg.replace(0, prefix.size(), "native 'loop_call' threw: "); }
           return tl::unexpected(RuntimeError{std::move(msg)});
         }
         stack.push_back(std::move(*result));
@@ -611,7 +629,7 @@ LoopResult run_loop(const bytecode::Module& module, std::vector<Value>& stack, s
         if (!result) {
           const std::string prefix = "native 'loop' threw: ";
           std::string msg = result.error().message;
-          if (msg.rfind(prefix, 0) == 0) { msg.replace(0, prefix.size(), "native 'loop_n_call' threw: "); }
+          if (msg.starts_with(prefix)) { msg.replace(0, prefix.size(), "native 'loop_n_call' threw: "); }
           return tl::unexpected(RuntimeError{std::move(msg)});
         }
         stack.push_back(std::move(*result));
@@ -705,14 +723,15 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     } catch (const std::exception& ex) { return native_error(builtin_name, ex); }
   };
 
-  auto trim_left_copy = [](std::string s) {
-    const auto it = std::ranges::find_if(s, [](const unsigned char ch) { return !std::isspace(ch); });
+  auto trim_left_copy = [](std::string s) -> std::string {
+    const auto it = std::ranges::find_if(s, [](const unsigned char ch) -> bool { return !std::isspace(ch); });
     s.erase(s.begin(), it);
     return s;
   };
 
-  auto trim_right_copy = [](std::string s) {
-    const auto rit = std::find_if(s.rbegin(), s.rend(), [](const unsigned char ch) { return !std::isspace(ch); });
+  auto trim_right_copy = [](std::string s) -> std::string {
+    const auto rit =
+        std::ranges::find_if(std::views::reverse(s), [](const unsigned char ch) { return !std::isspace(ch); });
     s.erase(rit.base(), s.end());
     return s;
   };
@@ -931,7 +950,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.File.ReadLine", BuiltinDispatchKey::kStd_File_ReadLine},
       {"Std.File.ReadChunk", BuiltinDispatchKey::kStd_File_ReadChunk},
       {"Std.File.WriteChunk", BuiltinDispatchKey::kStd_File_WriteChunk},
-      {"Std.File.Flush", BuiltinDispatchKey::kStd_File_Flush},
+      {"Std.File.Flash", BuiltinDispatchKey::kStd_File_Flush},
       {"Std.File.Close", BuiltinDispatchKey::kStd_File_Close},
       {"Std.File.WithOpen", BuiltinDispatchKey::kStd_File_WithOpen},
       {"Std.Dir.Create", BuiltinDispatchKey::kStd_Dir_Create},
@@ -998,23 +1017,23 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         }
       }
       case BuiltinDispatchKey::kStd_Subtract:
-        return numeric_bin("Std.Subtract", [](const double l, const double r) { return l - r; });
+        return numeric_bin("Std.Subtract", [](const double l, const double r) -> double { return l - r; });
       case BuiltinDispatchKey::kStd_Multiply:
-        return numeric_bin("Std.Multiply", [](const double l, const double r) { return l * r; });
+        return numeric_bin("Std.Multiply", [](const double l, const double r) -> double { return l * r; });
       case BuiltinDispatchKey::kStd_Divide:
-        return numeric_bin("Std.Divide", [](const double l, const double r) { return l / r; });
+        return numeric_bin("Std.Divide", [](const double l, const double r) -> double { return l / r; });
       case BuiltinDispatchKey::kStd_Mod:
-        return numeric_bin("Std.Mod", [](const double l, const double r) { return std::fmod(l, r); });
+        return numeric_bin("Std.Mod", [](const double l, const double r) -> double { return std::fmod(l, r); });
       case BuiltinDispatchKey::kStd_Pow:
-        return numeric_bin("Std.Pow", [](const double l, const double r) { return std::pow(l, r); });
+        return numeric_bin("Std.Pow", [](const double l, const double r) -> double { return std::pow(l, r); });
       case BuiltinDispatchKey::kStd_GreaterThan:
-        return numeric_cmp("Std.GreaterThan", [](const double l, const double r) { return l > r; });
+        return numeric_cmp("Std.GreaterThan", [](const double l, const double r) -> bool { return l > r; });
       case BuiltinDispatchKey::kStd_LessThan:
-        return numeric_cmp("Std.LessThan", [](const double l, const double r) { return l < r; });
+        return numeric_cmp("Std.LessThan", [](const double l, const double r) -> bool { return l < r; });
       case BuiltinDispatchKey::kStd_GreaterOrEqual:
-        return numeric_cmp("Std.GreaterOrEqual", [](const double l, const double r) { return l >= r; });
+        return numeric_cmp("Std.GreaterOrEqual", [](const double l, const double r) -> bool { return l >= r; });
       case BuiltinDispatchKey::kStd_LessOrEqual:
-        return numeric_cmp("Std.LessOrEqual", [](const double l, const double r) { return l <= r; });
+        return numeric_cmp("Std.LessOrEqual", [](const double l, const double r) -> bool { return l <= r; });
       case BuiltinDispatchKey::kStd_Equal:
       case BuiltinDispatchKey::kStd_NotEqual: {
         auto args = expect_binary(name.c_str());
@@ -1086,38 +1105,38 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       }
       case BuiltinDispatchKey::kStd_Sqrt:
       case BuiltinDispatchKey::kStd_Math_Sqrt: {
-        return numeric_unary(name, [](const double v) { return std::sqrt(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::sqrt(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Sin:
       case BuiltinDispatchKey::kStd_Math_Sin: {
-        return numeric_unary(name, [](const double v) { return std::sin(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::sin(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Cos:
       case BuiltinDispatchKey::kStd_Math_Cos: {
-        return numeric_unary(name, [](const double v) { return std::cos(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::cos(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Tan:
       case BuiltinDispatchKey::kStd_Math_Tan: {
-        return numeric_unary(name, [](const double v) { return std::tan(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::tan(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Floor: {
-        return numeric_unary(name, [](const double v) { return std::floor(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::floor(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Ceil: {
-        return numeric_unary(name, [](const double v) { return std::ceil(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::ceil(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Abs: {
-        return numeric_unary(name, [](const double v) { return std::fabs(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::fabs(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Log: {
-        return numeric_unary(name, [](const double v) { return std::log(v); });
+        return numeric_unary(name, [](const double v) -> double { return std::log(v); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Clamp: {
@@ -1161,7 +1180,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         if (!result) {
           const std::string prefix = "native 'loop' threw: ";
           std::string msg = result.error().message;
-          if (msg.rfind(prefix, 0) == 0) { msg.replace(0, prefix.size(), "native builtin 'Std.Loop' threw: "); }
+          if (msg.starts_with(prefix)) { msg.replace(0, prefix.size(), "native builtin 'Std.Loop' threw: "); }
           return tl::unexpected(RuntimeError{std::move(msg)});
         }
         return std::optional<Value>{std::move(*result)};
@@ -1190,7 +1209,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         if (!result) {
           const std::string prefix = "native 'loop' threw: ";
           std::string msg = result.error().message;
-          if (msg.rfind(prefix, 0) == 0) { msg.replace(0, prefix.size(), "native builtin 'Std.LoopN' threw: "); }
+          if (msg.starts_with(prefix)) { msg.replace(0, prefix.size(), "native builtin 'Std.LoopN' threw: "); }
           return tl::unexpected(RuntimeError{std::move(msg)});
         }
         return std::optional<Value>{std::move(*result)};
@@ -1319,7 +1338,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         try {
           std::string s = fleaux::runtime::to_string(*v.value());
           std::ranges::transform(s, s.begin(),
-                                 [](const unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
+                                 [](const unsigned char ch) -> char { return static_cast<char>(std::toupper(ch)); });
           return std::optional<Value>{fleaux::runtime::make_string(std::move(s))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1330,7 +1349,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         try {
           std::string s = fleaux::runtime::to_string(*v.value());
           std::ranges::transform(s, s.begin(),
-                                 [](const unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+                                 [](const unsigned char ch) -> char { return static_cast<char>(std::tolower(ch)); });
           return std::optional<Value>{fleaux::runtime::make_string(std::move(s))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2398,7 +2417,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           std::vector<Value> items;
           items.reserve(src.Size());
           for (std::size_t i = 0; i < src.Size(); ++i) { items.push_back(*src.TryGet(i)); }
-          std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) {
+          std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) -> bool {
             return fleaux::runtime::compare_values_for_sort(lhs, rhs) < 0;
           });
           Array out;
@@ -2699,25 +2718,27 @@ tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Valu
 
 // ── Runtime::execute ──────────────────────────────────────────────────────────
 
-RuntimeResult Runtime::execute(const bytecode::Module& module) const { return execute(module, std::cout); }
+RuntimeResult Runtime::execute(const bytecode::Module& bytecode_module) const {
+  return execute(bytecode_module, std::cout);
+}
 
-RuntimeResult Runtime::execute(const bytecode::Module& module, std::ostream& output) const {
+RuntimeResult Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const {
   const auto& builtins = vm_builtin_callables();
 
   std::vector<Value> stack;
   std::vector<CallFrame> frames;
-  frames.push_back(CallFrame{&module.instructions, 0, {}});
+  frames.push_back(CallFrame{.instructions=&bytecode_module.instructions, .ip=0, .locals={}});
 
-  auto loop_result = run_loop(module, stack, frames, builtins, options_.allow_runtime_fallback, output);
+  auto loop_result = run_loop(bytecode_module, stack, frames, builtins, options_.allow_runtime_fallback, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
-  if (std::holds_alternative<Value>(*loop_result)) {
+  if (std::get_if<Value>(&*loop_result) != nullptr) {
     // A top-level kReturn would be a compiler bug.
     return tl::unexpected(RuntimeError{"top-level code returned a value instead of halting"});
   }
   return ExecutionResult{0};
 }
 
-Runtime::Runtime(RuntimeOptions options) : options_(options) {}
+Runtime::Runtime(const RuntimeOptions options) : options_(options) {}
 
 }  // namespace fleaux::vm
