@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
-from fleaux_diagnostics import SourceSpan, format_diagnostic, merge_source_spans
+from .fleaux_diagnostics import SourceSpan, format_diagnostic, merge_source_spans
 
 
 class FleauxSyntaxError(Exception):
@@ -532,4 +532,6 @@ def parse_program(source: str, source_name: str | Path | None = None) -> Program
 def parse_file(file_path: str | Path) -> Program:
     p = Path(file_path)
     return parse_program(p.read_text(encoding="utf-8"), source_name=p)
+
+
 

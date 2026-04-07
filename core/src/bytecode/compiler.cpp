@@ -262,11 +262,6 @@ EmitResult emit_expr(const IRExprPtr& expr,
   // ── Constant ──────────────────────────────────────────────────────────────
   if (std::holds_alternative<IRConstant>(expr->node)) {
     const auto& c = std::get<IRConstant>(expr->node);
-    if (std::holds_alternative<std::int64_t>(c.val)) {
-      out.push_back(
-          Instruction{Opcode::kPushConstI64, std::get<std::int64_t>(c.val)});
-      return {};
-    }
     const auto idx = CompileState::intern_const(module, ConstValue{c.val});
     out.push_back(
         Instruction{Opcode::kPushConst, static_cast<std::int64_t>(idx)});

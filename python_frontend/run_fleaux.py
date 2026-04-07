@@ -7,11 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fleaux_cpp_transpiler import FleauxCppTranspiler, FleauxCppTranspilerError
-from fleaux_graphviz import GraphEmitError, write_graph_for_source
-from fleaux_lowering import FleauxLoweringError
-from fleaux_parser import FleauxSyntaxError
-
+from python_frontend.fleaux_cpp_transpiler import FleauxCppTranspiler, FleauxCppTranspilerError
+from python_frontend.fleaux_graphviz import GraphEmitError, write_graph_for_source
+from python_frontend.fleaux_lowering import FleauxLoweringError
+from python_frontend.fleaux_parser import FleauxSyntaxError
 
 _COMPILER_CANDIDATES = ["clang++-20", "clang++", "g++", "c++"]
 
@@ -24,32 +23,20 @@ def _env_flag(name: str) -> bool:
 
 
 def _resolve_compiler(requested: str | None) -> str:
-    """Return the compiler executable to use.
-
-    *requested* may be:
-      - None           → auto-select first available from _COMPILER_CANDIDATES
-      - a plain name   → e.g. "clang++-18"; resolved via PATH with shutil.which
-      - an absolute or relative path → e.g. "/usr/bin/clang++-18"; checked
-                        directly for existence and execute permission
-
-    Exits with code 2 and a diagnostic if the compiler cannot be found.
-    """
     if requested:
-        # Treat as a filesystem path if it contains a separator character.
         if os.sep in requested or (os.altsep and os.altsep in requested):
             p = Path(requested)
             if p.is_file() and os.access(p, os.X_OK):
                 return str(p)
             print(f"Compiler path '{requested}' does not exist or is not executable.")
             raise SystemExit(2)
-        # Plain name — search PATH (also works for versioned names like clang++-18).
-        found = shutil.which(requested)
+        found = shutil.which(str(requested))
         if found is None:
             print(f"Compiler '{requested}' not found on PATH.")
             raise SystemExit(2)
         return found
     for candidate in _COMPILER_CANDIDATES:
-        if shutil.which(candidate):
+        if shutil.which(str(candidate)):
             return candidate
     print("No C++ compiler found on PATH (tried: " + ", ".join(_COMPILER_CANDIDATES) + ").")
     raise SystemExit(2)
@@ -65,9 +52,9 @@ def _resolve_vm_cli(root_dir: Path) -> Path | None:
         return None
 
     candidates = [
-        root_dir / "core" / "build-tests-vm" / "fleaux_vm_cli",
-        root_dir / "core" / "build" / "fleaux_vm_cli",
         root_dir / "core" / "cmake-build-debug" / "fleaux_vm_cli",
+        root_dir / "core" / "build" / "fleaux_vm_cli",
+        root_dir / "core" / "build-tests-vm" / "fleaux_vm_cli",
     ]
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
@@ -120,14 +107,10 @@ def _transpile_compile_run(
     return run_proc.returncode
 
 
-def _run_vm(source: Path, vm_cli: Path, runtime_args: list[str], mode: str) -> int:
-    engine = "hybrid"
-    if mode == "interpreter":
-        engine = "interpreter"
-    elif mode == "bytecode":
-        engine = "bytecode"
-
-    cmd = [str(vm_cli), "--engine", engine, str(source)]
+def _run_vm(source: Path, vm_cli: Path, runtime_args: list[str], mode: str, no_run: bool) -> int:
+    cmd = [str(vm_cli), "--mode", mode, str(source)]
+    if no_run:
+        cmd.append("--no-run")
     if runtime_args:
         cmd.append("--")
         cmd.extend(runtime_args)
@@ -147,63 +130,15 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Run Fleaux in transpile, interpreter, bytecode, or hybrid VM mode.")
     parser.add_argument("source", nargs="?", default="test.fleaux", help="Input .fleaux file path")
-    parser.add_argument(
-        "--emit-graph",
-        action="store_true",
-        help="Emit a Graphviz DOT representation of the lowered IR.",
-    )
-    parser.add_argument(
-        "--graph-out",
-        default=None,
-        help="Output graph path for --emit-graph (default: <source>.<graph-format>)",
-    )
-    parser.add_argument(
-        "--graph-format",
-        choices=["dot", "svg", "png", "pdf"],
-        default="dot",
-        help="Graph output format for --emit-graph (default: dot)",
-    )
-    parser.add_argument(
-        "--graph-only",
-        action="store_true",
-        help="Emit graph output only and skip transpile/execute.",
-    )
-    parser.add_argument(
-        "--no-run",
-        action="store_true",
-        help="Transpile and compile but do not run the produced binary.",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["transpile", "vm", "interpreter", "bytecode"],
-        default="transpile",
-        help="Execution mode (default: transpile). 'vm' means hybrid bytecode-first with interpreter fallback.",
-    )
-    parser.add_argument(
-        "--all-samples",
-        action="store_true",
-        help="Run all .fleaux files under samples/ instead of a single source file.",
-    )
-    parser.add_argument(
-        "--compiler",
-        default=None,
-        metavar="EXE",
-        help=(
-            "C++ compiler to use. "
-            "Accepts a plain name searched on PATH (e.g. 'clang++-18', 'g++'), "
-            "or an absolute/relative path (e.g. '/usr/bin/clang++-18'). "
-            "Defaults to auto-selecting clang++-20, clang++, g++, or c++ in that order."
-        ),
-    )
-    parser.add_argument(
-        "--unoptimized",
-        action="store_true",
-        help=(
-            "Use faster compile settings intended for tests/dev loops "
-            "(currently -O0 instead of -O2). "
-            "Can also be enabled with FLEAUX_UNOPTIMIZED=1 or FLEAUX_FAST_COMPILE=1."
-        ),
-    )
+    parser.add_argument("--emit-graph", action="store_true", help="Emit a Graphviz DOT representation of the lowered IR.")
+    parser.add_argument("--graph-out", default=None, help="Output graph path for --emit-graph (default: <source>.<graph-format>)")
+    parser.add_argument("--graph-format", choices=["dot", "svg", "png", "pdf"], default="dot", help="Graph output format for --emit-graph (default: dot)")
+    parser.add_argument("--graph-only", action="store_true", help="Emit graph output only and skip transpile/execute.")
+    parser.add_argument("--no-run", action="store_true", help="Transpile and compile but do not run the produced binary.")
+    parser.add_argument("--mode", choices=["transpile", "vm", "interpreter", "bytecode"], default="transpile", help="Execution mode (default: transpile). 'vm' means hybrid bytecode-first with interpreter fallback.")
+    parser.add_argument("--all-samples", action="store_true", help="Run all .fleaux files under samples/ instead of a single source file.")
+    parser.add_argument("--compiler", default=None, metavar="EXE", help=("C++ compiler to use. Accepts a plain name searched on PATH (e.g. 'clang++-18', 'g++'), or an absolute/relative path (e.g. '/usr/bin/clang++-18'). Defaults to auto-selecting clang++-20, clang++, g++, or c++ in that order."))
+    parser.add_argument("--unoptimized", action="store_true", help=("Use faster compile settings intended for tests/dev loops (currently -O0 instead of -O2). Can also be enabled with FLEAUX_UNOPTIMIZED=1 or FLEAUX_FAST_COMPILE=1."))
     args = parser.parse_args(cli_argv)
 
     source = Path(args.source)
@@ -213,11 +148,7 @@ def main() -> int:
 
     if args.emit_graph:
         try:
-            graph_path = write_graph_for_source(
-                source,
-                args.graph_out,
-                graph_format=args.graph_format,
-            )
+            graph_path = write_graph_for_source(source, args.graph_out, graph_format=args.graph_format)
         except GraphEmitError as exc:
             print(f"Graph emission failed: {exc}")
             return 2
@@ -226,7 +157,7 @@ def main() -> int:
             print("Skipped execution (--graph-only).")
             return 0
 
-    runtime_dir = Path(__file__).resolve().parent
+    runtime_dir = Path(__file__).resolve().parent.parent
     unoptimized = args.unoptimized or _env_flag("FLEAUX_UNOPTIMIZED") or _env_flag("FLEAUX_FAST_COMPILE")
 
     compiler: str | None = None
@@ -247,19 +178,15 @@ def main() -> int:
         vm_cli = _resolve_vm_cli(runtime_dir)
         if vm_cli is None:
             print(
-                "VM/interpreter mode requested but fleaux_vm_cli was not found. "
-                "Build core first (for example: cmake --build core/build-tests-vm).",
+                "VM/interpreter mode requested but fleaux_vm_cli was not found. Build core first (for example: cmake --build core/cmake-build-debug).",
                 file=sys.stderr,
             )
             return 2
 
     for source_file in sources:
         if args.mode in {"vm", "interpreter", "bytecode"}:
-            if args.no_run:
-                print(f"[{args.mode}] skipped run (--no-run): {source_file}")
-                continue
             assert vm_cli is not None
-            vm_rc = _run_vm(source_file, vm_cli, runtime_args, args.mode)
+            vm_rc = _run_vm(source_file, vm_cli, runtime_args, args.mode, args.no_run)
             if vm_rc != 0:
                 return vm_rc
             continue
@@ -281,4 +208,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 

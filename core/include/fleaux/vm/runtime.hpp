@@ -20,10 +20,20 @@ struct RuntimeError {
 
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 
+struct RuntimeOptions {
+  // When false, any non-native builtin triggers an error instead of fallback.
+  bool allow_runtime_fallback = true;
+};
+
 class Runtime {
  public:
+  explicit Runtime(RuntimeOptions options = {});
+
   RuntimeResult execute(const bytecode::Module& module) const;
   RuntimeResult execute(const bytecode::Module& module, std::ostream& output) const;
+
+ private:
+  RuntimeOptions options_;
 };
 
 }  // namespace fleaux::vm

@@ -112,3 +112,4 @@ def _color(text: str, code: str, use_color: bool) -> str:
     return f"\x1b[{code}m{text}\x1b[0m"
 
 
+

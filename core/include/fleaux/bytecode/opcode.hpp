@@ -7,8 +7,6 @@ enum class Opcode {
   kNoOp,
 
   // ── Push ──────────────────────────────────────────────────────────────────
-  // Push an inlined int64 onto the value stack (backward compat).
-  kPushConstI64,
   // Push a typed constant from the module's constant pool (operand = pool index).
   kPushConst,
 
@@ -21,11 +19,6 @@ enum class Opcode {
   // operand = N (number of items).
   kBuildTuple,
 
-  // ── Legacy integer arithmetic (backward compat; operate on Value-wrapped int64) ──
-  kAddI64,
-  kSubI64,
-  kMulI64,
-  kDivI64,
 
   // ── Stdlib builtin call ───────────────────────────────────────────────────
   // Pop the top-of-stack argument, call the named builtin, push result.

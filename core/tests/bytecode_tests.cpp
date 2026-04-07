@@ -86,8 +86,8 @@ TEST_CASE("VM builtin catalog stays in sync with Std.fleaux", "[bytecode]") {
 // ---------------------------------------------------------------------------
 // Core pipeline: (4, 5) -> Std.Add -> Std.Println
 // Expected codegen:
-//   [0] kPushConstI64  4
-//   [1] kPushConstI64  5
+//   [0] kPushConst     idx(4)
+//   [1] kPushConst     idx(5)
 //   [2] kBuildTuple    2
 //   [3] kCallBuiltin   idx(Std.Add)      = 0
 //   [4] kCallBuiltin   idx(Std.Println)  = 1
@@ -107,11 +107,11 @@ TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[
   const auto& instr = result->instructions;
   REQUIRE(instr.size() == 7);
 
-  REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConstI64);
-  REQUIRE(instr[0].operand == 4);
+  REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[0].operand)).data) == 4);
 
-  REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConstI64);
-  REQUIRE(instr[1].operand == 5);
+  REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
 
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kBuildTuple);
   REQUIRE(instr[2].operand == 2);
@@ -138,10 +138,10 @@ TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand",
 
   const auto& instr = result->instructions;
   REQUIRE(instr.size() == 6);
-  REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConstI64);
-  REQUIRE(instr[0].operand == 4);
-  REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConstI64);
-  REQUIRE(instr[1].operand == 5);
+  REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[0].operand)).data) == 4);
+  REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kAdd);
   REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
   REQUIRE(result->builtin_names.at(static_cast<std::size_t>(instr[3].operand)) == "Std.Println");
@@ -423,9 +423,9 @@ let Double(x: Number): Number = (x, x) -> Std.Add;
 }
 
 // ---------------------------------------------------------------------------
-// Constant pool: non-integer constants go into Module::constants.
+// Constant pool: constants go into Module::constants.
 // ---------------------------------------------------------------------------
-TEST_CASE("Bytecode compiler stores non-integer constants in pool", "[bytecode]") {
+TEST_CASE("Bytecode compiler stores constants in pool", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
       "(\"hello\") -> Std.Println;\n",
       "bytecode_string_const.fleaux");

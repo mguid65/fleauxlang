@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from fleaux_ast import (
+from .fleaux_ast import (
     IRConstant,
     IRExpr,
     IRExprStatement,
@@ -16,8 +16,8 @@ from fleaux_ast import (
     IRProgram,
     IRTupleExpr,
 )
-from fleaux_lowering import lower
-from fleaux_parser import parse_file
+from .fleaux_lowering import lower
+from .fleaux_parser import parse_file
 
 
 class GraphEmitError(Exception):
@@ -181,3 +181,5 @@ def write_graph_for_source(
         raise GraphvizRenderError(f"Graphviz render failed: {message}")
 
     return target_path
+
+

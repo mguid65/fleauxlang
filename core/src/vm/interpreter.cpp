@@ -48,6 +48,48 @@ std::string let_key(const std::optional<std::string>& qualifier, const std::stri
   return *qualifier + "." + name;
 }
 
+enum class OperatorDispatchKey {
+  kAdd,
+  kSubtract,
+  kMultiply,
+  kDivide,
+  kMod,
+  kPow,
+  kEqual,
+  kNotEqual,
+  kLessThan,
+  kGreaterThan,
+  kGreaterOrEqual,
+  kLessOrEqual,
+  kNot,
+  kAnd,
+  kOr,
+};
+
+std::optional<OperatorDispatchKey> operator_dispatch_key(const std::string& op) {
+  static const std::unordered_map<std::string, OperatorDispatchKey> table = {
+      {"+", OperatorDispatchKey::kAdd},
+      {"-", OperatorDispatchKey::kSubtract},
+      {"*", OperatorDispatchKey::kMultiply},
+      {"/", OperatorDispatchKey::kDivide},
+      {"%", OperatorDispatchKey::kMod},
+      {"^", OperatorDispatchKey::kPow},
+      {"==", OperatorDispatchKey::kEqual},
+      {"!=", OperatorDispatchKey::kNotEqual},
+      {"<", OperatorDispatchKey::kLessThan},
+      {">", OperatorDispatchKey::kGreaterThan},
+      {">=", OperatorDispatchKey::kGreaterOrEqual},
+      {"<=", OperatorDispatchKey::kLessOrEqual},
+      {"!", OperatorDispatchKey::kNot},
+      {"&&", OperatorDispatchKey::kAnd},
+      {"||", OperatorDispatchKey::kOr},
+  };
+  if (const auto it = table.find(op); it != table.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
+
 InterpretError make_error(const std::string& message,
                           const std::optional<std::string>& hint = std::nullopt,
                           const std::optional<SourceSpan>& span = std::nullopt) {
@@ -280,51 +322,44 @@ struct EvalState {
                                       const std::unordered_map<std::string, Value>& locals) const {
     if (std::holds_alternative<frontend::ir::IROperatorRef>(target)) {
       const auto& op = std::get<frontend::ir::IROperatorRef>(target).op;
-      if (op == "+") {
-        return resolve_std_callable_or_throw("Std.Add", std::nullopt);
+      const auto dispatch = operator_dispatch_key(op);
+      if (!dispatch.has_value()) {
+        throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
       }
-      if (op == "-") {
-        return resolve_std_callable_or_throw("Std.Subtract", std::nullopt);
+
+      switch (*dispatch) {
+        case OperatorDispatchKey::kAdd:
+          return resolve_std_callable_or_throw("Std.Add", std::nullopt);
+        case OperatorDispatchKey::kSubtract:
+          return resolve_std_callable_or_throw("Std.Subtract", std::nullopt);
+        case OperatorDispatchKey::kMultiply:
+          return resolve_std_callable_or_throw("Std.Multiply", std::nullopt);
+        case OperatorDispatchKey::kDivide:
+          return resolve_std_callable_or_throw("Std.Divide", std::nullopt);
+        case OperatorDispatchKey::kMod:
+          return resolve_std_callable_or_throw("Std.Mod", std::nullopt);
+        case OperatorDispatchKey::kPow:
+          return resolve_std_callable_or_throw("Std.Pow", std::nullopt);
+        case OperatorDispatchKey::kEqual:
+          return resolve_std_callable_or_throw("Std.Equal", std::nullopt);
+        case OperatorDispatchKey::kNotEqual:
+          return resolve_std_callable_or_throw("Std.NotEqual", std::nullopt);
+        case OperatorDispatchKey::kLessThan:
+          return resolve_std_callable_or_throw("Std.LessThan", std::nullopt);
+        case OperatorDispatchKey::kGreaterThan:
+          return resolve_std_callable_or_throw("Std.GreaterThan", std::nullopt);
+        case OperatorDispatchKey::kGreaterOrEqual:
+          return resolve_std_callable_or_throw("Std.GreaterOrEqual", std::nullopt);
+        case OperatorDispatchKey::kLessOrEqual:
+          return resolve_std_callable_or_throw("Std.LessOrEqual", std::nullopt);
+        case OperatorDispatchKey::kNot:
+          return resolve_std_callable_or_throw("Std.Not", std::nullopt);
+        case OperatorDispatchKey::kAnd:
+          return resolve_std_callable_or_throw("Std.And", std::nullopt);
+        case OperatorDispatchKey::kOr:
+          return resolve_std_callable_or_throw("Std.Or", std::nullopt);
       }
-      if (op == "*") {
-        return resolve_std_callable_or_throw("Std.Multiply", std::nullopt);
-      }
-      if (op == "/") {
-        return resolve_std_callable_or_throw("Std.Divide", std::nullopt);
-      }
-      if (op == "%") {
-        return resolve_std_callable_or_throw("Std.Mod", std::nullopt);
-      }
-      if (op == "^") {
-        return resolve_std_callable_or_throw("Std.Pow", std::nullopt);
-      }
-      if (op == "==") {
-        return resolve_std_callable_or_throw("Std.Equal", std::nullopt);
-      }
-      if (op == "!=") {
-        return resolve_std_callable_or_throw("Std.NotEqual", std::nullopt);
-      }
-      if (op == "<") {
-        return resolve_std_callable_or_throw("Std.LessThan", std::nullopt);
-      }
-      if (op == ">") {
-        return resolve_std_callable_or_throw("Std.GreaterThan", std::nullopt);
-      }
-      if (op == ">=") {
-        return resolve_std_callable_or_throw("Std.GreaterOrEqual", std::nullopt);
-      }
-      if (op == "<=") {
-        return resolve_std_callable_or_throw("Std.LessOrEqual", std::nullopt);
-      }
-      if (op == "!") {
-        return resolve_std_callable_or_throw("Std.Not", std::nullopt);
-      }
-      if (op == "&&") {
-        return resolve_std_callable_or_throw("Std.And", std::nullopt);
-      }
-      if (op == "||") {
-        return resolve_std_callable_or_throw("Std.Or", std::nullopt);
-      }
+
       throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
     }
 

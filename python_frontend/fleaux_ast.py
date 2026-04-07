@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
-from fleaux_diagnostics import SourceSpan
+from .fleaux_diagnostics import SourceSpan
 
 
 # ── Types ─────────────────────────────────────────────────────────────────────
@@ -128,4 +128,6 @@ IRStatement = Union[IRImport, IRLet, IRExprStatement]
 class IRProgram:
     statements: list[IRStatement] = field(default_factory=list)
     span: SourceSpan | None = None
+
+
 

@@ -6,14 +6,14 @@ Everything downstream (transpiler, future passes) operates on the IR.
 """
 from __future__ import annotations
 
-from fleaux_ast import (
+from .fleaux_ast import (
     IRProgram, IRImport, IRLet, IRExprStatement,
     IRParam, IRSimpleType, IRTupleType, IRType,
     IRConstant, IRNameRef, IROperatorRef,
     IRTupleExpr, IRFlowExpr,
     IRExpr, IRCallTarget, IRStatement,
 )
-from fleaux_diagnostics import format_diagnostic
+from .fleaux_diagnostics import format_diagnostic
 
 
 class FleauxLoweringError(Exception):
@@ -196,7 +196,7 @@ def _lower_primary(primary) -> IRExpr:
     if node_type == "Primary":
         # Start with the base atom
         result = _lower_atom(primary.base)
-        
+
         # Apply any tuple constructions (flow chains)
         if primary.extra:
             for construction in primary.extra:
@@ -204,7 +204,7 @@ def _lower_primary(primary) -> IRExpr:
                 result = IRFlowExpr(lhs=result, rhs=call_target, span=primary_span)
 
         return result
-    
+
     # If it's not a Primary, try to lower it as an atom directly
     return _lower_atom(primary)
 
@@ -226,7 +226,7 @@ def _lower_atom(atom) -> IRExpr:
         if atom.var is not None:
             return IRNameRef(qualifier=None, name=atom.var, span=atom_span)
         # Empty tuple case: all attributes are None, means we have ()
-        if (atom.inner is None and atom.constant is None and 
+        if (atom.inner is None and atom.constant is None and
             atom.qualified_var is None and atom.var is None):
             return IRTupleExpr(items=[], span=atom_span)
         raise FleauxLoweringError(
@@ -234,7 +234,7 @@ def _lower_atom(atom) -> IRExpr:
             hint="Use a parenthesized expression, constant, qualified name, or identifier.",
             span=atom_span,
         )
-    
+
     # Fallback for bare primitives
     if isinstance(atom, (int, float, bool)):
         return IRConstant(val=atom, span=atom_span)
@@ -271,7 +271,7 @@ def _extract_call_target_from_primary(primary) -> IRCallTarget:
             hint="Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.",
             span=primary_span,
         )
-    
+
     raise FleauxLoweringError(
         f"Cannot extract call target from node type '{node_type}'.",
         hint="Use a callable stage target such as 'Std.Add', 'MyFunc', or '+'.",
@@ -357,4 +357,6 @@ def _split_id(id_node) -> tuple[str | None, str]:
         return None, id_node
     # QualifiedId: .qualifier.qualifier (str) and .id (str)
     return id_node.qualifier.qualifier, id_node.id
+
+
 

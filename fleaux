@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
-from run_fleaux import main
+#!/usr/bin/env bash
+set -euo pipefail
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+repo_root="$(cd "$(dirname "$0")" && pwd)"
+exec python -m python_frontend.run_fleaux "$@"
 

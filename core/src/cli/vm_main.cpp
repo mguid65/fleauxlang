@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,11 +19,19 @@
 #include "fleaux/vm/runtime.hpp"
 
 namespace {
-
 enum class VmEngine {
   kHybrid,
   kBytecode,
   kInterpreter,
+};
+
+struct CliOptions {
+  VmEngine engine = VmEngine::kHybrid;
+  std::optional<std::filesystem::path> source;
+  std::vector<std::string> process_args;
+  bool no_run = false;
+  bool all_samples = false;
+  bool show_help = false;
 };
 
 struct CliError {
@@ -32,23 +41,61 @@ struct CliError {
 };
 
 std::optional<VmEngine> parse_engine(const std::string_view text) {
-  if (text == "hybrid") {
-    return VmEngine::kHybrid;
-  }
-  if (text == "bytecode") {
-    return VmEngine::kBytecode;
-  }
-  if (text == "interpreter") {
-    return VmEngine::kInterpreter;
-  }
+  if (text == "vm") { return VmEngine::kHybrid; }
+  if (text == "hybrid") { return VmEngine::kHybrid; }
+  if (text == "bytecode") { return VmEngine::kBytecode; }
+  if (text == "interpreter") { return VmEngine::kInterpreter; }
   return std::nullopt;
+}
+
+std::string usage_text() {
+  return "usage: fleaux_vm_cli [--mode vm,hybrid,bytecode,interpreter] [--all-samples] [--no-run] [file.fleaux] [-- "
+         "<arg1> <arg2> ...]";
+}
+
+void print_help() {
+  std::cout << usage_text() << '\n'
+            << "\n"
+            << "Options:\n"
+            << "  -h, --help             Show this help message\n"
+            << "  --mode <mode>          Execution mode (vm, hybrid, bytecode, interpreter)\n"
+            << "  --engine <mode>        Alias for --mode\n"
+            << "  --all-samples          Run all .fleaux files under samples/\n"
+            << "  --no-run               Skip execution and print what would run\n"
+            << "\n"
+            << "Notes:\n"
+            << "  - If no source is provided and --all-samples is not set, defaults to test.fleaux\n"
+            << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
+}
+
+std::optional<std::filesystem::path> resolve_samples_dir(const std::filesystem::path& executable_path) {
+  if (auto cwd_samples = std::filesystem::current_path() / "samples"; std::filesystem::is_directory(cwd_samples)) {
+    return cwd_samples;
+  }
+
+  const auto exe = std::filesystem::weakly_canonical(executable_path);
+  if (auto repo_samples = exe.parent_path().parent_path().parent_path() / "samples";
+      std::filesystem::is_directory(repo_samples)) {
+    return repo_samples;
+  }
+
+  return std::nullopt;
+}
+
+std::vector<std::filesystem::path> collect_sample_sources(const std::filesystem::path& samples_dir) {
+  std::vector<std::filesystem::path> out;
+  for (const auto& entry : std::filesystem::directory_iterator(samples_dir)) {
+    if (!entry.is_regular_file()) continue;
+    if (entry.path().extension() != ".fleaux") continue;
+    out.push_back(entry.path());
+  }
+  std::ranges::sort(out);
+  return out;
 }
 
 std::string read_text_file(const std::filesystem::path& file) {
   std::ifstream in(file);
-  if (!in) {
-    return {};
-  }
+  if (!in) { return {}; }
   std::ostringstream buffer;
   buffer << in.rdbuf();
   return buffer.str();
@@ -67,7 +114,7 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> parse_and_lower_single(
     });
   }
 
-  const fleaux::frontend::parse::Parser parser;
+  constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_file.string());
   if (!parsed) {
     return tl::unexpected(CliError{
@@ -77,7 +124,7 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> parse_and_lower_single(
     });
   }
 
-  const fleaux::frontend::lowering::Lowerer lowerer;
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   if (!lowered) {
     return tl::unexpected(CliError{
@@ -92,19 +139,15 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> parse_and_lower_single(
 
 // ── Import resolution (mirrors interpreter's collect_program logic) ───────────
 
-std::filesystem::path resolve_import_path(const std::filesystem::path& current,
-                                          const std::string& module_name) {
+std::filesystem::path resolve_import_path(const std::filesystem::path& current, const std::string& module_name) {
   if (module_name == "StdBuiltins") return {};
 
-  if (const auto local = current.parent_path() / (module_name + ".fleaux");
-      std::filesystem::exists(local)) {
+  if (const auto local = current.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
     return std::filesystem::weakly_canonical(local);
   }
 
   if (module_name == "Std") {
-    if (const auto ws_std =
-            current.parent_path().parent_path() / "Std.fleaux";
-        std::filesystem::exists(ws_std)) {
+    if (const auto ws_std = current.parent_path().parent_path() / "Std.fleaux"; std::filesystem::exists(ws_std)) {
       return std::filesystem::weakly_canonical(ws_std);
     }
   }
@@ -112,25 +155,23 @@ std::filesystem::path resolve_import_path(const std::filesystem::path& current,
   return {};
 }
 
-std::string let_key(const std::optional<std::string>& qualifier,
-                    const std::string& name) {
+std::string let_key(const std::optional<std::string>& qualifier, const std::string& name) {
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
 tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_ir_program(
-    const std::filesystem::path& source_file,
-    std::unordered_map<std::string, fleaux::frontend::ir::IRProgram>& cache,
+    const std::filesystem::path& source_file, std::unordered_map<std::string, fleaux::frontend::ir::IRProgram>& cache,
     std::unordered_set<std::string>& in_progress) {
   using namespace fleaux::frontend::ir;
 
   const std::string key = std::filesystem::weakly_canonical(source_file).string();
-  if (cache.count(key)) return cache.at(key);
+  if (cache.contains(key)) return cache.at(key);
 
-  if (in_progress.count(key)) {
+  if (in_progress.contains(key)) {
     return tl::unexpected(CliError{
         .message = "Cyclic import detected.",
-        .hint    = "Break the cycle by moving shared definitions to a third module.",
-        .span    = std::nullopt,
+        .hint = "Break the cycle by moving shared definitions to a third module.",
+        .span = std::nullopt,
     });
   }
 
@@ -144,11 +185,9 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_ir_program(
 
   IRProgram merged = current.value();
   std::unordered_set<std::string> seen;
-  for (const auto& let : merged.lets) {
-    seen.insert(let_key(let.qualifier, let.name));
-  }
+  for (const auto& let : merged.lets) { seen.insert(let_key(let.qualifier, let.name)); }
 
-  std::vector<IRLet>           imported_lets;
+  std::vector<IRLet> imported_lets;
   std::vector<IRExprStatement> imported_exprs;
 
   for (const auto& [module_name, span] : current->imports) {
@@ -162,20 +201,15 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_ir_program(
     }
 
     for (const auto& ilet : imported->lets) {
-      if (const auto sym = let_key(ilet.qualifier, ilet.name);
-          seen.insert(sym).second) {
+      if (const auto sym = let_key(ilet.qualifier, ilet.name); seen.insert(sym).second) {
         imported_lets.push_back(ilet);
       }
     }
-    imported_exprs.insert(imported_exprs.end(),
-                          imported->expressions.begin(),
-                          imported->expressions.end());
+    imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
   }
 
-  merged.lets.insert(merged.lets.begin(),
-                     imported_lets.begin(), imported_lets.end());
-  merged.expressions.insert(merged.expressions.begin(),
-                             imported_exprs.begin(), imported_exprs.end());
+  merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
+  merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
 
   cache[key] = merged;
   in_progress.erase(key);
@@ -184,8 +218,7 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_ir_program(
 
 // ── collect_and_lower: entry point for the bytecode path ─────────────────────
 
-tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_and_lower(
-    const std::filesystem::path& source_file) {
+tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_and_lower(const std::filesystem::path& source_file) {
   std::unordered_map<std::string, fleaux::frontend::ir::IRProgram> cache;
   std::unordered_set<std::string> in_progress;
   return collect_ir_program(source_file, cache, in_progress);
@@ -193,13 +226,11 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_and_lower(
 
 // ── Bytecode execution ────────────────────────────────────────────────────────
 
-tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_file) {
+tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_file, const bool allow_runtime_fallback) {
   auto lowered = collect_and_lower(source_file);
-  if (!lowered) {
-    return tl::unexpected(lowered.error());
-  }
+  if (!lowered) { return tl::unexpected(lowered.error()); }
 
-  const fleaux::bytecode::BytecodeCompiler compiler;
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto bytecode = compiler.compile(lowered.value());
   if (!bytecode) {
     return tl::unexpected(CliError{
@@ -209,9 +240,8 @@ tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_fi
     });
   }
 
-  const fleaux::vm::Runtime runtime;
-  const auto exec = runtime.execute(bytecode.value());
-  if (!exec) {
+  const fleaux::vm::Runtime runtime(fleaux::vm::RuntimeOptions{.allow_runtime_fallback = allow_runtime_fallback});
+  if (const auto exec = runtime.execute(bytecode.value()); !exec) {
     return tl::unexpected(CliError{
         .message = exec.error().message,
         .hint = "Bytecode runtime does not yet support this behavior.",
@@ -223,38 +253,25 @@ tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_fi
 }
 
 int print_diag_and_return(const std::string& stage, const CliError& error) {
-  std::cerr << fleaux::frontend::diag::format_diagnostic(stage, error.message, error.span, error.hint)
-            << '\n';
+  std::cerr << fleaux::frontend::diag::format_diagnostic(stage, error.message, error.span, error.hint) << '\n';
   return 2;
 }
 
-int run_interpreter_and_report(const std::filesystem::path& source,
-                               const std::vector<std::string>& process_args,
+int run_interpreter_and_report(const std::filesystem::path& source, const std::vector<std::string>& process_args,
                                const std::string& stage) {
-  const fleaux::vm::Interpreter interpreter;
-  const auto result = interpreter.run_file(source, process_args);
-  if (!result) {
-    return print_diag_and_return(stage,
-                                 CliError{
-                                     .message = result.error().message,
-                                     .hint = result.error().hint,
-                                     .span = result.error().span,
-                                 });
+  constexpr fleaux::vm::Interpreter interpreter;
+  if (const auto result = interpreter.run_file(source, process_args); !result) {
+    return print_diag_and_return(stage, CliError{
+                                            .message = result.error().message,
+                                            .hint = result.error().hint,
+                                            .span = result.error().span,
+                                        });
   }
   return 0;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-  if (argc < 2) {
-    std::cerr << "usage: fleaux_vm_cli [--engine hybrid|bytecode|interpreter] <file.fleaux> [-- <arg1> <arg2> ...]\n";
-    return 1;
-  }
-
-  VmEngine engine = VmEngine::kHybrid;
-  std::optional<std::filesystem::path> source;
-  std::vector<std::string> process_args;
+tl::expected<CliOptions, CliError> parse_cli_args(int argc, char** argv) {
+  CliOptions options;
 
   bool runtime_args_mode = false;
   for (int i = 1; i < argc; ++i) {
@@ -264,53 +281,130 @@ int main(int argc, char** argv) {
       continue;
     }
 
-    if (!runtime_args_mode && token == "--engine") {
+    if (runtime_args_mode) {
+      options.process_args.emplace_back(argv[i]);
+      continue;
+    }
+
+    if (token == "-h" || token == "--help") {
+      options.show_help = true;
+      continue;
+    }
+
+    if (token == "--engine" || token == "--mode") {
       if (i + 1 >= argc) {
-        std::cerr << "missing value for --engine\n";
-        return 1;
+        return tl::unexpected(CliError{.message = std::string("missing value for ") + std::string(token),
+                                       .hint = std::nullopt,
+                                       .span = std::nullopt});
       }
       const std::string_view mode_token = argv[++i];
       const auto parsed_engine = parse_engine(mode_token);
       if (!parsed_engine.has_value()) {
-        std::cerr << "unknown --engine value: " << mode_token
-                  << " (expected hybrid|bytecode|interpreter)\n";
-        return 1;
+        return tl::unexpected(CliError{
+            .message = std::string("unknown mode value: ") + std::string(mode_token),
+            .hint = "expected vm|hybrid|bytecode|interpreter",
+            .span = std::nullopt,
+        });
       }
-      engine = parsed_engine.value();
+      options.engine = parsed_engine.value();
       continue;
     }
 
-    if (!runtime_args_mode && !source.has_value()) {
-      source = std::filesystem::path(token);
+    if (token == "--no-run") {
+      options.no_run = true;
       continue;
     }
 
-    process_args.emplace_back(argv[i]);
+    if (token == "--all-samples") {
+      options.all_samples = true;
+      continue;
+    }
+
+    if (!token.empty() && token[0] == '-') {
+      return tl::unexpected(CliError{
+          .message = std::string("unknown option: ") + std::string(token),
+          .hint = "use --help to list supported options",
+          .span = std::nullopt,
+      });
+    }
+
+    if (!options.source.has_value()) {
+      options.source = std::filesystem::path(token);
+      continue;
+    }
+
+    return tl::unexpected(CliError{
+        .message = std::string("unexpected extra positional argument: ") + std::string(token),
+        .hint = "use --help for usage",
+        .span = std::nullopt,
+    });
   }
 
-  if (!source.has_value()) {
-    std::cerr << "usage: fleaux_vm_cli [--engine hybrid|bytecode|interpreter] <file.fleaux> [-- <arg1> <arg2> ...]\n";
-    return 1;
-  }
+  if (!options.all_samples && !options.source.has_value()) { options.source = std::filesystem::path("test.fleaux"); }
 
+  return options;
+}
+
+int run_engine_for_source(const VmEngine engine, const std::filesystem::path& source,
+                          const std::vector<std::string>& process_args) {
   if (engine == VmEngine::kInterpreter) {
-    return run_interpreter_and_report(source.value(), process_args, "vm-run-interpreter");
+    return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
   }
 
   if (engine == VmEngine::kBytecode) {
-    const auto result = run_bytecode(source.value());
-    if (!result) {
-      return print_diag_and_return("vm-run-bytecode", result.error());
+    const auto result = run_bytecode(source, false);
+    if (!result) { return print_diag_and_return("vm-run-bytecode", result.error()); }
+    return 0;
+  }
+
+  const auto bytecode_result = run_bytecode(source, true);
+  if (bytecode_result) { return 0; }
+
+  std::cerr << "[vm] bytecode path unavailable, falling back to interpreter: " << bytecode_result.error().message
+            << '\n';
+  return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
+}
+}  // namespace
+
+int main(int argc, char** argv) {
+  auto parsed = parse_cli_args(argc, argv);
+  if (!parsed) {
+    std::cerr << usage_text() << '\n';
+    std::cerr << parsed.error().message;
+    if (parsed.error().hint.has_value()) { std::cerr << " (" << *parsed.error().hint << ")"; }
+    std::cerr << '\n';
+    return 1;
+  }
+
+  const auto& [engine, source_path, process_args, no_run, all_samples, show_help] = *parsed;
+  if (show_help) {
+    print_help();
+    return 0;
+  }
+
+  std::vector<std::filesystem::path> sources;
+  if (all_samples) {
+    const auto samples_dir = resolve_samples_dir(argv[0]);
+    if (!samples_dir.has_value()) {
+      std::cerr << "samples directory not found\n";
+      return 2;
     }
-    return 0;
+    sources = collect_sample_sources(*samples_dir);
+  } else {
+    sources.push_back(*source_path);
   }
 
-  const auto bytecode_result = run_bytecode(source.value());
-  if (bytecode_result) {
-    return 0;
+  for (const auto& source : sources) {
+    if (no_run) {
+      std::string mode_name = "vm";
+      if (engine == VmEngine::kBytecode) mode_name = "bytecode";
+      if (engine == VmEngine::kInterpreter) mode_name = "interpreter";
+      std::cout << '[' << mode_name << "] skipped run (--no-run): " << source << '\n';
+      continue;
+    }
+
+    if (const int rc = run_engine_for_source(engine, source, process_args); rc != 0) { return rc; }
   }
 
-  std::cerr << "[vm] bytecode path unavailable, falling back to interpreter: "
-            << bytecode_result.error().message << '\n';
-  return run_interpreter_and_report(source.value(), process_args, "vm-run-interpreter");
+  return 0;
 }
