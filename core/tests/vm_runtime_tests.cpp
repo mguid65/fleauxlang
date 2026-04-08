@@ -13,31 +13,31 @@
 
 namespace {
 
-std::int64_t push_i64_const(fleaux::bytecode::Module& module, const std::int64_t value) {
-  module.constants.push_back(fleaux::bytecode::ConstValue{value});
-  return static_cast<std::int64_t>(module.constants.size() - 1);
+std::int64_t push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_t value) {
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
+  return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 }
 
 }  // namespace
 
 TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c9 = push_i64_const(module, 9);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c7 = push_i64_const(module, 7);
-  module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c9},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kDiv, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+  fleaux::bytecode::Module bytecode_module;
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  bytecode_module.instructions = {
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c9},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kDiv, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPrint, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
@@ -54,20 +54,20 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
 // Expected output: "10\n"
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJump skips instructions unconditionally", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  const auto c10 = push_i64_const(module, 10);
-  const auto c99 = push_i64_const(module, 99);
-  module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kJump,         3},
-      {fleaux::bytecode::Opcode::kPushConst, c99},   // skipped
-      {fleaux::bytecode::Opcode::kPrint,         0},
-      {fleaux::bytecode::Opcode::kHalt,          0},
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c99 = push_i64_const(bytecode_module, 99);
+  bytecode_module.instructions = {
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kJump,         .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c99},   // skipped
+      {.opcode=fleaux::bytecode::Opcode::kPrint,         .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt,          .operand=0},
   };
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
@@ -86,10 +86,10 @@ TEST_CASE("VM kJump skips instructions unconditionally", "[vm][jump]") {
 // Expected output: "77\n"
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJumpIf jumps when condition is true", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c77 = push_i64_const(module, 77);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c77 = push_i64_const(bytecode_module, 77);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,     0},   // push true
       {fleaux::bytecode::Opcode::kJumpIf,        3},   // true -> jump to [3]
       {fleaux::bytecode::Opcode::kNoOp,           0},   // skipped
@@ -100,7 +100,7 @@ TEST_CASE("VM kJumpIf jumps when condition is true", "[vm][jump]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "77\n");
@@ -118,10 +118,10 @@ TEST_CASE("VM kJumpIf jumps when condition is true", "[vm][jump]") {
 // Expected output: "55\n"
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJumpIf falls through when condition is false", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  const auto c55 = push_i64_const(module, 55);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  const auto c55 = push_i64_const(bytecode_module, 55);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,      c55},
       {fleaux::bytecode::Opcode::kPushConst,      0},   // push false
       {fleaux::bytecode::Opcode::kJumpIf,         5},   // false -> no jump
@@ -131,18 +131,18 @@ TEST_CASE("VM kJumpIf falls through when condition is false", "[vm][jump]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "55\n");
 }
 
 TEST_CASE("VM kJumpIfNot jumps when condition is false", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  const auto c99 = push_i64_const(module, 99);
-  const auto c42 = push_i64_const(module, 42);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  const auto c99 = push_i64_const(bytecode_module, 99);
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,      0},
       {fleaux::bytecode::Opcode::kJumpIfNot,      3},
       {fleaux::bytecode::Opcode::kPushConst,     c99},  // skipped
@@ -153,31 +153,31 @@ TEST_CASE("VM kJumpIfNot jumps when condition is false", "[vm][jump]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
 
 TEST_CASE("VM reports out-of-range jump target", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kJump, 3},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message == "jump target out of range");
 }
 
 TEST_CASE("VM reports out-of-range kJumpIf target", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, 0},
       {fleaux::bytecode::Opcode::kJumpIf, 4},
       {fleaux::bytecode::Opcode::kHalt, 0},
@@ -185,16 +185,16 @@ TEST_CASE("VM reports out-of-range kJumpIf target", "[vm][jump]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message == "jump_if target out of range");
 }
 
 TEST_CASE("VM reports out-of-range kJumpIfNot target", "[vm][jump]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,   0},
       {fleaux::bytecode::Opcode::kJumpIfNot,   4},
       {fleaux::bytecode::Opcode::kHalt,        0},
@@ -202,22 +202,22 @@ TEST_CASE("VM reports out-of-range kJumpIfNot target", "[vm][jump]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message == "jump_if_not target out of range");
 }
 
 TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"Hello, "}});
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"VM"}});
-  const auto c10 = push_i64_const(module, 10);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c2 = push_i64_const(module, 2);
-  const auto c8 = push_i64_const(module, 8);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"Hello, "}});
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"VM"}});
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c8 = push_i64_const(bytecode_module, 8);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,     c10},
       {fleaux::bytecode::Opcode::kPushConst,      c3},
       {fleaux::bytecode::Opcode::kAdd,           0},
@@ -251,18 +251,18 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "13\nHello, VM\n256\nTrue\nFalse\nTrue\n");
 }
 
 TEST_CASE("VM executes native kSelect opcode", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c10 = push_i64_const(module, 10);
-  const auto c20 = push_i64_const(module, 20);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,     0},
       {fleaux::bytecode::Opcode::kPushConst,    c10},
       {fleaux::bytecode::Opcode::kPushConst,    c20},
@@ -273,17 +273,17 @@ TEST_CASE("VM executes native kSelect opcode", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
 }
 
 TEST_CASE("VM executes native kBranchCall opcode", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  const auto c1 = push_i64_const(module, 1);
-  const auto c10 = push_i64_const(module, 10);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c10 = push_i64_const(bytecode_module, 10);
 
   fleaux::bytecode::FunctionDef add1;
   add1.name = "AddOne";
@@ -305,10 +305,10 @@ TEST_CASE("VM executes native kBranchCall opcode", "[vm]") {
       {fleaux::bytecode::Opcode::kReturn,        0},
   };
 
-  module.functions.push_back(std::move(add1));
-  module.functions.push_back(std::move(sub1));
+  bytecode_module.functions.push_back(std::move(add1));
+  bytecode_module.functions.push_back(std::move(sub1));
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,        0},
       {fleaux::bytecode::Opcode::kPushConst,      c10},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef,  0},
@@ -320,22 +320,22 @@ TEST_CASE("VM executes native kBranchCall opcode", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "9\n");
 }
 
 TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c10 = push_i64_const(module, 10);
-  module.builtin_names = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  bytecode_module.builtin_names = {
       "Std.UnaryMinus",
       "Std.UnaryPlus",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,           0},
       {fleaux::bytecode::Opcode::kPushConst,         c10},
       {fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,  0},
@@ -347,17 +347,17 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "-10\n");
 }
 
 TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c0 = push_i64_const(module, 0);
-  const auto c1 = push_i64_const(module, 1);
-  const auto c3 = push_i64_const(module, 3);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c3 = push_i64_const(bytecode_module, 3);
 
   fleaux::bytecode::FunctionDef continue_fn;
   continue_fn.name = "Continue";
@@ -379,10 +379,10 @@ TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
       {fleaux::bytecode::Opcode::kReturn,        0},
   };
 
-  module.functions.push_back(std::move(continue_fn));
-  module.functions.push_back(std::move(step_fn));
+  bytecode_module.functions.push_back(std::move(continue_fn));
+  bytecode_module.functions.push_back(std::move(step_fn));
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,      c3},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
@@ -393,18 +393,18 @@ TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "0\n");
 }
 
 TEST_CASE("VM executes native kLoopNCall opcode", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c0 = push_i64_const(module, 0);
-  const auto c1 = push_i64_const(module, 1);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c10 = push_i64_const(module, 10);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c10 = push_i64_const(bytecode_module, 10);
 
   fleaux::bytecode::FunctionDef continue_fn;
   continue_fn.name = "Continue";
@@ -426,10 +426,10 @@ TEST_CASE("VM executes native kLoopNCall opcode", "[vm]") {
       {fleaux::bytecode::Opcode::kReturn,        0},
   };
 
-  module.functions.push_back(std::move(continue_fn));
-  module.functions.push_back(std::move(step_fn));
+  bytecode_module.functions.push_back(std::move(continue_fn));
+  bytecode_module.functions.push_back(std::move(step_fn));
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,      c3},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
@@ -441,17 +441,17 @@ TEST_CASE("VM executes native kLoopNCall opcode", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "0\n");
 }
 
 TEST_CASE("VM reports native kLoopNCall max-iteration failure", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c0 = push_i64_const(module, 0);
-  const auto c1 = push_i64_const(module, 1);
-  const auto c3 = push_i64_const(module, 3);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c3 = push_i64_const(bytecode_module, 3);
 
   fleaux::bytecode::FunctionDef continue_fn;
   continue_fn.name = "Continue";
@@ -473,10 +473,10 @@ TEST_CASE("VM reports native kLoopNCall max-iteration failure", "[vm]") {
       {fleaux::bytecode::Opcode::kReturn,        0},
   };
 
-  module.functions.push_back(std::move(continue_fn));
-  module.functions.push_back(std::move(step_fn));
+  bytecode_module.functions.push_back(std::move(continue_fn));
+  bytecode_module.functions.push_back(std::move(step_fn));
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,      c3},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
@@ -487,17 +487,17 @@ TEST_CASE("VM reports native kLoopNCall max-iteration failure", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message == "native 'loop_n_call' threw: LoopN: exceeded max_iters");
 }
 
 TEST_CASE("VM reports missing halt", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c1 = push_i64_const(module, 1);
-  const auto c2 = push_i64_const(module, 2);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c1},
       {fleaux::bytecode::Opcode::kPushConst, c2},
       {fleaux::bytecode::Opcode::kAdd, 0},
@@ -505,17 +505,17 @@ TEST_CASE("VM reports missing halt", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message == "program terminated without halt");
 }
 
 TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c10 = push_i64_const(module, 10);
-  const auto c0 = push_i64_const(module, 0);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c0},
       {fleaux::bytecode::Opcode::kDiv, 0},
@@ -525,7 +525,7 @@ TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
 
@@ -536,10 +536,10 @@ TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
 }
 
 TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c10 = push_i64_const(module, 10);
-  const auto c0 = push_i64_const(module, 0);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c0},
       {fleaux::bytecode::Opcode::kMod, 0},
@@ -549,7 +549,7 @@ TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
 
@@ -560,9 +560,9 @@ TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
 }
 
 TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c0 = push_i64_const(module, 0);
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c0},
       {fleaux::bytecode::Opcode::kPushConst, c0},
       {fleaux::bytecode::Opcode::kDiv, 0},  // NaN
@@ -574,18 +574,18 @@ TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "False\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Add", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c4 = push_i64_const(module, 4);
-  const auto c5 = push_i64_const(module, 5);
-  module.builtin_names = {"Std.Add"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  bytecode_module.builtin_names = {"Std.Add"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c4},
       {fleaux::bytecode::Opcode::kPushConst, c5},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -596,17 +596,17 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Add", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "9\n");
 }
 
 TEST_CASE("VM kCallBuiltin falls back for unported builtin", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c8 = push_i64_const(module, 8);
-  module.builtin_names = {"Std.Println"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c8 = push_i64_const(bytecode_module, 8);
+  bytecode_module.builtin_names = {"Std.Println"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c8},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPop, 0},
@@ -615,16 +615,16 @@ TEST_CASE("VM kCallBuiltin falls back for unported builtin", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
 }
 
 TEST_CASE("VM strict mode executes native Std.Println", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c8 = push_i64_const(module, 8);
-  module.builtin_names = {"Std.Println"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c8 = push_i64_const(bytecode_module, 8);
+  bytecode_module.builtin_names = {"Std.Println"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c8},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPop, 0},
@@ -634,18 +634,18 @@ TEST_CASE("VM strict mode executes native Std.Println", "[vm]") {
   std::ostringstream output;
   const fleaux::vm::Runtime runtime(
       fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for comparison and logical builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c2 = push_i64_const(module, 2);
-  const auto c8 = push_i64_const(module, 8);
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  module.builtin_names = {"Std.LessThan", "Std.And", "Std.Println"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c8 = push_i64_const(bytecode_module, 8);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  bytecode_module.builtin_names = {"Std.LessThan", "Std.And", "Std.Println"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c2},
       {fleaux::bytecode::Opcode::kPushConst, c8},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -660,16 +660,16 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for comparison and logical built
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for unary builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c10 = push_i64_const(module, 10);
-  module.builtin_names = {"Std.UnaryMinus", "Std.UnaryPlus"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  bytecode_module.builtin_names = {"Std.UnaryMinus", "Std.UnaryPlus"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPrint, 0},
@@ -682,19 +682,19 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for unary builtins", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "-10\n10\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Select", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  const auto c10 = push_i64_const(module, 10);
-  const auto c20 = push_i64_const(module, 20);
-  module.builtin_names = {"Std.Select"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  bytecode_module.builtin_names = {"Std.Select"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, 0},
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c20},
@@ -706,17 +706,17 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Select", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "20\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Branch", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c1 = push_i64_const(module, 1);
-  const auto c10 = push_i64_const(module, 10);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c10 = push_i64_const(bytecode_module, 10);
 
   fleaux::bytecode::FunctionDef add1;
   add1.name = "AddOne";
@@ -738,10 +738,10 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Branch", "[vm]") {
       {fleaux::bytecode::Opcode::kReturn, 0},
   };
 
-  module.functions.push_back(std::move(add1));
-  module.functions.push_back(std::move(sub1));
-  module.builtin_names = {"Std.Branch"};
-  module.instructions = {
+  bytecode_module.functions.push_back(std::move(add1));
+  bytecode_module.functions.push_back(std::move(sub1));
+  bytecode_module.builtin_names = {"Std.Branch"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, 0},
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
@@ -754,21 +754,21 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Branch", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "11\n");
 }
 
 TEST_CASE("VM executes native mul/neg/comparison/or opcodes", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c6 = push_i64_const(module, 6);
-  const auto c7 = push_i64_const(module, 7);
-  const auto c3 = push_i64_const(module, 3);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c6 = push_i64_const(bytecode_module, 6);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  const auto c3 = push_i64_const(bytecode_module, 3);
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c6},
       {fleaux::bytecode::Opcode::kPushConst, c7},
       {fleaux::bytecode::Opcode::kMul,       0},
@@ -803,15 +803,15 @@ TEST_CASE("VM executes native mul/neg/comparison/or opcodes", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n-3\nTrue\nTrue\nTrue\nTrue\n");
 }
 
 TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c21 = push_i64_const(module, 21);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c21 = push_i64_const(bytecode_module, 21);
 
   fleaux::bytecode::FunctionDef twice;
   twice.name = "Twice";
@@ -822,9 +822,9 @@ TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
       {fleaux::bytecode::Opcode::kAdd,       0},
       {fleaux::bytecode::Opcode::kReturn,    0},
   };
-  module.functions.push_back(std::move(twice));
+  bytecode_module.functions.push_back(std::move(twice));
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst,    c21},
       {fleaux::bytecode::Opcode::kCallUserFunc,   0},
       {fleaux::bytecode::Opcode::kPrint,          0},
@@ -833,22 +833,22 @@ TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{false});
-  module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  const auto c10 = push_i64_const(module, 10);
-  const auto c4 = push_i64_const(module, 4);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c7 = push_i64_const(module, 7);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c7 = push_i64_const(bytecode_module, 7);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.Subtract",
       "Std.Multiply",
       "Std.Or",
@@ -856,7 +856,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical buil
       "Std.NotEqual",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c4},
       {fleaux::bytecode::Opcode::kBuildTuple,  2},
@@ -892,18 +892,18 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical buil
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "6\n21\nTrue\nTrue\nTrue\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for apply/wrap/unwrap/to_num", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c1 = push_i64_const(module, 1);
-  const auto c41 = push_i64_const(module, 41);
-  const auto c7 = push_i64_const(module, 7);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"42"}});
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c41 = push_i64_const(bytecode_module, 41);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"42"}});
 
   fleaux::bytecode::FunctionDef add_one;
   add_one.name = "AddOne";
@@ -914,16 +914,16 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for apply/wrap/unwrap/to_num", "
       {fleaux::bytecode::Opcode::kAdd, 0},
       {fleaux::bytecode::Opcode::kReturn, 0},
   };
-  module.functions.push_back(std::move(add_one));
+  bytecode_module.functions.push_back(std::move(add_one));
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.Apply",
       "Std.Wrap",
       "Std.Unwrap",
       "Std.ToNum",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c41},
       {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -944,25 +944,25 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for apply/wrap/unwrap/to_num", "
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n7\n42\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c10 = push_i64_const(module, 10);
-  const auto c20 = push_i64_const(module, 20);
-  const auto c30 = push_i64_const(module, 30);
-  const auto c1 = push_i64_const(module, 1);
-  const auto c2 = push_i64_const(module, 2);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c9 = push_i64_const(module, 9);
-  const auto c0 = push_i64_const(module, 0);
-  const auto c5 = push_i64_const(module, 5);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  const auto c30 = push_i64_const(bytecode_module, 30);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c5 = push_i64_const(bytecode_module, 5);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.Length",
       "Std.ElementAt",
       "Std.Take",
@@ -973,7 +973,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins",
       "Std.Math.Clamp",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c20},
       {fleaux::bytecode::Opcode::kPushConst, c30},
@@ -1040,45 +1040,45 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins",
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "3\n20\n10 20\n30\n20 30\n3\n3\n5\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.ToString and Std.String helpers", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c42 = push_i64_const(module, 42);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"hElLo"}});
-  const auto cHello = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"MiXeD"}});
-  const auto cMixed = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"  trim me  "}});
-  const auto cTrim = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"a,b,c"}});
-  const auto cCsv = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{","}});
-  const auto cComma = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"-"}});
-  const auto cDash = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"_"}});
-  const auto cUnderscore = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
-  const auto cAbc = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"ab"}});
-  const auto cAb = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"bc"}});
-  const auto cBc = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"b"}});
-  const auto cB = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abcd"}});
-  const auto cAbcd = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"  left"}});
-  const auto cTrimStartOnly = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"right  "}});
-  const auto cTrimEndOnly = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"hElLo"}});
+  const auto cHello = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"MiXeD"}});
+  const auto cMixed = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"  trim me  "}});
+  const auto cTrim = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"a,b,c"}});
+  const auto cCsv = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{","}});
+  const auto cComma = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"-"}});
+  const auto cDash = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"_"}});
+  const auto cUnderscore = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
+  const auto cAbc = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"ab"}});
+  const auto cAb = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"bc"}});
+  const auto cBc = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"b"}});
+  const auto cB = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abcd"}});
+  const auto cAbcd = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"  left"}});
+  const auto cTrimStartOnly = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"right  "}});
+  const auto cTrimEndOnly = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.ToString",
       "Std.String.Upper",
       "Std.String.Lower",
@@ -1094,7 +1094,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.ToString and Std.String 
       "Std.String.TrimEnd",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c42},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPrint, 0},
@@ -1168,28 +1168,28 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.ToString and Std.String 
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\nHELLO\nmixed\ntrim me\na b c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Path and Std.OS helpers", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
-  const auto cTmp = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"file.txt"}});
-  const auto cFile = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp/file.txt"}});
-  const auto cFull = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"."}});
-  const auto cDot = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"log"}});
-  const auto cLogExt = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"other.bin"}});
-  const auto cOtherBin = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
+  const auto cTmp = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"file.txt"}});
+  const auto cFile = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp/file.txt"}});
+  const auto cFull = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"."}});
+  const auto cDot = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"log"}});
+  const auto cLogExt = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"other.bin"}});
+  const auto cOtherBin = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.Path.Join",
       "Std.Path.Basename",
       "Std.Path.Extension",
@@ -1201,7 +1201,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Path and Std.OS helpers"
       "Std.Path.WithBasename",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, cTmp},
       {fleaux::bytecode::Opcode::kPushConst, cFile},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -1249,27 +1249,27 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Path and Std.OS helpers"
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "/tmp/file.txt\nfile.txt\n.txt\nfile\nTrue\nTrue\nTrue\n/tmp/file.log\n/tmp/other.bin\n");
 }
 
 TEST_CASE("VM strict mode executes native Std.String and Std.Path builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
-  const auto cAbc = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp/file.txt"}});
-  const auto cPath = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"log"}});
-  const auto cLog = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
+  const auto cAbc = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp/file.txt"}});
+  const auto cPath = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"log"}});
+  const auto cLog = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.String.Upper",
       "Std.Path.WithExtension",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, cAbc},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPrint, 0},
@@ -1286,21 +1286,21 @@ TEST_CASE("VM strict mode executes native Std.String and Std.Path builtins", "[v
   std::ostringstream output;
   const fleaux::vm::Runtime runtime(
       fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "ABC\n/tmp/file.log\n");
 }
 
 TEST_CASE("VM strict mode executes native Std.OS, Std.Tuple, and Std.Dict builtins", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c1 = push_i64_const(module, 1);
-  const auto c2 = push_i64_const(module, 2);
-  const auto c3 = push_i64_const(module, 3);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
-  const auto cKey = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
+  const auto cKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.OS.IsLinux",
       "Std.Tuple.Append",
       "Std.Dict.Create",
@@ -1308,7 +1308,7 @@ TEST_CASE("VM strict mode executes native Std.OS, Std.Tuple, and Std.Dict builti
       "Std.Dict.Get",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kBuildTuple, 0},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPrint, 0},
@@ -1338,7 +1338,7 @@ TEST_CASE("VM strict mode executes native Std.OS, Std.Tuple, and Std.Dict builti
   std::ostringstream output;
   const fleaux::vm::Runtime runtime(
       fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "True\n1 2 3\n3\n");
@@ -1352,19 +1352,19 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
   const std::string env_value = "vm_native_ok";
   std::filesystem::remove_all(base);
 
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{env_key});
-  const auto cEnvKey = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{env_value});
-  const auto cEnvVal = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{dir_path});
-  const auto cDir = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{file_path});
-  const auto cFile = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"hello"}});
-  const auto cHello = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{env_key});
+  const auto cEnvKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{env_value});
+  const auto cEnvVal = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{dir_path});
+  const auto cDir = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{file_path});
+  const auto cFile = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"hello"}});
+  const auto cHello = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.OS.SetEnv",
       "Std.OS.Env",
       "Std.OS.UnsetEnv",
@@ -1375,7 +1375,7 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
       "Std.Dir.Delete",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, cEnvKey},
       {fleaux::bytecode::Opcode::kPushConst, cEnvVal},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -1418,7 +1418,7 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
   std::ostringstream output;
   const fleaux::vm::Runtime runtime(
       fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   std::filesystem::remove_all(base);
 #if defined(_WIN32)
@@ -1433,10 +1433,10 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
 }
 
 TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
-  fleaux::bytecode::Module module;
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
-  module.builtin_names = {"Std.Path.Join"};
-  module.instructions = {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
+  bytecode_module.builtin_names = {"Std.Path.Join"};
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, 0},
       {fleaux::bytecode::Opcode::kBuildTuple, 1},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
@@ -1445,7 +1445,7 @@ TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message ==
@@ -1453,20 +1453,20 @@ TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpers", "[vm]") {
-  fleaux::bytecode::Module module;
-  const auto c0 = push_i64_const(module, 0);
-  const auto c1 = push_i64_const(module, 1);
-  const auto c2 = push_i64_const(module, 2);
-  const auto c3 = push_i64_const(module, 3);
-  const auto c4 = push_i64_const(module, 4);
-  const auto c9 = push_i64_const(module, 9);
-  const auto c42 = push_i64_const(module, 42);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
-  const auto cKey = static_cast<std::int64_t>(module.constants.size() - 1);
-  module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"missing"}});
-  const auto cMissing = static_cast<std::int64_t>(module.constants.size() - 1);
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
+  const auto cKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"missing"}});
+  const auto cMissing = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  module.builtin_names = {
+  bytecode_module.builtin_names = {
       "Std.Tuple.Append",
       "Std.Tuple.Prepend",
       "Std.Tuple.Contains",
@@ -1480,7 +1480,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpe
       "Std.Dict.Values",
   };
 
-  module.instructions = {
+  bytecode_module.instructions = {
       {fleaux::bytecode::Opcode::kPushConst, c1},
       {fleaux::bytecode::Opcode::kPushConst, c2},
       {fleaux::bytecode::Opcode::kBuildTuple, 2},
@@ -1554,7 +1554,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpe
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(module, output);
+  const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 2 3\n0 1 2\nTrue\n(1, 3) (2, 4)\n9\n1\nk\n9\n42\n");

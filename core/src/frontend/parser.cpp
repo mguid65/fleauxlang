@@ -87,7 +87,7 @@ std::vector<Token> lex_or_throw(const std::string& source,
   int line = 1;
   int col = 1;
 
-  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, int l, int c) {
+  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int l, const int c) -> void {
     Token t;
     t.kind = kind;
     t.value = value;
@@ -447,7 +447,7 @@ class ParserImpl {
 
   model::TypeRef type() {
     const std::size_t start = i_;
-    model::TypeRef base = std::make_shared<model::TypeNode>();
+    auto base = std::make_shared<model::TypeNode>();
 
     if (is_ident_value("Tuple")) {
       next();
@@ -465,16 +465,16 @@ class ParserImpl {
       type_list->span = span_from_mark(start);
       base->value = type_list;
       base->span = span_from_mark(start);
-    } else if (is(TokenKind::kIdent) && kSimpleTypes.find(peek().value) != kSimpleTypes.end()) {
+    } else if (is(TokenKind::kIdent) && kSimpleTypes.contains(peek().value)) {
       const auto token = next();
       base->value = token.value;
       base->span = span_from_mark(start);
     } else if (is(TokenKind::kIdent)) {
       const auto qid = opt_qid();
-      if (std::holds_alternative<std::string>(qid)) {
-        base->value = std::get<std::string>(qid);
-      } else {
-        base->value = std::get<model::QualifiedId>(qid);
+      if (const auto* simple = std::get_if<std::string>(&qid); simple != nullptr) {
+        base->value = *simple;
+      } else if (const auto* qualified = std::get_if<model::QualifiedId>(&qid); qualified != nullptr) {
+        base->value = *qualified;
       }
       base->span = span_from_mark(start);
     } else {
@@ -482,8 +482,8 @@ class ParserImpl {
     }
 
     if (match_symbol("...")) {
-      if (std::holds_alternative<std::string>(base->value)) {
-        base->value = std::get<std::string>(base->value) + "...";
+      if (const auto* base_name = std::get_if<std::string>(&base->value); base_name != nullptr) {
+        base->value = *base_name + "...";
       } else {
         err("Variadic '...' only supported on simple type names");
       }
@@ -612,7 +612,7 @@ class ParserImpl {
       return out;
     }
 
-    if (is(TokenKind::kSymbol) && kOperators.find(peek().value) != kOperators.end()) {
+    if (is(TokenKind::kSymbol) && kOperators.contains(peek().value)) {
       model::Atom out;
       out.var = next().value;
       out.span = span_from_mark(start);
@@ -621,10 +621,10 @@ class ParserImpl {
 
     const auto q = opt_qid();
     model::Atom out;
-    if (std::holds_alternative<model::QualifiedId>(q)) {
-      out.qualified_var = std::get<model::QualifiedId>(q);
-    } else {
-      out.var = std::get<std::string>(q);
+    if (const auto* qualified = std::get_if<model::QualifiedId>(&q); qualified != nullptr) {
+      out.qualified_var = *qualified;
+    } else if (const auto* simple = std::get_if<std::string>(&q); simple != nullptr) {
+      out.var = *simple;
     }
     out.span = span_from_mark(start);
     return out;
@@ -643,8 +643,7 @@ class ParserImpl {
       std::vector<Token> parts{next()};
       while (peek().kind == TokenKind::kNumber || peek().kind == TokenKind::kIdent) {
         const Token nxt = peek();
-        const Token prev = parts.back();
-        if (nxt.line != prev.line || nxt.col != prev.end_col()) {
+        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) {
           break;
         }
         parts.push_back(next());
@@ -731,11 +730,11 @@ class ParserImpl {
     return stmt;
   }
 
-  std::optional<diag::SourceSpan> statement_span(const model::Statement& stmt) const {
-    return std::visit([](const auto& s) { return s.span; }, stmt);
+  [[nodiscard]] std::optional<diag::SourceSpan> statement_span(const model::Statement& stmt) const {
+    return std::visit([](const auto& s) -> auto { return s.span; }, stmt);
   }
 
-  std::optional<std::string> hint_for_expected_token(const std::string& expected,
+  [[nodiscard]] std::optional<std::string> hint_for_expected_token(const std::string& expected,
                                                      const Token& got_tok) const {
     const Token& prev_tok = previous_token();
 
@@ -785,23 +784,23 @@ class ParserImpl {
     return "Check for a missing or misplaced token earlier in the statement.";
   }
 
-  bool is_expression_start(const Token& tok) const {
+  [[nodiscard]] bool is_expression_start(const Token& tok) const {
     if (tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString || tok.kind == TokenKind::kBool ||
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || kOperators.count(tok.value))) {
+    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || kOperators.contains(tok.value))) {
       return true;
     }
     return false;
   }
 
-  bool is_statement_start(const Token& tok) const {
+  [[nodiscard]] bool is_statement_start(const Token& tok) const {
     if (tok.kind == TokenKind::kIdent || tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString ||
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.count(tok.value))) {
+    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) {
       return true;
     }
     return false;

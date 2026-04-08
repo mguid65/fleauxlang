@@ -44,13 +44,13 @@ tl::expected<IRProgram, std::string> parse_and_lower_single(const std::filesyste
   const std::string source((std::istreambuf_iterator<char>(in)),
                            std::istreambuf_iterator<char>());
 
-  const fleaux::frontend::parse::Parser parser;
+  constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source, source_file.string());
   if (!parsed) {
     return tl::unexpected(parsed.error().message);
   }
 
-  const fleaux::frontend::lowering::Lowerer lowerer;
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   if (!lowered) {
     return tl::unexpected(lowered.error().message);
@@ -89,11 +89,11 @@ tl::expected<IRProgram, std::string> collect_ir_program(
     std::unordered_map<std::string, IRProgram>& cache,
     std::unordered_set<std::string>& in_progress) {
   const auto canonical = std::filesystem::weakly_canonical(source_file).string();
-  if (cache.count(canonical) != 0U) {
+  if (cache.contains(canonical)) {
     return cache.at(canonical);
   }
 
-  if (in_progress.count(canonical) != 0U) {
+  if (in_progress.contains(canonical)) {
     return tl::unexpected("Cyclic import detected.");
   }
 
@@ -153,7 +153,7 @@ void run_sample_in_vm_and_assert(const std::string_view sample_file) {
   const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
   REQUIRE(std::filesystem::exists(sample_path));
 
-  const fleaux::vm::Interpreter interpreter;
+  constexpr fleaux::vm::Interpreter interpreter;
   const auto result = interpreter.run_file(sample_path);
   INFO("sample file: " << sample_path);
   if (!result.has_value()) {
@@ -173,15 +173,15 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   }
   REQUIRE(lowered.has_value());
 
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto module = compiler.compile(lowered.value());
-  if (!module) {
-    INFO("bytecode compile error: " << module.error().message);
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  if (!compiled_module) {
+    INFO("bytecode compile error: " << compiled_module.error().message);
   }
-  REQUIRE(module.has_value());
+  REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
-  const auto runtime_result = runtime.execute(module.value());
+  const auto runtime_result = runtime.execute(compiled_module.value());
   if (!runtime_result) {
     INFO("vm runtime error: " << runtime_result.error().message);
   }
@@ -192,22 +192,22 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
   REQUIRE(std::filesystem::exists(sample_path));
 
-  const fleaux::vm::Interpreter interpreter;
+  constexpr fleaux::vm::Interpreter interpreter;
   const auto interp_result = interpreter.run_file(sample_path);
 
   std::optional<std::string> bytecode_error;
   bool bytecode_ok = false;
   if (const auto lowered = collect_and_lower(sample_path); lowered) {
-    const fleaux::bytecode::BytecodeCompiler compiler;
-    if (const auto module = compiler.compile(lowered.value()); module) {
+    constexpr fleaux::bytecode::BytecodeCompiler compiler;
+    if (const auto compiled_module = compiler.compile(lowered.value()); compiled_module) {
       const fleaux::vm::Runtime runtime;
-      const auto runtime_result = runtime.execute(module.value());
+      const auto runtime_result = runtime.execute(compiled_module.value());
       bytecode_ok = runtime_result.has_value();
       if (!runtime_result) {
         bytecode_error = runtime_result.error().message;
       }
     } else {
-      bytecode_error = module.error().message;
+      bytecode_error = compiled_module.error().message;
     }
   } else {
     bytecode_error = lowered.error();
@@ -266,8 +266,7 @@ TEST_CASE("VM sample list stays in sync with samples directory", "[vm][samples]"
     if (!entry.is_regular_file()) {
       continue;
     }
-    const auto path = entry.path();
-    if (path.extension() == ".fleaux") {
+    if (const auto& path = entry.path(); path.extension() == ".fleaux") {
       discovered.insert(path.filename().string());
     }
   }
