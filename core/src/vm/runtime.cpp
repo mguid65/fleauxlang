@@ -950,7 +950,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.File.ReadLine", BuiltinDispatchKey::kStd_File_ReadLine},
       {"Std.File.ReadChunk", BuiltinDispatchKey::kStd_File_ReadChunk},
       {"Std.File.WriteChunk", BuiltinDispatchKey::kStd_File_WriteChunk},
-      {"Std.File.Flash", BuiltinDispatchKey::kStd_File_Flush},
+      {"Std.File.Flush", BuiltinDispatchKey::kStd_File_Flush},
       {"Std.File.Close", BuiltinDispatchKey::kStd_File_Close},
       {"Std.File.WithOpen", BuiltinDispatchKey::kStd_File_WithOpen},
       {"Std.Dir.Create", BuiltinDispatchKey::kStd_Dir_Create},
