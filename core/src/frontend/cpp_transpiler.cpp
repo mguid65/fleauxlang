@@ -431,14 +431,16 @@ std::string FleauxCppTranspiler::emit_cpp(const ir::IRProgram& program,
   std::unordered_map<std::string, std::string> known_symbols;
   for (const auto& let : program.lets) {
     const std::string symbol = symbol_name(let.qualifier, let.name);
-    known_symbols[let.name] = symbol;
+    if (!let.qualifier.has_value()) {
+      known_symbols[let.name] = symbol;
+    }
     if (let.qualifier.has_value()) {
       known_symbols[*let.qualifier + "." + let.name] = symbol;
     }
   }
 
   std::ostringstream out;
-  out << "#include \"fleaux_runtime.hpp\"\n";
+  out << "#include \"fleaux/runtime/fleaux_runtime.hpp\"\n";
   out << "#include <stdexcept>\n";
   out << "#include <string>\n\n";
   out << "using fleaux::runtime::operator|;\n\n";
@@ -446,7 +448,7 @@ std::string FleauxCppTranspiler::emit_cpp(const ir::IRProgram& program,
   out << "struct _FleauxMissingBuiltin {\n";
   out << "  const char* name;\n";
   out << "  fleaux::runtime::Value operator()(fleaux::runtime::Value) const {\n";
-  out << "    throw std::runtime_error(std::string(\"Builtin '\") + name + \"' is not yet implemented in cpp/fleaux_runtime.hpp\");\n";
+  out << "    throw std::runtime_error(std::string(\"Builtin '\") + name + \"' is not yet implemented in fleaux/runtime/fleaux_runtime.hpp\");\n";
   out << "  }\n";
   out << "};\n";
   out << "inline _FleauxMissingBuiltin _fleaux_missing_builtin(const char* name) {\n";

@@ -14,7 +14,7 @@
 #include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
-#include "fleaux_runtime.hpp"
+#include "fleaux/runtime/fleaux_runtime.hpp"
 
 #include "builtin_map.hpp"
 
@@ -113,18 +113,12 @@ RuntimeCallable resolve_std_callable_or_throw(const std::string& key,
 
 std::filesystem::path resolve_import_source(const std::filesystem::path& current_source,
                                             const std::string& module_name) {
-  if (module_name == "StdBuiltins") {
+  if (module_name == "Std" || module_name == "StdBuiltins") {
     return {};
   }
 
   if (const auto local = current_source.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
     return std::filesystem::weakly_canonical(local);
-  }
-
-  if (module_name == "Std") {
-    if (const auto workspace_std = current_source.parent_path().parent_path() / "Std.fleaux"; std::filesystem::exists(workspace_std)) {
-      return std::filesystem::weakly_canonical(workspace_std);
-    }
   }
 
   return {};
@@ -430,7 +424,9 @@ InterpretResult Interpreter::run_file(const std::filesystem::path& source_file,
       return state->invoke_let(*let_ptr, std::move(arg));
     };
     state->functions_qualified[full_name] = callable;
-    state->functions_unqualified[let.name] = callable;
+    if (!let.qualifier.has_value()) {
+      state->functions_unqualified[let.name] = callable;
+    }
   }
 
   try {

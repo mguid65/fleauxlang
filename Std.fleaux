@@ -1,6 +1,5 @@
 import StdBuiltins;
 
-// Based on constants provided by boost: https://www.boost.org/doc/libs/1_74_0/boost/math/constants/constants.hpp
 let Std.Half(): Number :: 0.5000000000000000000000000000000000000e-01;
 let Std.Third(): Number :: 3.333333333333333333333333333333333333e-01;
 let Std.TwoThirds(): Number :: 6.666666666666666666666666666666666666e-01;
@@ -141,6 +140,10 @@ let Std.String.Contains(s: String, sub: String) : Bool :: __builtin__;
 let Std.String.StartsWith(s: String, prefix: String) : Bool :: __builtin__;
 let Std.String.EndsWith(s: String, suffix: String) : Bool :: __builtin__;
 let Std.String.Length(s: String) : Number :: __builtin__;
+let Std.String.CharAt(s: String, index: Number) : String :: __builtin__;
+let Std.String.Slice(s: String, start: Number, stop: Number) : String :: __builtin__;
+let Std.String.Find(s: String, sub: String, start: Number) : Number :: __builtin__;
+let Std.String.Format(fmt_str: String, args: Any...) : String :: __builtin__;
 // Path/filesystem builtins (nested namespace API)
 let Std.OS.Cwd() : String :: __builtin__;
 let Std.OS.Home() : String :: __builtin__;
