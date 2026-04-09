@@ -21,7 +21,16 @@ include(CTest)
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
-find_package(PCRE2)
+find_package(PCRE2 REQUIRED)
+
+set(FLEAUX_PCRE2_TARGET "")
+if(TARGET PCRE2::8BIT)
+  set(FLEAUX_PCRE2_TARGET PCRE2::8BIT)
+elseif(TARGET PCRE2::pcre2-8)
+  set(FLEAUX_PCRE2_TARGET PCRE2::pcre2-8)
+else()
+  message(FATAL_ERROR "PCRE2 target not found (expected PCRE2::8BIT or PCRE2::pcre2-8)")
+endif()
 
 add_library(tl_expected INTERFACE)
 target_include_directories(tl_expected INTERFACE ${THIRD_PARTY}/tl/include)
@@ -85,7 +94,7 @@ target_include_directories(fleaux_vm
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
 target_sources(fleaux_vm PRIVATE src/vm/runtime.cpp)
-target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree)
+target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
 
 add_library(fleaux_vm_interpreter STATIC)
 target_include_directories(fleaux_vm_interpreter
@@ -97,7 +106,8 @@ target_link_libraries(fleaux_vm_interpreter PUBLIC
     fleaux_frontend_lowering
     fleaux_frontend_diagnostics
     tl_expected
-    datatree)
+    datatree
+    ${FLEAUX_PCRE2_TARGET})
 
 add_executable(fleaux_vm_cli src/cli/vm_main.cpp)
 target_link_libraries(fleaux_vm_cli PRIVATE fleaux_vm_interpreter fleaux_vm)

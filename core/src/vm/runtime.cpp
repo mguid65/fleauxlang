@@ -788,6 +788,10 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     kStd_String_Slice,
     kStd_String_Find,
     kStd_String_Format,
+    kStd_String_Regex_IsMatch,
+    kStd_String_Regex_Find,
+    kStd_String_Regex_Replace,
+    kStd_String_Regex_Split,
     kStd_OS_Cwd,
     kStd_OS_Home,
     kStd_OS_TempDir,
@@ -924,6 +928,10 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.String.Slice", BuiltinDispatchKey::kStd_String_Slice},
       {"Std.String.Find", BuiltinDispatchKey::kStd_String_Find},
       {"Std.String.Format", BuiltinDispatchKey::kStd_String_Format},
+      {"Std.String.Regex.IsMatch", BuiltinDispatchKey::kStd_String_Regex_IsMatch},
+      {"Std.String.Regex.Find", BuiltinDispatchKey::kStd_String_Regex_Find},
+      {"Std.String.Regex.Replace", BuiltinDispatchKey::kStd_String_Regex_Replace},
+      {"Std.String.Regex.Split", BuiltinDispatchKey::kStd_String_Regex_Split},
       {"Std.OS.Cwd", BuiltinDispatchKey::kStd_OS_Cwd},
       {"Std.OS.Home", BuiltinDispatchKey::kStd_OS_Home},
       {"Std.OS.TempDir", BuiltinDispatchKey::kStd_OS_TempDir},
@@ -1601,6 +1609,38 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           }
           return std::optional<Value>{
               fleaux::runtime::make_string(fleaux::runtime::format_values(fmt, values))};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
+      case BuiltinDispatchKey::kStd_String_Regex_IsMatch: {
+        auto args = expect_n("Std.String.Regex.IsMatch", 2);
+        if (!args) return tl::unexpected(args.error());
+        try {
+          return std::optional<Value>{fleaux::runtime::StringRegexIsMatch{}(arg)};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
+      case BuiltinDispatchKey::kStd_String_Regex_Find: {
+        auto args = expect_n("Std.String.Regex.Find", 2);
+        if (!args) return tl::unexpected(args.error());
+        try {
+          return std::optional<Value>{fleaux::runtime::StringRegexFind{}(arg)};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
+      case BuiltinDispatchKey::kStd_String_Regex_Replace: {
+        auto args = expect_n("Std.String.Regex.Replace", 3);
+        if (!args) return tl::unexpected(args.error());
+        try {
+          return std::optional<Value>{fleaux::runtime::StringRegexReplace{}(arg)};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
+      case BuiltinDispatchKey::kStd_String_Regex_Split: {
+        auto args = expect_n("Std.String.Regex.Split", 2);
+        if (!args) return tl::unexpected(args.error());
+        try {
+          return std::optional<Value>{fleaux::runtime::StringRegexSplit{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
