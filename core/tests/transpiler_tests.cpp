@@ -33,7 +33,7 @@ std::filesystem::path samples_dir_path() {
 }
 
 std::filesystem::path runtime_include_path() {
-  return repo_root_path() / "cpp";
+  return repo_root_path() / "core" / "include";
 }
 
 std::filesystem::path datatree_include_path() {
@@ -110,6 +110,17 @@ std::filesystem::path stage_samples_to_temp(const std::string_view sample_file) 
   return staged_root;
 }
 
+std::vector<std::string> sample_runtime_args(const std::string_view sample_file,
+                                             const std::filesystem::path& staged_root,
+                                             const std::filesystem::path& source_path) {
+  (void)staged_root;
+  if (sample_file == "25_fleaux_parser.fleaux") {
+    // Parser sample needs an input file path; parse itself in staged workspace.
+    return {source_path.string()};
+  }
+  return {};
+}
+
 void transpile_sample_and_assert(const std::string_view sample_file) {
   const auto staged_root = stage_samples_to_temp(sample_file);
   const auto source_path = staged_root / std::filesystem::path(sample_file).filename();
@@ -123,7 +134,7 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(std::filesystem::exists(result.value()));
 
   const std::string generated = read_text(result.value());
-  REQUIRE(generated.find("#include \"fleaux_runtime.hpp\"") != std::string::npos);
+  REQUIRE(generated.find("#include \"fleaux/runtime/fleaux_runtime.hpp\"") != std::string::npos);
   REQUIRE(generated.find("using fleaux::runtime::operator|;") != std::string::npos);
   REQUIRE(generated.find("int main(int argc, char** argv)") != std::string::npos);
 
@@ -142,12 +153,19 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(compile_result.exit_code == 0);
   REQUIRE(std::filesystem::exists(generated_bin));
 
-  const auto run_result = run_command_capture(shell_quote(generated_bin.string()));
+  std::string run_cmd = shell_quote(generated_bin.string());
+  for (const auto& arg : sample_runtime_args(sample_file, staged_root, source_path)) {
+    run_cmd += " ";
+    run_cmd += shell_quote(arg);
+  }
+
+  const auto run_result = run_command_capture(run_cmd);
+  INFO("Run command: " << run_cmd);
   INFO("Run output:\n" << run_result.output);
   REQUIRE(run_result.exit_code == 0);
 }
 
-constexpr std::array<std::string_view, 24> kExpectedSamples = {
+constexpr std::array<std::string_view, 26> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -172,6 +190,8 @@ constexpr std::array<std::string_view, 24> kExpectedSamples = {
     "22_file_streaming.fleaux",
     "23_binary_search.fleaux",
     "24_dicts.fleaux",
+    "25_fleaux_parser.fleaux",
+    "26_format_specifiers.fleaux",
 };
 
 }  // namespace
@@ -195,7 +215,7 @@ TEST_CASE("Transpiler emits runtime scaffold and let symbols", "[transpiler]") {
   REQUIRE(std::filesystem::exists(result.value()));
 
   const std::string generated = read_text(result.value());
-  REQUIRE(generated.find("#include \"fleaux_runtime.hpp\"") != std::string::npos);
+  REQUIRE(generated.find("#include \"fleaux/runtime/fleaux_runtime.hpp\"") != std::string::npos);
   REQUIRE(generated.find("using fleaux::runtime::operator|;") != std::string::npos);
   REQUIRE(generated.find("fleaux::runtime::Value Add4") != std::string::npos);
   REQUIRE(generated.find("fleaux::runtime::Add{}") != std::string::npos);
@@ -290,6 +310,8 @@ FLEAUX_SAMPLE_TEST("21_import.fleaux")
 FLEAUX_SAMPLE_TEST("22_file_streaming.fleaux")
 FLEAUX_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_SAMPLE_TEST("24_dicts.fleaux")
+FLEAUX_SAMPLE_TEST("25_fleaux_parser.fleaux")
+FLEAUX_SAMPLE_TEST("26_format_specifiers.fleaux")
 
 #undef FLEAUX_SAMPLE_TEST
 

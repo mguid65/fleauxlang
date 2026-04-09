@@ -164,3 +164,7 @@ fleaux_generated_module*
 cpp/test_runtime_bin
 
 cmake-*
+
+internal_docs/
+conan_provider.cmake
+CMakeUserPresets.json

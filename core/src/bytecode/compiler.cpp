@@ -402,8 +402,8 @@ CompileResult BytecodeCompiler::compile(const IRProgram& program) const {
         : let.name;
 
     if (let.is_builtin) {
-      // Register both the short name and the qualified name as aliases.
-      state.builtin_alias[let.name]  = full_name;
+      // Builtins are addressable by their declared symbol only.
+      // Qualified builtins (e.g. Std.Println) must remain qualified.
       state.builtin_alias[full_name] = full_name;
       continue;
     }
@@ -416,8 +416,10 @@ CompileResult BytecodeCompiler::compile(const IRProgram& program) const {
 
     // Register by full name (always).
     state.function_idx[full_name] = fn_idx;
-    // Register by short name; later definitions with the same short name win.
-    state.function_idx[let.name] = fn_idx;
+    // Only unqualified declarations are addressable by short name.
+    if (!let.qualifier.has_value()) {
+      state.function_idx[let.name] = fn_idx;
+    }
   }
 
   // ── Pass 2: compile function bodies ───────────────────────────────────────

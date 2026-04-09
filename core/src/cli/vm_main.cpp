@@ -15,18 +15,18 @@
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
 
 namespace {
 enum class VmEngine {
-  kHybrid,
   kBytecode,
   kInterpreter,
 };
 
 struct CliOptions {
-  VmEngine engine = VmEngine::kHybrid;
+  VmEngine engine = VmEngine::kBytecode;
   std::optional<std::filesystem::path> source;
   std::vector<std::string> process_args;
   bool no_run = false;
@@ -41,15 +41,13 @@ struct CliError {
 };
 
 std::optional<VmEngine> parse_engine(const std::string_view text) {
-  if (text == "vm") { return VmEngine::kHybrid; }
-  if (text == "hybrid") { return VmEngine::kHybrid; }
   if (text == "bytecode") { return VmEngine::kBytecode; }
   if (text == "interpreter") { return VmEngine::kInterpreter; }
   return std::nullopt;
 }
 
 std::string usage_text() {
-  return "usage: fleaux_vm_cli [--mode vm,hybrid,bytecode,interpreter] [--all-samples] [--no-run] [file.fleaux] [-- "
+  return "usage: fleaux_vm_cli [--mode bytecode,interpreter] [--all-samples] [--no-run] [file.fleaux] [-- "
          "<arg1> <arg2> ...]";
 }
 
@@ -58,12 +56,13 @@ void print_help() {
             << "\n"
             << "Options:\n"
             << "  -h, --help             Show this help message\n"
-            << "  --mode <mode>          Execution mode (vm, hybrid, bytecode, interpreter)\n"
+            << "  --mode <mode>          Execution mode (bytecode, interpreter)\n"
             << "  --engine <mode>        Alias for --mode\n"
             << "  --all-samples          Run all .fleaux files under samples/\n"
             << "  --no-run               Skip execution and print what would run\n"
             << "\n"
             << "Notes:\n"
+            << "  - Default mode is bytecode\n"
             << "  - If no source is provided and --all-samples is not set, defaults to test.fleaux\n"
             << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
 }
@@ -140,17 +139,12 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> parse_and_lower_single(
 // ── Import resolution (mirrors interpreter's collect_program logic) ───────────
 
 std::filesystem::path resolve_import_path(const std::filesystem::path& current, const std::string& module_name) {
-  if (module_name == "StdBuiltins") return {};
+  if (module_name == "Std" || module_name == "StdBuiltins") return {};
 
   if (const auto local = current.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
     return std::filesystem::weakly_canonical(local);
   }
 
-  if (module_name == "Std") {
-    if (const auto ws_std = current.parent_path().parent_path() / "Std.fleaux"; std::filesystem::exists(ws_std)) {
-      return std::filesystem::weakly_canonical(ws_std);
-    }
-  }
 
   return {};
 }
@@ -226,7 +220,9 @@ tl::expected<fleaux::frontend::ir::IRProgram, CliError> collect_and_lower(const 
 
 // ── Bytecode execution ────────────────────────────────────────────────────────
 
-tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_file, const bool allow_runtime_fallback) {
+tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_file,
+                                          const std::vector<std::string>& process_args,
+                                          const bool allow_runtime_fallback) {
   auto lowered = collect_and_lower(source_file);
   if (!lowered) { return tl::unexpected(lowered.error()); }
 
@@ -239,6 +235,18 @@ tl::expected<void, CliError> run_bytecode(const std::filesystem::path& source_fi
         .span = std::nullopt,
     });
   }
+
+  std::vector<std::string> args_storage;
+  args_storage.reserve(process_args.size() + 1U);
+  args_storage.push_back(source_file.string());
+  args_storage.insert(args_storage.end(), process_args.begin(), process_args.end());
+
+  std::vector<char*> argv_ptrs;
+  argv_ptrs.reserve(args_storage.size());
+  for (auto& arg : args_storage) {
+    argv_ptrs.push_back(arg.data());
+  }
+  fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 
   const fleaux::vm::Runtime runtime(fleaux::vm::RuntimeOptions{.allow_runtime_fallback = allow_runtime_fallback});
   if (const auto exec = runtime.execute(bytecode.value()); !exec) {
@@ -302,7 +310,7 @@ tl::expected<CliOptions, CliError> parse_cli_args(int argc, char** argv) {
       if (!parsed_engine.has_value()) {
         return tl::unexpected(CliError{
             .message = std::string("unknown mode value: ") + std::string(mode_token),
-            .hint = "expected vm|hybrid|bytecode|interpreter",
+            .hint = "expected bytecode|interpreter",
             .span = std::nullopt,
         });
       }
@@ -351,18 +359,9 @@ int run_engine_for_source(const VmEngine engine, const std::filesystem::path& so
     return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
   }
 
-  if (engine == VmEngine::kBytecode) {
-    const auto result = run_bytecode(source, false);
-    if (!result) { return print_diag_and_return("vm-run-bytecode", result.error()); }
-    return 0;
-  }
-
-  const auto bytecode_result = run_bytecode(source, true);
-  if (bytecode_result) { return 0; }
-
-  std::cerr << "[vm] bytecode path unavailable, falling back to interpreter: " << bytecode_result.error().message
-            << '\n';
-  return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
+  const auto result = run_bytecode(source, process_args, false);
+  if (!result) { return print_diag_and_return("vm-run-bytecode", result.error()); }
+  return 0;
 }
 }  // namespace
 
@@ -396,9 +395,7 @@ int main(int argc, char** argv) {
 
   for (const auto& source : sources) {
     if (no_run) {
-      std::string mode_name = "vm";
-      if (engine == VmEngine::kBytecode) mode_name = "bytecode";
-      if (engine == VmEngine::kInterpreter) mode_name = "interpreter";
+      const std::string mode_name = (engine == VmEngine::kInterpreter) ? "interpreter" : "bytecode";
       std::cout << '[' << mode_name << "] skipped run (--no-run): " << source << '\n';
       continue;
     }

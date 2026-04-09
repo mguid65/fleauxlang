@@ -17,6 +17,7 @@
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
 
@@ -61,20 +62,13 @@ tl::expected<IRProgram, std::string> parse_and_lower_single(const std::filesyste
 
 std::filesystem::path resolve_import_path(const std::filesystem::path& current,
                                           const std::string& module_name) {
-  if (module_name == "StdBuiltins") {
+  if (module_name == "Std" || module_name == "StdBuiltins") {
     return {};
   }
 
   if (const auto local = current.parent_path() / (module_name + ".fleaux");
       std::filesystem::exists(local)) {
     return std::filesystem::weakly_canonical(local);
-  }
-
-  if (module_name == "Std") {
-    if (const auto workspace_std = current.parent_path().parent_path() / "Std.fleaux";
-        std::filesystem::exists(workspace_std)) {
-      return std::filesystem::weakly_canonical(workspace_std);
-    }
   }
 
   return {};
@@ -149,12 +143,37 @@ tl::expected<IRProgram, std::string> collect_and_lower(const std::filesystem::pa
   return collect_ir_program(source_file, cache, in_progress);
 }
 
+std::vector<std::string> sample_runtime_args(const std::string_view sample_file,
+                                             const std::filesystem::path& sample_path) {
+  if (sample_file == "25_fleaux_parser.fleaux") {
+    // Parser sample expects a source-file argument; parse itself.
+    return {sample_path.string()};
+  }
+  return {};
+}
+
+void set_runtime_process_args(const std::filesystem::path& sample_path,
+                              const std::vector<std::string>& runtime_args) {
+  std::vector<std::string> args_storage;
+  args_storage.reserve(runtime_args.size() + 1U);
+  args_storage.push_back(sample_path.string());
+  args_storage.insert(args_storage.end(), runtime_args.begin(), runtime_args.end());
+
+  std::vector<char*> argv_ptrs;
+  argv_ptrs.reserve(args_storage.size());
+  for (auto& arg : args_storage) {
+    argv_ptrs.push_back(arg.data());
+  }
+  fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+}
+
 void run_sample_in_vm_and_assert(const std::string_view sample_file) {
   const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
   REQUIRE(std::filesystem::exists(sample_path));
+  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
   constexpr fleaux::vm::Interpreter interpreter;
-  const auto result = interpreter.run_file(sample_path);
+  const auto result = interpreter.run_file(sample_path, runtime_args);
   INFO("sample file: " << sample_path);
   if (!result.has_value()) {
     INFO("vm error: " << result.error().message);
@@ -165,6 +184,7 @@ void run_sample_in_vm_and_assert(const std::string_view sample_file) {
 void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
   REQUIRE(std::filesystem::exists(sample_path));
+  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
   const auto lowered = collect_and_lower(sample_path);
   INFO("sample file: " << sample_path);
@@ -181,6 +201,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(sample_path, runtime_args);
   const auto runtime_result = runtime.execute(compiled_module.value());
   if (!runtime_result) {
     INFO("vm runtime error: " << runtime_result.error().message);
@@ -191,9 +212,10 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
 void run_sample_parity_and_assert(const std::string_view sample_file) {
   const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
   REQUIRE(std::filesystem::exists(sample_path));
+  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
   constexpr fleaux::vm::Interpreter interpreter;
-  const auto interp_result = interpreter.run_file(sample_path);
+  const auto interp_result = interpreter.run_file(sample_path, runtime_args);
 
   std::optional<std::string> bytecode_error;
   bool bytecode_ok = false;
@@ -201,6 +223,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
     constexpr fleaux::bytecode::BytecodeCompiler compiler;
     if (const auto compiled_module = compiler.compile(lowered.value()); compiled_module) {
       const fleaux::vm::Runtime runtime;
+      set_runtime_process_args(sample_path, runtime_args);
       const auto runtime_result = runtime.execute(compiled_module.value());
       bytecode_ok = runtime_result.has_value();
       if (!runtime_result) {
@@ -226,7 +249,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 24> kExpectedSamples = {
+constexpr std::array<std::string_view, 26> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -251,6 +274,8 @@ constexpr std::array<std::string_view, 24> kExpectedSamples = {
     "22_file_streaming.fleaux",
     "23_binary_search.fleaux",
     "24_dicts.fleaux",
+    "25_fleaux_parser.fleaux",
+    "26_format_specifiers.fleaux",
 };
 
 }  // namespace
@@ -272,6 +297,62 @@ TEST_CASE("VM sample list stays in sync with samples directory", "[vm][samples]"
   }
 
   REQUIRE(discovered == expected);
+}
+
+TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_qualified_std";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "qualified_std_required.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(1, 2) -> Add -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+
+  const auto lowered = collect_and_lower(source_path);
+  REQUIRE(lowered.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  REQUIRE_FALSE(compiled_module.has_value());
+}
+
+TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_symbolic_std";
+  std::filesystem::create_directories(temp_dir);
+  const auto std_path = temp_dir / "Std.fleaux";
+  const auto source_path = temp_dir / "symbolic_std_import.fleaux";
+
+  {
+    std::ofstream out(std_path);
+    out << "this is invalid fleaux and should never be parsed\n";
+  }
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(1, 2) -> Std.Add -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+
+  const auto lowered = collect_and_lower(source_path);
+  REQUIRE(lowered.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  REQUIRE(compiled_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value());
+  REQUIRE(runtime_result.has_value());
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal)                                      \
@@ -313,6 +394,8 @@ FLEAUX_VM_SAMPLE_TEST("21_import.fleaux")
 FLEAUX_VM_SAMPLE_TEST("22_file_streaming.fleaux")
 FLEAUX_VM_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_SAMPLE_TEST("24_dicts.fleaux")
+FLEAUX_VM_SAMPLE_TEST("25_fleaux_parser.fleaux")
+FLEAUX_VM_SAMPLE_TEST("26_format_specifiers.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -338,6 +421,8 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("21_import.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("22_file_streaming.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("24_dicts.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("25_fleaux_parser.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("26_format_specifiers.fleaux")
 
 FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -363,6 +448,8 @@ FLEAUX_VM_PARITY_SAMPLE_TEST("21_import.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("22_file_streaming.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("24_dicts.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("25_fleaux_parser.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("26_format_specifiers.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

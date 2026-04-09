@@ -64,6 +64,10 @@
   X("Std.String.StartsWith", StringStartsWith)   \
   X("Std.String.EndsWith", StringEndsWith)       \
   X("Std.String.Length", StringLength)           \
+  X("Std.String.CharAt", StringCharAt)           \
+  X("Std.String.Slice", StringSlice)             \
+  X("Std.String.Find", StringFind)               \
+  X("Std.String.Format", StringFormat)           \
   X("Std.OS.Cwd", Cwd)                           \
   X("Std.OS.Env", OSEnv)                         \
   X("Std.OS.HasEnv", OSHasEnv)                   \
