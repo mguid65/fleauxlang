@@ -68,6 +68,10 @@
   X("Std.String.Slice", StringSlice)             \
   X("Std.String.Find", StringFind)               \
   X("Std.String.Format", StringFormat)           \
+  X("Std.String.Regex.IsMatch", StringRegexIsMatch) \
+  X("Std.String.Regex.Find", StringRegexFind)    \
+  X("Std.String.Regex.Replace", StringRegexReplace) \
+  X("Std.String.Regex.Split", StringRegexSplit)  \
   X("Std.OS.Cwd", Cwd)                           \
   X("Std.OS.Env", OSEnv)                         \
   X("Std.OS.HasEnv", OSHasEnv)                   \

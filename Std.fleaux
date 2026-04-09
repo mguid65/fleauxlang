@@ -144,6 +144,10 @@ let Std.String.CharAt(s: String, index: Number) : String :: __builtin__;
 let Std.String.Slice(s: String, start: Number, stop: Number) : String :: __builtin__;
 let Std.String.Find(s: String, sub: String, start: Number) : Number :: __builtin__;
 let Std.String.Format(fmt_str: String, args: Any...) : String :: __builtin__;
+let Std.String.Regex.IsMatch(s: String, pattern: String) : Bool :: __builtin__;
+let Std.String.Regex.Find(s: String, pattern: String) : Number :: __builtin__;
+let Std.String.Regex.Replace(s: String, pattern: String, repl: String) : String :: __builtin__;
+let Std.String.Regex.Split(s: String, pattern: String) : Tuple(Any...) :: __builtin__;
 // Path/filesystem builtins (nested namespace API)
 let Std.OS.Cwd() : String :: __builtin__;
 let Std.OS.Home() : String :: __builtin__;

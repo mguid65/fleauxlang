@@ -1,9 +1,77 @@
 #pragma once
 // String, conversion, and math helper builtins.
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+#include <memory>
+#if defined(__has_include)
+#if __has_include(<pcre2.h>)
+#ifndef PCRE2_CODE_UNIT_WIDTH
+#define PCRE2_CODE_UNIT_WIDTH 8
+#endif
+#include <pcre2.h>
+#define FLEAUX_HAS_PCRE2 1
+#else
+#define FLEAUX_HAS_PCRE2 0
+#endif
+#else
+#define FLEAUX_HAS_PCRE2 0
+#endif
 #include "value.hpp"
 namespace fleaux::runtime {
 // ── String / conversion ───────────────────────────────────────────────────────
+
+namespace detail {
+
+#if FLEAUX_HAS_PCRE2
+
+struct RegexCodeDeleter {
+    void operator()(pcre2_code* code) const {
+        if (code != nullptr) {
+            pcre2_code_free(code);
+        }
+    }
+};
+
+struct RegexMatchDataDeleter {
+    void operator()(pcre2_match_data* data) const {
+        if (data != nullptr) {
+            pcre2_match_data_free(data);
+        }
+    }
+};
+
+using RegexCodePtr = std::unique_ptr<pcre2_code, RegexCodeDeleter>;
+using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDeleter>;
+
+[[nodiscard]] inline RegexCodePtr regex_compile_or_throw(const std::string& pattern) {
+    int error_code = 0;
+    PCRE2_SIZE error_offset = 0;
+    pcre2_code* compiled = pcre2_compile(reinterpret_cast<PCRE2_SPTR>(pattern.c_str()),
+                                         PCRE2_ZERO_TERMINATED,
+                                         0,
+                                         &error_code,
+                                         &error_offset,
+                                         nullptr);
+    if (compiled == nullptr) {
+        PCRE2_UCHAR message[256] = {0};
+        const int msg_rc = pcre2_get_error_message(error_code, message, sizeof(message));
+        const std::string msg =
+            (msg_rc >= 0) ? reinterpret_cast<const char*>(message) : std::string{"unknown regex error"};
+        throw std::invalid_argument{"Regex compile failed at offset " + std::to_string(error_offset) + ": " + msg};
+    }
+    return RegexCodePtr{compiled};
+}
+
+[[nodiscard]] inline RegexMatchDataPtr regex_match_data_or_throw(const pcre2_code* code) {
+    pcre2_match_data* data = pcre2_match_data_create_from_pattern(code, nullptr);
+    if (data == nullptr) {
+        throw std::runtime_error{"Regex: failed to allocate match data"};
+    }
+    return RegexMatchDataPtr{data};
+}
+
+#endif
+
+}  // namespace detail
 
 struct ToString {
     Value operator()(Value arg) const {
@@ -269,6 +337,193 @@ struct StringFormat {
             values.push_back(*args.TryGet(i));
         }
         return make_string(format_values(fmt, values));
+    }
+};
+
+struct StringRegexIsMatch {
+    // arg = [s, pattern]
+    Value operator()(Value arg) const {
+#if FLEAUX_HAS_PCRE2
+        const auto& args = as_array(arg);
+        if (args.Size() != 2) {
+            throw std::invalid_argument{"StringRegexIsMatch expects 2 arguments"};
+        }
+        const std::string s = to_string(*args.TryGet(0));
+        const std::string pattern = to_string(*args.TryGet(1));
+
+        const auto code = detail::regex_compile_or_throw(pattern);
+        const auto match_data = detail::regex_match_data_or_throw(code.get());
+        const int rc = pcre2_match(code.get(),
+                                   reinterpret_cast<PCRE2_SPTR>(s.c_str()),
+                                   s.size(),
+                                   0,
+                                   0,
+                                   match_data.get(),
+                                   nullptr);
+        if (rc == PCRE2_ERROR_NOMATCH) {
+            return make_bool(false);
+        }
+        if (rc < 0) {
+            throw std::runtime_error{"StringRegexIsMatch: match failed with code " + std::to_string(rc)};
+        }
+        return make_bool(true);
+#else
+        (void)arg;
+        throw std::runtime_error{"StringRegexIsMatch: regex support unavailable (PCRE2 header not found)"};
+#endif
+    }
+};
+
+struct StringRegexFind {
+    // arg = [s, pattern]
+    Value operator()(Value arg) const {
+#if FLEAUX_HAS_PCRE2
+        const auto& args = as_array(arg);
+        if (args.Size() != 2) {
+            throw std::invalid_argument{"StringRegexFind expects 2 arguments"};
+        }
+        const std::string s = to_string(*args.TryGet(0));
+        const std::string pattern = to_string(*args.TryGet(1));
+
+        const auto code = detail::regex_compile_or_throw(pattern);
+        const auto match_data = detail::regex_match_data_or_throw(code.get());
+        const int rc = pcre2_match(code.get(),
+                                   reinterpret_cast<PCRE2_SPTR>(s.c_str()),
+                                   s.size(),
+                                   0,
+                                   0,
+                                   match_data.get(),
+                                   nullptr);
+        if (rc == PCRE2_ERROR_NOMATCH) {
+            return make_int(-1);
+        }
+        if (rc < 0) {
+            throw std::runtime_error{"StringRegexFind: match failed with code " + std::to_string(rc)};
+        }
+        const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
+        return make_int(static_cast<Int>(ovector[0]));
+#else
+        (void)arg;
+        throw std::runtime_error{"StringRegexFind: regex support unavailable (PCRE2 header not found)"};
+#endif
+    }
+};
+
+struct StringRegexReplace {
+    // arg = [s, pattern, repl]
+    Value operator()(Value arg) const {
+#if FLEAUX_HAS_PCRE2
+        const auto& args = as_array(arg);
+        if (args.Size() != 3) {
+            throw std::invalid_argument{"StringRegexReplace expects 3 arguments"};
+        }
+        const std::string s = to_string(*args.TryGet(0));
+        const std::string pattern = to_string(*args.TryGet(1));
+        const std::string repl = to_string(*args.TryGet(2));
+
+        const auto code = detail::regex_compile_or_throw(pattern);
+        const auto match_data = detail::regex_match_data_or_throw(code.get());
+
+        std::string out;
+        std::size_t search_from = 0;
+        std::size_t copy_from = 0;
+        while (search_from <= s.size()) {
+            const int rc = pcre2_match(code.get(),
+                                       reinterpret_cast<PCRE2_SPTR>(s.c_str()),
+                                       s.size(),
+                                       search_from,
+                                       0,
+                                       match_data.get(),
+                                       nullptr);
+            if (rc == PCRE2_ERROR_NOMATCH) {
+                break;
+            }
+            if (rc < 0) {
+                throw std::runtime_error{"StringRegexReplace: match failed with code " + std::to_string(rc)};
+            }
+
+            const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
+            const std::size_t begin = static_cast<std::size_t>(ovector[0]);
+            const std::size_t end = static_cast<std::size_t>(ovector[1]);
+            if (end < begin || begin > s.size() || end > s.size()) {
+                throw std::runtime_error{"StringRegexReplace: invalid match bounds"};
+            }
+            out.append(s, copy_from, begin - copy_from);
+            out += repl;
+            copy_from = end;
+            if (end == begin) {
+                if (search_from >= s.size()) {
+                    break;
+                }
+                search_from += 1;
+            } else {
+                search_from = end;
+            }
+        }
+        out.append(s, copy_from, std::string::npos);
+        return make_string(std::move(out));
+#else
+        (void)arg;
+        throw std::runtime_error{"StringRegexReplace: regex support unavailable (PCRE2 header not found)"};
+#endif
+    }
+};
+
+struct StringRegexSplit {
+    // arg = [s, pattern]
+    Value operator()(Value arg) const {
+#if FLEAUX_HAS_PCRE2
+        const auto& args = as_array(arg);
+        if (args.Size() != 2) {
+            throw std::invalid_argument{"StringRegexSplit expects 2 arguments"};
+        }
+        const std::string s = to_string(*args.TryGet(0));
+        const std::string pattern = to_string(*args.TryGet(1));
+
+        const auto code = detail::regex_compile_or_throw(pattern);
+        const auto match_data = detail::regex_match_data_or_throw(code.get());
+
+        Array out;
+        std::size_t search_from = 0;
+        std::size_t copy_from = 0;
+        while (search_from <= s.size()) {
+            const int rc = pcre2_match(code.get(),
+                                       reinterpret_cast<PCRE2_SPTR>(s.c_str()),
+                                       s.size(),
+                                       search_from,
+                                       0,
+                                       match_data.get(),
+                                       nullptr);
+            if (rc == PCRE2_ERROR_NOMATCH) {
+                break;
+            }
+            if (rc < 0) {
+                throw std::runtime_error{"StringRegexSplit: match failed with code " + std::to_string(rc)};
+            }
+
+            const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
+            const std::size_t begin = static_cast<std::size_t>(ovector[0]);
+            const std::size_t end = static_cast<std::size_t>(ovector[1]);
+            if (end < begin || begin > s.size() || end > s.size()) {
+                throw std::runtime_error{"StringRegexSplit: invalid match bounds"};
+            }
+            out.PushBack(make_string(s.substr(copy_from, begin - copy_from)));
+            copy_from = end;
+            if (end == begin) {
+                if (search_from >= s.size()) {
+                    break;
+                }
+                search_from += 1;
+            } else {
+                search_from = end;
+            }
+        }
+        out.PushBack(make_string(s.substr(copy_from)));
+        return Value{std::move(out)};
+#else
+        (void)arg;
+        throw std::runtime_error{"StringRegexSplit: regex support unavailable (PCRE2 header not found)"};
+#endif
     }
 };
 

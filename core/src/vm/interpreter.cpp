@@ -208,6 +208,11 @@ tl::expected<IRProgram, InterpretError> collect_program(
   return merged;
 }
 
+template <class... Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
 struct EvalState {
   IRProgram program;
   std::unordered_map<std::string, RuntimeCallable> functions_qualified;
@@ -218,72 +223,57 @@ struct EvalState {
       return fleaux::runtime::make_null();
     }
 
-    if (const auto* flow = std::get_if<IRFlowExpr>(&expr->node); flow != nullptr) {
-      const Value lhs = eval_expr(flow->lhs, locals);
-      const auto target = resolve_call_target(flow->rhs, locals);
-      return target(lhs);
-    }
-
-    if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
-      const auto& items = tuple->items;
-      fleaux::runtime::Array arr;
-      arr.Reserve(items.size());
-      for (const auto& item : items) {
-        if (item) {
-          if (const auto* name_ref = std::get_if<IRNameRef>(&item->node);
-              name_ref != nullptr && (name_ref->qualifier.has_value() || !locals.contains(name_ref->name))) {
-            arr.PushBack(fleaux::runtime::make_callable_ref(resolve_name_callable(*name_ref, locals)));
-            continue;
+    return std::visit(overloaded{
+      [&](const IRFlowExpr& flow) -> Value {
+        const Value lhs = eval_expr(flow.lhs, locals);
+        const auto target = resolve_call_target(flow.rhs, locals);
+        return target(lhs);
+      },
+      [&](const IRTupleExpr& tuple) -> Value {
+        const auto& items = tuple.items;
+        fleaux::runtime::Array arr;
+        arr.Reserve(items.size());
+        for (const auto& item : items) {
+          if (item) {
+            if (const auto* name_ref = std::get_if<IRNameRef>(&item->node);
+                name_ref != nullptr && (name_ref->qualifier.has_value() || !locals.contains(name_ref->name))) {
+              arr.PushBack(fleaux::runtime::make_callable_ref(resolve_name_callable(*name_ref, locals)));
+              continue;
+            }
           }
+          arr.PushBack(eval_expr(item, locals));
         }
-        arr.PushBack(eval_expr(item, locals));
-      }
-      return Value{std::move(arr)};
-    }
-
-    if (const auto* constant = std::get_if<frontend::ir::IRConstant>(&expr->node); constant != nullptr) {
-      const auto& val = constant->val;
-      if (std::get_if<std::monostate>(&val) != nullptr) {
-        return fleaux::runtime::make_null();
-      }
-      if (const auto* b = std::get_if<bool>(&val); b != nullptr) {
-        return fleaux::runtime::make_bool(*b);
-      }
-      if (const auto* i = std::get_if<std::int64_t>(&val); i != nullptr) {
-        return fleaux::runtime::make_int(*i);
-      }
-      if (const auto* d = std::get_if<double>(&val); d != nullptr) {
-        return fleaux::runtime::make_float(*d);
-      }
-      if (const auto* s = std::get_if<std::string>(&val); s != nullptr) {
-        return fleaux::runtime::make_string(*s);
-      }
-      throw std::runtime_error("Unsupported constant type in VM interpreter.");
-    }
-
-    const auto&[qualifier, name, span] = std::get<IRNameRef>(expr->node);
-    if (!qualifier.has_value()) {
-      if (const auto local_it = locals.find(name); local_it != locals.end()) {
-        return local_it->second;
-      }
-
-      if (const auto fn_it = functions_unqualified.find(name); fn_it != functions_unqualified.end()) {
-        return fleaux::runtime::make_callable_ref(fn_it->second);
-      }
-
-      throw std::runtime_error("Unresolved name in VM interpreter: '" + name + "'.");
-    }
-
-    const auto full_name = *qualifier + "." + name;
-    if (qualifier.value() == "Std" || qualifier->rfind("Std.", 0) == 0) {
-      return resolve_std_callable_or_throw(full_name, span)(fleaux::runtime::make_tuple());
-    }
-
-    if (const auto fn_it = functions_qualified.find(full_name); fn_it != functions_qualified.end()) {
-      return fleaux::runtime::make_callable_ref(fn_it->second);
-    }
-
-    throw std::runtime_error("Unresolved qualified name in VM interpreter: '" + full_name + "'.");
+        return Value{std::move(arr)};
+      },
+      [&](const frontend::ir::IRConstant& constant) -> Value {
+        return std::visit(overloaded{
+          [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
+          [](bool b) -> Value { return fleaux::runtime::make_bool(b); },
+          [](std::int64_t i) -> Value { return fleaux::runtime::make_int(i); },
+          [](double d) -> Value { return fleaux::runtime::make_float(d); },
+          [](const std::string& s) -> Value { return fleaux::runtime::make_string(s); },
+        }, constant.val);
+      },
+      [&](const IRNameRef& name_ref) -> Value {
+        if (!name_ref.qualifier.has_value()) {
+          if (const auto local_it = locals.find(name_ref.name); local_it != locals.end()) {
+            return local_it->second;
+          }
+          if (const auto fn_it = functions_unqualified.find(name_ref.name); fn_it != functions_unqualified.end()) {
+            return fleaux::runtime::make_callable_ref(fn_it->second);
+          }
+          throw std::runtime_error("Unresolved name in VM interpreter: '" + name_ref.name + "'.");
+        }
+        const auto full_name = *name_ref.qualifier + "." + name_ref.name;
+        if (name_ref.qualifier.value() == "Std" || name_ref.qualifier->rfind("Std.", 0) == 0) {
+          return resolve_std_callable_or_throw(full_name, name_ref.span)(fleaux::runtime::make_tuple());
+        }
+        if (const auto fn_it = functions_qualified.find(full_name); fn_it != functions_qualified.end()) {
+          return fleaux::runtime::make_callable_ref(fn_it->second);
+        }
+        throw std::runtime_error("Unresolved qualified name in VM interpreter: '" + full_name + "'.");
+      },
+    }, expr->node);
   }
 
   RuntimeCallable resolve_name_callable(const IRNameRef& name,
@@ -317,53 +307,51 @@ struct EvalState {
 
   RuntimeCallable resolve_call_target(const IRCallTarget& target,
                                       const std::unordered_map<std::string, Value>& locals) const {
-    if (const auto* op_ref = std::get_if<frontend::ir::IROperatorRef>(&target); op_ref != nullptr) {
-      const auto& op = op_ref->op;
-      const auto dispatch = operator_dispatch_key(op);
-      if (!dispatch.has_value()) {
+    return std::visit(overloaded{
+      [&](const frontend::ir::IROperatorRef& op_ref) -> RuntimeCallable {
+        const auto& op = op_ref.op;
+        const auto dispatch = operator_dispatch_key(op);
+        if (!dispatch.has_value()) {
+          throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
+        }
+        switch (*dispatch) {
+          case OperatorDispatchKey::kAdd:
+            return resolve_std_callable_or_throw("Std.Add", std::nullopt);
+          case OperatorDispatchKey::kSubtract:
+            return resolve_std_callable_or_throw("Std.Subtract", std::nullopt);
+          case OperatorDispatchKey::kMultiply:
+            return resolve_std_callable_or_throw("Std.Multiply", std::nullopt);
+          case OperatorDispatchKey::kDivide:
+            return resolve_std_callable_or_throw("Std.Divide", std::nullopt);
+          case OperatorDispatchKey::kMod:
+            return resolve_std_callable_or_throw("Std.Mod", std::nullopt);
+          case OperatorDispatchKey::kPow:
+            return resolve_std_callable_or_throw("Std.Pow", std::nullopt);
+          case OperatorDispatchKey::kEqual:
+            return resolve_std_callable_or_throw("Std.Equal", std::nullopt);
+          case OperatorDispatchKey::kNotEqual:
+            return resolve_std_callable_or_throw("Std.NotEqual", std::nullopt);
+          case OperatorDispatchKey::kLessThan:
+            return resolve_std_callable_or_throw("Std.LessThan", std::nullopt);
+          case OperatorDispatchKey::kGreaterThan:
+            return resolve_std_callable_or_throw("Std.GreaterThan", std::nullopt);
+          case OperatorDispatchKey::kGreaterOrEqual:
+            return resolve_std_callable_or_throw("Std.GreaterOrEqual", std::nullopt);
+          case OperatorDispatchKey::kLessOrEqual:
+            return resolve_std_callable_or_throw("Std.LessOrEqual", std::nullopt);
+          case OperatorDispatchKey::kNot:
+            return resolve_std_callable_or_throw("Std.Not", std::nullopt);
+          case OperatorDispatchKey::kAnd:
+            return resolve_std_callable_or_throw("Std.And", std::nullopt);
+          case OperatorDispatchKey::kOr:
+            return resolve_std_callable_or_throw("Std.Or", std::nullopt);
+        }
         throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
-      }
-
-      switch (*dispatch) {
-        case OperatorDispatchKey::kAdd:
-          return resolve_std_callable_or_throw("Std.Add", std::nullopt);
-        case OperatorDispatchKey::kSubtract:
-          return resolve_std_callable_or_throw("Std.Subtract", std::nullopt);
-        case OperatorDispatchKey::kMultiply:
-          return resolve_std_callable_or_throw("Std.Multiply", std::nullopt);
-        case OperatorDispatchKey::kDivide:
-          return resolve_std_callable_or_throw("Std.Divide", std::nullopt);
-        case OperatorDispatchKey::kMod:
-          return resolve_std_callable_or_throw("Std.Mod", std::nullopt);
-        case OperatorDispatchKey::kPow:
-          return resolve_std_callable_or_throw("Std.Pow", std::nullopt);
-        case OperatorDispatchKey::kEqual:
-          return resolve_std_callable_or_throw("Std.Equal", std::nullopt);
-        case OperatorDispatchKey::kNotEqual:
-          return resolve_std_callable_or_throw("Std.NotEqual", std::nullopt);
-        case OperatorDispatchKey::kLessThan:
-          return resolve_std_callable_or_throw("Std.LessThan", std::nullopt);
-        case OperatorDispatchKey::kGreaterThan:
-          return resolve_std_callable_or_throw("Std.GreaterThan", std::nullopt);
-        case OperatorDispatchKey::kGreaterOrEqual:
-          return resolve_std_callable_or_throw("Std.GreaterOrEqual", std::nullopt);
-        case OperatorDispatchKey::kLessOrEqual:
-          return resolve_std_callable_or_throw("Std.LessOrEqual", std::nullopt);
-        case OperatorDispatchKey::kNot:
-          return resolve_std_callable_or_throw("Std.Not", std::nullopt);
-        case OperatorDispatchKey::kAnd:
-          return resolve_std_callable_or_throw("Std.And", std::nullopt);
-        case OperatorDispatchKey::kOr:
-          return resolve_std_callable_or_throw("Std.Or", std::nullopt);
-      }
-
-      throw std::runtime_error("Unsupported operator in VM interpreter: '" + op + "'.");
-    }
-
-    if (const auto* name_ref = std::get_if<IRNameRef>(&target); name_ref != nullptr) {
-      return resolve_name_callable(*name_ref, locals);
-    }
-    throw std::runtime_error("Unsupported call target in VM interpreter.");
+      },
+      [&](const IRNameRef& name_ref) -> RuntimeCallable {
+        return resolve_name_callable(name_ref, locals);
+      },
+    }, target);
   }
 
   Value invoke_let(const frontend::ir::IRLet& let, Value arg) const {

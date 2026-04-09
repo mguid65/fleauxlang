@@ -105,3 +105,24 @@ TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
   }
 }
 
+TEST_CASE("Runtime builtins: string regex", "[runtime]") {
+  SECTION("IsMatch and Find") {
+    const Value text = make_string("abc-123 xyz");
+    REQUIRE(as_bool(make_tuple(text, make_string("[a-z]+-[0-9]+")) | StringRegexIsMatch{}));
+    REQUIRE_FALSE(as_bool(make_tuple(text, make_string("^XYZ$")) | StringRegexIsMatch{}));
+    REQUIRE(to_double(make_tuple(text, make_string("[0-9]+")) | StringRegexFind{}) == 4.0);
+    REQUIRE(to_double(make_tuple(text, make_string("ZZZ")) | StringRegexFind{}) == -1.0);
+  }
+
+  SECTION("Replace and Split") {
+    const Value text = make_string("one,two;three");
+    REQUIRE(as_string(make_tuple(text, make_string("[,;]"), make_string("|")) | StringRegexReplace{}) == "one|two|three");
+
+    const Value parts = make_tuple(text, make_string("[,;]")) | StringRegexSplit{};
+    REQUIRE(as_array(parts).Size() == 3);
+    REQUIRE(as_string(array_at(parts, 0)) == "one");
+    REQUIRE(as_string(array_at(parts, 1)) == "two");
+    REQUIRE(as_string(array_at(parts, 2)) == "three");
+  }
+}
+
