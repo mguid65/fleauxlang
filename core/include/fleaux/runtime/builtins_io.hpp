@@ -1,7 +1,7 @@
 #pragma once
 // Path, File, Dir, OS, and file-streaming builtins.
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
-#include "value.hpp"
+#include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 // ── Path/File/Dir/OS ──────────────────────────────────────────────────────────
 

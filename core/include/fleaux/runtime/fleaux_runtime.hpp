@@ -7,10 +7,10 @@
 //
 // Or include individual sub-headers for finer-grained dependencies.
 
-#include "value.hpp"         // Type aliases, registries, construction/extraction helpers, printing
-#include "builtins_core.hpp" // Arithmetic, comparison, logical, Wrap/Unwrap/sequence, output, control flow
-#include "builtins_string.hpp" // String ops, Math helpers
-#include "builtins_tuple.hpp"  // TupleMap/Filter/Sort/Reduce/Range/Zip etc.
-#include "builtins_io.hpp"     // Path, File, Dir, OS, file-streaming
-#include "builtins_dict.hpp"   // Dict builtins
+#include "fleaux/runtime/value.hpp"         // Type aliases, registries, construction/extraction helpers, printing
+#include "fleaux/runtime/builtins_core.hpp" // Arithmetic, comparison, logical, Wrap/Unwrap/sequence, output, control flow
+#include "fleaux/runtime/builtins_string.hpp" // String ops, Math helpers
+#include "fleaux/runtime/builtins_tuple.hpp"  // TupleMap/Filter/Sort/Reduce/Range/Zip etc.
+#include "fleaux/runtime/builtins_io.hpp"     // Path, File, Dir, OS, file-streaming
+#include "fleaux/runtime/builtins_dict.hpp"   // Dict builtins
 
