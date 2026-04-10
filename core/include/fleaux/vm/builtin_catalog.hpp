@@ -11,6 +11,7 @@
   X("Std.Input", Input)                          \
   X("Std.Exit", Exit)                            \
   X("Std.Select", Select)                        \
+  X("Std.Match", Match)                          \
   X("Std.Apply", Apply)                          \
   X("Std.Branch", Branch)                        \
   X("Std.Loop", Loop)                            \

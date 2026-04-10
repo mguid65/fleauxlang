@@ -75,6 +75,36 @@ TEST_CASE("Runtime builtins: arithmetic and logic", "[runtime]") {
   REQUIRE(to_double(r) == 11.0);
 }
 
+TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]") {
+  const Value is_even = make_callable_ref([](Value v) -> Value {
+    return make_bool(static_cast<Int>(to_double(v)) % 2 == 0);
+  });
+  const Value even_handler = make_callable_ref([](Value _v) -> Value {
+    return make_string("even");
+  });
+  const Value odd_handler = make_callable_ref([](Value _v) -> Value {
+    return make_string("odd");
+  });
+
+  SECTION("Predicate pattern matches before wildcard") {
+    Value arg = make_tuple(
+        make_int(6),
+        make_tuple(is_even, even_handler),
+        make_tuple(make_string("__fleaux_match_wildcard__"), odd_handler));
+    Value result = std::move(arg) | Match{};
+    REQUIRE(as_string(result) == "even");
+  }
+
+  SECTION("Predicate pattern falls through to wildcard") {
+    Value arg = make_tuple(
+        make_int(7),
+        make_tuple(is_even, even_handler),
+        make_tuple(make_string("__fleaux_match_wildcard__"), odd_handler));
+    Value result = std::move(arg) | Match{};
+    REQUIRE(as_string(result) == "odd");
+  }
+}
+
 TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
   SECTION("Loop sums 1..5") {
     auto cf = [](Value state) -> Value {

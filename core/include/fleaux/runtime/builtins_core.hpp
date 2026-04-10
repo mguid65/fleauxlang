@@ -4,6 +4,8 @@
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 
+inline constexpr std::string_view k_match_wildcard_sentinel = "__fleaux_match_wildcard__";
+
 struct Wrap {
     // arg = any Value  →  [arg]
     Value operator()(Value v) const {
@@ -331,6 +333,41 @@ struct Select {
         return as_bool(array_at(arg, 0))
             ? array_at(arg, 1)
             : array_at(arg, 2);
+    }
+};
+
+struct Match {
+    // arg = [value, [pattern, handler], [pattern, handler], ...]
+    // Pattern wildcard is encoded as the lowering sentinel string.
+    // Callable patterns are predicates: pattern(subject) -> Bool.
+    Value operator()(Value arg) const {
+        const auto& args = as_array(arg);
+        if (args.Size() < 2) {
+            throw std::invalid_argument{"Match expects a value and at least one case"};
+        }
+
+        const Value subject = *args.TryGet(0);
+        for (std::size_t i = 1; i < args.Size(); ++i) {
+            const auto& case_tuple = as_array(*args.TryGet(i));
+            if (case_tuple.Size() != 2) {
+                throw std::invalid_argument{"Match case must be a (pattern, handler) tuple"};
+            }
+
+            const Value pattern = *case_tuple.TryGet(0);
+            const Value handler = *case_tuple.TryGet(1);
+
+            const bool wildcard_match = pattern.HasString() && as_string(pattern) == k_match_wildcard_sentinel;
+            bool predicate_match = false;
+            if (!wildcard_match && callable_id_from_value(pattern).has_value()) {
+                predicate_match = as_bool(invoke_callable_ref(pattern, subject));
+            }
+
+            if (wildcard_match || predicate_match || pattern == subject) {
+                return invoke_callable_ref(handler, subject);
+            }
+        }
+
+        throw std::runtime_error{"Match: no case matched and no wildcard case provided"};
     }
 };
 
