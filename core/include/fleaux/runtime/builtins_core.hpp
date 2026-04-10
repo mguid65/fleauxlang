@@ -1,7 +1,7 @@
 #pragma once
 // Core builtins: sequence access, arithmetic, comparison, logical, output, control flow.
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
-#include "value.hpp"
+#include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 
 struct Wrap {

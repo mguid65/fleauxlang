@@ -15,7 +15,7 @@
 #else
 #define FLEAUX_HAS_PCRE2 0
 #endif
-#include "value.hpp"
+#include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 // ── String / conversion ───────────────────────────────────────────────────────
 

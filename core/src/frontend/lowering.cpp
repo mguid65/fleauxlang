@@ -10,12 +10,10 @@ namespace fleaux::frontend::lowering {
 namespace {
 
 const std::unordered_set<std::string> kOperators = {
-    "^",  "/",  "*",  "%",  "+",  "-",  "==", "!=",
-    "<",  ">",  ">=", "<=", "!",  "&&", "||",
+    "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
 
-LoweringError make_error(const std::string& message,
-                         const std::optional<std::string>& hint,
+LoweringError make_error(const std::string& message, const std::optional<std::string>& hint,
                          const std::optional<diag::SourceSpan>& span) {
   LoweringError err;
   err.message = message;
@@ -24,11 +22,8 @@ LoweringError make_error(const std::string& message,
   return err;
 }
 
-std::pair<std::optional<std::string>, std::string> split_id(
-    const std::variant<std::string, model::QualifiedId>& id) {
-  if (const auto* simple = std::get_if<std::string>(&id); simple != nullptr) {
-    return {std::nullopt, *simple};
-  }
+std::pair<std::optional<std::string>, std::string> split_id(const std::variant<std::string, model::QualifiedId>& id) {
+  if (const auto* simple = std::get_if<std::string>(&id); simple != nullptr) { return {std::nullopt, *simple}; }
   const auto* qid = std::get_if<model::QualifiedId>(&id);
 
   return {qid->qualifier.qualifier, qid->id};
@@ -63,8 +58,7 @@ ir::IRSimpleType lower_simple_type(const model::TypeRef& type) {
 
 tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr);
 
-tl::expected<ir::IRCallTarget, LoweringError> extract_call_target_from_primary(
-    const model::Primary& primary) {
+tl::expected<ir::IRCallTarget, LoweringError> extract_call_target_from_primary(const model::Primary& primary) {
   if (primary.base.qualified_var.has_value()) {
     const auto& qid = primary.base.qualified_var.value();
     return ir::IRNameRef{
@@ -76,39 +70,28 @@ tl::expected<ir::IRCallTarget, LoweringError> extract_call_target_from_primary(
 
   if (primary.base.var.has_value()) {
     const auto& value = primary.base.var.value();
-    if (kOperators.contains(value)) {
-      return ir::IROperatorRef{.op = value, .span = primary.span};
-    }
+    if (kOperators.contains(value)) { return ir::IROperatorRef{.op = value, .span = primary.span}; }
     return ir::IRNameRef{.qualifier = std::nullopt, .name = value, .span = primary.span};
   }
 
-  return tl::unexpected(make_error(
-      "Primary used as flow target must be a simple name, qualified name, or operator.",
-      "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.",
-      primary.span));
+  return tl::unexpected(make_error("Primary used as flow target must be a simple name, qualified name, or operator.",
+                                   "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.", primary.span));
 }
 
 bool contains_placeholder(const ir::IRExprPtr& expr);
 
-ir::IRExprPtr replace_placeholder_impl(const ir::IRExprPtr& expr,
-                                       const ir::IRExprPtr& replacement) {
-  if (!expr) {
-    return expr;
-  }
+ir::IRExprPtr replace_placeholder_impl(const ir::IRExprPtr& expr, const ir::IRExprPtr& replacement) {
+  if (!expr) { return expr; }
 
   if (const auto* name = std::get_if<ir::IRNameRef>(&expr->node); name != nullptr) {
-    if (!name->qualifier.has_value() && name->name == "_") {
-      return replacement;
-    }
+    if (!name->qualifier.has_value() && name->name == "_") { return replacement; }
     return expr;
   }
 
   if (const auto* tuple = std::get_if<ir::IRTupleExpr>(&expr->node); tuple != nullptr) {
     ir::IRTupleExpr out_tuple;
     out_tuple.span = tuple->span;
-    for (const auto& item : tuple->items) {
-      out_tuple.items.push_back(replace_placeholder_impl(item, replacement));
-    }
+    for (const auto& item : tuple->items) { out_tuple.items.push_back(replace_placeholder_impl(item, replacement)); }
 
     auto out = std::make_shared<ir::IRExpr>();
     out->node = std::move(out_tuple);
@@ -132,20 +115,12 @@ ir::IRExprPtr replace_placeholder_impl(const ir::IRExprPtr& expr,
 }
 
 bool contains_placeholder(const ir::IRExprPtr& expr) {
-  if (!expr) {
-    return false;
-  }
+  if (!expr) { return false; }
   if (const auto* name = std::get_if<ir::IRNameRef>(&expr->node); name != nullptr) {
     return !name->qualifier.has_value() && name->name == "_";
   }
   if (const auto* tuple = std::get_if<ir::IRTupleExpr>(&expr->node); tuple != nullptr) {
-    std::ranges::any_of(tuple->items, [](const ir::IRExprPtr& item) { return contains_placeholder(item); });
-    // for (const auto& item : tuple->items) {
-    //   if (contains_placeholder(item)) {
-    //     return true;
-    //   }
-    // }
-    return false;
+    return std::ranges::any_of(tuple->items, [](const ir::IRExprPtr& item) -> bool { return contains_placeholder(item); });
   }
   if (const auto* flow = std::get_if<ir::IRFlowExpr>(&expr->node); flow != nullptr) {
     return contains_placeholder(flow->lhs);
@@ -157,10 +132,9 @@ tl::expected<ir::IRExprPtr, LoweringError> replace_placeholder(const ir::IRExprP
                                                                const ir::IRExprPtr& current_value) {
   auto replaced = replace_placeholder_impl(template_expr, current_value);
   if (contains_placeholder(replaced)) {
-    return tl::unexpected(make_error(
-        "Unresolved '_' placeholder remained in tuple template.",
-        "Use '_' only as an argument position inside tuple templates like '(_, 2)'.",
-        template_expr ? template_expr->span : std::nullopt));
+    return tl::unexpected(make_error("Unresolved '_' placeholder remained in tuple template.",
+                                     "Use '_' only as an argument position inside tuple templates like '(_, 2)'.",
+                                     template_expr ? template_expr->span : std::nullopt));
   }
   return replaced;
 }
@@ -174,9 +148,7 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom) {
     tuple.span = atom.inner->span;
     for (const auto& item : atom.inner->items) {
       auto lowered_item = lower_expr(item);
-      if (!lowered_item) {
-        return tl::unexpected(lowered_item.error());
-      }
+      if (!lowered_item) { return tl::unexpected(lowered_item.error()); }
       tuple.items.push_back(lowered_item.value());
     }
     out->node = std::move(tuple);
@@ -222,9 +194,7 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_primary(const model::Primary& p
 
 tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpression& flow) {
   auto result = lower_primary(flow.lhs);
-  if (!result) {
-    return tl::unexpected(result.error());
-  }
+  if (!result) { return tl::unexpected(result.error()); }
 
   std::size_t i = 0;
   while (i < flow.rhs.size()) {
@@ -243,33 +213,24 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpressio
     }
 
     auto template_expr = lower_primary(flow.rhs[i]);
-    if (!template_expr) {
-      return tl::unexpected(template_expr.error());
-    }
+    if (!template_expr) { return tl::unexpected(template_expr.error()); }
 
     if (std::get_if<ir::IRTupleExpr>(&template_expr.value()->node) == nullptr) {
       return tl::unexpected(make_error(
           "Invalid pipeline stage shape: non-call stages must be tuple templates.",
-          "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.",
-          flow.rhs[i].span));
+          "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.", flow.rhs[i].span));
     }
 
     if (i + 1 >= flow.rhs.size()) {
-      return tl::unexpected(make_error(
-          "Tuple template stage is missing a following call target.",
-          "Append a call target, e.g. '-> (_, 2) -> Std.Divide'.",
-          flow.rhs[i].span));
+      return tl::unexpected(make_error("Tuple template stage is missing a following call target.",
+                                       "Append a call target, e.g. '-> (_, 2) -> Std.Divide'.", flow.rhs[i].span));
     }
 
     auto next_target = extract_call_target_from_primary(flow.rhs[i + 1]);
-    if (!next_target) {
-      return tl::unexpected(next_target.error());
-    }
+    if (!next_target) { return tl::unexpected(next_target.error()); }
 
     auto replaced = replace_placeholder(template_expr.value(), result.value());
-    if (!replaced) {
-      return tl::unexpected(replaced.error());
-    }
+    if (!replaced) { return tl::unexpected(replaced.error()); }
 
     ir::IRFlowExpr ir_flow;
     ir_flow.lhs = replaced.value();
@@ -327,9 +288,7 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
       ir::IRExprPtr body;
       if (!is_builtin) {
         auto lowered_body = lower_expr(*std::get_if<model::ExpressionPtr>(&model_let->expr));
-        if (!lowered_body) {
-          return tl::unexpected(lowered_body.error());
-        }
+        if (!lowered_body) { return tl::unexpected(lowered_body.error()); }
         body = lowered_body.value();
       }
 
@@ -347,9 +306,7 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
 
     const auto* model_expr_stmt = std::get_if<model::ExpressionStatement>(&stmt);
     auto lowered_expr = lower_expr(model_expr_stmt->expr);
-    if (!lowered_expr) {
-      return tl::unexpected(lowered_expr.error());
-    }
+    if (!lowered_expr) { return tl::unexpected(lowered_expr.error()); }
 
     ir_program.expressions.push_back(ir::IRExprStatement{
         .expr = lowered_expr.value(),
@@ -361,4 +318,3 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
 }
 
 }  // namespace fleaux::frontend::lowering
-

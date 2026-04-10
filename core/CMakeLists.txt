@@ -19,9 +19,15 @@ endforeach()
 
 include(CTest)
 
+option(FLEAUX_BUILD_WASM_COORDINATOR "Build browser-facing Fleaux WASM coordinator" OFF)
+
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
-find_package(PCRE2 REQUIRED)
+if(EMSCRIPTEN)
+  find_package(PCRE2 QUIET)
+else()
+  find_package(PCRE2 REQUIRED)
+endif()
 
 set(FLEAUX_PCRE2_TARGET "")
 if(TARGET PCRE2::8BIT)
@@ -29,7 +35,9 @@ if(TARGET PCRE2::8BIT)
 elseif(TARGET PCRE2::pcre2-8)
   set(FLEAUX_PCRE2_TARGET PCRE2::pcre2-8)
 else()
-  message(FATAL_ERROR "PCRE2 target not found (expected PCRE2::8BIT or PCRE2::pcre2-8)")
+  if(NOT EMSCRIPTEN)
+    message(FATAL_ERROR "PCRE2 target not found (expected PCRE2::8BIT or PCRE2::pcre2-8)")
+  endif()
 endif()
 
 add_library(tl_expected INTERFACE)
@@ -89,30 +97,74 @@ target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/in
 target_sources(fleaux_bytecode PRIVATE src/bytecode/compiler.cpp)
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected)
 
-add_library(fleaux_vm STATIC)
-target_include_directories(fleaux_vm
-    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
-target_sources(fleaux_vm PRIVATE src/vm/runtime.cpp)
-target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
+if(FLEAUX_PCRE2_TARGET)
+  add_library(fleaux_vm STATIC)
+  target_include_directories(fleaux_vm
+      PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
+      PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
+  target_sources(fleaux_vm PRIVATE src/vm/runtime.cpp)
+  target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
 
-add_library(fleaux_vm_interpreter STATIC)
-target_include_directories(fleaux_vm_interpreter
-    PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_vm_interpreter PRIVATE src/vm/interpreter.cpp)
-target_link_libraries(fleaux_vm_interpreter PUBLIC
-    fleaux_frontend_parser
-    fleaux_frontend_lowering
-    fleaux_frontend_diagnostics
-    tl_expected
-    datatree
-    ${FLEAUX_PCRE2_TARGET})
+  add_library(fleaux_vm_interpreter STATIC)
+  target_include_directories(fleaux_vm_interpreter
+      PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_sources(fleaux_vm_interpreter PRIVATE src/vm/interpreter.cpp)
+  target_link_libraries(fleaux_vm_interpreter PUBLIC
+      fleaux_frontend_parser
+      fleaux_frontend_lowering
+      fleaux_frontend_diagnostics
+      tl_expected
+      datatree
+      ${FLEAUX_PCRE2_TARGET})
 
-add_executable(fleaux_vm_cli src/cli/vm_main.cpp)
-target_link_libraries(fleaux_vm_cli PRIVATE fleaux_vm_interpreter fleaux_vm)
+  add_executable(fleaux_vm_cli src/cli/vm_main.cpp)
+  target_link_libraries(fleaux_vm_cli PRIVATE fleaux_vm_interpreter fleaux_vm)
+elseif(EMSCRIPTEN)
+  message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux_vm_cli targets")
+endif()
 
-if(BUILD_TESTING)
+if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
+  set(FLEAUX_WASM_OUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/public/wasm")
+  file(MAKE_DIRECTORY "${FLEAUX_WASM_OUT_DIR}")
+
+  add_executable(fleaux_wasm_coordinator
+      ${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/wasm/fleaux_wasm_coordinator.cpp)
+  target_include_directories(fleaux_wasm_coordinator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_wasm_coordinator PRIVATE
+      fleaux_frontend_parser
+      fleaux_frontend_lowering
+      fleaux_frontend_diagnostics
+      fleaux_bytecode
+      datatree
+      tl_expected)
+
+  if(TARGET fleaux_vm)
+    target_link_libraries(fleaux_wasm_coordinator PRIVATE fleaux_vm)
+    target_compile_definitions(fleaux_wasm_coordinator PRIVATE FLEAUX_WASM_HAS_RUNTIME=1)
+  else()
+    target_compile_definitions(fleaux_wasm_coordinator PRIVATE FLEAUX_WASM_HAS_RUNTIME=0)
+  endif()
+
+  target_link_options(fleaux_wasm_coordinator PRIVATE
+      "SHELL:-sWASM=1"
+      "SHELL:-sALLOW_MEMORY_GROWTH=1"
+      "SHELL:-sMODULARIZE=1"
+      "SHELL:-sEXPORT_ES6=1"
+      "SHELL:-sENVIRONMENT=web,worker"
+      "SHELL:-sNO_EXIT_RUNTIME=1"
+      "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\"]"
+      "SHELL:-sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\"]")
+  set_target_properties(fleaux_wasm_coordinator PROPERTIES
+      OUTPUT_NAME "fleaux_wasm_coordinator"
+      RUNTIME_OUTPUT_DIRECTORY "${FLEAUX_WASM_OUT_DIR}"
+      RUNTIME_OUTPUT_DIRECTORY_DEBUG "${FLEAUX_WASM_OUT_DIR}"
+      RUNTIME_OUTPUT_DIRECTORY_RELEASE "${FLEAUX_WASM_OUT_DIR}"
+      RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${FLEAUX_WASM_OUT_DIR}"
+      RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${FLEAUX_WASM_OUT_DIR}")
+endif()
+
+if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
       tests/vm_runtime_tests.cpp
