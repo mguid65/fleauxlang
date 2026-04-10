@@ -215,6 +215,18 @@ std::string compile_expr(const ir::IRExprPtr& expr,
   }
 
   if (const auto* tuple = std::get_if<ir::IRTupleExpr>(&expr->node); tuple != nullptr) {
+    // Grouping semantics (Option B): single-element tuple collapses to its value.
+    // The lowerer should already have handled this, but guard defensively.
+    if (tuple->items.size() == 1) {
+      if (tuple->items[0]) {
+        if (const auto* name_ref = std::get_if<ir::IRNameRef>(&tuple->items[0]->node);
+            name_ref != nullptr && (name_ref->qualifier.has_value() || !local_bindings.contains(name_ref->name))) {
+          const std::string fn_ref = compile_name_ref(*name_ref, local_bindings, known_symbols);
+          return "fleaux::runtime::make_callable_ref(" + fn_ref + ")";
+        }
+      }
+      return compile_expr(tuple->items[0], local_bindings, known_symbols);
+    }
     std::vector<std::string> parts;
     parts.reserve(tuple->items.size());
     for (const auto& item : tuple->items) {
@@ -269,14 +281,38 @@ std::string emit_let_definition(const ir::IRLet& let,
     local_bindings[param.name] = sanitize_symbol(param.name);
   }
 
-  if (let.params.size() == 1U) {
-    out << "  fleaux::runtime::Value " << local_bindings[let.params[0].name]
-        << " = fleaux::runtime::unwrap_singleton_arg(_fleaux_arg);\n";
-  } else if (let.params.size() > 1U) {
-    out << "  const fleaux::runtime::Value& _fleaux_args = _fleaux_arg;\n";
-    for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
-      out << "  fleaux::runtime::Value " << local_bindings[let.params[idx].name]
-          << " = fleaux::runtime::array_at(_fleaux_args, " << idx << ");\n";
+  const bool has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
+  if (!let.params.empty()) {
+    if (!has_variadic_tail) {
+      if (let.params.size() == 1U) {
+        out << "  fleaux::runtime::Value " << local_bindings[let.params[0].name]
+            << " = fleaux::runtime::unwrap_singleton_arg(_fleaux_arg);\n";
+      } else {
+        out << "  const fleaux::runtime::Value& _fleaux_args = _fleaux_arg;\n";
+        for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
+          out << "  fleaux::runtime::Value " << local_bindings[let.params[idx].name]
+              << " = fleaux::runtime::array_at(_fleaux_args, " << idx << ");\n";
+        }
+      }
+    } else if (let.params.size() == 1U) {
+      out << "  fleaux::runtime::Value " << local_bindings[let.params[0].name]
+          << " = _fleaux_arg.HasArray() ? _fleaux_arg : fleaux::runtime::make_tuple(_fleaux_arg);\n";
+    } else {
+      out << "  const fleaux::runtime::Array& _fleaux_args = fleaux::runtime::as_array(_fleaux_arg);\n";
+      out << "  if (_fleaux_args.Size() < " << (let.params.size() - 1U) << ") {\n";
+      out << "    throw std::runtime_error(\"too few arguments for '" << fn_name << "'\");\n";
+      out << "  }\n";
+      for (std::size_t idx = 0; idx + 1U < let.params.size(); ++idx) {
+        out << "  fleaux::runtime::Value " << local_bindings[let.params[idx].name]
+            << " = *_fleaux_args.TryGet(" << idx << ");\n";
+      }
+      out << "  fleaux::runtime::Array _fleaux_variadic_tail;\n";
+      out << "  _fleaux_variadic_tail.Reserve(_fleaux_args.Size() - " << (let.params.size() - 1U) << ");\n";
+      out << "  for (std::size_t _i = " << (let.params.size() - 1U) << "; _i < _fleaux_args.Size(); ++_i) {\n";
+      out << "    _fleaux_variadic_tail.PushBack(*_fleaux_args.TryGet(_i));\n";
+      out << "  }\n";
+      out << "  fleaux::runtime::Value " << local_bindings[let.params.back().name]
+          << " = fleaux::runtime::Value{std::move(_fleaux_variadic_tail)};\n";
     }
   }
 

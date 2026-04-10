@@ -165,7 +165,7 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(run_result.exit_code == 0);
 }
 
-constexpr std::array<std::string_view, 26> kExpectedSamples = {
+constexpr std::array<std::string_view, 28> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -192,6 +192,8 @@ constexpr std::array<std::string_view, 26> kExpectedSamples = {
     "24_dicts.fleaux",
     "25_fleaux_parser.fleaux",
     "26_format_specifiers.fleaux",
+    "27_error_handling_branching.fleaux",
+    "28_variadics.fleaux",
 };
 
 }  // namespace
@@ -312,6 +314,8 @@ FLEAUX_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_SAMPLE_TEST("24_dicts.fleaux")
 FLEAUX_SAMPLE_TEST("25_fleaux_parser.fleaux")
 FLEAUX_SAMPLE_TEST("26_format_specifiers.fleaux")
+FLEAUX_SAMPLE_TEST("27_error_handling_branching.fleaux")
+FLEAUX_SAMPLE_TEST("28_variadics.fleaux")
 
 #undef FLEAUX_SAMPLE_TEST
 

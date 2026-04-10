@@ -36,9 +36,9 @@ struct TuplePrepend {
 };
 
 struct TupleReverse {
-    // arg = [sequence]  (1-element array wrapping the sequence, same as Length)
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        const auto& src = as_array(array_at(arg, 0));
+        const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
         for (std::size_t i = src.Size(); i > 0; --i) {
@@ -113,9 +113,9 @@ struct TupleFilter {
 };
 
 struct TupleSort {
-    // arg = [sequence]
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        const auto& src = as_array(array_at(arg, 0));
+        const auto& src = as_array(arg);
         std::vector<Value> items;
         items.reserve(src.Size());
         for (std::size_t i = 0; i < src.Size(); ++i) {
@@ -136,9 +136,9 @@ struct TupleSort {
 };
 
 struct TupleUnique {
-    // arg = [sequence]
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        const auto& src = as_array(array_at(arg, 0));
+        const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
         for (std::size_t i = 0; i < src.Size(); ++i) {
@@ -159,9 +159,9 @@ struct TupleUnique {
 };
 
 struct TupleMin {
-    // arg = [sequence]
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        const auto& src = as_array(array_at(arg, 0));
+        const auto& src = as_array(arg);
         if (src.Size() == 0) {
             throw std::invalid_argument{"TupleMin expects non-empty tuple"};
         }
@@ -178,9 +178,9 @@ struct TupleMin {
 };
 
 struct TupleMax {
-    // arg = [sequence]
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        const auto& src = as_array(array_at(arg, 0));
+        const auto& src = as_array(arg);
         if (src.Size() == 0) {
             throw std::invalid_argument{"TupleMax expects non-empty tuple"};
         }

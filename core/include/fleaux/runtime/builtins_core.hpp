@@ -30,9 +30,9 @@ struct ElementAt {
 };
 
 struct Length {
-    // arg = [sequence]  (single-element array wrapping the sequence)
+    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
     Value operator()(Value arg) const {
-        return make_int(static_cast<Int>(as_array(array_at(arg, 0)).Size()));
+        return make_int(static_cast<Int>(as_array(arg).Size()));
     }
 };
 

@@ -147,6 +147,33 @@ tl::expected<IRProgram, InterpretError> parse_and_lower(const std::filesystem::p
   return lowered.value();
 }
 
+tl::expected<IRProgram, InterpretError> parse_and_lower_text(const std::string& source_text,
+                                                             const std::string& source_name) {
+  constexpr frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(source_text, source_name);
+  if (!parsed) {
+    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
+  }
+
+  constexpr frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  if (!lowered) {
+    return tl::unexpected(make_error(lowered.error().message, lowered.error().hint, lowered.error().span));
+  }
+  return lowered.value();
+}
+
+tl::expected<void, InterpretError> ensure_repl_imports_supported(const IRProgram& program) {
+  for (const auto& [module_name, span] : program.imports) {
+    if (module_name == "Std" || module_name == "StdBuiltins") {
+      continue;
+    }
+    return tl::unexpected(make_error("REPL only supports symbolic imports: Std, StdBuiltins.",
+                                     "Define helper lets inline, or run a file for module imports.", span));
+  }
+  return {};
+}
+
 tl::expected<IRProgram, InterpretError> collect_program(
     const std::filesystem::path& source_file,
     std::unordered_map<std::string, IRProgram>& cache,
@@ -215,8 +242,38 @@ overloaded(Ts...) -> overloaded<Ts...>;
 
 struct EvalState {
   IRProgram program;
+  std::unordered_map<std::string, std::size_t> let_indices;
   std::unordered_map<std::string, RuntimeCallable> functions_qualified;
   std::unordered_map<std::string, RuntimeCallable> functions_unqualified;
+
+  void register_let(const frontend::ir::IRLet& let, const std::shared_ptr<EvalState>& self) {
+    const std::string full_name = let_key(let.qualifier, let.name);
+
+    if (const auto idx_it = let_indices.find(full_name); idx_it != let_indices.end()) {
+      program.lets[idx_it->second] = let;
+    } else {
+      const auto idx = program.lets.size();
+      program.lets.push_back(let);
+      let_indices[full_name] = idx;
+    }
+
+    const RuntimeCallable callable = [state = self, full_name](Value arg) -> Value {
+      return state->invoke_let_by_key(full_name, std::move(arg));
+    };
+
+    functions_qualified[full_name] = callable;
+    if (!let.qualifier.has_value()) {
+      functions_unqualified[let.name] = callable;
+    }
+  }
+
+  Value invoke_let_by_key(const std::string& full_name, Value arg) const {
+    const auto idx_it = let_indices.find(full_name);
+    if (idx_it == let_indices.end()) {
+      throw std::runtime_error("Unknown let in VM interpreter state: '" + full_name + "'.");
+    }
+    return invoke_let(program.lets[idx_it->second], std::move(arg));
+  }
 
   Value eval_expr(const IRExprPtr& expr, const std::unordered_map<std::string, Value>& locals) const {
     if (!expr) {
@@ -231,6 +288,12 @@ struct EvalState {
       },
       [&](const IRTupleExpr& tuple) -> Value {
         const auto& items = tuple.items;
+        // Grouping semantics (Option B): single-element tuple collapses to its
+        // value.  The lowerer should already have handled this, but guard here
+        // defensively so the interpreter is self-consistent.
+        if (items.size() == 1) {
+          return eval_expr(items[0], locals);
+        }
         fleaux::runtime::Array arr;
         arr.Reserve(items.size());
         for (const auto& item : items) {
@@ -364,11 +427,35 @@ struct EvalState {
       locals.emplace(fst, fleaux::runtime::make_callable_ref(snd));
     }
 
-    if (let.params.size() == 1U) {
-      locals[let.params[0].name] = fleaux::runtime::unwrap_singleton_arg(std::move(arg));
-    } else if (let.params.size() > 1U) {
-      for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
-        locals[let.params[idx].name] = fleaux::runtime::array_at(arg, idx);
+    if (!let.params.empty()) {
+      const bool has_variadic_tail = let.params.back().type.variadic;
+
+      if (!has_variadic_tail) {
+        if (let.params.size() == 1U) {
+          locals[let.params[0].name] = fleaux::runtime::unwrap_singleton_arg(std::move(arg));
+        } else {
+          for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
+            locals[let.params[idx].name] = fleaux::runtime::array_at(arg, idx);
+          }
+        }
+      } else if (let.params.size() == 1U) {
+        locals[let.params[0].name] = arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg));
+      } else {
+        const auto fixed_count = let.params.size() - 1U;
+        const auto& arr = fleaux::runtime::as_array(arg);
+        if (arr.Size() < fixed_count) {
+          throw std::runtime_error("too few arguments for '" + let_key(let.qualifier, let.name) + "'");
+        }
+        for (std::size_t idx = 0; idx < fixed_count; ++idx) {
+          locals[let.params[idx].name] = *arr.TryGet(idx);
+        }
+
+        fleaux::runtime::Array tail;
+        tail.Reserve(arr.Size() - fixed_count);
+        for (std::size_t idx = fixed_count; idx < arr.Size(); ++idx) {
+          tail.PushBack(*arr.TryGet(idx));
+        }
+        locals[let.params.back().name] = Value{std::move(tail)};
       }
     }
 
@@ -376,7 +463,59 @@ struct EvalState {
   }
 };
 
+InterpretResult execute_program_in_state(const std::shared_ptr<EvalState>& state, const IRProgram& program_slice) {
+  for (const auto& let : program_slice.lets) {
+    state->register_let(let, state);
+  }
+
+  try {
+    for (const auto& [expr, span] : program_slice.expressions) {
+      (void)span;
+      (void)state->eval_expr(expr, {});
+    }
+  } catch (const std::exception& ex) {
+    return tl::unexpected(make_error(ex.what(), "Unsupported VM coverage in current interpreter slice."));
+  }
+
+  return {};
+}
+
 }  // namespace
+
+struct InterpreterSession::Impl {
+  explicit Impl(const std::vector<std::string>& process_args)
+      : state(std::make_shared<EvalState>()) {
+    std::vector<std::string> args_storage;
+    args_storage.reserve(process_args.size() + 1U);
+    args_storage.push_back("<repl>");
+    args_storage.insert(args_storage.end(), process_args.begin(), process_args.end());
+
+    std::vector<char*> argv_ptrs;
+    argv_ptrs.reserve(args_storage.size());
+    for (auto& arg : args_storage) {
+      argv_ptrs.push_back(arg.data());
+    }
+    fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+  }
+
+  std::shared_ptr<EvalState> state;
+};
+
+InterpreterSession::InterpreterSession(const std::vector<std::string>& process_args)
+    : impl_(std::make_shared<Impl>(process_args)) {}
+
+InterpretResult InterpreterSession::run_snippet(const std::string& snippet_text) const {
+  auto lowered = parse_and_lower_text(snippet_text, "<repl>");
+  if (!lowered) {
+    return tl::unexpected(lowered.error());
+  }
+
+  if (auto imports_ok = ensure_repl_imports_supported(lowered.value()); !imports_ok) {
+    return tl::unexpected(imports_ok.error());
+  }
+
+  return execute_program_in_state(impl_->state, lowered.value());
+}
 
 InterpretResult Interpreter::run_file(const std::filesystem::path& source_file,
                                       const std::vector<std::string>& process_args) const {
@@ -403,29 +542,11 @@ InterpretResult Interpreter::run_file(const std::filesystem::path& source_file,
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 
   auto state = std::make_shared<EvalState>();
-  state->program = std::move(merged_result.value());
+  return execute_program_in_state(state, merged_result.value());
+}
 
-  for (const auto& let : state->program.lets) {
-    const std::string full_name = let_key(let.qualifier, let.name);
-    const auto let_ptr = &let;
-    const RuntimeCallable callable = [state, let_ptr](Value arg) -> Value {
-      return state->invoke_let(*let_ptr, std::move(arg));
-    };
-    state->functions_qualified[full_name] = callable;
-    if (!let.qualifier.has_value()) {
-      state->functions_unqualified[let.name] = callable;
-    }
-  }
-
-  try {
-    for (const auto&[expr, span] : state->program.expressions) {
-      (void)state->eval_expr(expr, {});
-    }
-  } catch (const std::exception& ex) {
-    return tl::unexpected(make_error(ex.what(), "Unsupported VM coverage in current interpreter slice."));
-  }
-
-  return {};
+InterpreterSession Interpreter::create_session(const std::vector<std::string>& process_args) const {
+  return InterpreterSession(process_args);
 }
 
 }  // namespace fleaux::vm

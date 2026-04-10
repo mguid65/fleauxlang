@@ -30,7 +30,7 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
 
   SECTION("Length") {
     Value seq = make_tuple(make_int(1), make_int(2), make_int(3), make_int(4));
-    Value len = make_tuple(seq) | Length{};
+    Value len = seq | Length{};  // Option B: Length takes array directly, no wrapper
     REQUIRE(to_double(len) == 4.0);
   }
 
