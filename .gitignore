@@ -168,3 +168,5 @@ cmake-*
 internal_docs/
 conan_provider.cmake
 CMakeUserPresets.json
+
+fleaux-visual
