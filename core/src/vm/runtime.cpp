@@ -177,11 +177,7 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& byte
   if (fn_idx >= bytecode_module.functions.size()) {
     return tl::unexpected(RuntimeError{"function index out of range"});
   }
-  const auto& fn = bytecode_module.functions[fn_idx];
-  const auto& name = fn.name;
-  const auto arity = fn.arity;
-  const auto has_variadic_tail = fn.has_variadic_tail;
-  const auto& instructions = fn.instructions;
+  const auto& [name, arity, has_variadic_tail, instructions] = bytecode_module.functions[fn_idx];
 
   std::vector<Value> inner_stack;
   std::vector<CallFrame> inner_frames;
@@ -289,11 +285,7 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         auto arg = pop_stack(stack, "call_user_func");
         if (!arg) return tl::unexpected(arg.error());
 
-        const auto& fn = bytecode_module.functions[fn_idx];
-        const auto& name = fn.name;
-        const auto arity = fn.arity;
-        const auto has_variadic_tail = fn.has_variadic_tail;
-        const auto& instructions = fn.instructions;
+        const auto& [name, arity, has_variadic_tail, instructions] = bytecode_module.functions[fn_idx];
         CallFrame new_frame;
         new_frame.instructions = &instructions;
         new_frame.ip = 0;
@@ -1656,32 +1648,28 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_String_Regex_IsMatch: {
-        auto args = expect_n("Std.String.Regex.IsMatch", 2);
-        if (!args) return tl::unexpected(args.error());
+        if (auto args = expect_n("Std.String.Regex.IsMatch", 2); !args) return tl::unexpected(args.error());
         try {
           return std::optional<Value>{fleaux::runtime::StringRegexIsMatch{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Regex_Find: {
-        auto args = expect_n("Std.String.Regex.Find", 2);
-        if (!args) return tl::unexpected(args.error());
+        if (auto args = expect_n("Std.String.Regex.Find", 2); !args) return tl::unexpected(args.error());
         try {
           return std::optional<Value>{fleaux::runtime::StringRegexFind{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Regex_Replace: {
-        auto args = expect_n("Std.String.Regex.Replace", 3);
-        if (!args) return tl::unexpected(args.error());
+        if (auto args = expect_n("Std.String.Regex.Replace", 3); !args) return tl::unexpected(args.error());
         try {
           return std::optional<Value>{fleaux::runtime::StringRegexReplace{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Regex_Split: {
-        auto args = expect_n("Std.String.Regex.Split", 2);
-        if (!args) return tl::unexpected(args.error());
+        if (auto args = expect_n("Std.String.Regex.Split", 2); !args) return tl::unexpected(args.error());
         try {
           return std::optional<Value>{fleaux::runtime::StringRegexSplit{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }

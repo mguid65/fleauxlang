@@ -215,8 +215,6 @@ std::string compile_expr(const ir::IRExprPtr& expr,
   }
 
   if (const auto* tuple = std::get_if<ir::IRTupleExpr>(&expr->node); tuple != nullptr) {
-    // Grouping semantics (Option B): single-element tuple collapses to its value.
-    // The lowerer should already have handled this, but guard defensively.
     if (tuple->items.size() == 1) {
       if (tuple->items[0]) {
         if (const auto* name_ref = std::get_if<ir::IRNameRef>(&tuple->items[0]->node);

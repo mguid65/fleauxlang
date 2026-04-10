@@ -428,9 +428,7 @@ struct EvalState {
     }
 
     if (!let.params.empty()) {
-      const bool has_variadic_tail = let.params.back().type.variadic;
-
-      if (!has_variadic_tail) {
+      if (const bool has_variadic_tail = let.params.back().type.variadic; !has_variadic_tail) {
         if (let.params.size() == 1U) {
           locals[let.params[0].name] = fleaux::runtime::unwrap_singleton_arg(std::move(arg));
         } else {
@@ -541,7 +539,7 @@ InterpretResult Interpreter::run_file(const std::filesystem::path& source_file,
   }
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 
-  auto state = std::make_shared<EvalState>();
+  const auto state = std::make_shared<EvalState>();
   return execute_program_in_state(state, merged_result.value());
 }
 
