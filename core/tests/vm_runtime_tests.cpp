@@ -974,11 +974,11 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins",
   };
 
   bytecode_module.instructions = {
+      // Std.Length: pass the 3-tuple directly (Option B — no 1-element wrapper).
       {fleaux::bytecode::Opcode::kPushConst, c10},
       {fleaux::bytecode::Opcode::kPushConst, c20},
       {fleaux::bytecode::Opcode::kPushConst, c30},
       {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
       {fleaux::bytecode::Opcode::kCallBuiltin, 0},
       {fleaux::bytecode::Opcode::kPrint, 0},
 

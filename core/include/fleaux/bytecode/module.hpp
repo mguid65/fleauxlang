@@ -23,7 +23,8 @@ struct ConstValue {
 // A compiled user-defined function.
 struct FunctionDef {
   std::string name;           // qualified name (e.g. "MyMath.Square")
-  std::uint32_t arity = 0;   // number of local parameter slots
+  std::uint32_t arity = 0;    // number of declared parameters
+  bool has_variadic_tail = false;  // true when the last declared parameter is variadic
   std::vector<Instruction> instructions;
 };
 

@@ -144,6 +144,13 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom) {
   out->span = atom.span;
 
   if (atom.inner) {
+    // Option B grouping semantics: a single-element (...) with no comma is a
+    // grouping expression, not a 1-element tuple.  Only () and (a, b, ...) keep
+    // tuple identity.
+    if (atom.inner->items.size() == 1) {
+      return lower_expr(atom.inner->items[0]);
+    }
+
     ir::IRTupleExpr tuple;
     tuple.span = atom.inner->span;
     for (const auto& item : atom.inner->items) {
@@ -280,6 +287,14 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
             .type = lower_simple_type(type),
             .span = span,
         });
+      }
+
+      for (std::size_t idx = 0; idx < params.size(); ++idx) {
+        if (params[idx].type.variadic && idx + 1U != params.size()) {
+          return tl::unexpected(make_error("Variadic parameter must be the final parameter in a function declaration.",
+                                           "Move the '...' parameter to the end of the parameter list.",
+                                           params[idx].span));
+        }
       }
 
       const auto* builtin_expr = std::get_if<std::string>(&model_let->expr);

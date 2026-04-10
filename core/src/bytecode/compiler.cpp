@@ -320,6 +320,11 @@ EmitResult emit_expr(const IRExprPtr& expr,
 
   // ── Tuple ─────────────────────────────────────────────────────────────────
   if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
+    // Grouping semantics (Option B): single-element tuple collapses to its value.
+    // The lowerer should already have handled this, but guard defensively.
+    if (tuple->items.size() == 1) {
+      return emit_expr(tuple->items[0], out, locals, state, bytecode_module);
+    }
     for (const auto& item : tuple->items) {
       if (auto r = emit_expr(item, out, locals, state, bytecode_module); !r) return r;
     }
@@ -412,6 +417,7 @@ CompileResult BytecodeCompiler::compile(const IRProgram& program) const {
     FunctionDef fn_def;
     fn_def.name  = full_name;
     fn_def.arity = static_cast<std::uint32_t>(let.params.size());
+    fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
     bytecode_module.functions.push_back(std::move(fn_def));
 
     // Register by full name (always).

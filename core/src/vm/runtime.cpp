@@ -83,6 +83,68 @@ tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Valu
                                                    const std::unordered_map<std::string, RuntimeCallable>& builtins,
                                                    bool allow_runtime_fallback);
 
+tl::expected<std::vector<Value>, RuntimeError> bind_user_function_locals(const std::string& fn_name,
+                                                                          const std::uint32_t arity,
+                                                                          const bool has_variadic_tail,
+                                                                          Value arg) {
+  std::vector<Value> locals;
+  locals.reserve(arity);
+
+  if (arity == 0U) {
+    return locals;
+  }
+
+  if (!has_variadic_tail) {
+    if (arity == 1U) {
+      locals.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
+      return locals;
+    }
+
+    try {
+      const auto& arr = fleaux::runtime::as_array(arg);
+      for (std::uint32_t i = 0; i < arity; ++i) {
+        auto elem = arr.TryGet(i);
+        if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"}); }
+        locals.push_back(*elem);
+      }
+      return locals;
+    } catch (const std::exception& ex) {
+      return tl::unexpected(RuntimeError{std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
+    }
+  }
+
+  // Variadic: final parameter captures remaining args as a tuple.
+  if (arity == 1U) {
+    if (arg.HasArray()) {
+      locals.push_back(std::move(arg));
+    } else {
+      locals.push_back(fleaux::runtime::make_tuple(std::move(arg)));
+    }
+    return locals;
+  }
+
+  const auto fixed_count = static_cast<std::size_t>(arity - 1U);
+  try {
+    const auto& arr = fleaux::runtime::as_array(arg);
+    if (arr.Size() < fixed_count) {
+      return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"});
+    }
+    for (std::size_t i = 0; i < fixed_count; ++i) {
+      locals.push_back(*arr.TryGet(i));
+    }
+
+    Array tail;
+    tail.Reserve(arr.Size() - fixed_count);
+    for (std::size_t i = fixed_count; i < arr.Size(); ++i) {
+      tail.PushBack(*arr.TryGet(i));
+    }
+    locals.push_back(Value{std::move(tail)});
+    return locals;
+  } catch (const std::exception& ex) {
+    return tl::unexpected(RuntimeError{std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
+  }
+}
+
 // Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
 tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const std::string& name, const Value& arg);
 
@@ -115,7 +177,11 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& byte
   if (fn_idx >= bytecode_module.functions.size()) {
     return tl::unexpected(RuntimeError{"function index out of range"});
   }
-  const auto& [name, arity, instructions] = bytecode_module.functions[fn_idx];
+  const auto& fn = bytecode_module.functions[fn_idx];
+  const auto& name = fn.name;
+  const auto arity = fn.arity;
+  const auto has_variadic_tail = fn.has_variadic_tail;
+  const auto& instructions = fn.instructions;
 
   std::vector<Value> inner_stack;
   std::vector<CallFrame> inner_frames;
@@ -124,23 +190,11 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& byte
   frame.instructions = &instructions;
   frame.ip = 0;
 
-  if (arity == 0) {
-    // no locals
-  } else if (arity == 1) {
-    frame.locals.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
-  } else {
-    try {
-      const auto& arr = fleaux::runtime::as_array(arg);
-      frame.locals.reserve(arity);
-      for (std::uint32_t i = 0; i < arity; ++i) {
-        auto elem = arr.TryGet(i);
-        if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for '" + name + "'"}); }
-        frame.locals.push_back(*elem);
-      }
-    } catch (const std::exception& ex) {
-      return tl::unexpected(RuntimeError{std::string("argument unpacking for '") + name + "': " + ex.what()});
-    }
+  auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(arg));
+  if (!bound_locals) {
+    return tl::unexpected(bound_locals.error());
   }
+  frame.locals = std::move(*bound_locals);
 
   inner_frames.push_back(std::move(frame));
 
@@ -235,28 +289,20 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         auto arg = pop_stack(stack, "call_user_func");
         if (!arg) return tl::unexpected(arg.error());
 
-        const auto& [name, arity, instructions] = bytecode_module.functions[fn_idx];
+        const auto& fn = bytecode_module.functions[fn_idx];
+        const auto& name = fn.name;
+        const auto arity = fn.arity;
+        const auto has_variadic_tail = fn.has_variadic_tail;
+        const auto& instructions = fn.instructions;
         CallFrame new_frame;
         new_frame.instructions = &instructions;
         new_frame.ip = 0;
 
-        if (arity == 0) {
-          // no locals
-        } else if (arity == 1) {
-          new_frame.locals.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(*arg)));
-        } else {
-          try {
-            const auto& arr = fleaux::runtime::as_array(*arg);
-            new_frame.locals.reserve(arity);
-            for (std::uint32_t i = 0; i < arity; ++i) {
-              auto elem = arr.TryGet(i);
-              if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for '" + name + "'"}); }
-              new_frame.locals.push_back(*elem);
-            }
-          } catch (const std::exception& ex) {
-            return tl::unexpected(RuntimeError{std::string("argument unpacking for '") + name + "': " + ex.what()});
-          }
+        auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(*arg));
+        if (!bound_locals) {
+          return tl::unexpected(bound_locals.error());
         }
+        new_frame.locals = std::move(*bound_locals);
 
         frames.push_back(std::move(new_frame));
         break;
@@ -1265,13 +1311,10 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Length: {
-        auto args = expect_n("Std.Length", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Length' argument unpack failed"}); }
+        // Option B: arg IS the array to measure (no 1-element wrapper).
         try {
           return std::optional<Value>{
-              fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(fleaux::runtime::as_array(*seq).Size()))};
+              fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(fleaux::runtime::as_array(arg).Size()))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2265,12 +2308,9 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Reverse: {
-        auto args = expect_n("Std.Tuple.Reverse", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Reverse' argument unpack failed"}); }
+        // Option B: arg IS the array to reverse (no 1-element wrapper).
         try {
-          const auto& src = fleaux::runtime::as_array(*seq);
+          const auto& src = fleaux::runtime::as_array(arg);
           Array out;
           out.Reserve(src.Size());
           for (std::size_t i = src.Size(); i > 0; --i) { out.PushBack(*src.TryGet(i - 1)); }
@@ -2530,12 +2570,9 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Sort: {
-        auto args = expect_n("Std.Tuple.Sort", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Sort' argument unpack failed"}); }
+        // Option B: arg IS the array to sort (no 1-element wrapper).
         try {
-          const auto& src = fleaux::runtime::as_array(*seq);
+          const auto& src = fleaux::runtime::as_array(arg);
           std::vector<Value> items;
           items.reserve(src.Size());
           for (std::size_t i = 0; i < src.Size(); ++i) { items.push_back(*src.TryGet(i)); }
@@ -2550,22 +2587,16 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Unique: {
-        auto args = expect_n("Std.Tuple.Unique", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Unique' argument unpack failed"}); }
+        // Option B: arg IS the array (no 1-element wrapper).
         try {
-          const auto& src = fleaux::runtime::as_array(*seq);
+          const auto& src = fleaux::runtime::as_array(arg);
           Array out;
           out.Reserve(src.Size());
           for (std::size_t i = 0; i < src.Size(); ++i) {
             const Value& item = *src.TryGet(i);
             bool seen = false;
             for (std::size_t j = 0; j < out.Size(); ++j) {
-              if (*out.TryGet(j) == item) {
-                seen = true;
-                break;
-              }
+              if (*out.TryGet(j) == item) { seen = true; break; }
             }
             if (!seen) out.PushBack(item);
           }
@@ -2574,12 +2605,9 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Min: {
-        auto args = expect_n("Std.Tuple.Min", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Min' argument unpack failed"}); }
+        // Option B: arg IS the array (no 1-element wrapper).
         try {
-          const auto& src = fleaux::runtime::as_array(*seq);
+          const auto& src = fleaux::runtime::as_array(arg);
           if (src.Size() == 0) {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.Tuple.Min' threw: TupleMin expects non-empty tuple"});
@@ -2594,12 +2622,9 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Max: {
-        auto args = expect_n("Std.Tuple.Max", 1);
-        if (!args) return tl::unexpected(args.error());
-        const auto seq = (*args)->TryGet(0);
-        if (!seq) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Max' argument unpack failed"}); }
+        // Option B: arg IS the array (no 1-element wrapper).
         try {
-          const auto& src = fleaux::runtime::as_array(*seq);
+          const auto& src = fleaux::runtime::as_array(arg);
           if (src.Size() == 0) {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.Tuple.Max' threw: TupleMax expects non-empty tuple"});

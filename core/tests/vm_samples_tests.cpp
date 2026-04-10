@@ -249,7 +249,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 26> kExpectedSamples = {
+constexpr std::array<std::string_view, 28> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -276,6 +276,8 @@ constexpr std::array<std::string_view, 26> kExpectedSamples = {
     "24_dicts.fleaux",
     "25_fleaux_parser.fleaux",
     "26_format_specifiers.fleaux",
+    "27_error_handling_branching.fleaux",
+    "28_variadics.fleaux",
 };
 
 }  // namespace
@@ -355,6 +357,64 @@ TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]"
   REQUIRE(runtime_result.has_value());
 }
 
+TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_variadic_tail";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "variadic_tail_ok.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let Collect(rest: Any...): Any = rest;\n"
+           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "(1) -> Collect -> Std.Length -> Std.Println;\n"
+           "((10, 20, 30)) -> HeadTail -> Std.Length -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+
+  const auto lowered = collect_and_lower(source_path);
+  REQUIRE(lowered.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  REQUIRE(compiled_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value());
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][variadic]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_variadic_tail";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "variadic_tail_too_few.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "() -> HeadTail -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+
+  const auto lowered = collect_and_lower(source_path);
+  REQUIRE(lowered.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  REQUIRE(compiled_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value());
+  REQUIRE_FALSE(runtime_result.has_value());
+}
+
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal)                                      \
   TEST_CASE("VM sample: " sample_file_literal, "[vm][samples]") {                      \
     run_sample_in_vm_and_assert(sample_file_literal);                                   \
@@ -396,6 +456,7 @@ FLEAUX_VM_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_SAMPLE_TEST("24_dicts.fleaux")
 FLEAUX_VM_SAMPLE_TEST("25_fleaux_parser.fleaux")
 FLEAUX_VM_SAMPLE_TEST("26_format_specifiers.fleaux")
+FLEAUX_VM_SAMPLE_TEST("27_error_handling_branching.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -423,6 +484,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("24_dicts.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("25_fleaux_parser.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("26_format_specifiers.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("27_error_handling_branching.fleaux")
 
 FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -450,6 +512,8 @@ FLEAUX_VM_PARITY_SAMPLE_TEST("23_binary_search.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("24_dicts.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("25_fleaux_parser.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("26_format_specifiers.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("27_error_handling_branching.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("28_variadics.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -31,6 +32,7 @@ struct CliOptions {
   std::vector<std::string> process_args;
   bool no_run = false;
   bool all_samples = false;
+  bool repl = false;
   bool show_help = false;
 };
 
@@ -47,7 +49,7 @@ std::optional<VmEngine> parse_engine(const std::string_view text) {
 }
 
 std::string usage_text() {
-  return "usage: fleaux_vm_cli [--mode bytecode,interpreter] [--all-samples] [--no-run] [file.fleaux] [-- "
+  return "usage: fleaux_vm_cli [--mode bytecode,interpreter] [--repl] [--all-samples] [--no-run] [file.fleaux] [-- "
          "<arg1> <arg2> ...]";
 }
 
@@ -58,13 +60,64 @@ void print_help() {
             << "  -h, --help             Show this help message\n"
             << "  --mode <mode>          Execution mode (bytecode, interpreter)\n"
             << "  --engine <mode>        Alias for --mode\n"
+            << "  --repl                 Start interactive interpreter REPL\n"
             << "  --all-samples          Run all .fleaux files under samples/\n"
             << "  --no-run               Skip execution and print what would run\n"
             << "\n"
             << "Notes:\n"
             << "  - Default mode is bytecode\n"
+            << "  - REPL forces interpreter mode\n"
             << "  - If no source is provided and --all-samples is not set, defaults to test.fleaux\n"
             << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
+}
+
+std::string trim_copy(const std::string& text) {
+  const auto begin_it = std::find_if_not(text.begin(), text.end(), [](const unsigned char ch) {
+    return std::isspace(ch) != 0;
+  });
+  const auto end_it = std::find_if_not(text.rbegin(), text.rend(), [](const unsigned char ch) {
+    return std::isspace(ch) != 0;
+  }).base();
+  if (begin_it >= end_it) {
+    return {};
+  }
+  return std::string(begin_it, end_it);
+}
+
+bool buffer_has_complete_statement(const std::string& buffer) {
+  int paren_depth = 0;
+  bool in_string = false;
+  bool escaped = false;
+  for (const char ch : buffer) {
+    if (in_string) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        in_string = false;
+      }
+      continue;
+    }
+
+    if (ch == '"') {
+      in_string = true;
+      continue;
+    }
+    if (ch == '(') {
+      ++paren_depth;
+      continue;
+    }
+    if (ch == ')') {
+      --paren_depth;
+      continue;
+    }
+  }
+
+  if (paren_depth != 0 || in_string) {
+    return false;
+  }
+  return trim_copy(buffer).ends_with(';');
 }
 
 std::optional<std::filesystem::path> resolve_samples_dir(const std::filesystem::path& executable_path) {
@@ -278,6 +331,61 @@ int run_interpreter_and_report(const std::filesystem::path& source, const std::v
   return 0;
 }
 
+int run_repl_loop(const std::vector<std::string>& process_args) {
+  const fleaux::vm::Interpreter interpreter;
+  auto session = interpreter.create_session(process_args);
+
+  std::cout << "Fleaux interpreter REPL\n"
+            << "Type :help for commands, :quit to exit.\n";
+
+  std::string buffer;
+  while (true) {
+    std::cout << (buffer.empty() ? ">>> " : "... ");
+    std::string line;
+    if (!std::getline(std::cin, line)) {
+      std::cout << '\n';
+      break;
+    }
+
+    if (buffer.empty()) {
+      const auto command = trim_copy(line);
+      if (command == ":quit" || command == ":q") {
+        break;
+      }
+      if (command == ":help") {
+        std::cout << "Commands:\n"
+                  << "  :help    Show this help\n"
+                  << "  :quit    Exit REPL\n"
+                  << "Notes:\n"
+                  << "  - End snippets with ';'\n"
+                  << "  - Multi-line input is supported until a complete statement\n";
+        continue;
+      }
+      if (command.empty()) {
+        continue;
+      }
+    }
+
+    if (!buffer.empty()) {
+      buffer.push_back('\n');
+    }
+    buffer += line;
+
+    if (!buffer_has_complete_statement(buffer)) {
+      continue;
+    }
+
+    if (const auto result = session.run_snippet(buffer); !result) {
+      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", result.error().message, result.error().span,
+                                                              result.error().hint)
+                << '\n';
+    }
+    buffer.clear();
+  }
+
+  return 0;
+}
+
 tl::expected<CliOptions, CliError> parse_cli_args(int argc, char** argv) {
   CliOptions options;
 
@@ -323,6 +431,12 @@ tl::expected<CliOptions, CliError> parse_cli_args(int argc, char** argv) {
       continue;
     }
 
+    if (token == "--repl") {
+      options.repl = true;
+      options.engine = VmEngine::kInterpreter;
+      continue;
+    }
+
     if (token == "--all-samples") {
       options.all_samples = true;
       continue;
@@ -348,7 +462,17 @@ tl::expected<CliOptions, CliError> parse_cli_args(int argc, char** argv) {
     });
   }
 
-  if (!options.all_samples && !options.source.has_value()) { options.source = std::filesystem::path("test.fleaux"); }
+  if (options.repl) {
+    if (options.all_samples) {
+      return tl::unexpected(CliError{
+          .message = "--repl cannot be used with --all-samples",
+          .hint = "Choose interactive mode or batch sample execution.",
+          .span = std::nullopt,
+      });
+    }
+  } else if (!options.all_samples && !options.source.has_value()) {
+    options.source = std::filesystem::path("test.fleaux");
+  }
 
   return options;
 }
@@ -375,10 +499,18 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const auto& [engine, source_path, process_args, no_run, all_samples, show_help] = *parsed;
+  const auto& [engine, source_path, process_args, no_run, all_samples, repl, show_help] = *parsed;
   if (show_help) {
     print_help();
     return 0;
+  }
+
+  if (repl) {
+    if (no_run) {
+      std::cout << "[interpreter] skipped run (--no-run): <repl>\n";
+      return 0;
+    }
+    return run_repl_loop(process_args);
   }
 
   std::vector<std::filesystem::path> sources;
