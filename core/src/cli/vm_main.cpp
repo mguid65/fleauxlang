@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -72,16 +73,16 @@ void print_help() {
 }
 
 std::string trim_copy(const std::string& text) {
-  const auto begin_it = std::find_if_not(text.begin(), text.end(), [](const unsigned char ch) {
+  const auto begin_it = std::ranges::find_if_not(text, [](const unsigned char ch) -> bool {
     return std::isspace(ch) != 0;
   });
-  const auto end_it = std::find_if_not(text.rbegin(), text.rend(), [](const unsigned char ch) {
+  const auto end_it = std::ranges::find_if_not(std::views::reverse(text), [](const unsigned char ch) -> bool {
     return std::isspace(ch) != 0;
   }).base();
   if (begin_it >= end_it) {
     return {};
   }
-  return std::string(begin_it, end_it);
+  return {begin_it, end_it};
 }
 
 bool buffer_has_complete_statement(const std::string& buffer) {
@@ -333,7 +334,7 @@ int run_interpreter_and_report(const std::filesystem::path& source, const std::v
 
 int run_repl_loop(const std::vector<std::string>& process_args) {
   const fleaux::vm::Interpreter interpreter;
-  auto session = interpreter.create_session(process_args);
+  const auto session = interpreter.create_session(process_args);
 
   std::cout << "Fleaux interpreter REPL\n"
             << "Type :help for commands, :quit to exit.\n";

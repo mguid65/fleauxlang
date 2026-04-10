@@ -320,8 +320,6 @@ EmitResult emit_expr(const IRExprPtr& expr,
 
   // ── Tuple ─────────────────────────────────────────────────────────────────
   if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
-    // Grouping semantics (Option B): single-element tuple collapses to its value.
-    // The lowerer should already have handled this, but guard defensively.
     if (tuple->items.size() == 1) {
       return emit_expr(tuple->items[0], out, locals, state, bytecode_module);
     }

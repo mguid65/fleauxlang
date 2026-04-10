@@ -144,9 +144,6 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom) {
   out->span = atom.span;
 
   if (atom.inner) {
-    // Option B grouping semantics: a single-element (...) with no comma is a
-    // grouping expression, not a 1-element tuple.  Only () and (a, b, ...) keep
-    // tuple identity.
     if (atom.inner->items.size() == 1) {
       return lower_expr(atom.inner->items[0]);
     }
