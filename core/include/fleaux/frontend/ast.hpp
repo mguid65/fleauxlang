@@ -54,6 +54,9 @@ struct Constant {
 struct Expression;
 using ExpressionPtr = std::shared_ptr<Expression>;
 
+struct ClosureExpression;
+using ClosureExpressionPtr = std::shared_ptr<ClosureExpression>;
+
 struct DelimitedExpression {
   std::vector<ExpressionPtr> items;
   std::optional<diag::SourceSpan> span;
@@ -61,9 +64,17 @@ struct DelimitedExpression {
 
 struct Atom {
   std::shared_ptr<DelimitedExpression> inner;
+  ClosureExpressionPtr closure;
   std::optional<Constant> constant;
   std::optional<QualifiedId> qualified_var;
   std::optional<std::string> var;
+  std::optional<diag::SourceSpan> span;
+};
+
+struct ClosureExpression {
+  ParameterDeclList params;
+  TypeRef rtype;
+  ExpressionPtr body;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -135,6 +146,9 @@ struct IRImport {
 struct IRExpr;
 using IRExprPtr = std::shared_ptr<IRExpr>;
 
+struct IRClosureExpr;
+using IRClosureExprPtr = std::shared_ptr<IRClosureExpr>;
+
 struct IRConstant {
   std::variant<std::int64_t, double, bool, std::string, std::monostate> val;
   std::optional<diag::SourceSpan> span;
@@ -165,7 +179,15 @@ struct IRFlowExpr {
 };
 
 struct IRExpr {
-  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef> node;
+  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprPtr> node;
+  std::optional<diag::SourceSpan> span;
+};
+
+struct IRClosureExpr {
+  std::vector<IRParam> params;
+  IRSimpleType return_type;
+  IRExprPtr body;
+  std::vector<std::string> captures;
   std::optional<diag::SourceSpan> span;
 };
 

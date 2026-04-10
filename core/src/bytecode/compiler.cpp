@@ -90,6 +90,33 @@ EmitResult emit_expr(const IRExprPtr& expr,
                      CompileState& state,
                      Module& bytecode_module);
 
+std::size_t count_inline_closures(const IRExprPtr& expr) {
+  if (!expr) {
+    return 0;
+  }
+
+  if (const auto* flow = std::get_if<IRFlowExpr>(&expr->node); flow != nullptr) {
+    return count_inline_closures(flow->lhs);
+  }
+
+  if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
+    std::size_t total = 0;
+    for (const auto& item : tuple->items) {
+      total += count_inline_closures(item);
+    }
+    return total;
+  }
+
+  if (const auto* closure_ptr = std::get_if<IRClosureExprPtr>(&expr->node); closure_ptr != nullptr) {
+    if (*closure_ptr == nullptr) {
+      return 0;
+    }
+    return 1U + count_inline_closures((*closure_ptr)->body);
+  }
+
+  return 0;
+}
+
 EmitResult emit_operator_flow_expr(const IRExprPtr& lhs,
                                    const IROperatorRef& op_ref,
                                    std::vector<Instruction>& out,
@@ -318,6 +345,56 @@ EmitResult emit_expr(const IRExprPtr& expr,
         "' used as a value is not supported in the bytecode compiler."));
   }
 
+  if (const auto* closure_ptr = std::get_if<IRClosureExprPtr>(&expr->node); closure_ptr != nullptr) {
+    if (*closure_ptr == nullptr) {
+      return tl::unexpected(make_err("Cannot compile null inline closure expression."));
+    }
+    const auto& closure = **closure_ptr;
+
+    const auto fn_idx = static_cast<std::uint32_t>(bytecode_module.functions.size());
+    FunctionDef fn_def;
+    fn_def.name = "__closure_" + std::to_string(fn_idx);
+    fn_def.arity = static_cast<std::uint32_t>(closure.captures.size() + closure.params.size());
+    fn_def.has_variadic_tail = !closure.params.empty() && closure.params.back().type.variadic;
+
+    LocalSlots closure_locals;
+    std::uint32_t slot = 0;
+    for (const auto& capture_name : closure.captures) {
+      closure_locals[capture_name] = slot++;
+    }
+    for (const auto& param : closure.params) {
+      closure_locals[param.name] = slot++;
+    }
+
+    if (auto r = emit_expr(closure.body, fn_def.instructions, closure_locals, state, bytecode_module); !r) {
+      return tl::unexpected(r.error());
+    }
+    fn_def.instructions.push_back(Instruction{.opcode=Opcode::kReturn, .operand=0});
+    bytecode_module.functions.push_back(std::move(fn_def));
+
+    const auto closure_idx = static_cast<std::uint32_t>(bytecode_module.closures.size());
+    bytecode_module.closures.push_back(ClosureDef{
+        .function_index = fn_idx,
+        .capture_count = static_cast<std::uint32_t>(closure.captures.size()),
+        .declared_arity = static_cast<std::uint32_t>(closure.params.size()),
+        .declared_has_variadic_tail = !closure.params.empty() && closure.params.back().type.variadic,
+    });
+
+    for (const auto& capture_name : closure.captures) {
+      const auto local_it = locals.find(capture_name);
+      if (local_it == locals.end()) {
+        return tl::unexpected(make_err("Unsupported closure capture in bytecode compiler: '" + capture_name + "'."));
+      }
+      out.push_back(Instruction{.opcode=Opcode::kLoadLocal,
+                                .operand=static_cast<std::int64_t>(local_it->second)});
+    }
+    out.push_back(Instruction{.opcode=Opcode::kBuildTuple,
+                              .operand=static_cast<std::int64_t>(closure.captures.size())});
+    out.push_back(Instruction{.opcode=Opcode::kMakeClosureRef,
+                              .operand=static_cast<std::int64_t>(closure_idx)});
+    return {};
+  }
+
   // ── Tuple ─────────────────────────────────────────────────────────────────
   if (const auto* tuple = std::get_if<IRTupleExpr>(&expr->node); tuple != nullptr) {
     if (tuple->items.size() == 1) {
@@ -426,6 +503,21 @@ CompileResult BytecodeCompiler::compile(const IRProgram& program) const {
     }
   }
 
+  // Inline closures compile to synthetic functions; reserve once so references
+  // to existing function instruction vectors stay valid while emitting code.
+  std::size_t closure_count = 0;
+  for (const auto& let : program.lets) {
+    if (!let.is_builtin) {
+      closure_count += count_inline_closures(let.body);
+    }
+  }
+  for (const auto& [expr, span] : program.expressions) {
+    (void)span;
+    closure_count += count_inline_closures(expr);
+  }
+  bytecode_module.functions.reserve(bytecode_module.functions.size() + closure_count);
+  bytecode_module.closures.reserve(closure_count);
+
   // ── Pass 2: compile function bodies ───────────────────────────────────────
   std::size_t fn_slot = 0;
   for (const auto& let : program.lets) {
@@ -442,12 +534,13 @@ CompileResult BytecodeCompiler::compile(const IRProgram& program) const {
     }
 
     const auto current_fn_idx = state.function_idx.at(full_name);
-    auto& fn_def = bytecode_module.functions[current_fn_idx];
-
-    if (auto r = emit_expr(let.body, fn_def.instructions, local_slots, state, bytecode_module); !r) {
+    if (auto r = emit_expr(let.body, bytecode_module.functions[current_fn_idx].instructions,
+                           local_slots, state, bytecode_module);
+        !r) {
       return tl::unexpected(r.error());
     }
-    fn_def.instructions.push_back(Instruction{.opcode=Opcode::kReturn, .operand=0});
+    bytecode_module.functions[current_fn_idx].instructions.push_back(
+        Instruction{.opcode=Opcode::kReturn, .operand=0});
     ++fn_slot;
   }
 

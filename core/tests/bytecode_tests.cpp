@@ -304,6 +304,81 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
   REQUIRE(found_branch_call);
 }
 
+TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(
+      "(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
+      "bytecode_inline_closure.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+  REQUIRE(!result->closures.empty());
+
+  bool found_make_closure = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
+      found_make_closure = true;
+    }
+  }
+  REQUIRE(found_make_closure);
+}
+
+TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(
+      "let MakeAdder(n: Number): Any = (x: Number): Number = (x, n) -> Std.Add;\n"
+      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n",
+      "bytecode_captured_closure.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  REQUIRE(result->functions.size() >= 2);
+  REQUIRE(!result->closures.empty());
+
+  const auto make_it = std::find_if(
+      result->functions.begin(), result->functions.end(),
+      [](const fleaux::bytecode::FunctionDef& fn) {
+        return fn.name == "MakeAdder";
+      });
+  REQUIRE(make_it != result->functions.end());
+  const auto& make_adder_fn = *make_it;
+  bool found_capture_load = false;
+  bool found_capture_tuple = false;
+  bool found_make_closure = false;
+  for (const auto& ins : make_adder_fn.instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoadLocal) {
+      found_capture_load = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) {
+      found_capture_tuple = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
+      found_make_closure = true;
+    }
+  }
+
+  REQUIRE(found_capture_load);
+  REQUIRE(found_capture_tuple);
+  REQUIRE(found_make_closure);
+}
+
+TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(
+      "(10, ((head: Number, tail: Any...): Number = head)) -> Std.Apply -> Std.Println;\n",
+      "bytecode_variadic_inline_closure.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  REQUIRE(result->closures.size() == 1);
+  const auto& closure = result->closures[0];
+  REQUIRE(closure.declared_arity == 2);
+  REQUIRE(closure.declared_has_variadic_tail);
+}
+
 TEST_CASE("Bytecode compiler keeps Std.Branch as builtin for callable locals", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
 let Inc(x: Number): Number = (x, 1) -> Std.Add;

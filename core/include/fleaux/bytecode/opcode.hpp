@@ -46,6 +46,10 @@ enum class Opcode {
   // Wrap a stdlib builtin as a callable-ref Value for higher-order use.
   // operand = index into Module::builtin_names.
   kMakeBuiltinFuncRef,
+  // Materialize an inline closure as a callable-ref, capturing the current
+  // lexical values from the stack-built capture tuple.
+  // operand = index into Module::closures.
+  kMakeClosureRef,
 
   // ── I/O (legacy; uses the injected output stream) ─────────────────────────
   kPrint,
