@@ -334,6 +334,14 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom,
 
   if (atom.qualified_var.has_value()) {
     const auto& qid = atom.qualified_var.value();
+    // Desugar Std.Ok to true and Std.Err to false
+    if (qid.qualifier.qualifier == "Std" && (qid.id == "Ok" || qid.id == "Err")) {
+      ir::IRConstant c;
+      c.val = (qid.id == "Ok") ? true : false;
+      c.span = qid.span;
+      out->node = std::move(c);
+      return out;
+    }
     out->node = ir::IRNameRef{
         .qualifier = qid.qualifier.qualifier,
         .name = qid.id,

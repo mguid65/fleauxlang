@@ -1,0 +1,23 @@
+import Std;
+
+let ToErr(_vals: Any): Any = ("division by zero") -> Std.Result.Err;
+let ToOkDiv(vals: Any): Any = (vals) -> Std.Divide -> Std.Result.Ok;
+
+let SafeDiv(lhs: Number, rhs: Number): Any =
+  ((rhs, 0) -> Std.Equal, (lhs, rhs), ToErr, ToOkDiv) -> Std.Branch;
+
+let PrintResult(r: Any): Any =
+  ((r) -> Std.Result.Tag,
+    (Std.Ok, (): Any = (r) -> Std.Result.Unwrap),
+    (Std.Err, (): Any = (r) -> Std.Result.UnwrapErr)
+  ) -> Std.Match -> Std.Println;
+
+let TryUnsafeUnwrap(r: Any): Any =
+  ((r), Std.Result.Unwrap) -> Std.Try;
+
+(10, 2) -> SafeDiv -> PrintResult;
+(10, 0) -> SafeDiv -> PrintResult;
+(10, 0) -> SafeDiv -> TryUnsafeUnwrap -> PrintResult;
+
+
+

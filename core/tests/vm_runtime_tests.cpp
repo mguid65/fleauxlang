@@ -1048,6 +1048,50 @@ TEST_CASE("VM executes Std.Match with predicate pattern case", "[vm]") {
   REQUIRE(output.str() == "even\n");
 }
 
+TEST_CASE("VM strict mode executes native Std.Result builtins", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"boom"}});
+  const auto cBoom = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  bytecode_module.builtin_names = {
+      "Std.Result.Ok",
+      "Std.Result.IsOk",
+      "Std.Result.Unwrap",
+      "Std.Result.Err",
+      "Std.Result.IsErr",
+      "Std.Result.UnwrapErr",
+  };
+
+  bytecode_module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, c42},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kDup, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+
+      {fleaux::bytecode::Opcode::kPushConst, cBoom},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
+      {fleaux::bytecode::Opcode::kDup, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime(
+      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "True\n42\nTrue\nboom\n");
+}
+
 TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical builtins", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});

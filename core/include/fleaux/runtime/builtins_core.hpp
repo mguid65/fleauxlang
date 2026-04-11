@@ -6,6 +6,19 @@ namespace fleaux::runtime {
 
 inline constexpr std::string_view k_match_wildcard_sentinel = "__fleaux_match_wildcard__";
 
+inline const Array& require_result_tuple(const Value& value, const char* op_name) {
+    const auto& result = as_array(value);
+    if (result.Size() != 2) {
+        throw std::invalid_argument{std::string(op_name) + ": expected Result tuple (tag, payload)"};
+    }
+
+    const Value& tag = *result.TryGet(0);
+    if (!tag.HasBool()) {
+        throw std::invalid_argument{std::string(op_name) + ": Result tag must be a Bool (true for Ok, false for Err)"};
+    }
+    return result;
+}
+
 struct Wrap {
     // arg = any Value  →  [arg]
     Value operator()(Value v) const {
@@ -368,6 +381,95 @@ struct Match {
         }
 
         throw std::runtime_error{"Match: no case matched and no wildcard case provided"};
+    }
+};
+
+struct ResultOk {
+    Value operator()(Value arg) const {
+        return make_tuple(make_bool(true), unwrap_singleton_arg(std::move(arg)));
+    }
+};
+
+struct ResultErr {
+    Value operator()(Value arg) const {
+        return make_tuple(make_bool(false), unwrap_singleton_arg(std::move(arg)));
+    }
+};
+
+struct ResultTag {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.Tag");
+        return *tuple.TryGet(0);
+    }
+};
+
+struct ResultPayload {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.Payload");
+        return *tuple.TryGet(1);
+    }
+};
+
+struct ResultIsOk {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.IsOk");
+        return *tuple.TryGet(0);  // true is Ok, false is Err
+    }
+};
+
+struct ResultIsErr {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.IsErr");
+        return make_bool(!as_bool(*tuple.TryGet(0)));  // negation of Ok
+    }
+};
+
+struct ResultUnwrap {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.Unwrap");
+        if (!as_bool(*tuple.TryGet(0))) {
+            throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"};
+        }
+        return *tuple.TryGet(1);
+    }
+};
+
+struct ResultUnwrapErr {
+    Value operator()(Value arg) const {
+        const Value result = unwrap_singleton_arg(std::move(arg));
+        const auto& tuple = require_result_tuple(result, "Result.UnwrapErr");
+        if (as_bool(*tuple.TryGet(0))) {
+            throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"};
+        }
+        return *tuple.TryGet(1);
+    }
+};
+
+struct Try {
+    // arg = [value, func_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "Try");
+        const Value& val = *args.TryGet(0);
+        const Value& func = *args.TryGet(1);
+        try {
+            return ResultOk{}(make_tuple(invoke_callable_ref(func, val)));
+        } catch (const std::exception& ex) {
+            std::string message = ex.what();
+            const std::string prefix = "native builtin '";
+            const std::string separator = "' threw: ";
+            if (message.rfind(prefix, 0) == 0) {
+                const std::size_t split = message.find(separator);
+                if (split != std::string::npos) {
+                    message = message.substr(split + separator.size());
+                }
+            }
+            return ResultErr{}(make_tuple(make_string(std::move(message))));
+        }
     }
 };
 
