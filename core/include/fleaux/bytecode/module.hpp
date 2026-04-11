@@ -28,6 +28,13 @@ struct FunctionDef {
   std::vector<Instruction> instructions;
 };
 
+struct ClosureDef {
+  std::uint32_t function_index = 0;
+  std::uint32_t capture_count = 0;
+  std::uint32_t declared_arity = 0;
+  bool declared_has_variadic_tail = false;
+};
+
 struct Module {
   // Top-level instruction stream (executed on program start).
   std::vector<Instruction> instructions;
@@ -40,6 +47,9 @@ struct Module {
 
   // User-defined functions: indexed by kCallUserFunc operand.
   std::vector<FunctionDef> functions;
+
+  // Inline closure templates: indexed by kMakeClosureRef operand.
+  std::vector<ClosureDef> closures;
 };
 
 }  // namespace fleaux::bytecode

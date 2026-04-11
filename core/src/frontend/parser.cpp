@@ -492,37 +492,132 @@ class ParserImpl {
     return base;
   }
 
-  model::ExpressionPtr expr() {
+  [[nodiscard]] bool is_call_target_primary(const model::Primary& primary) const {
+    if (primary.base.qualified_var.has_value()) {
+      return true;
+    }
+    if (primary.base.var.has_value()) {
+      return true;
+    }
+    return false;
+  }
+
+  model::ExpressionPtr expr(bool allow_ungrouped_closure_stage_split = true) {
     const std::size_t start = i_;
     auto out = std::make_shared<model::Expression>();
-    out->expr = flow();
+    out->expr = flow(allow_ungrouped_closure_stage_split);
     out->span = span_from_mark(start);
     return out;
   }
 
-  model::FlowExpression flow() {
+  model::FlowExpression closure_stage_flow() {
+    const std::size_t start = i_;
+    model::FlowExpression out;
+    out.lhs = primary();
+
+    while (match_symbol("->")) {
+      auto stage = primary();
+      out.rhs.push_back(stage);
+      if (is_call_target_primary(stage)) {
+        break;
+      }
+    }
+
+    out.span = span_from_mark(start);
+    return out;
+  }
+
+  model::ExpressionPtr closure_stage_expr() {
+    const std::size_t start = i_;
+    auto out = std::make_shared<model::Expression>();
+    out->expr = closure_stage_flow();
+    out->span = span_from_mark(start);
+    return out;
+  }
+
+  bool try_parse_closure_after_open_paren(const std::size_t open_paren_index, model::Atom& out_atom,
+                                          const bool allow_ungrouped_closure_stage_split) {
+    const std::size_t checkpoint = i_;
+
+    std::vector<model::Parameter> params;
+    if (!is_symbol(")")) {
+      while (true) {
+        if (peek().kind != TokenKind::kIdent) {
+          i_ = checkpoint;
+          return false;
+        }
+
+        const std::size_t param_start = i_;
+        model::Parameter p;
+        p.param_name = ident();
+        if (!match_symbol(":")) {
+          i_ = checkpoint;
+          return false;
+        }
+        p.type = type();
+        p.span = span_from_mark(param_start);
+        params.push_back(std::move(p));
+
+        if (!match_symbol(",")) {
+          break;
+        }
+      }
+    }
+
+    if (!match_symbol(")")) {
+      i_ = checkpoint;
+      return false;
+    }
+    if (!match_symbol(":")) {
+      i_ = checkpoint;
+      return false;
+    }
+
+    auto closure = std::make_shared<model::ClosureExpression>();
+    closure->params.params = std::move(params);
+    closure->params.span = span_from_mark(open_paren_index);
+    closure->rtype = type();
+
+    if (!match_symbol("=")) {
+      i_ = checkpoint;
+      return false;
+    }
+
+    closure->body = allow_ungrouped_closure_stage_split ? closure_stage_expr() : expr();
+    closure->span = span_from_mark(open_paren_index);
+    out_atom.closure = std::move(closure);
+    out_atom.span = span_from_mark(open_paren_index);
+    return true;
+  }
+
+  model::FlowExpression flow(bool allow_ungrouped_closure_stage_split = true) {
     const std::size_t start = i_;
     model::FlowExpression out;
     out.lhs = primary();
     while (match_symbol("->")) {
-      out.rhs.push_back(primary());
+      out.rhs.push_back(primary(allow_ungrouped_closure_stage_split));
     }
     out.span = span_from_mark(start);
     return out;
   }
 
-  model::Primary primary() {
+  model::Primary primary(const bool allow_ungrouped_closure_stage_split = false) {
     const std::size_t start = i_;
     model::Primary out;
-    out.base = atom();
+    out.base = atom(allow_ungrouped_closure_stage_split);
     out.span = span_from_mark(start);
     return out;
   }
 
-  model::Atom atom() {
+  model::Atom atom(const bool allow_ungrouped_closure_stage_split = false) {
     const std::size_t start = i_;
 
     if (match_symbol("(")) {
+      model::Atom closure_atom;
+      if (try_parse_closure_after_open_paren(start, closure_atom, allow_ungrouped_closure_stage_split)) {
+        return closure_atom;
+      }
+
       model::Atom out;
       if (match_symbol(")")) {
         out.span = span_from_mark(start);

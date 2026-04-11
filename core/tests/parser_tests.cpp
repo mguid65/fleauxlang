@@ -44,3 +44,60 @@ TEST_CASE("Parser reports semicolon hint on missing terminator", "[parser]") {
   REQUIRE(parsed.error().hint->find("Add ';'") != std::string::npos);
 }
 
+TEST_CASE("Parser accepts inline closure literal in expression position", "[parser]") {
+  const std::string src =
+      "(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "inline_closure_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser accepts ungrouped inline closure pipeline target", "[parser]") {
+  const std::string src =
+      "(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "ungrouped_closure_pipeline_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser accepts zero-arg inline closure literal", "[parser]") {
+  const std::string src =
+      "(((): Number = 42)) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "zero_arg_inline_closure_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser accepts nested inline closure literals", "[parser]") {
+  const std::string src =
+      "(2, (x: Number): Number = (x, (y: Number): Number = (y, 1) -> Std.Add) -> Std.Apply) -> Std.Apply;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "nested_inline_closure_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser reports malformed inline closure body diagnostics", "[parser]") {
+  const std::string src =
+      "(10) -> (x: Number): Number = -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "malformed_inline_closure_body_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Expected 'IDENT'") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+  REQUIRE(parsed.error().hint->find("valid identifier") != std::string::npos);
+}
+

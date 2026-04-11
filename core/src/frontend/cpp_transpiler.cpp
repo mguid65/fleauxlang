@@ -255,6 +255,73 @@ std::string compile_expr(const ir::IRExprPtr& expr,
     return compile_constant(*constant);
   }
 
+  if (const auto* closure_ptr = std::get_if<ir::IRClosureExprPtr>(&expr->node); closure_ptr != nullptr) {
+    const auto& closure = **closure_ptr;
+    std::ostringstream out;
+
+    std::vector<std::string> capture_names;
+    capture_names.reserve(closure.captures.size());
+    for (const auto& capture : closure.captures) {
+      const auto it = local_bindings.find(capture);
+      if (it == local_bindings.end()) {
+        continue;
+      }
+      capture_names.push_back(capture);
+    }
+
+    out << "fleaux::runtime::make_callable_ref([";
+    for (std::size_t idx = 0; idx < capture_names.size(); ++idx) {
+      if (idx > 0U) {
+        out << ", ";
+      }
+      const auto& capture_name = capture_names[idx];
+      out << sanitize_symbol(capture_name) << " = " << local_bindings.at(capture_name);
+    }
+    out << "](fleaux::runtime::Value _fleaux_arg) mutable -> fleaux::runtime::Value { ";
+
+    std::unordered_map<std::string, std::string> closure_locals;
+    for (const auto& capture_name : capture_names) {
+      closure_locals[capture_name] = sanitize_symbol(capture_name);
+    }
+    for (const auto& p : closure.params) {
+      closure_locals[p.name] = sanitize_symbol(p.name);
+    }
+
+    const bool has_variadic_tail = !closure.params.empty() && closure.params.back().type.variadic;
+    if (!closure.params.empty()) {
+      if (!has_variadic_tail) {
+        if (closure.params.size() == 1U) {
+          out << "fleaux::runtime::Value " << closure_locals[closure.params[0].name]
+              << " = fleaux::runtime::unwrap_singleton_arg(_fleaux_arg); ";
+        } else {
+          out << "const fleaux::runtime::Value& _fleaux_args = _fleaux_arg; ";
+          for (std::size_t idx = 0; idx < closure.params.size(); ++idx) {
+            out << "fleaux::runtime::Value " << closure_locals[closure.params[idx].name]
+                << " = fleaux::runtime::array_at(_fleaux_args, " << idx << "); ";
+          }
+        }
+      } else if (closure.params.size() == 1U) {
+        out << "fleaux::runtime::Value " << closure_locals[closure.params[0].name]
+            << " = _fleaux_arg.HasArray() ? _fleaux_arg : fleaux::runtime::make_tuple(_fleaux_arg); ";
+      } else {
+        out << "const fleaux::runtime::Array& _fleaux_args = fleaux::runtime::as_array(_fleaux_arg); ";
+        out << "if (_fleaux_args.Size() < " << (closure.params.size() - 1U) << ") { throw std::runtime_error(\"too few arguments for inline closure\"); } ";
+        for (std::size_t idx = 0; idx + 1U < closure.params.size(); ++idx) {
+          out << "fleaux::runtime::Value " << closure_locals[closure.params[idx].name]
+              << " = *_fleaux_args.TryGet(" << idx << "); ";
+        }
+        out << "fleaux::runtime::Array _fleaux_variadic_tail; ";
+        out << "_fleaux_variadic_tail.Reserve(_fleaux_args.Size() - " << (closure.params.size() - 1U) << "); ";
+        out << "for (std::size_t _i = " << (closure.params.size() - 1U) << "; _i < _fleaux_args.Size(); ++_i) { _fleaux_variadic_tail.PushBack(*_fleaux_args.TryGet(_i)); } ";
+        out << "fleaux::runtime::Value " << closure_locals[closure.params.back().name]
+            << " = fleaux::runtime::Value{std::move(_fleaux_variadic_tail)}; ";
+      }
+    }
+
+    out << "return " << compile_expr(closure.body, closure_locals, known_symbols) << "; })";
+    return out.str();
+  }
+
   return compile_name_ref(*std::get_if<ir::IRNameRef>(&expr->node), local_bindings, known_symbols);
 }
 

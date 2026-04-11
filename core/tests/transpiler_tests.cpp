@@ -165,7 +165,7 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(run_result.exit_code == 0);
 }
 
-constexpr std::array<std::string_view, 28> kExpectedSamples = {
+constexpr std::array<std::string_view, 29> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -194,6 +194,7 @@ constexpr std::array<std::string_view, 28> kExpectedSamples = {
     "26_format_specifiers.fleaux",
     "27_error_handling_branching.fleaux",
     "28_variadics.fleaux",
+    "29_inline_closures.fleaux",
 };
 
 }  // namespace
@@ -263,6 +264,26 @@ TEST_CASE("Transpiler reports missing source path", "[transpiler]") {
   REQUIRE(result.error().message.find("Failed to read source file") != std::string::npos);
 }
 
+TEST_CASE("Transpiler emits inline closure callable refs", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_closure";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "closure_apply.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+  REQUIRE(result.has_value());
+
+  const std::string generated = read_text(result.value());
+  REQUIRE(generated.find("make_callable_ref(") != std::string::npos);
+  REQUIRE(generated.find("Apply{}") != std::string::npos);
+}
+
 TEST_CASE("Transpiler sample list stays in sync with samples directory", "[transpiler][samples]") {
   std::set<std::string> expected;
   for (const auto name : kExpectedSamples) {
@@ -316,6 +337,7 @@ FLEAUX_SAMPLE_TEST("25_fleaux_parser.fleaux")
 FLEAUX_SAMPLE_TEST("26_format_specifiers.fleaux")
 FLEAUX_SAMPLE_TEST("27_error_handling_branching.fleaux")
 FLEAUX_SAMPLE_TEST("28_variadics.fleaux")
+FLEAUX_SAMPLE_TEST("29_inline_closures.fleaux")
 
 #undef FLEAUX_SAMPLE_TEST
 

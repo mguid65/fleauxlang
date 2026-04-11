@@ -145,6 +145,80 @@ tl::expected<std::vector<Value>, RuntimeError> bind_user_function_locals(const s
   }
 }
 
+tl::expected<std::vector<Value>, RuntimeError> unpack_declared_call_args(Value arg,
+                                                                         const std::uint32_t declared_arity,
+                                                                         const bool declared_has_variadic_tail) {
+  std::vector<Value> out;
+  out.reserve(declared_arity);
+
+  if (declared_arity == 0U) {
+    return out;
+  }
+
+  if (!declared_has_variadic_tail) {
+    if (declared_arity == 1U) {
+      out.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
+      return out;
+    }
+
+    try {
+      const auto& arr = fleaux::runtime::as_array(arg);
+      for (std::uint32_t i = 0; i < declared_arity; ++i) {
+        auto elem = arr.TryGet(i);
+        if (!elem) {
+          return tl::unexpected(RuntimeError{"too few arguments for inline closure"});
+        }
+        out.push_back(*elem);
+      }
+      return out;
+    } catch (const std::exception& ex) {
+      return tl::unexpected(RuntimeError{std::string("argument unpacking for inline closure: ") + ex.what()});
+    }
+  }
+
+  if (declared_arity == 1U) {
+    out.push_back(arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg)));
+    return out;
+  }
+
+  const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
+  try {
+    const auto& arr = fleaux::runtime::as_array(arg);
+    if (arr.Size() < fixed_count) {
+      return tl::unexpected(RuntimeError{"too few arguments for inline closure"});
+    }
+    for (std::size_t i = 0; i < fixed_count; ++i) {
+      out.push_back(*arr.TryGet(i));
+    }
+
+    Array tail;
+    tail.Reserve(arr.Size() - fixed_count);
+    for (std::size_t i = fixed_count; i < arr.Size(); ++i) {
+      tail.PushBack(*arr.TryGet(i));
+    }
+    out.push_back(Value{std::move(tail)});
+    return out;
+  } catch (const std::exception& ex) {
+    return tl::unexpected(RuntimeError{std::string("argument unpacking for inline closure: ") + ex.what()});
+  }
+}
+
+Value pack_call_args(std::vector<Value> values) {
+  if (values.empty()) {
+    return Value{Array{}};
+  }
+  if (values.size() == 1U) {
+    return std::move(values[0]);
+  }
+
+  Array out;
+  out.Reserve(values.size());
+  for (auto& value : values) {
+    out.PushBack(std::move(value));
+  }
+  return Value{std::move(out)};
+}
+
 // Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
 tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const std::string& name, const Value& arg);
 
@@ -333,6 +407,59 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
           return std::move(*result);
         };
         stack.push_back(fleaux::runtime::make_callable_ref(std::move(callable)));
+        break;
+      }
+
+      case bytecode::Opcode::kMakeClosureRef: {
+        const auto closure_idx = static_cast<std::size_t>(operand);
+        if (closure_idx >= bytecode_module.closures.size()) {
+          return tl::unexpected(RuntimeError{"closure index out of range"});
+        }
+
+        auto captured_tuple = pop_stack(stack, "make_closure_ref");
+        if (!captured_tuple) {
+          return tl::unexpected(captured_tuple.error());
+        }
+
+        const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] =
+            bytecode_module.closures[closure_idx];
+        const auto& capture_array = fleaux::runtime::as_array(*captured_tuple);
+        if (capture_array.Size() != capture_count) {
+          return tl::unexpected(RuntimeError{"closure capture tuple size mismatch"});
+        }
+
+        std::vector<Value> captured_values;
+        captured_values.reserve(capture_count);
+        for (std::size_t i = 0; i < capture_count; ++i) {
+          captured_values.push_back(*capture_array.TryGet(i));
+        }
+
+        auto closure_callable = [&bytecode_module, function_index, capture_count, declared_arity,
+                                 declared_has_variadic_tail, captured_values = std::move(captured_values),
+                                 &builtins, allow_runtime_fallback, &output](Value call_arg) mutable -> Value {
+          auto declared_args = unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
+          if (!declared_args) {
+            throw std::runtime_error(declared_args.error().message);
+          }
+
+          std::vector<Value> full_args;
+          full_args.reserve(capture_count + declared_args->size());
+          for (const auto& captured : captured_values) {
+            full_args.push_back(captured);
+          }
+          for (auto& arg : *declared_args) {
+            full_args.push_back(std::move(arg));
+          }
+
+          auto result = run_user_function(bytecode_module, function_index, pack_call_args(std::move(full_args)),
+                                          builtins, allow_runtime_fallback, output);
+          if (!result) {
+            throw std::runtime_error(result.error().message);
+          }
+          return std::move(*result);
+        };
+
+        stack.push_back(fleaux::runtime::make_callable_ref(std::move(closure_callable)));
         break;
       }
 

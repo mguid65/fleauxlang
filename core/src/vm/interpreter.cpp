@@ -275,6 +275,47 @@ struct EvalState {
     return invoke_let(program.lets[idx_it->second], std::move(arg));
   }
 
+  Value invoke_closure(const frontend::ir::IRClosureExpr& closure,
+                       const std::unordered_map<std::string, Value>& captured_locals,
+                       Value arg) const {
+    std::unordered_map<std::string, Value> locals = captured_locals;
+    for (const auto& [name, callable] : functions_unqualified) {
+      locals.try_emplace(name, fleaux::runtime::make_callable_ref(callable));
+    }
+
+    if (!closure.params.empty()) {
+      if (const bool has_variadic_tail = closure.params.back().type.variadic; !has_variadic_tail) {
+        if (closure.params.size() == 1U) {
+          locals[closure.params[0].name] = fleaux::runtime::unwrap_singleton_arg(std::move(arg));
+        } else {
+          for (std::size_t idx = 0; idx < closure.params.size(); ++idx) {
+            locals[closure.params[idx].name] = fleaux::runtime::array_at(arg, idx);
+          }
+        }
+      } else if (closure.params.size() == 1U) {
+        locals[closure.params[0].name] = arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg));
+      } else {
+        const auto fixed_count = closure.params.size() - 1U;
+        const auto& arr = fleaux::runtime::as_array(arg);
+        if (arr.Size() < fixed_count) {
+          throw std::runtime_error("too few arguments for inline closure");
+        }
+        for (std::size_t idx = 0; idx < fixed_count; ++idx) {
+          locals[closure.params[idx].name] = *arr.TryGet(idx);
+        }
+
+        fleaux::runtime::Array tail;
+        tail.Reserve(arr.Size() - fixed_count);
+        for (std::size_t idx = fixed_count; idx < arr.Size(); ++idx) {
+          tail.PushBack(*arr.TryGet(idx));
+        }
+        locals[closure.params.back().name] = Value{std::move(tail)};
+      }
+    }
+
+    return eval_expr(closure.body, locals);
+  }
+
   Value eval_expr(const IRExprPtr& expr, const std::unordered_map<std::string, Value>& locals) const {
     if (!expr) {
       return fleaux::runtime::make_null();
@@ -335,6 +376,25 @@ struct EvalState {
           return fleaux::runtime::make_callable_ref(fn_it->second);
         }
         throw std::runtime_error("Unresolved qualified name in VM interpreter: '" + full_name + "'.");
+      },
+      [&](const frontend::ir::IRClosureExprPtr& closure_ptr) -> Value {
+        if (!closure_ptr) {
+          throw std::runtime_error("Internal error: null closure expression");
+        }
+
+        std::unordered_map<std::string, Value> captured;
+        for (const auto& capture_name : closure_ptr->captures) {
+          const auto capture_it = locals.find(capture_name);
+          if (capture_it == locals.end()) {
+            throw std::runtime_error("Closure capture not found in VM interpreter: '" + capture_name + "'.");
+          }
+          captured[capture_name] = capture_it->second;
+        }
+
+        auto callable = [state = this, closure = *closure_ptr, captured = std::move(captured)](Value arg) -> Value {
+          return state->invoke_closure(closure, captured, std::move(arg));
+        };
+        return fleaux::runtime::make_callable_ref(std::move(callable));
       },
     }, expr->node);
   }

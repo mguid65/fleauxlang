@@ -839,6 +839,88 @@ TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
   REQUIRE(output.str() == "42\n");
 }
 
+TEST_CASE("VM executes kMakeClosureRef for inline closure callables", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c32 = push_i64_const(bytecode_module, 32);
+
+  fleaux::bytecode::FunctionDef closure_fn;
+  closure_fn.name = "__closure_add_capture";
+  closure_fn.arity = 2;
+  closure_fn.instructions = {
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kLoadLocal, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+  bytecode_module.functions.push_back(std::move(closure_fn));
+  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
+      .function_index = 0,
+      .capture_count = 1,
+      .declared_arity = 1,
+      .declared_has_variadic_tail = false,
+  });
+  bytecode_module.builtin_names = {"Std.Apply"};
+
+  bytecode_module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, c32},
+      {fleaux::bytecode::Opcode::kPushConst, c10},
+      {fleaux::bytecode::Opcode::kBuildTuple, 1},
+      {fleaux::bytecode::Opcode::kMakeClosureRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "42\n");
+}
+
+TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+
+  fleaux::bytecode::FunctionDef sum2;
+  sum2.name = "__closure_sum2";
+  sum2.arity = 2;
+  sum2.instructions = {
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kLoadLocal, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+  bytecode_module.functions.push_back(std::move(sum2));
+  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
+      .function_index = 0,
+      .capture_count = 0,
+      .declared_arity = 2,
+      .declared_has_variadic_tail = false,
+  });
+  bytecode_module.builtin_names = {"Std.Apply"};
+
+  bytecode_module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, c10},
+      {fleaux::bytecode::Opcode::kBuildTuple, 1},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kMakeClosureRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message == "native builtin 'Std.Apply' threw: too few arguments for inline closure");
+}
+
 TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical builtins", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});

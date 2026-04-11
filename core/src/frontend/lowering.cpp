@@ -1,6 +1,7 @@
 #include "fleaux/frontend/lowering.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -56,7 +57,52 @@ ir::IRSimpleType lower_simple_type(const model::TypeRef& type) {
   return out;
 }
 
-tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr);
+tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr,
+                                                      const std::unordered_set<std::string>& bound_names);
+
+void collect_unqualified_names_from_expr(const model::ExpressionPtr& expr,
+                                         std::vector<std::string>& out,
+                                         std::unordered_set<std::string>& seen);
+
+void collect_unqualified_names_from_atom(const model::Atom& atom,
+                                         std::vector<std::string>& out,
+                                         std::unordered_set<std::string>& seen) {
+  if (atom.qualified_var.has_value() || atom.constant.has_value()) {
+    return;
+  }
+
+  if (atom.var.has_value()) {
+    const auto& name = atom.var.value();
+    if (!kOperators.contains(name) && seen.insert(name).second) {
+      out.push_back(name);
+    }
+    return;
+  }
+
+  if (atom.inner) {
+    for (const auto& item : atom.inner->items) {
+      collect_unqualified_names_from_expr(item, out, seen);
+    }
+    return;
+  }
+
+  if (atom.closure) {
+    collect_unqualified_names_from_expr(atom.closure->body, out, seen);
+  }
+}
+
+void collect_unqualified_names_from_expr(const model::ExpressionPtr& expr,
+                                         std::vector<std::string>& out,
+                                         std::unordered_set<std::string>& seen) {
+  if (!expr) {
+    return;
+  }
+
+  collect_unqualified_names_from_atom(expr->expr.lhs.base, out, seen);
+  for (const auto& stage : expr->expr.rhs) {
+    collect_unqualified_names_from_atom(stage.base, out, seen);
+  }
+}
 
 tl::expected<ir::IRCallTarget, LoweringError> extract_call_target_from_primary(const model::Primary& primary) {
   if (primary.base.qualified_var.has_value()) {
@@ -139,23 +185,81 @@ tl::expected<ir::IRExprPtr, LoweringError> replace_placeholder(const ir::IRExprP
   return replaced;
 }
 
-tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom) {
+tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom,
+                                                      const std::unordered_set<std::string>& bound_names) {
   auto out = std::make_shared<ir::IRExpr>();
   out->span = atom.span;
 
   if (atom.inner) {
     if (atom.inner->items.size() == 1) {
-      return lower_expr(atom.inner->items[0]);
+      return lower_expr(atom.inner->items[0], bound_names);
     }
 
     ir::IRTupleExpr tuple;
     tuple.span = atom.inner->span;
     for (const auto& item : atom.inner->items) {
-      auto lowered_item = lower_expr(item);
+      auto lowered_item = lower_expr(item, bound_names);
       if (!lowered_item) { return tl::unexpected(lowered_item.error()); }
       tuple.items.push_back(lowered_item.value());
     }
     out->node = std::move(tuple);
+    return out;
+  }
+
+  if (atom.closure) {
+    const auto& closure = atom.closure;
+    std::vector<ir::IRParam> params;
+    params.reserve(closure->params.params.size());
+    std::unordered_set<std::string> param_names;
+    for (const auto& [param_name, type, span] : closure->params.params) {
+      params.push_back(ir::IRParam{
+          .name = param_name,
+          .type = lower_simple_type(type),
+          .span = span,
+      });
+      param_names.insert(param_name);
+    }
+
+    for (std::size_t idx = 0; idx < params.size(); ++idx) {
+      if (params[idx].type.variadic && idx + 1U != params.size()) {
+        return tl::unexpected(make_error("Variadic parameter must be the final parameter in a closure declaration.",
+                                         "Move the '...' parameter to the end of the closure parameter list.",
+                                         params[idx].span));
+      }
+    }
+
+    std::unordered_set<std::string> closure_bound = bound_names;
+    for (const auto& p : params) {
+      closure_bound.insert(p.name);
+    }
+
+    std::vector<std::string> discovered_names;
+    std::unordered_set<std::string> seen_names;
+    collect_unqualified_names_from_expr(closure->body, discovered_names, seen_names);
+
+    std::vector<std::string> captures;
+    for (const auto& candidate : discovered_names) {
+      if (param_names.contains(candidate)) {
+        continue;
+      }
+      if (bound_names.contains(candidate)) {
+        captures.push_back(candidate);
+      }
+    }
+
+    auto lowered_body = lower_expr(closure->body, closure_bound);
+    if (!lowered_body) {
+      return tl::unexpected(lowered_body.error());
+    }
+
+    auto closure_ir = std::make_shared<ir::IRClosureExpr>();
+    closure_ir->params = std::move(params);
+    closure_ir->return_type = lower_simple_type(closure->rtype);
+    closure_ir->body = lowered_body.value();
+    closure_ir->captures = std::move(captures);
+    closure_ir->span = closure->span;
+
+    out->node = closure_ir;
     return out;
   }
 
@@ -192,12 +296,14 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_atom(const model::Atom& atom) {
   return out;
 }
 
-tl::expected<ir::IRExprPtr, LoweringError> lower_primary(const model::Primary& primary) {
-  return lower_atom(primary.base);
+tl::expected<ir::IRExprPtr, LoweringError> lower_primary(const model::Primary& primary,
+                                                         const std::unordered_set<std::string>& bound_names) {
+  return lower_atom(primary.base, bound_names);
 }
 
-tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpression& flow) {
-  auto result = lower_primary(flow.lhs);
+tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpression& flow,
+                                                      const std::unordered_set<std::string>& bound_names) {
+  auto result = lower_primary(flow.lhs, bound_names);
   if (!result) { return tl::unexpected(result.error()); }
 
   std::size_t i = 0;
@@ -216,8 +322,36 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpressio
       continue;
     }
 
-    auto template_expr = lower_primary(flow.rhs[i]);
+    auto template_expr = lower_primary(flow.rhs[i], bound_names);
     if (!template_expr) { return tl::unexpected(template_expr.error()); }
+
+    if (const auto* closure_ptr = std::get_if<ir::IRClosureExprPtr>(&template_expr.value()->node);
+        closure_ptr != nullptr && *closure_ptr != nullptr) {
+      ir::IRTupleExpr apply_args;
+      apply_args.span = flow.rhs[i].span;
+      apply_args.items.push_back(result.value());
+      apply_args.items.push_back(template_expr.value());
+
+      auto apply_lhs = std::make_shared<ir::IRExpr>();
+      apply_lhs->node = std::move(apply_args);
+      apply_lhs->span = flow.rhs[i].span;
+
+      ir::IRFlowExpr apply_flow;
+      apply_flow.lhs = apply_lhs;
+      apply_flow.rhs = ir::IRNameRef{
+          .qualifier = std::optional<std::string>{"Std"},
+          .name = "Apply",
+          .span = flow.rhs[i].span,
+      };
+      apply_flow.span = flow.rhs[i].span;
+
+      auto wrapped = std::make_shared<ir::IRExpr>();
+      wrapped->node = std::move(apply_flow);
+      wrapped->span = flow.rhs[i].span;
+      result = wrapped;
+      ++i;
+      continue;
+    }
 
     if (std::get_if<ir::IRTupleExpr>(&template_expr.value()->node) == nullptr) {
       return tl::unexpected(make_error(
@@ -251,12 +385,13 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpressio
   return result;
 }
 
-tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr) {
+tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr,
+                                                      const std::unordered_set<std::string>& bound_names) {
   if (!expr) {
     return tl::unexpected(
         make_error("Cannot lower null expression.", "Provide a valid expression node.", std::nullopt));
   }
-  return lower_flow(expr->expr);
+  return lower_flow(expr->expr, bound_names);
 }
 
 }  // namespace
@@ -297,9 +432,14 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
       const auto* builtin_expr = std::get_if<std::string>(&model_let->expr);
       const bool is_builtin = builtin_expr != nullptr && *builtin_expr == "__builtin__";
 
+      std::unordered_set<std::string> let_bound_names;
+      for (const auto& p : params) {
+        let_bound_names.insert(p.name);
+      }
+
       ir::IRExprPtr body;
       if (!is_builtin) {
-        auto lowered_body = lower_expr(*std::get_if<model::ExpressionPtr>(&model_let->expr));
+        auto lowered_body = lower_expr(*std::get_if<model::ExpressionPtr>(&model_let->expr), let_bound_names);
         if (!lowered_body) { return tl::unexpected(lowered_body.error()); }
         body = lowered_body.value();
       }
@@ -317,7 +457,8 @@ LoweringResult Lowerer::lower(const model::Program& program) const {
     }
 
     const auto* model_expr_stmt = std::get_if<model::ExpressionStatement>(&stmt);
-    auto lowered_expr = lower_expr(model_expr_stmt->expr);
+    std::unordered_set<std::string> no_bound_names;
+    auto lowered_expr = lower_expr(model_expr_stmt->expr, no_bound_names);
     if (!lowered_expr) { return tl::unexpected(lowered_expr.error()); }
 
     ir_program.expressions.push_back(ir::IRExprStatement{
