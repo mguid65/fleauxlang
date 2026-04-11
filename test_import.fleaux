@@ -1,3 +1,0 @@
-import Std;
-
-let MyAdd(lhs: Number, rhs: Number) : Number = (lhs, rhs) -> Std.Add;

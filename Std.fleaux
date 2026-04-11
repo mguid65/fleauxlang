@@ -1,6 +1,5 @@
 import StdBuiltins;
 
-// Based on constants provided by boost: https://www.boost.org/doc/libs/1_74_0/boost/math/constants/constants.hpp
 let Std.Half(): Number :: 0.5000000000000000000000000000000000000e-01;
 let Std.Third(): Number :: 3.333333333333333333333333333333333333e-01;
 let Std.TwoThirds(): Number :: 6.666666666666666666666666666666666666e-01;
@@ -101,6 +100,24 @@ let Std.Or(lhs: Any, rhs: Any) : Bool :: __builtin__;
 // ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
 // Note: both branches are always evaluated before Select is called.
 let Std.Select(condition: Bool, true_val: Any, false_val: Any) : Any :: __builtin__;
+// @brief Match value against ordered case tuples: (value, (pattern, handler), ...).
+// Pattern '_' is a wildcard default and should be placed last.
+// Pattern can also be a predicate callable '(x: Any): Bool = ...'.
+// The first matching handler is invoked and receives the input value.
+let Std.Match(value: Any, cases: Any...) : Any :: __builtin__;
+// @brief Result helpers use tagged tuples: (Std.Ok, payload) or (Std.Err, payload).
+// Std.Ok and Std.Err are language constants that desugar to true and false respectively.
+let Std.Result.Ok(value: Any) : Tuple(Bool, Any) :: __builtin__;
+let Std.Result.Err(error: Any) : Tuple(Bool, Any) :: __builtin__;
+let Std.Result.Tag(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.Payload(result: Tuple(Bool, Any)) : Any :: __builtin__;
+let Std.Result.IsOk(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.IsErr(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.Unwrap(result: Tuple(Bool, Any)) : Any :: __builtin__;
+let Std.Result.UnwrapErr(result: Tuple(Bool, Any)) : Any :: __builtin__;
+// @brief Invoke a callable with a value and capture runtime exceptions as Result.Err(message).
+// (value, func) -> Std.Try;
+let Std.Try(value: Any, func: Any) : Tuple(Bool, Any) :: __builtin__;
 // @brief Apply a function reference to a value.
 // (5, Double) -> Std.Apply;  is equivalent to  (5) -> Double
 let Std.Apply(value: Any, func: Any) : Any :: __builtin__;
@@ -141,6 +158,14 @@ let Std.String.Contains(s: String, sub: String) : Bool :: __builtin__;
 let Std.String.StartsWith(s: String, prefix: String) : Bool :: __builtin__;
 let Std.String.EndsWith(s: String, suffix: String) : Bool :: __builtin__;
 let Std.String.Length(s: String) : Number :: __builtin__;
+let Std.String.CharAt(s: String, index: Number) : String :: __builtin__;
+let Std.String.Slice(s: String, start: Number, stop: Number) : String :: __builtin__;
+let Std.String.Find(s: String, sub: String, start: Number) : Number :: __builtin__;
+let Std.String.Format(fmt_str: String, args: Any...) : String :: __builtin__;
+let Std.String.Regex.IsMatch(s: String, pattern: String) : Bool :: __builtin__;
+let Std.String.Regex.Find(s: String, pattern: String) : Number :: __builtin__;
+let Std.String.Regex.Replace(s: String, pattern: String, repl: String) : String :: __builtin__;
+let Std.String.Regex.Split(s: String, pattern: String) : Tuple(Any...) :: __builtin__;
 // Path/filesystem builtins (nested namespace API)
 let Std.OS.Cwd() : String :: __builtin__;
 let Std.OS.Home() : String :: __builtin__;

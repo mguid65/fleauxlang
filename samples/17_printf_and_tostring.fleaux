@@ -8,17 +8,22 @@ import Std;
 // -- Combining ToString with string operations --
 (256) -> Std.ToString -> (_, " bytes") -> Std.String.Join -> Std.Println; // 256 bytes
 
-// -- Printf: C-style formatted output --
-// First argument is the format string; remaining are substitutions via %s.
-("%s + %s = %s", 1, 2, 3) -> Std.Printf -> Std.Println;          // 1 + 2 = 3
+// -- Printf: prints formatted output --
+// First argument is the format string; remaining values substitute {} placeholders.
+("{} + {} = {}", 1, 2, 3) -> Std.Printf;                          // 1 + 2 = 3
 
-("Hello, %s!", "World") -> Std.Printf -> Std.Println;             // Hello, World!
+("Hello, {}!", "World") -> Std.Printf;                            // Hello, World!
 
-("Result: %s", (6, 7) -> Std.Multiply) -> Std.Printf -> Std.Println; // Result: 42
+("Result: {}", (6, 7) -> Std.Multiply) -> Std.Printf;             // Result: 42
 
-// -- Formatting a report line --
+// -- String.Format: format without printing, returns the formatted string --
+("{} + {} = {}", 1, 2, 3) -> Std.String.Format -> Std.Println;    // 1 + 2 = 3
+
+("Hello, {}!", "World") -> Std.String.Format -> Std.Println;      // Hello, World!
+
+// -- Building a formatted string for later use --
 let FormatScore(name: String, score: Number): String =
-    ("%s scored %s points", name, score) -> Std.Printf;
+    ("{} scored {} points", name, score) -> Std.String.Format;
 
 ("Alice", 98) -> FormatScore -> Std.Println;                      // Alice scored 98 points
 ("Bob", 75) -> FormatScore -> Std.Println;                        // Bob scored 75 points

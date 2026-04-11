@@ -64,11 +64,15 @@ Primary:
   base=Atom;
 
 Atom:
+  closure=ClosureExpression |
   '(' inner=DelimitedExpression ')' |
   constant=Constant |
   qualified_var=QualifiedId |
   var=Identifier |
   op=Operator;
+
+ClosureExpression:
+  '(' params=ParameterDeclList ')' ':' rtype=Type '=' body=Expression;
 
 Operator:
   '^' |

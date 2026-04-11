@@ -270,7 +270,7 @@ namespace key_literals {
  * @param idx an index
  * @return a KeyType created from an index
  */
-inline KeyOrIdxType operator""_k(unsigned long long idx) { return KeyOrIdxType{idx}; }
+inline KeyOrIdxType operator""_k(unsigned long long idx) { return KeyOrIdxType{static_cast<std::size_t>(idx)}; }
 
 /**
  * @brief Helper for string literal KeyType UDL
