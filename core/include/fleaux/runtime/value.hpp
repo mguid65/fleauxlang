@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <mutex>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -74,6 +75,11 @@ inline std::vector<RuntimeCallable>& callable_registry() {
     return registry;
 }
 
+inline std::mutex& callable_registry_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
 inline std::vector<std::string>& process_args_storage() {
     static std::vector<std::string> args;
     return args;
@@ -98,6 +104,7 @@ inline void set_process_args(const int argc, char** argv) {
 // ── Callable/Function handling ────────────────────────────────────────────────
 
 inline UInt register_callable(RuntimeCallable fn) {
+    std::lock_guard<std::mutex> lock(callable_registry_mutex());
     auto& call_reg = callable_registry();
     const UInt id = static_cast<UInt>(call_reg.size());
     call_reg.push_back(std::move(fn));
@@ -112,17 +119,6 @@ inline Value& function_registry() {
 
 [[nodiscard]] inline Value make_callable_ref(RuntimeCallable fn) {
     const UInt id = register_callable(std::move(fn));
-
-    // Store in Generic node with metadata
-    auto& gen = function_registry().Unsafe([](auto&& proxy) -> decltype(auto) {
-        return proxy.GetGeneric();
-    });
-
-    Object callable_entry;
-    callable_entry["type"] = Value{String{k_callable_tag}};
-    callable_entry["id"] = Value{id};
-
-    gen["fn_" + std::to_string(id)] = Value{std::move(callable_entry)};
 
     // Return simple array with type tag and id for passing around
     Array out;
@@ -306,11 +302,16 @@ struct HandleId { UInt slot; UInt gen; };
     if (!id) {
         throw std::runtime_error{"Expected callable reference"};
     }
-    const auto& call_reg = callable_registry();
-    if (*id >= call_reg.size()) {
-        throw std::runtime_error{"Unknown callable reference"};
+
+    RuntimeCallable callable;
+    {
+        std::lock_guard<std::mutex> lock(callable_registry_mutex());
+        const auto& call_reg = callable_registry();
+        if (*id >= call_reg.size()) {
+            throw std::runtime_error{"Unknown callable reference"};
+        }
+        callable = call_reg.at(*id);
     }
-    const auto& callable = call_reg.at(*id);
 
     return callable(std::move(arg));
 }

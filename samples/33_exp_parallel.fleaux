@@ -1,0 +1,13 @@
+import Std;
+
+let Inc(x: Number): Number = (x, 1) -> Std.Add;
+let ReturnSelf(x: Any): Any = x;
+let Fail(_x: Any): Any = ("boom-two") -> Std.Result.Err -> Std.Result.Unwrap;
+
+let MaybeFail(x: Number): Any =
+  (((x, 2) -> Std.Equal), x, Fail, ReturnSelf) -> Std.Branch;
+
+((1, 3, 4), Inc) -> Std.Exp.Parallel -> Std.Result.Unwrap -> Std.Println;
+((1, 2, 3), MaybeFail) -> Std.Exp.Parallel -> Std.Result.IsErr -> Std.Println;
+((1, 2, 3), MaybeFail) -> Std.Exp.Parallel -> Std.Result.UnwrapErr -> Std.Println;
+

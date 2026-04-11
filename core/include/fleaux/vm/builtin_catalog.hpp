@@ -21,6 +21,7 @@
   X("Std.Result.Unwrap", ResultUnwrap)          \
   X("Std.Result.UnwrapErr", ResultUnwrapErr)    \
   X("Std.Try", Try)                              \
+  X("Std.Exp.Parallel", ExpParallel)            \
   X("Std.Apply", Apply)                          \
   X("Std.Branch", Branch)                        \
   X("Std.Loop", Loop)                            \

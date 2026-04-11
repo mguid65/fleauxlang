@@ -155,6 +155,55 @@ TEST_CASE("Runtime builtins: Std.Try", "[runtime]") {
   }
 }
 
+TEST_CASE("Runtime builtins: Std.Exp.Parallel", "[runtime]") {
+  SECTION("Parallel returns Ok with ordered mapped outputs") {
+    const Value add_one = make_callable_ref([](const Value& v) -> Value {
+      return make_int(as_int_value(v) + 1);
+    });
+    const Value result = make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), add_one) | ExpParallel{};
+    REQUIRE(as_bool(result | ResultIsOk{}));
+    const Value payload = result | ResultUnwrap{};
+    REQUIRE(as_array(payload).Size() == 3);
+    REQUIRE(to_double(array_at(payload, 0)) == 2.0);
+    REQUIRE(to_double(array_at(payload, 1)) == 3.0);
+    REQUIRE(to_double(array_at(payload, 2)) == 4.0);
+  }
+
+  SECTION("Parallel returns Err(index, message) on first failing item") {
+    const Value fail_on_two = make_callable_ref([](const Value& v) -> Value {
+      if (as_int_value(v) == 2) {
+        throw std::runtime_error("boom-two");
+      }
+      return v;
+    });
+    const Value result = make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), fail_on_two) | ExpParallel{};
+    REQUIRE(as_bool(result | ResultIsErr{}));
+    const Value err = result | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 1.0);
+    REQUIRE(as_string(array_at(err, 1)) == "boom-two");
+  }
+
+  SECTION("Parallel stress: repeated invocation remains stable and ordered") {
+    const Value add_one = make_callable_ref([](const Value& v) -> Value {
+      return make_int(as_int_value(v) + 1);
+    });
+
+    Value input = make_tuple(
+        make_int(1), make_int(2), make_int(3), make_int(4),
+        make_int(5), make_int(6), make_int(7), make_int(8));
+
+    for (int iter = 0; iter < 200; ++iter) {
+      const Value result = make_tuple(input, add_one) | ExpParallel{};
+      REQUIRE(as_bool(result | ResultIsOk{}));
+      const Value payload = result | ResultUnwrap{};
+      REQUIRE(as_array(payload).Size() == 8);
+      REQUIRE(to_double(array_at(payload, 0)) == 2.0);
+      REQUIRE(to_double(array_at(payload, 7)) == 9.0);
+    }
+  }
+}
+
 TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
   SECTION("Loop sums 1..5") {
     auto cf = [](Value state) -> Value {

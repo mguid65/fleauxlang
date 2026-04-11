@@ -928,6 +928,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     kStd_Result_Unwrap,
     kStd_Result_UnwrapErr,
     kStd_Try,
+    kStd_Exp_Parallel,
     kStd_UnaryMinus,
     kStd_UnaryPlus,
     kStd_Math_Floor,
@@ -1078,6 +1079,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.Result.Unwrap", BuiltinDispatchKey::kStd_Result_Unwrap},
       {"Std.Result.UnwrapErr", BuiltinDispatchKey::kStd_Result_UnwrapErr},
       {"Std.Try", BuiltinDispatchKey::kStd_Try},
+      {"Std.Exp.Parallel", BuiltinDispatchKey::kStd_Exp_Parallel},
       {"Std.UnaryMinus", BuiltinDispatchKey::kStd_UnaryMinus},
       {"Std.UnaryPlus", BuiltinDispatchKey::kStd_UnaryPlus},
       {"Std.Math.Floor", BuiltinDispatchKey::kStd_Math_Floor},
@@ -1354,6 +1356,13 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           return std::optional<Value>{fleaux::runtime::Try{}(arg)};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Try' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Exp_Parallel: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ExpParallel{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Exp.Parallel' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_UnaryMinus: {
