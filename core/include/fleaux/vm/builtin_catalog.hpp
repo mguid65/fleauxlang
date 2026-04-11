@@ -12,6 +12,15 @@
   X("Std.Exit", Exit)                            \
   X("Std.Select", Select)                        \
   X("Std.Match", Match)                          \
+  X("Std.Result.Ok", ResultOk)                  \
+  X("Std.Result.Err", ResultErr)                \
+  X("Std.Result.Tag", ResultTag)                \
+  X("Std.Result.Payload", ResultPayload)        \
+  X("Std.Result.IsOk", ResultIsOk)              \
+  X("Std.Result.IsErr", ResultIsErr)            \
+  X("Std.Result.Unwrap", ResultUnwrap)          \
+  X("Std.Result.UnwrapErr", ResultUnwrapErr)    \
+  X("Std.Try", Try)                              \
   X("Std.Apply", Apply)                          \
   X("Std.Branch", Branch)                        \
   X("Std.Loop", Loop)                            \

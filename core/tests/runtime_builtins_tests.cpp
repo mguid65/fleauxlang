@@ -1,4 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+#include <stdexcept>
 
 #include "fleaux/runtime/fleaux_runtime.hpp"
 
@@ -76,13 +79,13 @@ TEST_CASE("Runtime builtins: arithmetic and logic", "[runtime]") {
 }
 
 TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]") {
-  const Value is_even = make_callable_ref([](Value v) -> Value {
+  const Value is_even = make_callable_ref([](const Value& v) -> Value {
     return make_bool(static_cast<Int>(to_double(v)) % 2 == 0);
   });
-  const Value even_handler = make_callable_ref([](Value _v) -> Value {
+  const Value even_handler = make_callable_ref([](const Value& _v) -> Value {
     return make_string("even");
   });
-  const Value odd_handler = make_callable_ref([](Value _v) -> Value {
+  const Value odd_handler = make_callable_ref([](const Value& _v) -> Value {
     return make_string("odd");
   });
 
@@ -102,6 +105,53 @@ TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]"
         make_tuple(make_string("__fleaux_match_wildcard__"), odd_handler));
     Value result = std::move(arg) | Match{};
     REQUIRE(as_string(result) == "odd");
+  }
+}
+
+TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
+  SECTION("Constructors and predicates") {
+    const Value ok = make_int(42) | ResultOk{};
+    REQUIRE(as_bool(ok | ResultIsOk{}));
+    REQUIRE_FALSE(as_bool(ok | ResultIsErr{}));
+    REQUIRE(as_bool(ok | ResultTag{}));  // true for Ok
+    REQUIRE(to_double(ok | ResultPayload{}) == 42.0);
+
+    const Value err = make_string("boom") | ResultErr{};
+    REQUIRE(as_bool(err | ResultIsErr{}));
+    REQUIRE_FALSE(as_bool(err | ResultIsOk{}));
+    REQUIRE_FALSE(as_bool(err | ResultTag{}));  // false for Err
+    REQUIRE(as_string(err | ResultPayload{}) == "boom");
+  }
+
+  SECTION("Unwrap and UnwrapErr") {
+    const Value ok = make_int(9) | ResultOk{};
+    const Value err = make_string("bad") | ResultErr{};
+
+    REQUIRE(to_double(ok | ResultUnwrap{}) == 9.0);
+    REQUIRE(as_string(err | ResultUnwrapErr{}) == "bad");
+
+    REQUIRE_THROWS_WITH(err | ResultUnwrap{}, Catch::Matchers::ContainsSubstring("Result.Unwrap expected Ok"));
+    REQUIRE_THROWS_WITH(ok | ResultUnwrapErr{}, Catch::Matchers::ContainsSubstring("Result.UnwrapErr expected Err"));
+  }
+}
+
+TEST_CASE("Runtime builtins: Std.Try", "[runtime]") {
+  SECTION("Try returns Ok when callable succeeds") {
+    const Value add_one = make_callable_ref([](const Value& v) -> Value {
+      return make_int(as_int_value(v) + 1);
+    });
+    const Value result = make_tuple(make_int(41), add_one) | Try{};
+    REQUIRE(as_bool(result | ResultIsOk{}));
+    REQUIRE(to_double(result | ResultUnwrap{}) == 42.0);
+  }
+
+  SECTION("Try returns Err(message) when callable throws") {
+    const Value boom = make_callable_ref([](const Value&) -> Value {
+      throw std::runtime_error("boom");
+    });
+    const Value result = make_tuple(make_int(0), boom) | Try{};
+    REQUIRE(as_bool(result | ResultIsErr{}));
+    REQUIRE(as_string(result | ResultUnwrapErr{}) == "boom");
   }
 }
 

@@ -105,6 +105,19 @@ let Std.Select(condition: Bool, true_val: Any, false_val: Any) : Any :: __builti
 // Pattern can also be a predicate callable '(x: Any): Bool = ...'.
 // The first matching handler is invoked and receives the input value.
 let Std.Match(value: Any, cases: Any...) : Any :: __builtin__;
+// @brief Result helpers use tagged tuples: (Std.Ok, payload) or (Std.Err, payload).
+// Std.Ok and Std.Err are language constants that desugar to true and false respectively.
+let Std.Result.Ok(value: Any) : Tuple(Bool, Any) :: __builtin__;
+let Std.Result.Err(error: Any) : Tuple(Bool, Any) :: __builtin__;
+let Std.Result.Tag(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.Payload(result: Tuple(Bool, Any)) : Any :: __builtin__;
+let Std.Result.IsOk(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.IsErr(result: Tuple(Bool, Any)) : Bool :: __builtin__;
+let Std.Result.Unwrap(result: Tuple(Bool, Any)) : Any :: __builtin__;
+let Std.Result.UnwrapErr(result: Tuple(Bool, Any)) : Any :: __builtin__;
+// @brief Invoke a callable with a value and capture runtime exceptions as Result.Err(message).
+// (value, func) -> Std.Try;
+let Std.Try(value: Any, func: Any) : Tuple(Bool, Any) :: __builtin__;
 // @brief Apply a function reference to a value.
 // (5, Double) -> Std.Apply;  is equivalent to  (5) -> Double
 let Std.Apply(value: Any, func: Any) : Any :: __builtin__;

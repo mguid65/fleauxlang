@@ -919,6 +919,15 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     kStd_Or,
     kStd_Select,
     kStd_Match,
+    kStd_Result_Ok,
+    kStd_Result_Err,
+    kStd_Result_Tag,
+    kStd_Result_Payload,
+    kStd_Result_IsOk,
+    kStd_Result_IsErr,
+    kStd_Result_Unwrap,
+    kStd_Result_UnwrapErr,
+    kStd_Try,
     kStd_UnaryMinus,
     kStd_UnaryPlus,
     kStd_Math_Floor,
@@ -1060,6 +1069,15 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.Or", BuiltinDispatchKey::kStd_Or},
       {"Std.Select", BuiltinDispatchKey::kStd_Select},
       {"Std.Match", BuiltinDispatchKey::kStd_Match},
+      {"Std.Result.Ok", BuiltinDispatchKey::kStd_Result_Ok},
+      {"Std.Result.Err", BuiltinDispatchKey::kStd_Result_Err},
+      {"Std.Result.Tag", BuiltinDispatchKey::kStd_Result_Tag},
+      {"Std.Result.Payload", BuiltinDispatchKey::kStd_Result_Payload},
+      {"Std.Result.IsOk", BuiltinDispatchKey::kStd_Result_IsOk},
+      {"Std.Result.IsErr", BuiltinDispatchKey::kStd_Result_IsErr},
+      {"Std.Result.Unwrap", BuiltinDispatchKey::kStd_Result_Unwrap},
+      {"Std.Result.UnwrapErr", BuiltinDispatchKey::kStd_Result_UnwrapErr},
+      {"Std.Try", BuiltinDispatchKey::kStd_Try},
       {"Std.UnaryMinus", BuiltinDispatchKey::kStd_UnaryMinus},
       {"Std.UnaryPlus", BuiltinDispatchKey::kStd_UnaryPlus},
       {"Std.Math.Floor", BuiltinDispatchKey::kStd_Math_Floor},
@@ -1273,6 +1291,69 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           return std::optional<Value>{fleaux::runtime::Match{}(arg)};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Match' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_Ok: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultOk{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.Ok' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_Err: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultErr{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.Err' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_Tag: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultTag{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.Tag' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_Payload: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultPayload{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.Payload' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_IsOk: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultIsOk{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.IsOk' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_IsErr: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultIsErr{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.IsErr' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_Unwrap: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultUnwrap{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.Unwrap' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Result_UnwrapErr: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ResultUnwrapErr{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Result.UnwrapErr' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Try: {
+        try {
+          return std::optional<Value>{fleaux::runtime::Try{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Try' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_UnaryMinus: {
