@@ -1,6 +1,9 @@
 #pragma once
 // Core builtins: sequence access, arithmetic, comparison, logical, output, control flow.
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+#include <future>
+#include <vector>
+
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 
@@ -17,6 +20,20 @@ inline const Array& require_result_tuple(const Value& value, const char* op_name
         throw std::invalid_argument{std::string(op_name) + ": Result tag must be a Bool (true for Ok, false for Err)"};
     }
     return result;
+}
+
+inline std::string normalize_runtime_error_message(std::string message) {
+    // Unwrap nested runtime wrappers like:
+    // "native 'branch_call' threw: native builtin 'Std.X' threw: actual message"
+    constexpr std::string_view k_threw = "threw: ";
+    while (message.rfind("native ", 0) == 0) {
+        const std::size_t split = message.find(k_threw);
+        if (split == std::string::npos) {
+            break;
+        }
+        message = message.substr(split + k_threw.size());
+    }
+    return message;
 }
 
 struct Wrap {
@@ -459,17 +476,38 @@ struct Try {
         try {
             return ResultOk{}(make_tuple(invoke_callable_ref(func, val)));
         } catch (const std::exception& ex) {
-            std::string message = ex.what();
-            const std::string prefix = "native builtin '";
-            const std::string separator = "' threw: ";
-            if (message.rfind(prefix, 0) == 0) {
-                const std::size_t split = message.find(separator);
-                if (split != std::string::npos) {
-                    message = message.substr(split + separator.size());
-                }
-            }
-            return ResultErr{}(make_tuple(make_string(std::move(message))));
+            return ResultErr{}(make_tuple(make_string(normalize_runtime_error_message(ex.what()))));
         }
+    }
+};
+
+struct ExpParallel {
+    // arg = [items_tuple, func_ref]
+    Value operator()(Value arg) const {
+        const auto& args = require_args(arg, 2, "Exp.Parallel");
+        const auto& items = as_array(*args.TryGet(0));
+        const Value func = *args.TryGet(1);
+
+        std::vector<std::future<Value>> futures;
+        futures.reserve(items.Size());
+        for (std::size_t i = 0; i < items.Size(); ++i) {
+            const Value item = *items.TryGet(i);
+            futures.push_back(std::async(std::launch::async, [func, item]() -> Value {
+                return invoke_callable_ref(func, item);
+            }));
+        }
+
+        Array out;
+        out.Reserve(items.Size());
+        for (std::size_t i = 0; i < futures.size(); ++i) {
+            try {
+                out.PushBack(futures[i].get());
+            } catch (const std::exception& ex) {
+                return ResultErr{}(make_tuple(
+                    make_tuple(make_int(static_cast<Int>(i)), make_string(normalize_runtime_error_message(ex.what())))));
+            }
+        }
+        return ResultOk{}(make_tuple(Value{std::move(out)}));
     }
 };
 
