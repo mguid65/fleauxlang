@@ -108,7 +108,7 @@ inline mguid::DataTree operator""_DT_F64(long double val) {
  * @param sz string size
  * @return a DataTree created with the string value
  */
-mguid::DataTree operator""_DT_STR(const char* value, std::size_t sz) {
+inline mguid::DataTree operator""_DT_STR(const char* value, std::size_t sz) {
   return mguid::DataTree(mguid::ValueNodeType{mguid::StringType{value, sz}});
 }
 

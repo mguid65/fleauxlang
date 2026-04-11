@@ -1,0 +1,26 @@
+import Std;
+
+// -- Basic replacement and escaping braces --
+("{} + {} = {}", 2, 3, 5) -> Std.String.Format -> Std.Println;
+("{{}} literal braces, value={}", 42) -> Std.String.Format -> Std.Println;
+
+// -- Alignment and fill (strings) --
+("|{:>10}|{:^10}|{:<10}|", "right", "center", "left") -> Std.String.Format -> Std.Println;
+("|{:*^12}|", "title") -> Std.String.Format -> Std.Println;
+
+// -- Integer formatting --
+("dec={} hex={:#x} HEX={:#X} bin={:#b}", 255, 255, 255, 10) -> Std.String.Format -> Std.Println;
+("pad={:08d} sign={:+d} neg={:+d}", 42, 7, -7) -> Std.String.Format -> Std.Println;
+
+// -- Float formatting --
+("fixed={:.2f} sci={:.4e} general={:.3g}", 3.14159265, 1234.5678, 1234.5678)
+    -> Std.String.Format -> Std.Println;
+("left={:<10.3f} right={:>10.3f}", 2.7182818, 2.7182818) -> Std.String.Format -> Std.Println;
+
+// -- String precision and width --
+("trunc='{:5.5}' full='{}'", "abcdefgh", "abcdefgh") -> Std.String.Format -> Std.Println;
+
+// -- Indexed formatting --
+("{1} then {0}", "A", "B") -> Std.String.Format -> Std.Println;
+("{1:>8} | {0:04d}", 7, "x") -> Std.String.Format -> Std.Println;
+

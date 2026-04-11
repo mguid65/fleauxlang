@@ -1,0 +1,42 @@
+import Std;
+
+// ── Variadic-only parameter ───────────────────────────────────────────────────
+// When the sole parameter is marked `...`, all arguments are captured as a
+// tuple.  A scalar argument is automatically lifted into a 1-element tuple.
+
+let Collect(items: Any...): Any = items;
+
+(42) -> Collect -> Std.Length -> Std.Println;              // 1  (scalar → 1-tuple)
+(1, 2, 3) -> Collect -> Std.Length -> Std.Println;         // 3
+() -> Collect -> Std.Length -> Std.Println;                // 0
+
+// ── Fixed parameters + variadic tail ─────────────────────────────────────────
+// Named fixed parameters are bound left-to-right; the variadic tail
+// collects everything that remains (may be an empty tuple).
+
+let First(head: Any, rest: Any...): Any = head;
+let Rest(head: Any, rest: Any...): Any  = rest;
+
+(10, 20, 30) -> First -> Std.Println;                      // 10
+(10, 20, 30) -> Rest  -> Std.Length -> Std.Println;        // 2
+
+// ── Practical example: variadic sum ──────────────────────────────────────────
+// The variadic tail arrives as a plain tuple, so any Tuple built-in applies.
+
+let AddTwo(acc: Number, x: Number): Number = (acc, x) -> Std.Add;
+
+let Sum(nums: Any...): Number =
+    (nums, 0, AddTwo) -> Std.Tuple.Reduce;
+
+() -> Sum -> Std.Println;                                  // 0
+(1, 2, 3, 4, 5) -> Sum -> Std.Println;                     // 15
+
+// ── Practical example: variadic string join ───────────────────────────────────
+// Mix fixed + variadic: `sep` is the fixed separator, `parts` is the tail.
+
+let JoinWith(sep: String, parts: Any...): String =
+    (sep, parts) -> Std.String.Join;
+
+(",", "alpha", "beta", "gamma") -> JoinWith -> Std.Println;   // alpha,beta,gamma
+(" | ", "one", "two", "three") -> JoinWith -> Std.Println;    // one | two | three
+

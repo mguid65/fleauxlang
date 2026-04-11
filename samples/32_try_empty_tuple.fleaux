@@ -1,0 +1,8 @@
+import Std;
+
+// Demonstrate Std.Try with an empty tuple dummy input.
+((), Std.Println) -> Std.Try -> Std.Result.IsOk -> Std.Println;
+
+// Demonstrate Std.Try capturing an exception with empty tuple input.
+((), Std.Result.Unwrap) -> Std.Try -> Std.Result.IsErr -> Std.Println;
+
