@@ -172,3 +172,58 @@ TEST_CASE("Lowerer rejects closure declarations with non-final variadic paramete
   REQUIRE(lowered.error().message.find("Variadic parameter must be the final parameter") != std::string::npos);
 }
 
+TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
+  const std::string src =
+      "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "match_wildcard_lowering.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->expressions.size() == 1);
+
+  const auto root = lowered->expressions[0].expr;
+  REQUIRE(root != nullptr);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRFlowExpr>(root->node));
+
+  const auto& flow = std::get<fleaux::frontend::ir::IRFlowExpr>(root->node);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRNameRef>(flow.rhs));
+  const auto& target = std::get<fleaux::frontend::ir::IRNameRef>(flow.rhs);
+  REQUIRE(target.qualifier.has_value());
+  REQUIRE(target.qualifier.value() == "Std");
+  REQUIRE(target.name == "Match");
+
+  REQUIRE(flow.lhs != nullptr);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node));
+  const auto& args = std::get<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node);
+  REQUIRE(args.items.size() == 3);
+
+  const auto& wildcard_case_expr = args.items[2];
+  REQUIRE(wildcard_case_expr != nullptr);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRTupleExpr>(wildcard_case_expr->node));
+  const auto& wildcard_case = std::get<fleaux::frontend::ir::IRTupleExpr>(wildcard_case_expr->node);
+  REQUIRE(wildcard_case.items.size() == 2);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRConstant>(wildcard_case.items[0]->node));
+  const auto& wildcard_pattern = std::get<fleaux::frontend::ir::IRConstant>(wildcard_case.items[0]->node);
+  REQUIRE(std::holds_alternative<std::string>(wildcard_pattern.val));
+  REQUIRE(std::get<std::string>(wildcard_pattern.val) == "__fleaux_match_wildcard__");
+}
+
+TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
+  const std::string src =
+      "(1, (_, (): Any = \"many\"), (1, (): Any = \"one\")) -> Std.Match;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "match_wildcard_order_lowering.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("wildcard '_' must be the final case") != std::string::npos);
+}
+

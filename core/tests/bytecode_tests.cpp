@@ -379,6 +379,27 @@ TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[byt
   REQUIRE(closure.declared_has_variadic_tail);
 }
 
+TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(
+      "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n",
+      "bytecode_std_match.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  bool found_match_call = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      if (name == "Std.Match") {
+        found_match_call = true;
+      }
+    }
+  }
+  REQUIRE(found_match_call);
+}
+
 TEST_CASE("Bytecode compiler keeps Std.Branch as builtin for callable locals", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
 let Inc(x: Number): Number = (x, 1) -> Std.Add;

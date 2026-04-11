@@ -918,6 +918,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     kStd_And,
     kStd_Or,
     kStd_Select,
+    kStd_Match,
     kStd_UnaryMinus,
     kStd_UnaryPlus,
     kStd_Math_Floor,
@@ -1058,6 +1059,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
       {"Std.And", BuiltinDispatchKey::kStd_And},
       {"Std.Or", BuiltinDispatchKey::kStd_Or},
       {"Std.Select", BuiltinDispatchKey::kStd_Select},
+      {"Std.Match", BuiltinDispatchKey::kStd_Match},
       {"Std.UnaryMinus", BuiltinDispatchKey::kStd_UnaryMinus},
       {"Std.UnaryPlus", BuiltinDispatchKey::kStd_UnaryPlus},
       {"Std.Math.Floor", BuiltinDispatchKey::kStd_Math_Floor},
@@ -1264,6 +1266,13 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           return std::optional<Value>{fleaux::runtime::as_bool(*cond) ? *tv : *fv};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Select' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Match: {
+        try {
+          return std::optional<Value>{fleaux::runtime::Match{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Match' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_UnaryMinus: {

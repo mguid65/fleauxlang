@@ -921,6 +921,133 @@ TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
   REQUIRE(result.error().message == "native builtin 'Std.Apply' threw: too few arguments for inline closure");
 }
 
+TEST_CASE("VM executes Std.Match with wildcard closure case", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"zero"}});
+  const auto cZero = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"many"}});
+  const auto cMany = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"__fleaux_match_wildcard__"}});
+  const auto cWildcard = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  fleaux::bytecode::FunctionDef zero_fn;
+  zero_fn.name = "CaseZero";
+  zero_fn.arity = 0;
+  zero_fn.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, cZero},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+
+  fleaux::bytecode::FunctionDef many_fn;
+  many_fn.name = "CaseMany";
+  many_fn.arity = 0;
+  many_fn.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, cMany},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+
+  bytecode_module.functions.push_back(std::move(zero_fn));
+  bytecode_module.functions.push_back(std::move(many_fn));
+  bytecode_module.builtin_names = {"Std.Match"};
+
+  bytecode_module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, c3},
+
+      {fleaux::bytecode::Opcode::kPushConst, c0},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+
+      {fleaux::bytecode::Opcode::kPushConst, cWildcard},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+
+      {fleaux::bytecode::Opcode::kBuildTuple, 3},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "many\n");
+}
+
+TEST_CASE("VM executes Std.Match with predicate pattern case", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c6 = push_i64_const(bytecode_module, 6);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"even"}});
+  const auto cEven = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"odd"}});
+  const auto cOdd = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"__fleaux_match_wildcard__"}});
+  const auto cWildcard = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  fleaux::bytecode::FunctionDef is_even_fn;
+  is_even_fn.name = "IsEven";
+  is_even_fn.arity = 1;
+  is_even_fn.instructions = {
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kPushConst, c2},
+      {fleaux::bytecode::Opcode::kMod, 0},
+      {fleaux::bytecode::Opcode::kPushConst, c2},
+      {fleaux::bytecode::Opcode::kPushConst, c2},
+      {fleaux::bytecode::Opcode::kMod, 0},
+      {fleaux::bytecode::Opcode::kCmpEq, 0},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+
+  fleaux::bytecode::FunctionDef even_fn;
+  even_fn.name = "CaseEven";
+  even_fn.arity = 1;
+  even_fn.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, cEven},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+
+  fleaux::bytecode::FunctionDef odd_fn;
+  odd_fn.name = "CaseOdd";
+  odd_fn.arity = 1;
+  odd_fn.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, cOdd},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+
+  bytecode_module.functions.push_back(std::move(is_even_fn));
+  bytecode_module.functions.push_back(std::move(even_fn));
+  bytecode_module.functions.push_back(std::move(odd_fn));
+  bytecode_module.builtin_names = {"Std.Match"};
+
+  bytecode_module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, c6},
+
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+
+      {fleaux::bytecode::Opcode::kPushConst, cWildcard},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 2},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+
+      {fleaux::bytecode::Opcode::kBuildTuple, 3},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kPrint, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "even\n");
+}
+
 TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical builtins", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});

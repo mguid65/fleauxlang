@@ -14,6 +14,8 @@ const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
 
+const std::string kMatchWildcardSentinel = "__fleaux_match_wildcard__";
+
 LoweringError make_error(const std::string& message, const std::optional<std::string>& hint,
                          const std::optional<diag::SourceSpan>& span) {
   LoweringError err;
@@ -59,6 +61,65 @@ ir::IRSimpleType lower_simple_type(const model::TypeRef& type) {
 
 tl::expected<ir::IRExprPtr, LoweringError> lower_expr(const model::ExpressionPtr& expr,
                                                       const std::unordered_set<std::string>& bound_names);
+
+bool is_std_match_target(const ir::IRCallTarget& target) {
+  if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
+    return name_ref->qualifier.has_value() && name_ref->qualifier.value() == "Std" && name_ref->name == "Match";
+  }
+  return false;
+}
+
+tl::expected<void, LoweringError> rewrite_match_wildcards(const ir::IRExprPtr& match_lhs,
+                                                          const std::optional<diag::SourceSpan>& span) {
+  if (!match_lhs) {
+    return tl::unexpected(make_error("Std.Match requires a non-null lhs tuple.",
+                                     "Use '(value, (pattern, handler), ... ) -> Std.Match'.", span));
+  }
+
+  auto* match_args = std::get_if<ir::IRTupleExpr>(&match_lhs->node);
+  if (match_args == nullptr || match_args->items.size() < 2U) {
+    return tl::unexpected(make_error("Std.Match expects '(value, (pattern, handler), ... )'.",
+                                     "Add at least one '(pattern, handler)' case tuple.", span));
+  }
+
+  for (std::size_t idx = 1; idx < match_args->items.size(); ++idx) {
+    const auto& case_expr = match_args->items[idx];
+    if (!case_expr) {
+      return tl::unexpected(make_error("Std.Match case cannot be null.",
+                                       "Use '(pattern, handler)' for each case.", span));
+    }
+
+    auto* case_tuple = std::get_if<ir::IRTupleExpr>(&case_expr->node);
+    if (case_tuple == nullptr || case_tuple->items.size() != 2U) {
+      return tl::unexpected(make_error("Std.Match case must be a 2-item tuple '(pattern, handler)'.",
+                                       "Each case should look like '(0, (): Any = \"zero\")'.", case_expr->span));
+    }
+
+    auto& pattern_expr = case_tuple->items[0];
+    if (!pattern_expr) {
+      return tl::unexpected(make_error("Std.Match pattern cannot be null.",
+                                       "Use a literal pattern like 0, 1, or _.", case_expr->span));
+    }
+
+    const auto* pattern_name = std::get_if<ir::IRNameRef>(&pattern_expr->node);
+    const bool is_wildcard_pattern =
+        pattern_name != nullptr && !pattern_name->qualifier.has_value() && pattern_name->name == "_";
+    if (is_wildcard_pattern && idx + 1U != match_args->items.size()) {
+      return tl::unexpected(make_error("Std.Match wildcard '_' must be the final case.",
+                                       "Move '(_, handler)' to the end so earlier cases can still match.",
+                                       pattern_expr->span));
+    }
+
+    if (is_wildcard_pattern) {
+      ir::IRConstant wildcard;
+      wildcard.val = kMatchWildcardSentinel;
+      wildcard.span = pattern_name->span;
+      pattern_expr->node = std::move(wildcard);
+    }
+  }
+
+  return {};
+}
 
 void collect_unqualified_names_from_expr(const model::ExpressionPtr& expr,
                                          std::vector<std::string>& out,
@@ -309,6 +370,13 @@ tl::expected<ir::IRExprPtr, LoweringError> lower_flow(const model::FlowExpressio
   std::size_t i = 0;
   while (i < flow.rhs.size()) {
     if (auto maybe_target = extract_call_target_from_primary(flow.rhs[i])) {
+      if (is_std_match_target(maybe_target.value())) {
+        auto rewritten = rewrite_match_wildcards(result.value(), flow.rhs[i].span);
+        if (!rewritten) {
+          return tl::unexpected(rewritten.error());
+        }
+      }
+
       ir::IRFlowExpr ir_flow;
       ir_flow.lhs = result.value();
       ir_flow.rhs = maybe_target.value();

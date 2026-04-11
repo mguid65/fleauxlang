@@ -16,7 +16,8 @@ let MakeAdder(n: Number): Any = (x: Number): Number = (x, n) -> Std.Add;
 // Inline closure used as a higher-order callback.
 ((1, 2, 3), (x: Number): Number = (x, 2) -> Std.Multiply) -> Std.Tuple.Map -> Std.Println;
 
-
+// No params
+() -> (): Any = ("Empty Closure") -> Std.Println;
 
 
 

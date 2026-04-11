@@ -100,6 +100,11 @@ let Std.Or(lhs: Any, rhs: Any) : Bool :: __builtin__;
 // ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
 // Note: both branches are always evaluated before Select is called.
 let Std.Select(condition: Bool, true_val: Any, false_val: Any) : Any :: __builtin__;
+// @brief Match value against ordered case tuples: (value, (pattern, handler), ...).
+// Pattern '_' is a wildcard default and should be placed last.
+// Pattern can also be a predicate callable '(x: Any): Bool = ...'.
+// The first matching handler is invoked and receives the input value.
+let Std.Match(value: Any, cases: Any...) : Any :: __builtin__;
 // @brief Apply a function reference to a value.
 // (5, Double) -> Std.Apply;  is equivalent to  (5) -> Double
 let Std.Apply(value: Any, func: Any) : Any :: __builtin__;

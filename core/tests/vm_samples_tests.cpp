@@ -249,7 +249,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 29> kExpectedSamples = {
+constexpr std::array<std::string_view, 30> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -279,6 +279,7 @@ constexpr std::array<std::string_view, 29> kExpectedSamples = {
     "27_error_handling_branching.fleaux",
     "28_variadics.fleaux",
     "29_inline_closures.fleaux",
+    "30_pattern_matching.fleaux",
 };
 
 }  // namespace
@@ -452,6 +453,36 @@ TEST_CASE("Inline closures execute in both interpreter and bytecode modes", "[vm
   REQUIRE(runtime_result.has_value());
 }
 
+TEST_CASE("Std.Match executes ordered pattern closures in interpreter and bytecode modes", "[vm][samples][match]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_match";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "match_ok.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let IsEven(n: Number): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
+           "(0, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
+           "(3, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
+           "(8, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+
+  const auto lowered = collect_and_lower(source_path);
+  REQUIRE(lowered.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(lowered.value());
+  REQUIRE(compiled_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value());
+  REQUIRE(runtime_result.has_value());
+}
+
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal)                                      \
   TEST_CASE("VM sample: " sample_file_literal, "[vm][samples]") {                      \
     run_sample_in_vm_and_assert(sample_file_literal);                                   \
@@ -496,6 +527,7 @@ FLEAUX_VM_SAMPLE_TEST("26_format_specifiers.fleaux")
 FLEAUX_VM_SAMPLE_TEST("27_error_handling_branching.fleaux")
 FLEAUX_VM_SAMPLE_TEST("28_variadics.fleaux")
 FLEAUX_VM_SAMPLE_TEST("29_inline_closures.fleaux")
+FLEAUX_VM_SAMPLE_TEST("30_pattern_matching.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -526,6 +558,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("26_format_specifiers.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("27_error_handling_branching.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("28_variadics.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("29_inline_closures.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("30_pattern_matching.fleaux")
 
 FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -556,6 +589,7 @@ FLEAUX_VM_PARITY_SAMPLE_TEST("26_format_specifiers.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("27_error_handling_branching.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("28_variadics.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("29_inline_closures.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("30_pattern_matching.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST
