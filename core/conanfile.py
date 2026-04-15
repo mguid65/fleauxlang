@@ -13,9 +13,11 @@ class ConanApplication(ConanFile):
 
     options = {
         "build_wasm_coordinator": [True, False],
+        "install_visual_assets": [True, False],
     }
     default_options = {
         "build_wasm_coordinator": False,
+        "install_visual_assets": False,
     }
 
     def layout(self):
@@ -28,6 +30,7 @@ class ConanApplication(ConanFile):
     def generate(self):
         tc = CMakeToolchain(self)
         tc.user_presets_path = False
+        tc.variables["FLEAUX_INSTALL_VISUAL_ASSETS"] = self.options.install_visual_assets
 
         # Pass WASM coordinator build flag to CMake
         if self.settings.os == "Emscripten":

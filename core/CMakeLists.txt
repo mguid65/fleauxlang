@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(fleaux_core LANGUAGES CXX)
+project(fleaux_core VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,8 +18,11 @@ foreach(_cfg IN ITEMS Debug Release RelWithDebInfo MinSizeRel)
 endforeach()
 
 include(CTest)
+include(GNUInstallDirs)
 
 option(FLEAUX_BUILD_WASM_COORDINATOR "Build browser-facing Fleaux WASM coordinator" OFF)
+option(FLEAUX_INSTALL_VISUAL_ASSETS "Install prebuilt fleaux-visual assets if available" OFF)
+set(FLEAUX_VISUAL_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/dist" CACHE PATH "Path to prebuilt fleaux-visual dist directory")
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
@@ -180,3 +183,48 @@ if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
   add_test(NAME fleaux_vm_jump_tests
            COMMAND fleaux_core_tests "[vm][jump]")
 endif()
+
+set(FLEAUX_INSTALL_TARGETS fleaux_transpile_cli)
+
+if(TARGET fleaux_vm_cli)
+  list(APPEND FLEAUX_INSTALL_TARGETS fleaux_vm_cli)
+endif()
+
+install(TARGETS ${FLEAUX_INSTALL_TARGETS}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    COMPONENT Runtime)
+
+install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Std.fleaux
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/fleaux
+    COMPONENT Runtime)
+
+file(GLOB FLEAUX_SAMPLE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/../samples/*.fleaux")
+install(FILES ${FLEAUX_SAMPLE_FILES}
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/fleaux/samples
+    COMPONENT Runtime)
+
+if(FLEAUX_INSTALL_VISUAL_ASSETS)
+  if(EXISTS "${FLEAUX_VISUAL_DIST_DIR}")
+    install(DIRECTORY ${FLEAUX_VISUAL_DIST_DIR}/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/fleaux/visual
+        COMPONENT Visual)
+  else()
+    message(WARNING "FLEAUX_INSTALL_VISUAL_ASSETS is ON, but no dist directory exists at: ${FLEAUX_VISUAL_DIST_DIR}")
+  endif()
+endif()
+
+set(CPACK_PACKAGE_NAME "fleaux")
+set(CPACK_PACKAGE_VENDOR "Fleaux")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Fleaux language tools and runtime")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}")
+set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/packages")
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_COMPONENTS_ALL Runtime)
+if(FLEAUX_INSTALL_VISUAL_ASSETS)
+  list(APPEND CPACK_COMPONENTS_ALL Visual)
+endif()
+
+include(CPack)
+
