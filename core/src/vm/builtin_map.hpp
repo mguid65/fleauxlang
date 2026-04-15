@@ -9,33 +9,29 @@
 #include <string>
 #include <unordered_map>
 
-#include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/runtime/fleaux_runtime.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::vm {
 
 // Returns the complete stdlib builtin dispatch map.
 // The map is constructed once (lazily) per program.
-[[nodiscard]] inline const std::unordered_map<std::string, fleaux::runtime::RuntimeCallable>&
-vm_builtin_callables() {
+[[nodiscard]] inline auto vm_builtin_callables()
+    -> const std::unordered_map<std::string, fleaux::runtime::RuntimeCallable>& {
   using namespace fleaux::runtime;
 
-  static const std::unordered_map<std::string, RuntimeCallable> map = [] {
+  static const std::unordered_map<std::string, RuntimeCallable> map =
+      [] () -> std::unordered_map<std::string, RuntimeCallable> {
     std::unordered_map<std::string, RuntimeCallable> out;
 
-#define FLEAUX_INSERT_BUILTIN(name_literal, node_type)                 \
-    out.emplace(name_literal, [](Value arg) -> Value {                 \
-      return node_type{}(std::move(arg));                              \
-    });
+#define FLEAUX_INSERT_BUILTIN(name_literal, node_type) \
+  out.emplace(name_literal, [](Value arg) -> Value { return node_type{}(std::move(arg)); });
     FLEAUX_VM_BUILTINS(FLEAUX_INSERT_BUILTIN)
 #undef FLEAUX_INSERT_BUILTIN
 
     // Numeric constants (zero-arg: ignore the argument, return the constant).
-    auto constant = [](const double v) {
-      return [v](Value) -> Value { return make_float(v); };
-    };
-#define FLEAUX_INSERT_CONST_BUILTIN(name_literal, numeric_value) \
-    out.emplace(name_literal, constant(numeric_value));
+    auto constant = [](const double v) { return [v](Value) -> Value { return make_float(v); }; };
+#define FLEAUX_INSERT_CONST_BUILTIN(name_literal, numeric_value) out.emplace(name_literal, constant(numeric_value));
     FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_CONST_BUILTIN)
 #undef FLEAUX_INSERT_CONST_BUILTIN
 
@@ -45,4 +41,3 @@ vm_builtin_callables() {
 }
 
 }  // namespace fleaux::vm
-

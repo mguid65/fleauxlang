@@ -3,11 +3,11 @@
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
-// ── Tuple builtins ────────────────────────────────────────────────────────────
+// Tuple builtins
 
 struct TupleAppend {
     // arg = [sequence, item]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleAppend");
         const auto& src = as_array(*args.TryGet(0));
         Array out;
@@ -21,8 +21,8 @@ struct TupleAppend {
 };
 
 struct TuplePrepend {
-    // arg = [sequence, item]  →  [item, ...sequence]
-    Value operator()(Value arg) const {
+    // arg = [sequence, item]  ->  [item, ...sequence]
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TuplePrepend");
         const auto& src = as_array(*args.TryGet(0));
         Array out;
@@ -36,8 +36,8 @@ struct TuplePrepend {
 };
 
 struct TupleReverse {
-    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    // arg = sequence
+    auto operator()(Value arg) const -> Value {
         const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
@@ -50,7 +50,7 @@ struct TupleReverse {
 
 struct TupleContains {
     // arg = [sequence, item]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleContains");
         const auto& src = as_array(*args.TryGet(0));
         const Value& item = *args.TryGet(1);
@@ -64,8 +64,8 @@ struct TupleContains {
 };
 
 struct TupleZip {
-    // arg = [sequenceA, sequenceB]  →  [(a0,b0), (a1,b1), ...]
-    Value operator()(Value arg) const {
+    // arg = [sequenceA, sequenceB]  ->  [(a0,b0), (a1,b1), ...]
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleZip");
         const auto& a = as_array(*args.TryGet(0));
         const auto& b = as_array(*args.TryGet(1));
@@ -81,7 +81,7 @@ struct TupleZip {
 
 struct TupleMap {
     // arg = [sequence, func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleMap");
         const auto& src = as_array(*args.TryGet(0));
         const Value& func = *args.TryGet(1);
@@ -97,7 +97,7 @@ struct TupleMap {
 
 struct TupleFilter {
     // arg = [sequence, pred_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleFilter");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
@@ -113,8 +113,8 @@ struct TupleFilter {
 };
 
 struct TupleSort {
-    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    // arg = sequence
+    auto operator()(Value arg) const -> Value {
         const auto& src = as_array(arg);
         std::vector<Value> items;
         items.reserve(src.Size());
@@ -122,7 +122,7 @@ struct TupleSort {
             items.push_back(*src.TryGet(i));
         }
 
-        std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) {
+        std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) -> bool {
             return compare_values_for_sort(lhs, rhs) < 0;
         });
 
@@ -136,8 +136,8 @@ struct TupleSort {
 };
 
 struct TupleUnique {
-    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    // arg = sequence
+    auto operator()(Value arg) const -> Value {
         const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
@@ -159,8 +159,8 @@ struct TupleUnique {
 };
 
 struct TupleMin {
-    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    // arg = sequence
+    auto operator()(Value arg) const -> Value {
         const auto& src = as_array(arg);
         if (src.Size() == 0) {
             throw std::invalid_argument{"TupleMin expects non-empty tuple"};
@@ -178,8 +178,8 @@ struct TupleMin {
 };
 
 struct TupleMax {
-    // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    // arg = sequence
+    auto operator()(Value arg) const -> Value {
         const auto& src = as_array(arg);
         if (src.Size() == 0) {
             throw std::invalid_argument{"TupleMax expects non-empty tuple"};
@@ -198,7 +198,7 @@ struct TupleMax {
 
 struct TupleReduce {
     // arg = [sequence, initial, func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "TupleReduce");
         const auto& src = as_array(*args.TryGet(0));
         Value acc = *args.TryGet(1);
@@ -212,7 +212,7 @@ struct TupleReduce {
 
 struct TupleFindIndex {
     // arg = [sequence, pred_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleFindIndex");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
@@ -227,7 +227,7 @@ struct TupleFindIndex {
 
 struct TupleAny {
     // arg = [sequence, pred_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleAny");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
@@ -242,7 +242,7 @@ struct TupleAny {
 
 struct TupleAll {
     // arg = [sequence, pred_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleAll");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
@@ -257,7 +257,7 @@ struct TupleAll {
 
 struct TupleRange {
     // arg = [stop] | [start, stop] | [start, stop, step]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         Int start = 0;
         Int stop = 0;

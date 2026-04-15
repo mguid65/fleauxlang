@@ -5,28 +5,28 @@
 #include <vector>
 
 #include "fleaux/runtime/value.hpp"
+
 namespace fleaux::runtime {
 
 inline constexpr std::string_view k_match_wildcard_sentinel = "__fleaux_match_wildcard__";
 
-inline const Array& require_result_tuple(const Value& value, const char* op_name) {
+inline auto require_result_tuple(const Value& value, const char* op_name) -> const Array& {
     const auto& result = as_array(value);
     if (result.Size() != 2) {
         throw std::invalid_argument{std::string(op_name) + ": expected Result tuple (tag, payload)"};
     }
 
-    const Value& tag = *result.TryGet(0);
-    if (!tag.HasBool()) {
+    if (const Value& tag = *result.TryGet(0); !tag.HasBool()) {
         throw std::invalid_argument{std::string(op_name) + ": Result tag must be a Bool (true for Ok, false for Err)"};
     }
     return result;
 }
 
-inline std::string normalize_runtime_error_message(std::string message) {
+inline auto normalize_runtime_error_message(std::string message) -> std::string {
     // Unwrap nested runtime wrappers like:
     // "native 'branch_call' threw: native builtin 'Std.X' threw: actual message"
     constexpr std::string_view k_threw = "threw: ";
-    while (message.rfind("native ", 0) == 0) {
+    while (message.starts_with("native ")) {
         const std::size_t split = message.find(k_threw);
         if (split == std::string::npos) {
             break;
@@ -37,22 +37,22 @@ inline std::string normalize_runtime_error_message(std::string message) {
 }
 
 struct Wrap {
-    // arg = any Value  →  [arg]
-    Value operator()(Value v) const {
+    // arg = any Value  ->  [arg]
+    auto operator()(Value v) const -> Value {
         return make_tuple(std::move(v));
     }
 };
 
 struct Unwrap {
-    // arg = [v]  →  v
-    Value operator()(Value v) const {
+    // arg = [v]  ->  v
+    auto operator()(Value v) const -> Value {
         return array_at(v, 0);
     }
 };
 
 struct ElementAt {
     // arg = [sequence, index]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& seq = as_array(array_at(arg, 0));
         const std::size_t idx = as_index(array_at(arg, 1));
         auto r = seq.TryGet(idx);
@@ -63,14 +63,14 @@ struct ElementAt {
 
 struct Length {
     // arg = sequence  (Option B: arg IS the array, no 1-element wrapper)
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_int(static_cast<Int>(as_array(arg).Size()));
     }
 };
 
 struct Take {
     // arg = [sequence, count]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& seq = as_array(array_at(arg, 0));
         const std::size_t n = std::min(as_index(array_at(arg, 1)), seq.Size());
         Array out;
@@ -84,7 +84,7 @@ struct Take {
 
 struct Drop {
     // arg = [sequence, count]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& seq   = as_array(array_at(arg, 0));
         const std::size_t start = as_index(array_at(arg, 1));
         Array out;
@@ -97,9 +97,9 @@ struct Drop {
 
 struct Slice {
     // arg = [sequence, stop]
-    //     | [sequence, start, stop]
-    //     | [sequence, start, stop, step]
-    Value operator()(Value arg) const {
+    //    | [sequence, start, stop]
+    //    | [sequence, start, stop, step]
+    auto operator()(Value arg) const -> Value {
         const auto& arr = as_array(arg);
         if (arr.Size() < 2) throw std::invalid_argument{"Slice: need at least 2 arguments"};
         const auto& seq = as_array(*arr.TryGet(0));
@@ -128,11 +128,11 @@ struct Slice {
     }
 };
 
-// ── Arithmetic ────────────────────────────────────────────────────────────────
+// Arithmetic
 
 struct Add {
     // arg = [lhs, rhs]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value& l = array_at(arg, 0);
         const Value& r = array_at(arg, 1);
         // String concatenation
@@ -144,25 +144,25 @@ struct Add {
 };
 
 struct Subtract {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(to_double(array_at(arg, 0)) - to_double(array_at(arg, 1)));
     }
 };
 
 struct Multiply {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(to_double(array_at(arg, 0)) * to_double(array_at(arg, 1)));
     }
 };
 
 struct Divide {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(to_double(array_at(arg, 0)) / to_double(array_at(arg, 1)));
     }
 };
 
 struct Mod {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const double l = to_double(array_at(arg, 0));
         const double r = to_double(array_at(arg, 1));
         return num_result(std::fmod(l, r));
@@ -170,100 +170,100 @@ struct Mod {
 };
 
 struct Pow {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::pow(to_double(array_at(arg, 0)), to_double(array_at(arg, 1))));
     }
 };
 
 struct Sqrt {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::sqrt(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
 struct UnaryMinus {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(-to_double(unwrap_singleton_arg(std::move(arg))));
     }
 };
 
 struct UnaryPlus {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(+to_double(unwrap_singleton_arg(std::move(arg))));
     }
 };
 
 struct Sin {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::sin(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 struct Cos {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::cos(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 struct Tan {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::tan(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
-// ── Comparison & logical ──────────────────────────────────────────────────────
+// Comparison & logical
 
 struct GreaterThan {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(to_double(array_at(arg, 0)) > to_double(array_at(arg, 1)));
     }
 };
 struct LessThan {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(to_double(array_at(arg, 0)) < to_double(array_at(arg, 1)));
     }
 };
 struct GreaterOrEqual {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(to_double(array_at(arg, 0)) >= to_double(array_at(arg, 1)));
     }
 };
 struct LessOrEqual {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(to_double(array_at(arg, 0)) <= to_double(array_at(arg, 1)));
     }
 };
 
 struct Equal {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(array_at(arg, 0) == array_at(arg, 1));
     }
 };
 struct NotEqual {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(array_at(arg, 0) != array_at(arg, 1));
     }
 };
 
 struct Not {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(!as_bool(unwrap_singleton_arg(std::move(arg))));
     }
 };
 struct And {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(as_bool(array_at(arg, 0)) && as_bool(array_at(arg, 1)));
     }
 };
 struct Or {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_bool(as_bool(array_at(arg, 0)) || as_bool(array_at(arg, 1)));
     }
 };
 
-// ── Output ────────────────────────────────────────────────────────────────────
+// Output
 
 struct Println {
     // Prints the value, returns it unchanged.
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         print_value_varargs(std::cout, arg);
         std::cout << '\n';
         return arg;
@@ -273,7 +273,7 @@ struct Println {
 struct Printf {
     // arg = [format, arg0, arg1, ...]
     // Prints formatted text and returns (format, (arg0, arg1, ...)).
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() < 1) {
             throw std::invalid_argument{"Printf expects at least 1 argument"};
@@ -297,7 +297,7 @@ struct Printf {
 
 struct Input {
     // arg = [] | [prompt] | prompt
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         auto read_line = []() -> Value {
             std::string line;
             if (!std::getline(std::cin, line)) {
@@ -326,7 +326,7 @@ struct Input {
 };
 
 struct GetArgs {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         (void)require_args(arg, 0, "GetArgs");
         Array out;
         const auto& args = get_process_args();
@@ -339,7 +339,7 @@ struct GetArgs {
 };
 
 struct Exit {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         if (arg.HasArray()) {
             const auto& args = as_array(arg);
             if (args.Size() == 0) {
@@ -355,11 +355,11 @@ struct Exit {
 };
 
 
-// ── Control flow (templated: functions remain concrete C++ callables) ─────────
+// Control flow (templated: functions remain concrete C++ callables)
 
 struct Select {
     // arg = [condition, true_val, false_val] — all Values
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return as_bool(array_at(arg, 0))
             ? array_at(arg, 1)
             : array_at(arg, 2);
@@ -370,7 +370,7 @@ struct Match {
     // arg = [value, [pattern, handler], [pattern, handler], ...]
     // Pattern wildcard is encoded as the lowering sentinel string.
     // Callable patterns are predicates: pattern(subject) -> Bool.
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() < 2) {
             throw std::invalid_argument{"Match expects a value and at least one case"};
@@ -402,19 +402,19 @@ struct Match {
 };
 
 struct ResultOk {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_tuple(make_bool(true), unwrap_singleton_arg(std::move(arg)));
     }
 };
 
 struct ResultErr {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_tuple(make_bool(false), unwrap_singleton_arg(std::move(arg)));
     }
 };
 
 struct ResultTag {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.Tag");
         return *tuple.TryGet(0);
@@ -422,7 +422,7 @@ struct ResultTag {
 };
 
 struct ResultPayload {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.Payload");
         return *tuple.TryGet(1);
@@ -430,7 +430,7 @@ struct ResultPayload {
 };
 
 struct ResultIsOk {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.IsOk");
         return *tuple.TryGet(0);  // true is Ok, false is Err
@@ -438,7 +438,7 @@ struct ResultIsOk {
 };
 
 struct ResultIsErr {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.IsErr");
         return make_bool(!as_bool(*tuple.TryGet(0)));  // negation of Ok
@@ -446,7 +446,7 @@ struct ResultIsErr {
 };
 
 struct ResultUnwrap {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.Unwrap");
         if (!as_bool(*tuple.TryGet(0))) {
@@ -457,7 +457,7 @@ struct ResultUnwrap {
 };
 
 struct ResultUnwrapErr {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value result = unwrap_singleton_arg(std::move(arg));
         const auto& tuple = require_result_tuple(result, "Result.UnwrapErr");
         if (as_bool(*tuple.TryGet(0))) {
@@ -469,7 +469,7 @@ struct ResultUnwrapErr {
 
 struct Try {
     // arg = [value, func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "Try");
         const Value& val = *args.TryGet(0);
         const Value& func = *args.TryGet(1);
@@ -483,7 +483,7 @@ struct Try {
 
 struct ExpParallel {
     // arg = [items_tuple, func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "Exp.Parallel");
         const auto& items = as_array(*args.TryGet(0));
         const Value func = *args.TryGet(1);
@@ -513,7 +513,7 @@ struct ExpParallel {
 
 struct Apply {
     // arg = [value, func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "Apply");
         return invoke_callable_ref(*args.TryGet(1), *args.TryGet(0));
     }
@@ -521,7 +521,7 @@ struct Apply {
 
 struct Branch {
     // arg = [condition, value, true_func_ref, false_func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 4, "Branch");
         const Value& cond = *args.TryGet(0);
         const Value& val = *args.TryGet(1);
@@ -533,7 +533,7 @@ struct Branch {
 
 struct Loop {
     // arg = [state, continue_func_ref, step_func_ref]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "Loop");
         Value state = *args.TryGet(0);
         const Value& cf = *args.TryGet(1);
@@ -547,7 +547,7 @@ struct Loop {
 
 struct LoopN {
     // arg = [state, continue_func_ref, step_func_ref, max_iters]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 4, "LoopN");
         Value state = *args.TryGet(0);
         const Value& cf = *args.TryGet(1);

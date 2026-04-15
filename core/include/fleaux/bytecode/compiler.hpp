@@ -16,9 +16,8 @@ struct CompileError {
 using CompileResult = tl::expected<Module, CompileError>;
 
 class BytecodeCompiler {
- public:
-  CompileResult compile(const frontend::ir::IRProgram& program) const;
+public:
+  [[nodiscard]] auto compile(const frontend::ir::IRProgram& program) const -> CompileResult;
 };
 
 }  // namespace fleaux::bytecode
-

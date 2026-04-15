@@ -17,10 +17,8 @@ struct ParseError {
 using ParseResult = tl::expected<model::Program, ParseError>;
 
 class Parser {
- public:
-  ParseResult parse_program(const std::string& source,
-                           const std::string& source_name) const;
+public:
+  [[nodiscard]] auto parse_program(const std::string& source, const std::string& source_name) const -> ParseResult;
 };
 
 }  // namespace fleaux::frontend::parse
-
