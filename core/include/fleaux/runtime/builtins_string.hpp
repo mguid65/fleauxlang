@@ -17,7 +17,7 @@
 #endif
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
-// ── String / conversion ───────────────────────────────────────────────────────
+// String / conversion
 
 namespace detail {
 
@@ -42,7 +42,7 @@ struct RegexMatchDataDeleter {
 using RegexCodePtr = std::unique_ptr<pcre2_code, RegexCodeDeleter>;
 using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDeleter>;
 
-[[nodiscard]] inline RegexCodePtr regex_compile_or_throw(const std::string& pattern) {
+[[nodiscard]] inline auto regex_compile_or_throw(const std::string& pattern) -> RegexCodePtr {
     int error_code = 0;
     PCRE2_SIZE error_offset = 0;
     pcre2_code* compiled = pcre2_compile(reinterpret_cast<PCRE2_SPTR>(pattern.c_str()),
@@ -61,7 +61,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     return RegexCodePtr{compiled};
 }
 
-[[nodiscard]] inline RegexMatchDataPtr regex_match_data_or_throw(const pcre2_code* code) {
+[[nodiscard]] inline auto regex_match_data_or_throw(const pcre2_code* code) -> RegexMatchDataPtr {
     pcre2_match_data* data = pcre2_match_data_create_from_pattern(code, nullptr);
     if (data == nullptr) {
         throw std::runtime_error{"Regex: failed to allocate match data"};
@@ -74,14 +74,14 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 }  // namespace detail
 
 struct ToString {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return make_string(to_string(unwrap_singleton_arg(std::move(arg))));
     }
 };
 
 struct ToNum {
     // arg = [string_value]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const std::string& s = as_string(array_at(arg, 0));
         std::size_t consumed = 0;
         const double d = std::stod(s, &consumed);
@@ -93,9 +93,9 @@ struct ToNum {
 };
 
 struct StringUpper {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
-        std::ranges::transform(s, s.begin(), [](const unsigned char c) {
+        std::ranges::transform(s, s.begin(), [](const unsigned char c) -> char {
             return static_cast<char>(std::toupper(c));
         });
         return make_string(std::move(s));
@@ -103,9 +103,9 @@ struct StringUpper {
 };
 
 struct StringLower {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
-        std::ranges::transform(s, s.begin(), [](const unsigned char c) {
+        std::ranges::transform(s, s.begin(), [](const unsigned char c) -> char {
             return static_cast<char>(std::tolower(c));
         });
         return make_string(std::move(s));
@@ -113,28 +113,28 @@ struct StringLower {
 };
 
 struct StringTrim {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
         return make_string(trim_right(trim_left(std::move(s))));
     }
 };
 
 struct StringTrimStart {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
         return make_string(trim_left(std::move(s)));
     }
 };
 
 struct StringTrimEnd {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
         return make_string(trim_right(std::move(s)));
     }
 };
 
 struct StringSplit {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringSplit expects 2 arguments"};
@@ -161,7 +161,7 @@ struct StringSplit {
 };
 
 struct StringJoin {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringJoin expects 2 arguments"};
@@ -193,7 +193,7 @@ struct StringJoin {
 };
 
 struct StringReplace {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 3) {
             throw std::invalid_argument{"StringReplace expects 3 arguments"};
@@ -214,7 +214,7 @@ struct StringReplace {
 };
 
 struct StringContains {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringContains expects 2 arguments"};
@@ -226,7 +226,7 @@ struct StringContains {
 };
 
 struct StringStartsWith {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringStartsWith expects 2 arguments"};
@@ -238,7 +238,7 @@ struct StringStartsWith {
 };
 
 struct StringEndsWith {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringEndsWith expects 2 arguments"};
@@ -253,7 +253,7 @@ struct StringEndsWith {
 };
 
 struct StringLength {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const std::string s = to_string(unwrap_singleton_arg(std::move(arg)));
         return make_int(static_cast<Int>(s.size()));
     }
@@ -261,7 +261,7 @@ struct StringLength {
 
 struct StringCharAt {
     // arg = [s, index] -> 1-char string or "" when out of range
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
             throw std::invalid_argument{"StringCharAt expects 2 arguments"};
@@ -277,7 +277,7 @@ struct StringCharAt {
 
 struct StringSlice {
     // arg = [s, stop] | [s, start, stop]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2 && args.Size() != 3) {
             throw std::invalid_argument{"StringSlice expects 2 or 3 arguments"};
@@ -300,7 +300,7 @@ struct StringSlice {
 
 struct StringFind {
     // arg = [s, needle] | [s, needle, start]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 2 && args.Size() != 3) {
             throw std::invalid_argument{"StringFind expects 2 or 3 arguments"};
@@ -325,7 +325,7 @@ struct StringFind {
 struct StringFormat {
     // arg = [format, arg0, arg1, ...]
     // Returns the formatted string without printing.
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() < 1) {
             throw std::invalid_argument{"String.Format expects at least 1 argument"};
@@ -342,7 +342,7 @@ struct StringFormat {
 
 struct StringRegexIsMatch {
     // arg = [s, pattern]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
 #if FLEAUX_HAS_PCRE2
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
@@ -376,7 +376,7 @@ struct StringRegexIsMatch {
 
 struct StringRegexFind {
     // arg = [s, pattern]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
 #if FLEAUX_HAS_PCRE2
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
@@ -411,7 +411,7 @@ struct StringRegexFind {
 
 struct StringRegexReplace {
     // arg = [s, pattern, repl]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
 #if FLEAUX_HAS_PCRE2
         const auto& args = as_array(arg);
         if (args.Size() != 3) {
@@ -443,8 +443,8 @@ struct StringRegexReplace {
             }
 
             const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
-            const std::size_t begin = static_cast<std::size_t>(ovector[0]);
-            const std::size_t end = static_cast<std::size_t>(ovector[1]);
+            const auto begin = static_cast<std::size_t>(ovector[0]);
+            const auto end = static_cast<std::size_t>(ovector[1]);
             if (end < begin || begin > s.size() || end > s.size()) {
                 throw std::runtime_error{"StringRegexReplace: invalid match bounds"};
             }
@@ -471,7 +471,7 @@ struct StringRegexReplace {
 
 struct StringRegexSplit {
     // arg = [s, pattern]
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
 #if FLEAUX_HAS_PCRE2
         const auto& args = as_array(arg);
         if (args.Size() != 2) {
@@ -502,8 +502,8 @@ struct StringRegexSplit {
             }
 
             const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
-            const std::size_t begin = static_cast<std::size_t>(ovector[0]);
-            const std::size_t end = static_cast<std::size_t>(ovector[1]);
+            const auto begin = static_cast<std::size_t>(ovector[0]);
+            const auto end = static_cast<std::size_t>(ovector[1]);
             if (end < begin || begin > s.size() || end > s.size()) {
                 throw std::runtime_error{"StringRegexSplit: invalid match bounds"};
             }
@@ -528,31 +528,31 @@ struct StringRegexSplit {
 };
 
 struct MathFloor {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::floor(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
 struct MathCeil {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::ceil(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
 struct MathAbs {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::abs(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
 struct MathLog {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         return num_result(std::log(to_double(unwrap_singleton_arg(std::move(arg)))));
     }
 };
 
 struct MathClamp {
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = as_array(arg);
         if (args.Size() != 3) {
             throw std::invalid_argument{"MathClamp expects 3 arguments"};

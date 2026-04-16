@@ -3,7 +3,7 @@
 // Umbrella header for the Fleaux C++ runtime.
 //
 // Include this single header to pull in everything:
-//   #include "fleaux/runtime/fleaux_runtime.hpp"
+//  #include "fleaux/runtime/fleaux_runtime.hpp"
 //
 // Or include individual sub-headers for finer-grained dependencies.
 

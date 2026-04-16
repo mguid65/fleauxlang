@@ -17,9 +17,8 @@ struct LoweringError {
 using LoweringResult = tl::expected<ir::IRProgram, LoweringError>;
 
 class Lowerer {
- public:
-  LoweringResult lower(const model::Program& program) const;
+public:
+  [[nodiscard]] auto lower(const model::Program& program) const -> LoweringResult;
 };
 
 }  // namespace fleaux::frontend::lowering
-

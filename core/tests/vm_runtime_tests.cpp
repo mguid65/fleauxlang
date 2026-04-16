@@ -47,7 +47,7 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
 // kJump: unconditional jump skips instructions.
 //
 //  [0] kPushConst idx(10)
-//  [1] kJump 3          → jump to [3], skip [2]
+//  [1] kJump 3          -> jump to [3], skip [2]
 //  [2] kPushConst idx(99) (never reached)
 //  [3] kPrint
 //  [4] kHalt

@@ -15,7 +15,7 @@ struct CliOptions {
   bool show_help = false;
 };
 
-std::string usage_text() { return "usage: fleaux_transpile_cli [--all-samples] [file.fleaux]"; }
+auto usage_text() -> std::string { return "usage: fleaux_transpile_cli [--all-samples] [file.fleaux]"; }
 
 void print_help() {
   std::cout << usage_text() << '\n'
@@ -28,7 +28,7 @@ void print_help() {
             << "  - If no source is provided, defaults to test.fleaux\n";
 }
 
-std::optional<std::filesystem::path> resolve_samples_dir(const std::filesystem::path& executable_path) {
+auto resolve_samples_dir(const std::filesystem::path& executable_path) -> std::optional<std::filesystem::path> {
   if (auto cwd_samples = std::filesystem::current_path() / "samples"; std::filesystem::is_directory(cwd_samples)) {
     return cwd_samples;
   }
@@ -42,7 +42,7 @@ std::optional<std::filesystem::path> resolve_samples_dir(const std::filesystem::
   return std::nullopt;
 }
 
-std::vector<std::filesystem::path> collect_sample_sources(const std::filesystem::path& samples_dir) {
+auto collect_sample_sources(const std::filesystem::path& samples_dir) -> std::vector<std::filesystem::path> {
   std::vector<std::filesystem::path> out;
   for (const auto& entry : std::filesystem::directory_iterator(samples_dir)) {
     if (!entry.is_regular_file()) continue;
@@ -53,7 +53,7 @@ std::vector<std::filesystem::path> collect_sample_sources(const std::filesystem:
   return out;
 }
 
-std::optional<CliOptions> parse_cli_args(int argc, char** argv) {
+auto parse_cli_args(int argc, char** argv) -> std::optional<CliOptions> {
   CliOptions options;
 
   for (int i = 1; i < argc; ++i) {
@@ -84,7 +84,7 @@ std::optional<CliOptions> parse_cli_args(int argc, char** argv) {
 }
 }  // namespace
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
   const auto options = parse_cli_args(argc, argv);
   if (!options.has_value()) {
     std::cerr << usage_text() << '\n';

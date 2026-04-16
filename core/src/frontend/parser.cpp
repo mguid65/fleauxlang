@@ -30,35 +30,31 @@ struct Token {
   int col = 1;
   std::string text;
 
-  [[nodiscard]] int end_col() const { return col + static_cast<int>(text.size()); }
+  [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {
-    "let", "import", "Number", "String", "Bool", "Null", "Any", "Tuple", "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",  "import", "Number", "String",     "Bool",
+                                                   "Null", "Any",    "Tuple",  "__builtin__"};
 
 const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "__builtin__"};
 
 const std::unordered_set<std::string> kOperators = {
-    "^",  "/",  "*",  "%",  "+",  "-",  "==", "!=",
-    "<",  ">",  ">=", "<=", "!",  "&&", "||",
+    "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
 
 const std::unordered_set<std::string> kSimpleTypes = {"Number", "String", "Bool", "Null", "Any"};
 
-bool is_ident_start(const char c) { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
+auto is_ident_start(const char c) -> bool { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
-bool is_ident_char(const char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
+auto is_ident_char(const char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
-bool starts_with(const std::string& source, const std::size_t index, const std::string& text) {
-  if (index + text.size() > source.size()) {
-    return false;
-  }
+auto starts_with(const std::string& source, const std::size_t index, const std::string& text) -> bool {
+  if (index + text.size() > source.size()) { return false; }
   return source.compare(index, text.size(), text) == 0;
 }
 
-std::optional<diag::SourceSpan> span_from_token(const Token& token,
-                                                const std::string& source_name,
-                                                const std::string& source_text) {
+auto span_from_token(const Token& token, const std::string& source_name, const std::string& source_text)
+    -> std::optional<diag::SourceSpan> {
   diag::SourceSpan span;
   span.source_name = source_name;
   span.source_text = source_text;
@@ -69,9 +65,8 @@ std::optional<diag::SourceSpan> span_from_token(const Token& token,
   return span;
 }
 
-ParseError make_error(const std::string& message,
-                      const std::optional<std::string>& hint,
-                      const std::optional<diag::SourceSpan>& span) {
+auto make_error(const std::string& message, const std::optional<std::string>& hint,
+                const std::optional<diag::SourceSpan>& span) -> ParseError {
   ParseError error;
   error.message = message;
   error.hint = hint;
@@ -79,15 +74,14 @@ ParseError make_error(const std::string& message,
   return error;
 }
 
-std::vector<Token> lex_or_throw(const std::string& source,
-                                const std::string& source_name,
-                                ParseError& error) {
+auto lex_or_throw(const std::string& source, const std::string& source_name, ParseError& error) -> std::vector<Token> {
   std::vector<Token> out;
   std::size_t i = 0;
   int line = 1;
   int col = 1;
 
-  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int l, const int c) -> void {
+  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int l,
+                  const int c) -> void {
     Token t;
     t.kind = kind;
     t.value = value;
@@ -130,9 +124,7 @@ std::vector<Token> lex_or_throw(const std::string& source,
         break;
       }
     }
-    if (matched_multi) {
-      continue;
-    }
+    if (matched_multi) { continue; }
 
     if (c == '"') {
       const int start_line = line;
@@ -151,9 +143,7 @@ std::vector<Token> lex_or_throw(const std::string& source,
           break;
         }
         if (ch == '\\') {
-          if (j + 1 >= source.size()) {
-            break;
-          }
+          if (j + 1 >= source.size()) { break; }
           switch (const char esc = source[j + 1]) {
             case 'n':
               decoded.push_back('\n');
@@ -178,9 +168,7 @@ std::vector<Token> lex_or_throw(const std::string& source,
           local_col += 2;
           continue;
         }
-        if (ch == '\n') {
-          break;
-        }
+        if (ch == '\n') { break; }
         decoded.push_back(ch);
         ++j;
         ++local_col;
@@ -192,8 +180,7 @@ std::vector<Token> lex_or_throw(const std::string& source,
         tok.line = start_line;
         tok.col = start_col;
         tok.text = "\"";
-        error = make_error("Unterminated string literal", std::nullopt,
-                           span_from_token(tok, source_name, source));
+        error = make_error("Unterminated string literal", std::nullopt, span_from_token(tok, source_name, source));
         return {};
       }
 
@@ -279,11 +266,11 @@ std::vector<Token> lex_or_throw(const std::string& source,
 }
 
 class ParserImpl {
- public:
+public:
   ParserImpl(std::string source, std::string source_name, std::vector<Token> tokens)
       : source_(std::move(source)), source_name_(std::move(source_name)), tokens_(std::move(tokens)) {}
 
-  ParseResult parse() {
+  auto parse() -> ParseResult {
     model::Program program;
     program.source_text = source_;
     program.source_name = source_name_;
@@ -303,44 +290,40 @@ class ParserImpl {
     return program;
   }
 
- private:
+private:
   std::string source_;
   std::string source_name_;
   std::vector<Token> tokens_;
   std::size_t i_ = 0;
 
-  [[nodiscard]] const Token& peek() const { return tokens_[i_]; }
+  [[nodiscard]] auto peek() const -> const Token& { return tokens_[i_]; }
 
-  [[nodiscard]] const Token* peek_ahead(std::size_t offset) const {
+  [[nodiscard]] auto peek_ahead(std::size_t offset) const -> const Token* {
     const std::size_t index = i_ + offset;
-    if (index >= tokens_.size()) {
-      return nullptr;
-    }
+    if (index >= tokens_.size()) { return nullptr; }
     return &tokens_[index];
   }
 
-  [[nodiscard]] const Token& previous_token() const {
-    if (i_ == 0) {
-      return tokens_.front();
-    }
+  [[nodiscard]] auto previous_token() const -> const Token& {
+    if (i_ == 0) { return tokens_.front(); }
     return tokens_[i_ - 1];
   }
 
-  [[nodiscard]] bool is(const TokenKind kind) const { return peek().kind == kind; }
+  [[nodiscard]] auto is(const TokenKind kind) const -> bool { return peek().kind == kind; }
 
-  [[nodiscard]] bool is_symbol(const std::string& symbol) const {
-    return peek().kind == TokenKind::kSymbol && peek().value == symbol;
+  [[nodiscard]] auto is_symbol(const std::string& symbol) const -> bool {
+    return is(TokenKind::kSymbol) && peek().value == symbol;
   }
 
-  [[nodiscard]] bool is_ident_value(const std::string& ident) const {
-    return peek().kind == TokenKind::kIdent && peek().value == ident;
+  [[nodiscard]] auto is_ident_value(const std::string& ident) const -> bool {
+    return is(TokenKind::kIdent) && peek().value == ident;
   }
 
-  [[nodiscard]] std::optional<diag::SourceSpan> span_from_token(const Token& token) const {
+  [[nodiscard]] auto span_from_token(const Token& token) const -> std::optional<diag::SourceSpan> {
     return ::fleaux::frontend::parse::span_from_token(token, source_name_, source_);
   }
 
-  [[nodiscard]] std::optional<diag::SourceSpan> span_from_mark(const std::size_t start) const {
+  [[nodiscard]] auto span_from_mark(const std::size_t start) const -> std::optional<diag::SourceSpan> {
     const Token& start_tok = tokens_[start];
     const Token& end_tok = (i_ > start) ? previous_token() : start_tok;
 
@@ -354,20 +337,19 @@ class ParserImpl {
     return span;
   }
 
-  [[noreturn]] void err(const std::string& message,
-                        const std::optional<Token>& tok = std::nullopt,
+  [[noreturn]] void err(const std::string& message, const std::optional<Token>& tok = std::nullopt,
                         const std::optional<std::string>& hint = std::nullopt) const {
     const Token& use = tok.has_value() ? *tok : peek();
     throw make_error(message, hint, span_from_token(use));
   }
 
-  const Token& next() {
+  auto next() -> const Token& {
     const Token& tok = tokens_[i_];
     ++i_;
     return tok;
   }
 
-  bool match_symbol(const std::string& symbol) {
+  auto match_symbol(const std::string& symbol) -> bool {
     if (is_symbol(symbol)) {
       ++i_;
       return true;
@@ -375,7 +357,7 @@ class ParserImpl {
     return false;
   }
 
-  const Token& eat_symbol(const std::string& symbol) {
+  auto eat_symbol(const std::string& symbol) -> const Token& {
     if (const Token& tok = peek(); !is_symbol(symbol)) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
       err("Expected '" + symbol + "', got " + got, tok, hint_for_expected_token(symbol, tok));
@@ -383,7 +365,7 @@ class ParserImpl {
     return next();
   }
 
-  const Token& eat_ident_token() {
+  auto eat_ident_token() -> const Token& {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
       err("Expected 'IDENT', got " + got, tok, hint_for_expected_token("IDENT", tok));
@@ -391,24 +373,21 @@ class ParserImpl {
     return next();
   }
 
-  const Token& eat_ident_value(const std::string& ident) {
+  auto eat_ident_value(const std::string& ident) -> const Token& {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent || tok.value != ident) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
-      err("Expected '" + ident + "', got " + got, tok,
-          "Check keyword spelling and statement structure.");
+      err("Expected '" + ident + "', got " + got, tok, "Check keyword spelling and statement structure.");
     }
     return next();
   }
 
-  std::string ident() {
+  auto ident() -> std::string {
     const Token tok = eat_ident_token();
-    if (kKeywords.contains(tok.value)) {
-      err("Keyword '" + tok.value + "' cannot be used as an identifier", tok);
-    }
+    if (kKeywords.contains(tok.value)) { err("Keyword '" + tok.value + "' cannot be used as an identifier", tok); }
     return tok.value;
   }
 
-  std::string ns_ident() {
+  auto ns_ident() -> std::string {
     const Token tok = eat_ident_token();
     if (kStructuralKeywords.contains(tok.value)) {
       err("Keyword '" + tok.value + "' cannot be used as a namespace segment", tok);
@@ -416,24 +395,18 @@ class ParserImpl {
     return tok.value;
   }
 
-  std::variant<std::string, model::QualifiedId> opt_qid() {
+  auto opt_qid() -> std::variant<std::string, model::QualifiedId> {
     const std::size_t start = i_;
     std::string head = ident();
     std::vector<std::string> parts{head};
-    while (match_symbol(".")) {
-      parts.push_back(ns_ident());
-    }
+    while (match_symbol(".")) { parts.push_back(ns_ident()); }
 
-    if (parts.size() == 1U) {
-      return head;
-    }
+    if (parts.size() == 1U) { return head; }
 
     model::Qualifier q;
     q.qualifier.reserve(parts.size() * 2U);
     for (std::size_t idx = 0; idx + 1U < parts.size(); ++idx) {
-      if (idx > 0U) {
-        q.qualifier += ".";
-      }
+      if (idx > 0U) { q.qualifier += "."; }
       q.qualifier += parts[idx];
     }
     q.span = span_from_mark(start);
@@ -445,45 +418,43 @@ class ParserImpl {
     return out;
   }
 
-  model::TypeRef type() {
+  auto type() -> model::TypeNode {
     const std::size_t start = i_;
-    auto base = std::make_shared<model::TypeNode>();
+    model::TypeNode base;
 
     if (is_ident_value("Tuple")) {
       next();
       eat_symbol("(");
-      auto type_list = std::make_shared<model::TypeList>();
+      model::TypeList type_list;
       if (!is_symbol(")")) {
         while (true) {
-          type_list->types.push_back(type());
-          if (!match_symbol(",")) {
-            break;
-          }
+          type_list.types.emplace_back(type());
+          if (!match_symbol(",")) { break; }
         }
       }
       eat_symbol(")");
-      type_list->span = span_from_mark(start);
-      base->value = type_list;
-      base->span = span_from_mark(start);
+      type_list.span = span_from_mark(start);
+      base.value = std::move(type_list);
+      base.span = span_from_mark(start);
     } else if (is(TokenKind::kIdent) && kSimpleTypes.contains(peek().value)) {
       const auto token = next();
-      base->value = token.value;
-      base->span = span_from_mark(start);
+      base.value = token.value;
+      base.span = span_from_mark(start);
     } else if (is(TokenKind::kIdent)) {
       const auto qid = opt_qid();
       if (const auto* simple = std::get_if<std::string>(&qid); simple != nullptr) {
-        base->value = *simple;
+        base.value = *simple;
       } else if (const auto* qualified = std::get_if<model::QualifiedId>(&qid); qualified != nullptr) {
-        base->value = *qualified;
+        base.value = *qualified;
       }
-      base->span = span_from_mark(start);
+      base.span = span_from_mark(start);
     } else {
       err("Expected type");
     }
 
     if (match_symbol("...")) {
-      if (const auto* base_name = std::get_if<std::string>(&base->value); base_name != nullptr) {
-        base->value = *base_name + "...";
+      if (const auto* base_name = std::get_if<std::string>(&base.value); base_name != nullptr) {
+        base.value = *base_name + "...";
       } else {
         err("Variadic '...' only supported on simple type names");
       }
@@ -492,25 +463,20 @@ class ParserImpl {
     return base;
   }
 
-  [[nodiscard]] bool is_call_target_primary(const model::Primary& primary) const {
-    if (primary.base.qualified_var.has_value()) {
-      return true;
-    }
-    if (primary.base.var.has_value()) {
-      return true;
-    }
-    return false;
+  [[nodiscard]] static auto is_call_target_primary(const model::Primary& primary) -> bool {
+    return std::holds_alternative<model::QualifiedId>(primary.base.value) ||
+           std::holds_alternative<std::string>(primary.base.value);
   }
 
-  model::ExpressionPtr expr(bool allow_ungrouped_closure_stage_split = true) {
+  auto expr(bool allow_ungrouped_closure_stage_split = true) -> model::Expression {
     const std::size_t start = i_;
-    auto out = std::make_shared<model::Expression>();
-    out->expr = flow(allow_ungrouped_closure_stage_split);
-    out->span = span_from_mark(start);
+    model::Expression out;
+    out.expr = flow(allow_ungrouped_closure_stage_split);
+    out.span = span_from_mark(start);
     return out;
   }
 
-  model::FlowExpression closure_stage_flow() {
+  auto closure_stage_flow() -> model::FlowExpression {
     const std::size_t start = i_;
     model::FlowExpression out;
     out.lhs = primary();
@@ -518,25 +484,23 @@ class ParserImpl {
     while (match_symbol("->")) {
       auto stage = primary();
       out.rhs.push_back(stage);
-      if (is_call_target_primary(stage)) {
-        break;
-      }
+      if (is_call_target_primary(stage)) { break; }
     }
 
     out.span = span_from_mark(start);
     return out;
   }
 
-  model::ExpressionPtr closure_stage_expr() {
+  auto closure_stage_expr() -> model::Expression {
     const std::size_t start = i_;
-    auto out = std::make_shared<model::Expression>();
-    out->expr = closure_stage_flow();
-    out->span = span_from_mark(start);
+    model::Expression out;
+    out.expr = closure_stage_flow();
+    out.span = span_from_mark(start);
     return out;
   }
 
-  bool try_parse_closure_after_open_paren(const std::size_t open_paren_index, model::Atom& out_atom,
-                                          const bool allow_ungrouped_closure_stage_split) {
+  auto try_parse_closure_after_open_paren(const std::size_t open_paren_index, model::Atom& out_atom,
+                                          const bool allow_ungrouped_closure_stage_split) -> bool {
     const std::size_t checkpoint = i_;
 
     std::vector<model::Parameter> params;
@@ -558,9 +522,7 @@ class ParserImpl {
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
 
-        if (!match_symbol(",")) {
-          break;
-        }
+        if (!match_symbol(",")) { break; }
       }
     }
 
@@ -573,35 +535,33 @@ class ParserImpl {
       return false;
     }
 
-    auto closure = std::make_shared<model::ClosureExpression>();
-    closure->params.params = std::move(params);
-    closure->params.span = span_from_mark(open_paren_index);
-    closure->rtype = type();
+    model::ClosureExpression closure;
+    closure.params.params = std::move(params);
+    closure.params.span = span_from_mark(open_paren_index);
+    closure.rtype = type();
 
     if (!match_symbol("=")) {
       i_ = checkpoint;
       return false;
     }
 
-    closure->body = allow_ungrouped_closure_stage_split ? closure_stage_expr() : expr();
-    closure->span = span_from_mark(open_paren_index);
-    out_atom.closure = std::move(closure);
+    closure.body = allow_ungrouped_closure_stage_split ? closure_stage_expr() : expr();
+    closure.span = span_from_mark(open_paren_index);
+    out_atom.value = std::move(closure);
     out_atom.span = span_from_mark(open_paren_index);
     return true;
   }
 
-  model::FlowExpression flow(bool allow_ungrouped_closure_stage_split = true) {
+  auto flow(bool allow_ungrouped_closure_stage_split = true) -> model::FlowExpression {
     const std::size_t start = i_;
     model::FlowExpression out;
     out.lhs = primary();
-    while (match_symbol("->")) {
-      out.rhs.push_back(primary(allow_ungrouped_closure_stage_split));
-    }
+    while (match_symbol("->")) { out.rhs.push_back(primary(allow_ungrouped_closure_stage_split)); }
     out.span = span_from_mark(start);
     return out;
   }
 
-  model::Primary primary(const bool allow_ungrouped_closure_stage_split = false) {
+  auto primary(const bool allow_ungrouped_closure_stage_split = false) -> model::Primary {
     const std::size_t start = i_;
     model::Primary out;
     out.base = atom(allow_ungrouped_closure_stage_split);
@@ -609,7 +569,7 @@ class ParserImpl {
     return out;
   }
 
-  model::Atom atom(const bool allow_ungrouped_closure_stage_split = false) {
+  auto atom(const bool allow_ungrouped_closure_stage_split = false) -> model::Atom {
     const std::size_t start = i_;
 
     if (match_symbol("(")) {
@@ -620,20 +580,19 @@ class ParserImpl {
 
       model::Atom out;
       if (match_symbol(")")) {
+        out.value = std::monostate{};
         out.span = span_from_mark(start);
         return out;
       }
 
-      auto inner = std::make_shared<model::DelimitedExpression>();
+      model::DelimitedExpression inner;
       while (true) {
-        inner->items.push_back(expr());
-        if (!match_symbol(",")) {
-          break;
-        }
+        inner.items.emplace_back(expr());
+        if (!match_symbol(",")) { break; }
       }
       eat_symbol(")");
-      inner->span = span_from_mark(start);
-      out.inner = inner;
+      inner.span = span_from_mark(start);
+      out.value = std::move(inner);
       out.span = span_from_mark(start);
       return out;
     }
@@ -650,7 +609,7 @@ class ParserImpl {
       c.span = span_from_mark(start);
 
       model::Atom out;
-      out.constant = c;
+      out.value = std::move(c);
       out.span = span_from_mark(start);
       return out;
     }
@@ -666,7 +625,7 @@ class ParserImpl {
       c.span = span_from_mark(start);
 
       model::Atom out;
-      out.constant = c;
+      out.value = std::move(c);
       out.span = span_from_mark(start);
       return out;
     }
@@ -678,7 +637,7 @@ class ParserImpl {
       c.span = span_from_mark(start);
 
       model::Atom out;
-      out.constant = c;
+      out.value = std::move(c);
       out.span = span_from_mark(start);
       return out;
     }
@@ -690,7 +649,7 @@ class ParserImpl {
       c.span = span_from_mark(start);
 
       model::Atom out;
-      out.constant = c;
+      out.value = std::move(c);
       out.span = span_from_mark(start);
       return out;
     }
@@ -702,14 +661,14 @@ class ParserImpl {
       c.span = span_from_mark(start);
 
       model::Atom out;
-      out.constant = c;
+      out.value = std::move(c);
       out.span = span_from_mark(start);
       return out;
     }
 
     if (is(TokenKind::kSymbol) && kOperators.contains(peek().value)) {
       model::Atom out;
-      out.var = next().value;
+      out.value = next().value;
       out.span = span_from_mark(start);
       return out;
     }
@@ -717,18 +676,18 @@ class ParserImpl {
     const auto q = opt_qid();
     model::Atom out;
     if (const auto* qualified = std::get_if<model::QualifiedId>(&q); qualified != nullptr) {
-      out.qualified_var = *qualified;
+      out.value = *qualified;
     } else if (const auto* simple = std::get_if<std::string>(&q); simple != nullptr) {
-      out.var = *simple;
+      out.value = *simple;
     }
     out.span = span_from_mark(start);
     return out;
   }
 
-  std::string import_module_name() {
+  auto import_module_name() -> std::string {
     const Token tok = peek();
     if (tok.kind == TokenKind::kIdent) {
-      if (kKeywords.find(tok.value) != kKeywords.end()) {
+      if (kKeywords.contains(tok.value)) {
         err("Keyword '" + tok.value + "' cannot be used as an import module name", tok);
       }
       return next().value;
@@ -738,24 +697,19 @@ class ParserImpl {
       std::vector<Token> parts{next()};
       while (peek().kind == TokenKind::kNumber || peek().kind == TokenKind::kIdent) {
         const Token nxt = peek();
-        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) {
-          break;
-        }
+        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) { break; }
         parts.push_back(next());
       }
 
       std::string name;
-      for (const auto& part : parts) {
-        name += part.value;
-      }
+      for (const auto& part : parts) { name += part.value; }
       return name;
     }
 
-    err("Expected import module name", tok,
-        "Use a module name like 'Std' or a digit-leading name like '20_export'.");
+    err("Expected import module name", tok, "Use a module name like 'Std' or a digit-leading name like '20_export'.");
   }
 
-  model::LetStatement let_stmt() {
+  auto let_stmt() -> model::LetStatement {
     const std::size_t start = i_;
     eat_ident_value("let");
 
@@ -775,9 +729,7 @@ class ParserImpl {
         p.type = type();
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
-        if (!match_symbol(",")) {
-          break;
-        }
+        if (!match_symbol(",")) { break; }
       }
     }
     eat_symbol(")");
@@ -795,7 +747,8 @@ class ParserImpl {
 
     if (is_ident_value("__builtin__")) {
       next();
-      out.expr = std::string("__builtin__");
+      out.is_builtin = true;
+      out.expr = std::nullopt;
     } else {
       out.expr = expr();
     }
@@ -804,7 +757,7 @@ class ParserImpl {
     return out;
   }
 
-  model::Statement stmt() {
+  auto stmt() -> model::Statement {
     if (is_ident_value("import")) {
       const std::size_t start = i_;
       next();
@@ -814,9 +767,7 @@ class ParserImpl {
       return stmt;
     }
 
-    if (is_ident_value("let")) {
-      return let_stmt();
-    }
+    if (is_ident_value("let")) { return let_stmt(); }
 
     const std::size_t start = i_;
     model::ExpressionStatement stmt;
@@ -825,12 +776,12 @@ class ParserImpl {
     return stmt;
   }
 
-  [[nodiscard]] std::optional<diag::SourceSpan> statement_span(const model::Statement& stmt) const {
+  [[nodiscard]] static auto statement_span(const model::Statement& stmt) -> std::optional<diag::SourceSpan> {
     return std::visit([](const auto& s) -> auto { return s.span; }, stmt);
   }
 
-  [[nodiscard]] std::optional<std::string> hint_for_expected_token(const std::string& expected,
-                                                     const Token& got_tok) const {
+  [[nodiscard]] auto hint_for_expected_token(const std::string& expected, const Token& got_tok) const
+      -> std::optional<std::string> {
     const Token& prev_tok = previous_token();
 
     if (expected == ";") {
@@ -844,9 +795,7 @@ class ParserImpl {
     }
 
     if (expected == ",") {
-      if (is_expression_start(got_tok)) {
-        return "Add ',' between tuple elements or argument entries.";
-      }
+      if (is_expression_start(got_tok)) { return "Add ',' between tuple elements or argument entries."; }
       return "Separate entries with ','.";
     }
 
@@ -857,17 +806,14 @@ class ParserImpl {
       if (is_expression_start(got_tok)) {
         if (prev_tok.kind == TokenKind::kNumber || prev_tok.kind == TokenKind::kString ||
             prev_tok.kind == TokenKind::kBool || prev_tok.kind == TokenKind::kNull ||
-            prev_tok.kind == TokenKind::kIdent ||
-            (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == ")")) {
+            prev_tok.kind == TokenKind::kIdent || (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == ")")) {
           return "Did you forget a comma? Add ',' between tuple elements or function arguments.";
         }
       }
       return "Close the current tuple/parameter list with ')'.";
     }
 
-    if (expected == ":") {
-      return "Add ':' before a type annotation (for example: x: Number).";
-    }
+    if (expected == ":") { return "Add ':' before a type annotation (for example: x: Number)."; }
 
     if (expected == "IDENT") {
       if (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == "->") {
@@ -879,7 +825,7 @@ class ParserImpl {
     return "Check for a missing or misplaced token earlier in the statement.";
   }
 
-  [[nodiscard]] bool is_expression_start(const Token& tok) const {
+  [[nodiscard]] static auto is_expression_start(const Token& tok) -> bool {
     if (tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString || tok.kind == TokenKind::kBool ||
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
@@ -890,35 +836,27 @@ class ParserImpl {
     return false;
   }
 
-  [[nodiscard]] bool is_statement_start(const Token& tok) const {
+  [[nodiscard]] static auto is_statement_start(const Token& tok) -> bool {
     if (tok.kind == TokenKind::kIdent || tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString ||
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) {
-      return true;
-    }
+    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) { return true; }
     return false;
   }
 };
 
 }  // namespace
 
-ParseResult Parser::parse_program(const std::string& source,
-                                  const std::string& source_name) const {
+auto Parser::parse_program(const std::string& source, const std::string& source_name) const -> ParseResult {
   ParseError lex_error;
   auto tokens = lex_or_throw(source, source_name, lex_error);
-  if (!lex_error.message.empty()) {
-    return tl::unexpected(lex_error);
-  }
+  if (!lex_error.message.empty()) { return tl::unexpected(lex_error); }
 
   try {
     ParserImpl impl(source, source_name, std::move(tokens));
     return impl.parse();
-  } catch (const ParseError& parse_error) {
-    return tl::unexpected(parse_error);
-  }
+  } catch (const ParseError& parse_error) { return tl::unexpected(parse_error); }
 }
 
 }  // namespace fleaux::frontend::parse
-

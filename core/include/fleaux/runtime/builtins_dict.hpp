@@ -3,15 +3,15 @@
 // Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
-// ── Dictionary builtins (immutable-style updates) ────────────────────────────
+// Dictionary builtins
 
 // Keys are stored as type-prefixed strings to avoid collisions between types
-// that have the same serialised form (e.g. integer 1 vs string "1").
-//   string  → "s:<value>"
-//   number  → "n:<value>"
-//   bool    → "b:<true|false>"
-//   null    → "z:"
-[[nodiscard]] inline std::string dict_key_from_value(const Value& key_val) {
+// that have the same serialized form (e.g. integer 1 vs string "1").
+//  string  -> "s:<value>"
+//  number  -> "n:<value>"
+//  bool    -> "b:<true|false>"
+//  null    -> "z:"
+[[nodiscard]] inline auto dict_key_from_value(const Value& key_val) -> std::string {
     switch (sort_tag_of(key_val)) {
         case SortTag::String:
             return "s:" + as_string(key_val);
@@ -30,7 +30,7 @@ namespace fleaux::runtime {
 }
 
 // Returns the raw (prefixed) internal keys, sorted.
-[[nodiscard]] inline std::vector<std::string> sorted_dict_keys(const Object& obj) {
+[[nodiscard]] inline auto sorted_dict_keys(const Object& obj) -> std::vector<std::string> {
     std::vector<std::string> keys;
     keys.reserve(obj.Size());
     for (const auto &k: obj | std::views::keys) {
@@ -42,7 +42,7 @@ namespace fleaux::runtime {
 
 // Strips the type prefix added by dict_key_from_value and converts back to a
 // Fleaux Value so callers (DictKeys, DictEntries) expose the original key type.
-[[nodiscard]] inline Value dict_key_to_value(const std::string& internal_key) {
+[[nodiscard]] inline auto dict_key_to_value(const std::string& internal_key) -> Value {
     if (internal_key.size() >= 2 && internal_key[1] == ':') {
         const char tag = internal_key[0];
         const std::string payload = internal_key.substr(2);
@@ -62,7 +62,7 @@ namespace fleaux::runtime {
 
 struct DictCreate {
     // arg = () -> {}  or  (dict,) -> clone(dict)
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& arr = arg.TryGetArray();
         if (arr && arr->Size() == 0) {
             return Value{Object{}};
@@ -81,7 +81,7 @@ struct DictCreate {
 
 struct DictSet {
     // arg = (dict, key, value) -> new_dict
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "DictSet");
         Object out = as_object(*args.TryGet(0));
         out[dict_key_from_value(*args.TryGet(1))] = *args.TryGet(2);
@@ -91,7 +91,7 @@ struct DictSet {
 
 struct DictGet {
     // arg = (dict, key) -> value
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "DictGet");
         const auto& obj = as_object(*args.TryGet(0));
         const auto key = dict_key_from_value(*args.TryGet(1));
@@ -105,7 +105,7 @@ struct DictGet {
 
 struct DictGetDefault {
     // arg = (dict, key, default) -> value_or_default
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "DictGetDefault");
         const auto& obj = as_object(*args.TryGet(0));
         const auto key = dict_key_from_value(*args.TryGet(1));
@@ -119,7 +119,7 @@ struct DictGetDefault {
 
 struct DictContains {
     // arg = (dict, key) -> bool
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "DictContains");
         const auto& obj = as_object(*args.TryGet(0));
         return make_bool(obj.Contains(dict_key_from_value(*args.TryGet(1))));
@@ -128,7 +128,7 @@ struct DictContains {
 
 struct DictDelete {
     // arg = (dict, key) -> new_dict
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "DictDelete");
         Object out = as_object(*args.TryGet(0));
         out.Erase(dict_key_from_value(*args.TryGet(1)));
@@ -138,7 +138,7 @@ struct DictDelete {
 
 struct DictKeys {
     // arg = (dict) or dict -> (k1, k2, ...), sorted by key
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         const auto& obj = as_object(dict_val);
         const auto keys = sorted_dict_keys(obj);
@@ -153,15 +153,14 @@ struct DictKeys {
 
 struct DictValues {
     // arg = (dict) or dict -> values sorted by key
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         const auto& obj = as_object(dict_val);
         const auto keys = sorted_dict_keys(obj);
         Array out;
         out.Reserve(keys.size());
         for (const auto& key : keys) {
-            const auto got = obj.TryGet(key);
-            if (got) out.PushBack(*got);
+          if (const auto got = obj.TryGet(key)) out.PushBack(*got);
         }
         return Value{std::move(out)};
     }
@@ -169,15 +168,14 @@ struct DictValues {
 
 struct DictEntries {
     // arg = (dict) or dict -> ((k1,v1), (k2,v2), ...), sorted by key
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         const auto& obj = as_object(dict_val);
         const auto keys = sorted_dict_keys(obj);
         Array out;
         out.Reserve(keys.size());
         for (const auto& key : keys) {
-            const auto got = obj.TryGet(key);
-            if (got) out.PushBack(make_tuple(dict_key_to_value(key), *got));
+          if (const auto got = obj.TryGet(key)) out.PushBack(make_tuple(dict_key_to_value(key), *got));
         }
         return Value{std::move(out)};
     }
@@ -185,7 +183,7 @@ struct DictEntries {
 
 struct DictClear {
     // arg = (dict) or dict -> {}
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         // Validate that the argument is actually a dict, then discard it.
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         (void)as_object(dict_val);
@@ -196,11 +194,10 @@ struct DictClear {
 struct DictMerge {
     // arg = (dict_base, dict_overlay) -> new_dict
     // Keys in dict_overlay overwrite those in dict_base.
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "DictMerge");
         Object out = as_object(*args.TryGet(0));
-        const auto& overlay = as_object(*args.TryGet(1));
-        for (const auto& [k, v] : overlay) {
+        for (const auto& overlay = as_object(*args.TryGet(1)); const auto& [k, v] : overlay) {
             out[k] = v;
         }
         return Value{std::move(out)};
@@ -209,7 +206,7 @@ struct DictMerge {
 
 struct DictLength {
     // arg = (dict) or dict -> Number
-    Value operator()(Value arg) const {
+    auto operator()(Value arg) const -> Value {
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         return make_int(static_cast<Int>(as_object(dict_val).Size()));
     }

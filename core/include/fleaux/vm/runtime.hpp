@@ -26,15 +26,14 @@ struct RuntimeOptions {
 };
 
 class Runtime {
- public:
+public:
   explicit Runtime(RuntimeOptions options = {});
 
   [[nodiscard]] auto execute(const bytecode::Module& bytecode_module) const -> RuntimeResult;
   auto execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult;
 
- private:
+private:
   RuntimeOptions options_;
 };
 
 }  // namespace fleaux::vm
-

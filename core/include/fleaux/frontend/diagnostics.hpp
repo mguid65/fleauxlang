@@ -13,18 +13,15 @@ struct SourceSpan {
   int end_line = 1;
   int end_col = 1;
 
-  [[nodiscard]] std::optional<std::string> source_line() const;
-  [[nodiscard]] int caret_width() const;
+  [[nodiscard]] auto source_line() const -> std::optional<std::string>;
+  [[nodiscard]] auto caret_width() const -> int;
 };
 
-SourceSpan merge_source_spans(const std::optional<SourceSpan>& first,
-                              const std::optional<SourceSpan>& last);
+auto merge_source_spans(const std::optional<SourceSpan>& first, const std::optional<SourceSpan>& last) -> SourceSpan;
 
-[[nodiscard]] std::string format_diagnostic(const std::string& stage,
-                                            const std::string& message,
-                                            const std::optional<SourceSpan>& span,
-                                            const std::optional<std::string>& hint = std::nullopt,
-                                            const std::optional<int>& stage_index = std::nullopt);
+[[nodiscard]] auto format_diagnostic(const std::string& stage, const std::string& message,
+                                     const std::optional<SourceSpan>& span,
+                                     const std::optional<std::string>& hint = std::nullopt,
+                                     const std::optional<int>& stage_index = std::nullopt) -> std::string;
 
 }  // namespace fleaux::frontend::diag
-

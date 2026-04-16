@@ -1,12 +1,12 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
 #include <vector>
 
+#include "fleaux/frontend/box.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 
 namespace fleaux::frontend::model {
@@ -23,21 +23,21 @@ struct QualifiedId {
 };
 
 struct TypeNode;
-using TypeRef = std::shared_ptr<TypeNode>;
+using TypeBox = Box<TypeNode>;
 
 struct TypeList {
-  std::vector<TypeRef> types;
+  std::vector<TypeBox> types;
   std::optional<diag::SourceSpan> span;
 };
 
 struct TypeNode {
-  std::variant<std::string, QualifiedId, std::shared_ptr<TypeList>> value;
+  std::variant<std::string, QualifiedId, Box<TypeList>> value;
   std::optional<diag::SourceSpan> span;
 };
 
 struct Parameter {
   std::string param_name;
-  TypeRef type;
+  TypeNode type;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -52,29 +52,26 @@ struct Constant {
 };
 
 struct Expression;
-using ExpressionPtr = std::shared_ptr<Expression>;
+using ExpressionBox = Box<Expression>;
 
 struct ClosureExpression;
-using ClosureExpressionPtr = std::shared_ptr<ClosureExpression>;
+using ClosureExpressionBox = Box<ClosureExpression>;
 
 struct DelimitedExpression {
-  std::vector<ExpressionPtr> items;
+  std::vector<ExpressionBox> items;
   std::optional<diag::SourceSpan> span;
 };
 
 struct Atom {
-  std::shared_ptr<DelimitedExpression> inner;
-  ClosureExpressionPtr closure;
-  std::optional<Constant> constant;
-  std::optional<QualifiedId> qualified_var;
-  std::optional<std::string> var;
+  std::variant<std::monostate, Box<DelimitedExpression>, ClosureExpressionBox, Constant, QualifiedId, std::string>
+      value;
   std::optional<diag::SourceSpan> span;
 };
 
 struct ClosureExpression {
   ParameterDeclList params;
-  TypeRef rtype;
-  ExpressionPtr body;
+  TypeNode rtype;
+  ExpressionBox body;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -103,13 +100,14 @@ struct ImportStatement {
 struct LetStatement {
   std::variant<std::string, QualifiedId> id;
   ParameterDeclList params;
-  TypeRef rtype;
-  std::variant<std::string, ExpressionPtr> expr;
+  TypeNode rtype;
+  std::optional<Expression> expr;
+  bool is_builtin = false;
   std::optional<diag::SourceSpan> span;
 };
 
 struct ExpressionStatement {
-  ExpressionPtr expr;
+  Expression expr;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -144,10 +142,10 @@ struct IRImport {
 };
 
 struct IRExpr;
-using IRExprPtr = std::shared_ptr<IRExpr>;
+using IRExprBox = Box<IRExpr>;
 
 struct IRClosureExpr;
-using IRClosureExprPtr = std::shared_ptr<IRClosureExpr>;
+using IRClosureExprBox = Box<IRClosureExpr>;
 
 struct IRConstant {
   std::variant<std::int64_t, double, bool, std::string, std::monostate> val;
@@ -168,25 +166,25 @@ struct IROperatorRef {
 using IRCallTarget = std::variant<IRNameRef, IROperatorRef>;
 
 struct IRTupleExpr {
-  std::vector<IRExprPtr> items;
+  std::vector<IRExprBox> items;
   std::optional<diag::SourceSpan> span;
 };
 
 struct IRFlowExpr {
-  IRExprPtr lhs;
+  IRExprBox lhs;
   IRCallTarget rhs;
   std::optional<diag::SourceSpan> span;
 };
 
 struct IRExpr {
-  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprPtr> node;
+  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprBox> node;
   std::optional<diag::SourceSpan> span;
 };
 
 struct IRClosureExpr {
   std::vector<IRParam> params;
   IRSimpleType return_type;
-  IRExprPtr body;
+  IRExprBox body;
   std::vector<std::string> captures;
   std::optional<diag::SourceSpan> span;
 };
@@ -196,13 +194,13 @@ struct IRLet {
   std::string name;
   std::vector<IRParam> params;
   IRSimpleType return_type;
-  IRExprPtr body;
+  std::optional<IRExpr> body;
   bool is_builtin = false;
   std::optional<diag::SourceSpan> span;
 };
 
 struct IRExprStatement {
-  IRExprPtr expr;
+  IRExpr expr;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -214,4 +212,3 @@ struct IRProgram {
 };
 
 }  // namespace fleaux::frontend::ir
-

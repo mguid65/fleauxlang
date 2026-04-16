@@ -18,13 +18,11 @@ struct TranspileError {
 using TranspileResult = tl::expected<std::filesystem::path, TranspileError>;
 
 class FleauxCppTranspiler {
- public:
-  [[nodiscard]] TranspileResult process(const std::filesystem::path& source_file) const;
+public:
+  [[nodiscard]] auto process(const std::filesystem::path& source_file) const -> TranspileResult;
 
- private:
-  [[nodiscard]] std::string emit_cpp(const ir::IRProgram& program,
-                                     const std::string& module_name) const;
+private:
+  [[nodiscard]] auto emit_cpp(const ir::IRProgram& program, const std::string& module_name) const -> std::string;
 };
 
 }  // namespace fleaux::frontend::cpp_transpile
-

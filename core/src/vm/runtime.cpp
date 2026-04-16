@@ -1,4 +1,3 @@
-#include "fleaux/vm/runtime.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,9 +13,14 @@
 #include <variant>
 #include <vector>
 
-#include "builtin_map.hpp"
-#include "fleaux/vm/builtin_catalog.hpp"
+// The order here is important
 #include "fleaux/runtime/fleaux_runtime.hpp"
+// builtin_map.hpp must be included after fleaux_runtime.hpp
+#include "builtin_map.hpp"
+
+#include "fleaux/common/overloaded.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
+#include "fleaux/vm/runtime.hpp"
 
 namespace fleaux::vm {
 namespace {
@@ -25,25 +29,21 @@ using fleaux::runtime::Array;
 using fleaux::runtime::RuntimeCallable;
 using fleaux::runtime::Value;
 
-// ── Value helpers ─────────────────────────────────────────────────────────────
+// Value helpers
 
-Value const_to_value(const bytecode::ConstValue& c) {
+auto const_to_value(const bytecode::ConstValue& c) -> Value {
   using namespace fleaux::runtime;
-  return std::visit(
-      []<typename ValueType>(const ValueType& v) -> Value {
-        using T = std::decay_t<ValueType>;
-        if constexpr (std::is_same_v<ValueType, std::int64_t>) return make_int(v);
-        if constexpr (std::is_same_v<ValueType, double>) return make_float(v);
-        if constexpr (std::is_same_v<ValueType, bool>) return make_bool(v);
-        if constexpr (std::is_same_v<ValueType, std::string>) return make_string(v);
-        return make_null();
-      },
-      c.data);
+  return std::visit(common::overloaded{[](const std::int64_t& val) -> Value { return make_int(val); },
+                                       [](const double& val) -> Value { return make_float(val); },
+                                       [](const bool& val) -> Value { return make_bool(val); },
+                                       [](const std::string& val) -> Value { return make_string(val); },
+                                       [](const std::monostate&) -> Value { return make_null(); }},
+                    c.data);
 }
 
-// ── Stack helpers ─────────────────────────────────────────────────────────────
+// Stack helpers
 
-tl::expected<Value, RuntimeError> pop_stack(std::vector<Value>& stack, const char* context) {
+auto pop_stack(std::vector<Value>& stack, const char* context) -> tl::expected<Value, RuntimeError> {
   if (stack.empty()) { return tl::unexpected(RuntimeError{std::string("stack underflow on ") + context}); }
   Value v = std::move(stack.back());
   stack.pop_back();
@@ -51,7 +51,7 @@ tl::expected<Value, RuntimeError> pop_stack(std::vector<Value>& stack, const cha
 }
 
 template <typename Fn>
-tl::expected<Value, RuntimeError> run_native_op(const char* opname, Fn&& fn) {
+auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeError> {
   try {
     return fn();
   } catch (const std::exception& ex) {
@@ -59,40 +59,33 @@ tl::expected<Value, RuntimeError> run_native_op(const char* opname, Fn&& fn) {
   }
 }
 
-// ── Call frame ────────────────────────────────────────────────────────────────
-
 struct CallFrame {
   const std::vector<bytecode::Instruction>* instructions = nullptr;
   std::size_t ip = 0;
   std::vector<Value> locals;
 };
 
-// ── Loop exit type ────────────────────────────────────────────────────────────
-// std::monostate → kHalt was hit (top-level completion).
-// Value          → kReturn emptied the frame stack (standalone function result).
+// Loop exit type
+// std::monostate -> kHalt was hit (top-level completion).
+// Value          -> kReturn emptied the frame stack (standalone function result).
 
 using LoopExit = std::variant<std::monostate, Value>;
 using LoopResult = tl::expected<LoopExit, RuntimeError>;
 
 // Forward declarations.
-LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
-                    const std::unordered_map<std::string, RuntimeCallable>& builtins, bool allow_runtime_fallback,
-                    std::ostream& output);
+auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+              const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output) -> LoopResult;
 
-tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Value arg,
-                                                   const std::unordered_map<std::string, RuntimeCallable>& builtins,
-                                                   bool allow_runtime_fallback);
+auto dispatch_builtin(const std::string& name, Value arg,
+                      const std::unordered_map<std::string, RuntimeCallable>& builtins)
+    -> tl::expected<Value, RuntimeError>;
 
-tl::expected<std::vector<Value>, RuntimeError> bind_user_function_locals(const std::string& fn_name,
-                                                                          const std::uint32_t arity,
-                                                                          const bool has_variadic_tail,
-                                                                          Value arg) {
+auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t arity, const bool has_variadic_tail,
+                               Value arg) -> tl::expected<std::vector<Value>, RuntimeError> {
   std::vector<Value> locals;
   locals.reserve(arity);
 
-  if (arity == 0U) {
-    return locals;
-  }
+  if (arity == 0U) { return locals; }
 
   if (!has_variadic_tail) {
     if (arity == 1U) {
@@ -126,34 +119,25 @@ tl::expected<std::vector<Value>, RuntimeError> bind_user_function_locals(const s
   const auto fixed_count = static_cast<std::size_t>(arity - 1U);
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
-    if (arr.Size() < fixed_count) {
-      return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"});
-    }
-    for (std::size_t i = 0; i < fixed_count; ++i) {
-      locals.push_back(*arr.TryGet(i));
-    }
+    if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"}); }
+    for (std::size_t i = 0; i < fixed_count; ++i) { locals.push_back(*arr.TryGet(i)); }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t i = fixed_count; i < arr.Size(); ++i) {
-      tail.PushBack(*arr.TryGet(i));
-    }
-    locals.push_back(Value{std::move(tail)});
+    for (std::size_t i = fixed_count; i < arr.Size(); ++i) { tail.PushBack(*arr.TryGet(i)); }
+    locals.emplace_back(std::move(tail));
     return locals;
   } catch (const std::exception& ex) {
     return tl::unexpected(RuntimeError{std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
   }
 }
 
-tl::expected<std::vector<Value>, RuntimeError> unpack_declared_call_args(Value arg,
-                                                                         const std::uint32_t declared_arity,
-                                                                         const bool declared_has_variadic_tail) {
+auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, const bool declared_has_variadic_tail)
+    -> tl::expected<std::vector<Value>, RuntimeError> {
   std::vector<Value> out;
   out.reserve(declared_arity);
 
-  if (declared_arity == 0U) {
-    return out;
-  }
+  if (declared_arity == 0U) { return out; }
 
   if (!declared_has_variadic_tail) {
     if (declared_arity == 1U) {
@@ -165,9 +149,7 @@ tl::expected<std::vector<Value>, RuntimeError> unpack_declared_call_args(Value a
       const auto& arr = fleaux::runtime::as_array(arg);
       for (std::uint32_t i = 0; i < declared_arity; ++i) {
         auto elem = arr.TryGet(i);
-        if (!elem) {
-          return tl::unexpected(RuntimeError{"too few arguments for inline closure"});
-        }
+        if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for inline closure"}); }
         out.push_back(*elem);
       }
       return out;
@@ -184,51 +166,39 @@ tl::expected<std::vector<Value>, RuntimeError> unpack_declared_call_args(Value a
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
-    if (arr.Size() < fixed_count) {
-      return tl::unexpected(RuntimeError{"too few arguments for inline closure"});
-    }
-    for (std::size_t i = 0; i < fixed_count; ++i) {
-      out.push_back(*arr.TryGet(i));
-    }
+    if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for inline closure"}); }
+    for (std::size_t i = 0; i < fixed_count; ++i) { out.push_back(*arr.TryGet(i)); }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t i = fixed_count; i < arr.Size(); ++i) {
-      tail.PushBack(*arr.TryGet(i));
-    }
-    out.push_back(Value{std::move(tail)});
+    for (std::size_t i = fixed_count; i < arr.Size(); ++i) { tail.PushBack(*arr.TryGet(i)); }
+    out.emplace_back(std::move(tail));
     return out;
   } catch (const std::exception& ex) {
     return tl::unexpected(RuntimeError{std::string("argument unpacking for inline closure: ") + ex.what()});
   }
 }
 
-Value pack_call_args(std::vector<Value> values) {
-  if (values.empty()) {
-    return Value{Array{}};
-  }
-  if (values.size() == 1U) {
-    return std::move(values[0]);
-  }
+auto pack_call_args(std::vector<Value> values) -> Value {
+  if (values.empty()) { return Value{Array{}}; }
+  if (values.size() == 1U) { return std::move(values[0]); }
 
   Array out;
   out.Reserve(values.size());
-  for (auto& value : values) {
-    out.PushBack(std::move(value));
-  }
+  for (auto& value : values) { out.PushBack(value); }
   return Value{std::move(out)};
 }
 
 // Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
-tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const std::string& name, const Value& arg);
+auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
+    -> tl::expected<std::optional<Value>, RuntimeError>;
 
-tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx,
-                                                    Value arg,
-                                                    const std::unordered_map<std::string, RuntimeCallable>& builtins,
-                                                    bool allow_runtime_fallback, std::ostream& output);
+auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg,
+                       const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
+    -> tl::expected<Value, RuntimeError>;
 
-tl::expected<Value, RuntimeError> run_loop_intrinsic(Value state, const Value& continue_func, const Value& step_func,
-                                                     const std::optional<std::size_t> max_iters) {
+auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& step_func,
+                        const std::optional<std::size_t> max_iters) -> tl::expected<Value, RuntimeError> {
   try {
     std::size_t iterations = 0;
     while (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(continue_func, state))) {
@@ -242,12 +212,11 @@ tl::expected<Value, RuntimeError> run_loop_intrinsic(Value state, const Value& c
   }
 }
 
-// ── run_user_function ─────────────────────────────────────────────────────────
+// run_user_function
 
-tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& bytecode_module, const std::size_t fn_idx,
-                                                    Value arg,
-                                                    const std::unordered_map<std::string, RuntimeCallable>& builtins,
-                                                    const bool allow_runtime_fallback, std::ostream& output) {
+auto run_user_function(const bytecode::Module& bytecode_module, const std::size_t fn_idx, Value arg,
+                       const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
+    -> tl::expected<Value, RuntimeError> {
   if (fn_idx >= bytecode_module.functions.size()) {
     return tl::unexpected(RuntimeError{"function index out of range"});
   }
@@ -261,14 +230,12 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& byte
   frame.ip = 0;
 
   auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(arg));
-  if (!bound_locals) {
-    return tl::unexpected(bound_locals.error());
-  }
+  if (!bound_locals) { return tl::unexpected(bound_locals.error()); }
   frame.locals = std::move(*bound_locals);
 
   inner_frames.push_back(std::move(frame));
 
-  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, builtins, allow_runtime_fallback, output);
+  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, builtins, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
   if (std::get_if<std::monostate>(&*loop_result) != nullptr) {
@@ -278,11 +245,10 @@ tl::expected<Value, RuntimeError> run_user_function(const bytecode::Module& byte
   return tl::unexpected(RuntimeError{"invalid loop result variant"});
 }
 
-// ── run_loop ──────────────────────────────────────────────────────────────────
+// run_loop
 
-LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
-                    const std::unordered_map<std::string, RuntimeCallable>& builtins, const bool allow_runtime_fallback,
-                    std::ostream& output) {
+auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+              const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output) -> LoopResult {
   while (!frames.empty()) {
     const std::size_t curr_ip = frames.back().ip;
     frames.back().ip++;
@@ -294,11 +260,9 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
     const auto operand = instr_list[curr_ip].operand;
 
     switch (opcode) {
-      // ── No-op ───────────────────────────────────────────────────────────
       case bytecode::Opcode::kNoOp:
         break;
 
-      // ── Push ────────────────────────────────────────────────────────────
       case bytecode::Opcode::kPushConst: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= bytecode_module.constants.size()) {
@@ -308,7 +272,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Stack manipulation ────────────────────────────────────────────────
       case bytecode::Opcode::kPop: {
         if (auto v = pop_stack(stack, "pop"); !v) return tl::unexpected(v.error());
         break;
@@ -320,7 +283,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Tuple construction ────────────────────────────────────────────────
       case bytecode::Opcode::kBuildTuple: {
         const auto n = static_cast<std::size_t>(operand);
         if (stack.size() < n) { return tl::unexpected(RuntimeError{"stack underflow on build_tuple"}); }
@@ -333,7 +295,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Builtin call ──────────────────────────────────────────────────────
       case bytecode::Opcode::kCallBuiltin: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= bytecode_module.builtin_names.size()) {
@@ -344,13 +305,12 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         auto arg = pop_stack(stack, "call_builtin");
         if (!arg) return tl::unexpected(arg.error());
 
-        auto result = dispatch_builtin(name, std::move(*arg), builtins, allow_runtime_fallback);
+        auto result = dispatch_builtin(name, std::move(*arg), builtins);
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
         break;
       }
 
-      // ── User function call (frame-based) ──────────────────────────────────
       case bytecode::Opcode::kCallUserFunc: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
@@ -365,28 +325,27 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         new_frame.ip = 0;
 
         auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(*arg));
-        if (!bound_locals) {
-          return tl::unexpected(bound_locals.error());
-        }
+        if (!bound_locals) { return tl::unexpected(bound_locals.error()); }
         new_frame.locals = std::move(*bound_locals);
 
         frames.push_back(std::move(new_frame));
         break;
       }
 
-      // ── User function → callable-ref (for higher-order use) ───────────────
       case bytecode::Opcode::kMakeUserFuncRef: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
           return tl::unexpected(RuntimeError{"function index out of range"});
         }
-        // Create a RuntimeCallable that re-enters the VM for this function.
-        // Captures by reference — valid because callables are always invoked
-        // synchronously (inside kCallBuiltin) within the same run_loop call.
-        auto callable = [&bytecode_module, fn_idx, &builtins, allow_runtime_fallback,
-                         &output](Value call_arg) -> Value {
-          auto r =
-              run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, allow_runtime_fallback, output);
+        // Callable captures bytecode_module, builtins, and output by reference.
+        // Safety contract: these refs remain valid for the entire duration of the
+        // enclosing Runtime::execute() call. The callable is registered globally
+        // but the callable-ref Value only lives on the execution stack, so it
+        // cannot outlive execute(). For async builtins (e.g. Std.Exp.Parallel),
+        // all futures complete via .get() before run_loop continues, so the
+        // captured refs are still live during any async invocation.
+        auto callable = [&bytecode_module, fn_idx, &builtins, &output](Value call_arg) -> Value {
+          auto r = run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, output);
           if (!r) throw std::runtime_error(r.error().message);
           return std::move(*r);
         };
@@ -394,15 +353,14 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Builtin → callable-ref (for higher-order use) ─────────────────────
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= bytecode_module.builtin_names.size()) {
           return tl::unexpected(RuntimeError{"builtin index out of range"});
         }
         const auto& name = bytecode_module.builtin_names[idx];
-        auto callable = [name, &builtins, allow_runtime_fallback](Value arg) -> Value {
-          auto result = dispatch_builtin(name, std::move(arg), builtins, allow_runtime_fallback);
+        auto callable = [name, &builtins](Value arg) -> Value {
+          auto result = dispatch_builtin(name, std::move(arg), builtins);
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
@@ -417,9 +375,7 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         }
 
         auto captured_tuple = pop_stack(stack, "make_closure_ref");
-        if (!captured_tuple) {
-          return tl::unexpected(captured_tuple.error());
-        }
+        if (!captured_tuple) { return tl::unexpected(captured_tuple.error()); }
 
         const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] =
             bytecode_module.closures[closure_idx];
@@ -430,32 +386,27 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
 
         std::vector<Value> captured_values;
         captured_values.reserve(capture_count);
-        for (std::size_t i = 0; i < capture_count; ++i) {
-          captured_values.push_back(*capture_array.TryGet(i));
-        }
+        for (std::size_t i = 0; i < capture_count; ++i) { captured_values.push_back(*capture_array.TryGet(i)); }
 
+        // Callable captures bytecode_module, builtins, and output by reference.
+        // Same lifetime contract as kMakeUserFuncRef: valid for the duration of
+        // the enclosing Runtime::execute() call. Callable-ref Values stay on the
+        // execution stack and cannot outlive execute().
         auto closure_callable = [&bytecode_module, function_index, capture_count, declared_arity,
-                                 declared_has_variadic_tail, captured_values = std::move(captured_values),
-                                 &builtins, allow_runtime_fallback, &output](Value call_arg) mutable -> Value {
-          auto declared_args = unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
-          if (!declared_args) {
-            throw std::runtime_error(declared_args.error().message);
-          }
+                                 declared_has_variadic_tail, captured_values = std::move(captured_values), &builtins,
+                                 &output](Value call_arg) mutable -> Value {
+          auto declared_args =
+              unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
+          if (!declared_args) { throw std::runtime_error(declared_args.error().message); }
 
           std::vector<Value> full_args;
           full_args.reserve(capture_count + declared_args->size());
-          for (const auto& captured : captured_values) {
-            full_args.push_back(captured);
-          }
-          for (auto& arg : *declared_args) {
-            full_args.push_back(std::move(arg));
-          }
+          for (const auto& captured : captured_values) { full_args.push_back(captured); }
+          for (auto& arg : *declared_args) { full_args.push_back(std::move(arg)); }
 
           auto result = run_user_function(bytecode_module, function_index, pack_call_args(std::move(full_args)),
-                                          builtins, allow_runtime_fallback, output);
-          if (!result) {
-            throw std::runtime_error(result.error().message);
-          }
+                                          builtins, output);
+          if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
 
@@ -463,7 +414,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Return from current frame ─────────────────────────────────────────
       case bytecode::Opcode::kReturn: {
         auto ret_val = pop_stack(stack, "return");
         if (!ret_val) return tl::unexpected(ret_val.error());
@@ -476,7 +426,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Local load ────────────────────────────────────────────────────────
       case bytecode::Opcode::kLoadLocal: {
         const auto slot = static_cast<std::size_t>(operand);
         const auto& locals = frames.back().locals;
@@ -485,7 +434,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Legacy print (uses injected output stream) ─────────────────────────
       case bytecode::Opcode::kPrint: {
         auto val = pop_stack(stack, "print");
         if (!val) return tl::unexpected(val.error());
@@ -494,7 +442,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Unconditional jump ────────────────────────────────────────────────
       case bytecode::Opcode::kJump: {
         const auto target = static_cast<std::size_t>(operand);
         if (target > instr_list.size()) { return tl::unexpected(RuntimeError{"jump target out of range"}); }
@@ -502,7 +449,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Conditional jump (jump if TOS is truthy) ──────────────────────────
       case bytecode::Opcode::kJumpIf: {
         auto cond = pop_stack(stack, "jump_if");
         if (!cond) return tl::unexpected(cond.error());
@@ -801,7 +747,6 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
         break;
       }
 
-      // ── Halt ──────────────────────────────────────────────────────────────
       case bytecode::Opcode::kHalt:
         return LoopExit{std::monostate{}};
     }
@@ -810,7 +755,8 @@ LoopResult run_loop(const bytecode::Module& bytecode_module, std::vector<Value>&
   return tl::unexpected(RuntimeError{"program terminated without halt"});
 }
 
-tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const std::string& name, const Value& arg) {
+auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
+    -> tl::expected<std::optional<Value>, RuntimeError> {
   auto native_error = [&](const std::string& builtin_name,
                           const std::exception& ex) -> tl::expected<std::optional<Value>, RuntimeError> {
     return tl::unexpected(RuntimeError{std::string("native builtin '") + builtin_name + "' threw: " + ex.what()});
@@ -896,7 +842,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
 
   auto trim_right_copy = [](std::string s) -> std::string {
     const auto rit =
-        std::ranges::find_if(std::views::reverse(s), [](const unsigned char ch) { return !std::isspace(ch); });
+        std::ranges::find_if(std::views::reverse(s), [](const unsigned char ch) -> bool { return !std::isspace(ch); });
     s.erase(rit.base(), s.end());
     return s;
   };
@@ -1529,7 +1475,6 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Length: {
-        // Option B: arg IS the array to measure (no 1-element wrapper).
         try {
           return std::optional<Value>{
               fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(fleaux::runtime::as_array(arg).Size()))};
@@ -1801,9 +1746,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         try {
           const std::string s = fleaux::runtime::to_string(*(*args)->TryGet(0));
           const std::size_t idx = fleaux::runtime::as_index(*(*args)->TryGet(1));
-          if (idx >= s.size()) {
-            return std::optional<Value>{fleaux::runtime::make_string("")};
-          }
+          if (idx >= s.size()) { return std::optional<Value>{fleaux::runtime::make_string("")}; }
           return std::optional<Value>{fleaux::runtime::make_string(s.substr(idx, 1))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1841,16 +1784,10 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           const std::string s = fleaux::runtime::to_string(*args.TryGet(0));
           const std::string needle = fleaux::runtime::to_string(*args.TryGet(1));
           std::size_t start = 0;
-          if (args.Size() == 3) {
-            start = fleaux::runtime::as_index(*args.TryGet(2));
-          }
-          if (start > s.size()) {
-            return std::optional<Value>{fleaux::runtime::make_int(-1)};
-          }
+          if (args.Size() == 3) { start = fleaux::runtime::as_index(*args.TryGet(2)); }
+          if (start > s.size()) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
           const auto pos = s.find(needle, start);
-          if (pos == std::string::npos) {
-            return std::optional<Value>{fleaux::runtime::make_int(-1)};
-          }
+          if (pos == std::string::npos) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
           return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(pos))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1865,11 +1802,8 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           const std::string fmt = fleaux::runtime::to_string(*args.TryGet(0));
           std::vector<Value> values;
           values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-          for (std::size_t i = 1; i < args.Size(); ++i) {
-            values.push_back(*args.TryGet(i));
-          }
-          return std::optional<Value>{
-              fleaux::runtime::make_string(fleaux::runtime::format_values(fmt, values))};
+          for (std::size_t i = 1; i < args.Size(); ++i) { values.push_back(*args.TryGet(i)); }
+          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::format_values(fmt, values))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2689,9 +2623,7 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
           const std::string fmt = fleaux::runtime::to_string(*args.TryGet(0));
           std::vector<Value> values;
           values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-          for (std::size_t i = 1; i < args.Size(); ++i) {
-            values.push_back(*args.TryGet(i));
-          }
+          for (std::size_t i = 1; i < args.Size(); ++i) { values.push_back(*args.TryGet(i)); }
           std::cout << fleaux::runtime::format_values(fmt, values);
           return std::optional<Value>{arg};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2784,7 +2716,6 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Sort: {
-        // Option B: arg IS the array to sort (no 1-element wrapper).
         try {
           const auto& src = fleaux::runtime::as_array(arg);
           std::vector<Value> items;
@@ -2801,7 +2732,6 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Unique: {
-        // Option B: arg IS the array (no 1-element wrapper).
         try {
           const auto& src = fleaux::runtime::as_array(arg);
           Array out;
@@ -2810,7 +2740,10 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
             const Value& item = *src.TryGet(i);
             bool seen = false;
             for (std::size_t j = 0; j < out.Size(); ++j) {
-              if (*out.TryGet(j) == item) { seen = true; break; }
+              if (*out.TryGet(j) == item) {
+                seen = true;
+                break;
+              }
             }
             if (!seen) out.PushBack(item);
           }
@@ -2819,7 +2752,6 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Min: {
-        // Option B: arg IS the array (no 1-element wrapper).
         try {
           const auto& src = fleaux::runtime::as_array(arg);
           if (src.Size() == 0) {
@@ -2836,7 +2768,6 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
         break;
       }
       case BuiltinDispatchKey::kStd_Tuple_Max: {
-        // Option B: arg IS the array (no 1-element wrapper).
         try {
           const auto& src = fleaux::runtime::as_array(arg);
           if (src.Size() == 0) {
@@ -3040,7 +2971,8 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
     }
   }
 
-  static const std::unordered_map<std::string, double> kConstantDispatchTable = [] {
+  static const std::unordered_map<std::string, double> kConstantDispatchTable =
+      []() -> std::unordered_map<std::string, double> {
     std::unordered_map<std::string, double> out;
 #define FLEAUX_INSERT_NATIVE_CONST(name_literal, numeric_value) out.emplace(name_literal, numeric_value);
     FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_NATIVE_CONST)
@@ -3055,16 +2987,12 @@ tl::expected<std::optional<Value>, RuntimeError> try_run_vm_native_builtin(const
   return std::optional<Value>{std::nullopt};
 }
 
-tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Value arg,
-                                                   const std::unordered_map<std::string, RuntimeCallable>& builtins,
-                                                   const bool allow_runtime_fallback) {
+auto dispatch_builtin(const std::string& name, Value arg,
+                      const std::unordered_map<std::string, RuntimeCallable>& builtins)
+    -> tl::expected<Value, RuntimeError> {
   auto native = try_run_vm_native_builtin(name, arg);
   if (!native) return tl::unexpected(native.error());
   if (native->has_value()) { return std::move(**native); }
-
-  if (!allow_runtime_fallback) {
-    return tl::unexpected(RuntimeError{"builtin not implemented natively in bytecode VM: '" + name + "'"});
-  }
 
   const auto it = builtins.find(name);
   if (it == builtins.end()) { return tl::unexpected(RuntimeError{"unknown builtin: '" + name + "'"}); }
@@ -3077,20 +3005,20 @@ tl::expected<Value, RuntimeError> dispatch_builtin(const std::string& name, Valu
 
 }  // namespace
 
-// ── Runtime::execute ──────────────────────────────────────────────────────────
+// Runtime::execute
 
-RuntimeResult Runtime::execute(const bytecode::Module& bytecode_module) const {
+auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {
   return execute(bytecode_module, std::cout);
 }
 
-RuntimeResult Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const {
+auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult {
   const auto& builtins = vm_builtin_callables();
 
   std::vector<Value> stack;
   std::vector<CallFrame> frames;
-  frames.push_back(CallFrame{.instructions=&bytecode_module.instructions, .ip=0, .locals={}});
+  frames.push_back(CallFrame{.instructions = &bytecode_module.instructions, .ip = 0, .locals = {}});
 
-  auto loop_result = run_loop(bytecode_module, stack, frames, builtins, options_.allow_runtime_fallback, output);
+  auto loop_result = run_loop(bytecode_module, stack, frames, builtins, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
   if (std::get_if<Value>(&*loop_result) != nullptr) {
