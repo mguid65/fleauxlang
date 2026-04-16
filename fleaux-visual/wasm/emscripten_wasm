@@ -1,0 +1,24 @@
+# Conan profile for Emscripten/WASM builds
+# Usage: conan install . --profile=./profiles/emscripten_wasm
+
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=17
+compiler.libcxx=c++_shared
+compiler.cppstd=20
+build_type=Release
+
+[buildenv]
+# Emscripten environment setup
+EMSDK_QUIET=1
+
+[conf]
+# Emscripten-specific configurations
+tools.cmake.cmaketoolchain:generator=Unix Makefiles
+tools.build:cxxflags=["-fPIC", "-O3"]
+tools.build:sharedlinkflags=["-sWASM=1", "-sALLOW_MEMORY_GROWTH=1"]
+
+
+

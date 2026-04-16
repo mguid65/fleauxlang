@@ -1,0 +1,54 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  font-family: ui-monospace, Consolas, monospace;
+  background: #0f1117;
+  color: #e2e8f0;
+}
+
+/* React Flow dark overrides */
+.react-flow__background {
+  background: #0f1117;
+}
+.react-flow__controls button {
+  background: #1e2130;
+  border-color: #2d3148;
+  color: #94a3b8;
+}
+.react-flow__controls button:hover {
+  background: #2d3148;
+  color: #e2e8f0;
+}
+.react-flow__minimap {
+  background: #1e2130;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+}
+
+/* ─── Selection indicators ─────────────────────────────────────────── */
+
+/* Node selection glow */
+.xyflow__node.selected {
+  outline: 2px solid #fbbf24 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.6);
+}
+
+/* Edge selection highlighting */
+.xyflow__edge.selected {
+  stroke: #fbbf24 !important;
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.8));
+}
+

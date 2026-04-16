@@ -1,0 +1,34 @@
+# Conan profile for Emscripten/WASM builds with enhanced configuration
+# Usage: conan install . --profile=./profiles/emscripten_wasm_full
+
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=17
+compiler.libcxx=c++_shared
+compiler.cppstd=20
+build_type=Release
+
+[buildenv]
+# Emscripten SDK environment
+EMSDK_QUIET=1
+CC=emcc
+CXX=em++
+AR=emar
+RANLIB=emranlib
+
+[conf]
+# CMake toolchain settings
+tools.cmake.cmaketoolchain:generator=Unix Makefiles
+
+# Compiler flags for WASM
+tools.build:cxxflags=["-fPIC", "-O3", "-std=c++20"]
+tools.build:cflags=["-fPIC", "-O3"]
+
+# Basic linker flags for WASM (Fleaux-specific exports are in CMakeLists.txt)
+tools.build:sharedlinkflags=["-sWASM=1", "-sALLOW_MEMORY_GROWTH=1"]
+
+
+
+
