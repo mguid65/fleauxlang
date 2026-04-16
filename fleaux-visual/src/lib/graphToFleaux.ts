@@ -1,5 +1,3 @@
-  return candidates[0];
-  if (candidates.length !== 1) {
 import type { Node } from '@xyflow/react';
 import type {
   FleauxEdge,
@@ -90,6 +88,8 @@ function renderLiteral(data: LiteralData): string {
     }
     case 'Null':
       return 'null';
+    default:
+      throw new GraphSerializationError(`Unsupported literal value type '${String(data.valueType)}'.`);
   }
 }
 
@@ -330,19 +330,22 @@ function serializeCallNode(
 
 
   throw new GraphSerializationError(`Call node '${node.data.label}' has no input.`);
-function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge | null {
+}
 
-function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge {
+function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge | null {
   const candidates = (ctx.outgoingBySource.get(letNodeId) ?? []).filter(
+    (edge) => edge.targetHandle === LET_BODY_ROOT_HANDLE,
+  );
+
   if (candidates.length === 1) {
     return candidates[0];
   }
 
   if (candidates.length > 1) {
-  );
-  if (candidates.length !== 1) {
     throw new GraphSerializationError(
       `Let node '${letNodeId}' must have exactly one '${LET_BODY_ROOT_HANDLE}' marker edge; found ${candidates.length}.`,
+    );
+  }
 
   const inferredRootNodeId = inferLegacyLetBodyRootNodeId(letNodeId, ctx);
   if (!inferredRootNodeId) {
@@ -363,6 +366,7 @@ function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge {
     source: letNodeId,
     target: inferredRootNodeId,
     targetHandle: LET_BODY_ROOT_HANDLE,
+    sourceHandle: null,
     animated: false,
     data: { kind: 'pipeline' },
   };
@@ -406,8 +410,6 @@ function inferLegacyLetBodyRootNodeId(letNodeId: string, ctx: GraphContext): str
   }
 
   return sinks[0];
-  }
-  return candidates[0];
 }
 
 function resolveLetBodyFromMarker(
@@ -462,13 +464,13 @@ function serializeLetStatement(
   node: Node<LetData>,
   ctx: GraphContext,
 ): { statement: string; bodyNodeIds: Set<string> } {
+  const markerEdge = getLetBodyRootEdge(node.id, ctx);
   if (!markerEdge) {
     const paramText = node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ');
     const statement = `let ${node.data.name}(${paramText}): ${node.data.returnType} = null;`;
     return { statement, bodyNodeIds: new Set<string>() };
   }
 
-  const markerEdge = getLetBodyRootEdge(node.id, ctx);
   const letCtx: LetContext = {
     letNodeId: node.id,
     params: node.data.params,

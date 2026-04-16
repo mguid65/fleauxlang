@@ -25,3 +25,5 @@ dist-ssr
 
 _CPack_Packages
 *.gz
+
+public/wasm
