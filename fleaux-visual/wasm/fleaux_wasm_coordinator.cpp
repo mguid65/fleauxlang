@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/runtime/value.hpp"
@@ -40,21 +41,24 @@ auto compile_module(const std::string& source, const std::string& name)
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source, name);
   if (!parsed) {
-    set_error(parsed.error().message);
+    set_error(fleaux::frontend::diag::format_diagnostic(
+        "parse", parsed.error().message, parsed.error().span, parsed.error().hint));
     return tl::unexpected(3);
   }
 
   const fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   if (!lowered) {
-    set_error(lowered.error().message);
+    set_error(fleaux::frontend::diag::format_diagnostic(
+        "lower", lowered.error().message, lowered.error().span, lowered.error().hint));
     return tl::unexpected(4);
   }
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto bytecode = compiler.compile(lowered.value());
   if (!bytecode) {
-    set_error(bytecode.error().message);
+    set_error(fleaux::frontend::diag::format_diagnostic(
+        "compiler", bytecode.error().message, std::nullopt, std::nullopt));
     return tl::unexpected(5);
   }
 
@@ -137,7 +141,7 @@ FLEAUX_WASM_EXPORT int fleaux_wasm_run_source(const char* source_text, const cha
   g_last_output = output.str();
 
   if (!exec) {
-    set_error(exec.error().message);
+    set_error(fleaux::frontend::diag::format_diagnostic("runtime", exec.error().message, std::nullopt, std::nullopt));
     return 6;
   }
 
