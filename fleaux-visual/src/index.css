@@ -52,3 +52,49 @@ body,
   filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.8));
 }
 
+.fleaux-code-view {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color: #e2e8f0;
+}
+
+.fleaux-code-gutter {
+  color: #64748b;
+  text-align: right;
+  user-select: none;
+  margin-right: 0.75rem;
+}
+
+.fleaux-token-comment {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.fleaux-token-keyword {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.fleaux-token-string {
+  color: #34d399;
+}
+
+.fleaux-token-number {
+  color: #60a5fa;
+}
+
+.fleaux-token-constant {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.fleaux-token-type {
+  color: #22d3ee;
+}
+
+.fleaux-token-builtin {
+  color: #f472b6;
+}
+
+.fleaux-token-operator {
+  color: #fbbf24;
+}

@@ -673,6 +673,12 @@ private:
       return out;
     }
 
+    if (!is(TokenKind::kIdent)) {
+      const Token& tok = peek();
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
+      err("expected an expression, got " + got, tok, hint_for_expected_expression(tok));
+    }
+
     const auto q = opt_qid();
     model::Atom out;
     if (const auto* qualified = std::get_if<model::QualifiedId>(&q); qualified != nullptr) {
@@ -778,6 +784,24 @@ private:
 
   [[nodiscard]] static auto statement_span(const model::Statement& stmt) -> std::optional<diag::SourceSpan> {
     return std::visit([](const auto& s) -> auto { return s.span; }, stmt);
+  }
+
+  [[nodiscard]] auto hint_for_expected_expression(const Token& tok) const -> std::optional<std::string> {
+    if (tok.kind == TokenKind::kSymbol) {
+      if (tok.value == "->") {
+        const Token& prev = previous_token();
+        if (prev.kind == TokenKind::kSymbol && prev.value == "=") {
+          return "The function body is missing after '='. Add an expression, e.g. '= (a, b) -> Std.Add'.";
+        }
+        return "The left-hand side of '->' is missing. Add an expression before the pipeline operator.";
+      }
+      if (tok.value == ")") { return "Unexpected ')'. Check for an extra closing parenthesis or a missing expression."; }
+      if (tok.value == ",") { return "Unexpected ','. A tuple element is missing before this comma."; }
+      if (tok.value == ";") { return "Unexpected ';'. Remove the extra semicolon or add an expression."; }
+      if (tok.value == ":") { return "Unexpected ':'. Type annotations must be inside parameter or let definitions."; }
+      if (tok.value == "=") { return "Unexpected '='. Assignment is not an expression; use '::' or '=' in a let definition."; }
+    }
+    return "Valid expressions start with a literal, an identifier, a tuple '( )', or an operator.";
   }
 
   [[nodiscard]] auto hint_for_expected_token(const std::string& expected, const Token& got_tok) const

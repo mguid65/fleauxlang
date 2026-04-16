@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { canCreatePipelineEdge } from '../lib/edgeValidation';
 import { useFlowStore } from '../store/flowStore';
 import { nodeTypes } from '../nodes';
+import { EditorPanel } from './EditorPanel';
 import { Toolbar } from './Toolbar';
 import type { FleauxEdge, FleauxNodeData } from '../lib/types';
 
@@ -51,46 +52,49 @@ export function Canvas() {
     canCreatePipelineEdge(candidate, edges, nodes);
 
   return (
-    <div className="w-full h-full relative">
-      <Toolbar />
-      <ReactFlow<Node<FleauxNodeData>, FleauxEdge>
-        nodes={nodes}
-        edges={renderedEdges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        isValidConnection={isValidConnection}
-        nodeTypes={nodeTypes}
-        defaultEdgeOptions={{
-          animated: true,
-          style: { stroke: '#6d6aff', strokeWidth: 2 },
-        }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={24}
-          size={1}
-          color="#2d3148"
-        />
-        <Controls
-          style={{ bottom: 24, right: 24, left: 'unset' }}
-        />
-        {showMiniMap && <MiniMap
-          nodeColor={(node) => {
-            const kind = (node.data as { kind: string }).kind;
-            const map: Record<string, string> = {
-              import: '#0d9488',
-              let: '#a21caf',
-              tuple: '#c2410c',
-              std: '#be123c',
-              literal: '#0284c7',
-            };
-            return map[kind] ?? '#6b7280';
+    <div className="w-full h-full flex min-w-0">
+      <div className="flex-1 min-w-0 h-full relative">
+        <Toolbar />
+        <ReactFlow<Node<FleauxNodeData>, FleauxEdge>
+          nodes={nodes}
+          edges={renderedEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          isValidConnection={isValidConnection}
+          nodeTypes={nodeTypes}
+          defaultEdgeOptions={{
+            animated: true,
+            style: { stroke: '#6d6aff', strokeWidth: 2 },
           }}
-          style={{ bottom: 24, right: 24 }}
-          maskColor="rgba(15, 17, 23, 0.8)"
-        />}
-      </ReactFlow>
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={24}
+            size={1}
+            color="#2d3148"
+          />
+          <Controls
+            style={{ bottom: 24, right: 24, left: 'unset' }}
+          />
+          {showMiniMap && <MiniMap
+            nodeColor={(node) => {
+              const kind = (node.data as { kind: string }).kind;
+              const map: Record<string, string> = {
+                import: '#0d9488',
+                let: '#a21caf',
+                tuple: '#c2410c',
+                std: '#be123c',
+                literal: '#0284c7',
+              };
+              return map[kind] ?? '#6b7280';
+            }}
+            style={{ bottom: 24, right: 24 }}
+            maskColor="rgba(15, 17, 23, 0.8)"
+          />}
+        </ReactFlow>
+      </div>
+      <EditorPanel />
     </div>
   );
 }

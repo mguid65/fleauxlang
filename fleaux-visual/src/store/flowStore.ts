@@ -28,6 +28,7 @@ export interface FlowState {
   wasmOutput: string;
   wasmStatus: WasmValidationStatus;
   wasmMessage: string | null;
+  setSourceText: (sourceText: string) => void;
   onNodesChange: (changes: NodeChange<Node<FleauxNodeData>>[]) => void;
   onEdgesChange: (changes: EdgeChange<FleauxEdge>[]) => void;
   onConnect: (connection: Connection) => void;
@@ -50,6 +51,12 @@ export const useFlowStore = create<FlowState>()(
     wasmOutput: '',
     wasmStatus: 'idle',
     wasmMessage: null,
+
+    setSourceText(sourceText) {
+      set((state) => {
+        state.sourceText = sourceText;
+      });
+    },
 
     onNodesChange(changes) {
       set((state) => {

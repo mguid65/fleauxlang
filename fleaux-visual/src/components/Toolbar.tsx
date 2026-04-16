@@ -24,8 +24,6 @@ export function Toolbar() {
   const clearGraph = useFlowStore((s) => s.clearGraph);
   const loadGraphFromSource = useFlowStore((s) => s.loadGraphFromSource);
   const runGraphWithWasm = useFlowStore((s) => s.runGraphWithWasm);
-  const sourceText = useFlowStore((s) => s.sourceText);
-  const wasmOutput = useFlowStore((s) => s.wasmOutput);
   const wasmStatus = useFlowStore((s) => s.wasmStatus);
   const wasmMessage = useFlowStore((s) => s.wasmMessage);
   const [openNs, setOpenNs] = useState<string | null>(null);
@@ -149,7 +147,6 @@ export function Toolbar() {
 
       {/* ── Std functions ────────────────────────────────────── */}
       <div className="border-t border-[#2d3148] my-1" />
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Std Symbols</div>
 
       {userFunctions.length > 0 && (
         <>
@@ -167,6 +164,8 @@ export function Toolbar() {
           <div className="border-t border-[#2d3148] my-1" />
         </>
       )}
+
+      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Standard Library</div>
 
       <input
         type="text"
@@ -263,24 +262,10 @@ export function Toolbar() {
       >
         {isRunningWasm ? 'Running…' : 'Run Graph'}
       </button>
-      <div className={`text-[10px] font-mono border rounded px-2 py-1 ${wasmStatusStyles[wasmStatus]}`}>
+      <div className={`text-[10px] font-mono border rounded px-2 py-1 whitespace-pre-wrap wrap-break-word ${wasmStatusStyles[wasmStatus]}`}>
         {wasmStatus.toUpperCase()}
-        {wasmMessage ? ` · ${wasmMessage}` : ''}
+        {wasmMessage ? `\n${wasmMessage}` : ''}
       </div>
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Generated Fleaux</div>
-      <textarea
-        readOnly
-        value={sourceText}
-        placeholder="Generated Fleaux source will appear here after run."
-        className="min-h-[140px] w-full resize-y rounded border border-[#2d3148] bg-[#121420] px-2 py-2 text-[11px] font-mono text-slate-200 placeholder-slate-600 outline-none"
-      />
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Program Output</div>
-      <textarea
-        readOnly
-        value={wasmOutput}
-        placeholder="Program stdout will appear here after run."
-        className="min-h-[84px] w-full resize-y rounded border border-[#2d3148] bg-[#121420] px-2 py-2 text-[11px] font-mono text-slate-200 placeholder-slate-600 outline-none"
-      />
 
       <div className="border-t border-[#2d3148] my-1" />
       <button

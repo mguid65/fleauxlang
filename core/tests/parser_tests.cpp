@@ -92,12 +92,22 @@ TEST_CASE("Parser reports malformed inline closure body diagnostics", "[parser]"
   const std::string src =
       "(10) -> (x: Number): Number = -> Std.Println;\n";
 
-  const fleaux::frontend::parse::Parser parser;
+  constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "malformed_inline_closure_body_parser.fleaux");
 
   REQUIRE_FALSE(parsed.has_value());
-  REQUIRE(parsed.error().message.find("Expected 'IDENT'") != std::string::npos);
+  REQUIRE(parsed.error().message.find("expected an expression") != std::string::npos);
   REQUIRE(parsed.error().hint.has_value());
-  REQUIRE(parsed.error().hint->find("valid identifier") != std::string::npos);
+  REQUIRE(parsed.error().hint->find("body") != std::string::npos);
 }
 
+TEST_CASE("Parser reports 'expected an expression' for unexpected symbol in expression position", "[parser]") {
+  const std::string src = "let Foo(): Any = );\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "unexpected_symbol.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("expected an expression") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+}
