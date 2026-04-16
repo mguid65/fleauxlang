@@ -57,7 +57,7 @@ auto num_digits(int n) -> int {
   return count;
 }
 
-auto pad_left(const std::string& s, int width) -> std::string {
+auto pad_left(const std::string& s, const int width) -> std::string {
   if (static_cast<int>(s.size()) >= width) { return s; }
   return std::string(static_cast<std::size_t>(width - static_cast<int>(s.size())), ' ') + s;
 }
@@ -84,8 +84,7 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
   if (!span->source_name.empty()) { out << span->source_name << ":"; }
   out << span->line << ":" << span->col;
 
-  const bool has_source = !span->source_text.empty() && span->line >= 1;
-  if (has_source) {
+  if (const bool has_source = !span->source_text.empty() && span->line >= 1) {
     const auto lines = split_source_lines(span->source_text);
     const int error_line = span->line;
     const int line_count = static_cast<int>(lines.size());
@@ -93,9 +92,9 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
     // Gutter width: enough digits for the highest line number shown (at most error_line + 1)
     const int max_shown = std::min(error_line + 1, line_count);
     const int gw = num_digits(max_shown);
-    const std::string blank_gutter = std::string(static_cast<std::size_t>(gw), ' ');
+    const auto blank_gutter = std::string(static_cast<std::size_t>(gw), ' ');
 
-    auto emit_line = [&](int ln) {
+    auto emit_line = [&](const int ln) {
       if (ln < 1 || ln > line_count) { return; }
       out << "\n" << pad_left(std::to_string(ln), gw) << " | " << lines[static_cast<std::size_t>(ln - 1)];
     };
