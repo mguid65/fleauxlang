@@ -1,21 +1,18 @@
 #include "fleaux/vm/interpreter.hpp"
 
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/frontend/ast.hpp"
-#include "fleaux/frontend/lowering.hpp"
-#include "fleaux/frontend/parser.hpp"
-#include "fleaux/runtime/fleaux_runtime.hpp"
+#include "fleaux/frontend/analysis.hpp"
+#include "fleaux/frontend/source_loader.hpp"
+#include "fleaux/runtime/runtime_support.hpp"
 
 #include "builtin_map.hpp"
 
@@ -33,17 +30,8 @@ using fleaux::frontend::ir::IRTupleExpr;
 using fleaux::runtime::RuntimeCallable;
 using fleaux::runtime::Value;
 
-auto read_text_file(const std::filesystem::path& file) -> std::string {
-  std::ifstream in(file);
-  if (!in) { return {}; }
-  std::ostringstream buffer;
-  buffer << in.rdbuf();
-  return buffer.str();
-}
-
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
-  if (!qualifier.has_value()) { return name; }
-  return *qualifier + "." + name;
+  return frontend::source_loader::symbol_key(qualifier, name);
 }
 
 enum class OperatorDispatchKey {
@@ -103,48 +91,9 @@ auto resolve_std_callable_or_throw(const std::string& key, const std::optional<S
   return it->second;
 }
 
-auto resolve_import_source(const std::filesystem::path& current_source, const std::string& module_name)
-    -> std::filesystem::path {
-  if (module_name == "Std" || module_name == "StdBuiltins") { return {}; }
-
-  if (const auto local = current_source.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
-    return std::filesystem::weakly_canonical(local);
-  }
-
-  return {};
-}
-
-auto parse_and_lower(const std::filesystem::path& source_file) -> tl::expected<IRProgram, InterpretError> {
-  const auto source_text = read_text_file(source_file);
-  if (source_text.empty()) {
-    return tl::unexpected(make_error("Failed to read source file.", "Check the file path and ensure it is not empty."));
-  }
-
-  constexpr frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(source_text, source_file.string());
-  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
-
-  constexpr frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-  if (!lowered) {
-    return tl::unexpected(make_error(lowered.error().message, lowered.error().hint, lowered.error().span));
-  }
-
-  return lowered.value();
-}
-
-auto parse_and_lower_text(const std::string& source_text, const std::string& source_name)
+auto parse_and_analyze_text(const std::string& source_text, const std::string& source_name)
     -> tl::expected<IRProgram, InterpretError> {
-  constexpr frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(source_text, source_name);
-  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
-
-  constexpr frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-  if (!lowered) {
-    return tl::unexpected(make_error(lowered.error().message, lowered.error().hint, lowered.error().span));
-  }
-  return lowered.value();
+  return frontend::source_loader::parse_text_to_ir<InterpretError>(source_text, source_name, make_error);
 }
 
 auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError> {
@@ -156,56 +105,10 @@ auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<voi
   return {};
 }
 
-auto collect_program(const std::filesystem::path& source_file, std::unordered_map<std::string, IRProgram>& cache,
-                     std::unordered_set<std::string>& in_progress) -> tl::expected<IRProgram, InterpretError> {
-  const std::string key = std::filesystem::weakly_canonical(source_file).string();
-  if (cache.contains(key)) { return cache[key]; }
-
-  if (in_progress.contains(key)) {
-    return tl::unexpected(make_error("Cyclic import detected while executing in VM mode.",
-                                     "Break the cycle by moving shared definitions into a third module."));
-  }
-
-  in_progress.insert(key);
-  auto current_result = parse_and_lower(source_file);
-  if (!current_result) {
-    in_progress.erase(key);
-    return tl::unexpected(current_result.error());
-  }
-
-  IRProgram merged = current_result.value();
-  std::unordered_set<std::string> seen_symbols;
-  for (const auto& let : merged.lets) { seen_symbols.insert(let_key(let.qualifier, let.name)); }
-
-  std::vector<frontend::ir::IRExprStatement> imported_exprs;
-  std::vector<frontend::ir::IRLet> imported_lets;
-
-  for (const auto& [module_name, span] : current_result->imports) {
-    const auto import_source = resolve_import_source(source_file, module_name);
-    if (import_source.empty()) { continue; }
-
-    auto imported_result = collect_program(import_source, cache, in_progress);
-    if (!imported_result) {
-      in_progress.erase(key);
-      return tl::unexpected(imported_result.error());
-    }
-
-    imported_exprs.insert(imported_exprs.end(), imported_result->expressions.begin(),
-                          imported_result->expressions.end());
-
-    for (const auto& imported_let : imported_result->lets) {
-      if (const std::string sym = let_key(imported_let.qualifier, imported_let.name); seen_symbols.insert(sym).second) {
-        imported_lets.push_back(imported_let);
-      }
-    }
-  }
-
-  merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
-  merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
-
-  cache[key] = merged;
-  in_progress.erase(key);
-  return merged;
+auto load_ir_program(const std::filesystem::path& source_file) -> tl::expected<IRProgram, InterpretError> {
+  return frontend::source_loader::load_ir_program<InterpretError>(
+      source_file, make_error, "Cyclic import detected while executing in VM mode.",
+      "Break the cycle by moving shared definitions into a third module.");
 }
 
 struct EvalState {
@@ -507,14 +410,14 @@ InterpreterSession::InterpreterSession(const std::vector<std::string>& process_a
     : impl_(std::make_shared<Impl>(process_args)) {}
 
 auto InterpreterSession::run_snippet(const std::string& snippet_text) const -> InterpretResult {
-  auto lowered = parse_and_lower_text(snippet_text, "<repl>");
-  if (!lowered) { return tl::unexpected(lowered.error()); }
+  auto analyzed = parse_and_analyze_text(snippet_text, "<repl>");
+  if (!analyzed) { return tl::unexpected(analyzed.error()); }
 
-  if (auto imports_ok = ensure_repl_imports_supported(lowered.value()); !imports_ok) {
+  if (auto imports_ok = ensure_repl_imports_supported(analyzed.value()); !imports_ok) {
     return tl::unexpected(imports_ok.error());
   }
 
-  return execute_program_in_state(impl_->state, lowered.value());
+  return execute_program_in_state(impl_->state, analyzed.value());
 }
 
 auto Interpreter::run_file(const std::filesystem::path& source_file, const std::vector<std::string>& process_args) const
@@ -523,9 +426,7 @@ auto Interpreter::run_file(const std::filesystem::path& source_file, const std::
     return tl::unexpected(make_error("Input file does not exist.", std::nullopt));
   }
 
-  std::unordered_map<std::string, IRProgram> cache;
-  std::unordered_set<std::string> in_progress;
-  auto merged_result = collect_program(source_file, cache, in_progress);
+  auto merged_result = load_ir_program(source_file);
   if (!merged_result) { return tl::unexpected(merged_result.error()); }
 
   std::vector<std::string> args_storage;

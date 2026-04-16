@@ -13,7 +13,7 @@
 
 namespace {
 
-std::int64_t push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_t value) {
+auto push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_t value) -> std::int64_t {
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
   return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 }
@@ -22,17 +22,21 @@ std::int64_t push_i64_const(fleaux::bytecode::Module& bytecode_module, const std
 
 TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c9 = push_i64_const(bytecode_module, 9);
   const auto c3 = push_i64_const(bytecode_module, 3);
   const auto c7 = push_i64_const(bytecode_module, 7);
   bytecode_module.instructions = {
-      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c9},
-      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
-      {.opcode=fleaux::bytecode::Opcode::kDiv, .operand=0},
-      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
-      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
-      {.opcode=fleaux::bytecode::Opcode::kPrint, .operand=0},
-      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kDiv, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   std::ostringstream output;
@@ -55,14 +59,18 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJump skips instructions unconditionally", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c99 = push_i64_const(bytecode_module, 99);
   bytecode_module.instructions = {
-      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
-      {.opcode=fleaux::bytecode::Opcode::kJump,         .operand=3},
-      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c99},   // skipped
-      {.opcode=fleaux::bytecode::Opcode::kPrint,         .operand=0},
-      {.opcode=fleaux::bytecode::Opcode::kHalt,          .operand=0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
+      {.opcode = fleaux::bytecode::Opcode::kJump, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c99},  // skipped
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   std::ostringstream output;
@@ -87,15 +95,19 @@ TEST_CASE("VM kJump skips instructions unconditionally", "[vm][jump]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJumpIf jumps when condition is true", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   const auto c77 = push_i64_const(bytecode_module, 77);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,     0},   // push true
-      {fleaux::bytecode::Opcode::kJumpIf,        3},   // true -> jump to [3]
-      {fleaux::bytecode::Opcode::kNoOp,           0},   // skipped
-      {fleaux::bytecode::Opcode::kPushConst,     c77},
-      {fleaux::bytecode::Opcode::kPrint,          0},
-      {fleaux::bytecode::Opcode::kHalt,           0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},  // push true
+      {.opcode = fleaux::bytecode::Opcode::kJumpIf, .operand = 3},     // true -> jump to [3]
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},       // skipped
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c77},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   std::ostringstream output;
@@ -119,14 +131,18 @@ TEST_CASE("VM kJumpIf jumps when condition is true", "[vm][jump]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("VM kJumpIf falls through when condition is false", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   const auto c55 = push_i64_const(bytecode_module, 55);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,      c55},
-      {fleaux::bytecode::Opcode::kPushConst,      0},   // push false
-      {fleaux::bytecode::Opcode::kJumpIf,         5},   // false -> no jump
-      {fleaux::bytecode::Opcode::kPrint,           0},  // prints 55
-      {fleaux::bytecode::Opcode::kHalt,            0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c55},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},  // push false
+      {.opcode=fleaux::bytecode::Opcode::kJumpIf, .operand=5},     // false -> no jump
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},  // prints 55
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -139,16 +155,20 @@ TEST_CASE("VM kJumpIf falls through when condition is false", "[vm][jump]") {
 
 TEST_CASE("VM kJumpIfNot jumps when condition is false", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   const auto c99 = push_i64_const(bytecode_module, 99);
   const auto c42 = push_i64_const(bytecode_module, 42);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,      0},
-      {fleaux::bytecode::Opcode::kJumpIfNot,      3},
-      {fleaux::bytecode::Opcode::kPushConst,     c99},  // skipped
-      {fleaux::bytecode::Opcode::kPushConst,     c42},
-      {fleaux::bytecode::Opcode::kPrint,          0},
-      {fleaux::bytecode::Opcode::kHalt,           0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kJumpIfNot, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c99},  // skipped
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c42},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -162,8 +182,8 @@ TEST_CASE("VM kJumpIfNot jumps when condition is false", "[vm][jump]") {
 TEST_CASE("VM reports out-of-range jump target", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kJump, 3},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kJump, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -178,9 +198,9 @@ TEST_CASE("VM reports out-of-range kJumpIf target", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kJumpIf, 4},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kJumpIf, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -195,9 +215,9 @@ TEST_CASE("VM reports out-of-range kJumpIfNot target", "[vm][jump]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,   0},
-      {fleaux::bytecode::Opcode::kJumpIfNot,   4},
-      {fleaux::bytecode::Opcode::kHalt,        0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kJumpIfNot, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -210,6 +230,8 @@ TEST_CASE("VM reports out-of-range kJumpIfNot target", "[vm][jump]") {
 
 TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"Hello, "}});
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"VM"}});
@@ -218,35 +240,47 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
   const auto c2 = push_i64_const(bytecode_module, 2);
   const auto c8 = push_i64_const(bytecode_module, 8);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,     c10},
-      {fleaux::bytecode::Opcode::kPushConst,      c3},
-      {fleaux::bytecode::Opcode::kAdd,           0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst,     1},
-      {fleaux::bytecode::Opcode::kPushConst,     2},
-      {fleaux::bytecode::Opcode::kAdd,           0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst,      c2},
-      {fleaux::bytecode::Opcode::kPushConst,      c8},
-      {fleaux::bytecode::Opcode::kPow,           0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst,      c2},
-      {fleaux::bytecode::Opcode::kPushConst,      c8},
-      {fleaux::bytecode::Opcode::kCmpLt,         0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst,     0},
-      {fleaux::bytecode::Opcode::kNot,           0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c8},
+      {.opcode=fleaux::bytecode::Opcode::kPow, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     0},
-      {fleaux::bytecode::Opcode::kAnd,           0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
-      {fleaux::bytecode::Opcode::kHalt,          0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c8},
+      {.opcode=fleaux::bytecode::Opcode::kCmpLt, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kNot, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kAnd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -259,16 +293,20 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
 
 TEST_CASE("VM executes native kSelect opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c20 = push_i64_const(bytecode_module, 20);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,     0},
-      {fleaux::bytecode::Opcode::kPushConst,    c10},
-      {fleaux::bytecode::Opcode::kPushConst,    c20},
-      {fleaux::bytecode::Opcode::kSelect,        0},
-      {fleaux::bytecode::Opcode::kPrint,         0},
-      {fleaux::bytecode::Opcode::kHalt,          0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kSelect, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -281,6 +319,8 @@ TEST_CASE("VM executes native kSelect opcode", "[vm]") {
 
 TEST_CASE("VM executes native kBranchCall opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c10 = push_i64_const(bytecode_module, 10);
@@ -289,33 +329,35 @@ TEST_CASE("VM executes native kBranchCall opcode", "[vm]") {
   add1.name = "AddOne";
   add1.arity = 1;
   add1.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c1},
-      {fleaux::bytecode::Opcode::kAdd,           0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef sub1;
   sub1.name = "SubOne";
   sub1.arity = 1;
   sub1.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c1},
-      {fleaux::bytecode::Opcode::kSub,           0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kSub, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(add1));
   bytecode_module.functions.push_back(std::move(sub1));
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,        0},
-      {fleaux::bytecode::Opcode::kPushConst,      c10},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef,  0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef,  1},
-      {fleaux::bytecode::Opcode::kBranchCall,       0},
-      {fleaux::bytecode::Opcode::kPrint,            0},
-      {fleaux::bytecode::Opcode::kHalt,             0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBranchCall, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -333,16 +375,20 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
   bytecode_module.builtin_names = {
       "Std.UnaryMinus",
       "Std.UnaryPlus",
+      "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,           0},
-      {fleaux::bytecode::Opcode::kPushConst,         c10},
-      {fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,  0},
-      {fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,  1},
-      {fleaux::bytecode::Opcode::kBranchCall,          0},
-      {fleaux::bytecode::Opcode::kPrint,               0},
-      {fleaux::bytecode::Opcode::kHalt,                0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBranchCall, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -355,6 +401,8 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
 
 TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c0 = push_i64_const(bytecode_module, 0);
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c3 = push_i64_const(bytecode_module, 3);
@@ -363,32 +411,34 @@ TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
   continue_fn.name = "Continue";
   continue_fn.arity = 1;
   continue_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c0},
-      {fleaux::bytecode::Opcode::kCmpGt,         0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kCmpGt, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef step_fn;
   step_fn.name = "Step";
   step_fn.arity = 1;
   step_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c1},
-      {fleaux::bytecode::Opcode::kSub,           0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kSub, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(continue_fn));
   bytecode_module.functions.push_back(std::move(step_fn));
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,      c3},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kLoopCall,        0},
-      {fleaux::bytecode::Opcode::kPrint,           0},
-      {fleaux::bytecode::Opcode::kHalt,            0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kLoopCall, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -401,6 +451,8 @@ TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
 
 TEST_CASE("VM executes native kLoopNCall opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c0 = push_i64_const(bytecode_module, 0);
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c3 = push_i64_const(bytecode_module, 3);
@@ -410,33 +462,35 @@ TEST_CASE("VM executes native kLoopNCall opcode", "[vm]") {
   continue_fn.name = "Continue";
   continue_fn.arity = 1;
   continue_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c0},
-      {fleaux::bytecode::Opcode::kCmpGt,         0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kCmpGt, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef step_fn;
   step_fn.name = "Step";
   step_fn.arity = 1;
   step_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c1},
-      {fleaux::bytecode::Opcode::kSub,           0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kSub, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(continue_fn));
   bytecode_module.functions.push_back(std::move(step_fn));
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,      c3},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kPushConst,     c10},
-      {fleaux::bytecode::Opcode::kLoopNCall,       0},
-      {fleaux::bytecode::Opcode::kPrint,           0},
-      {fleaux::bytecode::Opcode::kHalt,            0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kLoopNCall, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -457,32 +511,29 @@ TEST_CASE("VM reports native kLoopNCall max-iteration failure", "[vm]") {
   continue_fn.name = "Continue";
   continue_fn.arity = 1;
   continue_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c0},
-      {fleaux::bytecode::Opcode::kCmpGt,         0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kCmpGt, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef step_fn;
   step_fn.name = "Step";
   step_fn.arity = 1;
   step_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal,     0},
-      {fleaux::bytecode::Opcode::kPushConst,     c1},
-      {fleaux::bytecode::Opcode::kSub,           0},
-      {fleaux::bytecode::Opcode::kReturn,        0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kSub, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(continue_fn));
   bytecode_module.functions.push_back(std::move(step_fn));
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,      c3},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kPushConst,      c1},
-      {fleaux::bytecode::Opcode::kLoopNCall,       0},
-      {fleaux::bytecode::Opcode::kHalt,            0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1}, {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kLoopNCall, .operand=0},       {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -498,9 +549,9 @@ TEST_CASE("VM reports missing halt", "[vm]") {
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c2 = push_i64_const(bytecode_module, 2);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kAdd, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
   };
 
   std::ostringstream output;
@@ -513,14 +564,15 @@ TEST_CASE("VM reports missing halt", "[vm]") {
 
 TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c0 = push_i64_const(bytecode_module, 0);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kDiv, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10}, {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kDiv, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -537,14 +589,15 @@ TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
 
 TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c0 = push_i64_const(bytecode_module, 0);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kMod, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10}, {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kMod, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -561,15 +614,19 @@ TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
 
 TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c0 = push_i64_const(bytecode_module, 0);
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kDiv, 0},  // NaN
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kCmpEq, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kDiv, .operand=0},  // NaN
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCmpEq, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -584,14 +641,21 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Add", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c4 = push_i64_const(bytecode_module, 4);
   const auto c5 = push_i64_const(bytecode_module, 5);
-  bytecode_module.builtin_names = {"Std.Add"};
+  bytecode_module.builtin_names = {
+      "Std.Add",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
+
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c4},
-      {fleaux::bytecode::Opcode::kPushConst, c5},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c4},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c5},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -607,10 +671,10 @@ TEST_CASE("VM kCallBuiltin falls back for unported builtin", "[vm]") {
   const auto c8 = push_i64_const(bytecode_module, 8);
   bytecode_module.builtin_names = {"Std.Println"};
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c8},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c8},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -625,15 +689,14 @@ TEST_CASE("VM strict mode executes native Std.Println", "[vm]") {
   const auto c8 = push_i64_const(bytecode_module, 8);
   bytecode_module.builtin_names = {"Std.Println"};
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c8},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c8},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime(
-      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
@@ -646,16 +709,11 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for comparison and logical built
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   bytecode_module.builtin_names = {"Std.LessThan", "Std.And", "Std.Println"};
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kPushConst, c8},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},  {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c8},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},  {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=2},   {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1}, {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -668,16 +726,26 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for comparison and logical built
 TEST_CASE("VM kCallBuiltin uses native dispatch for unary builtins", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c10 = push_i64_const(bytecode_module, 10);
-  bytecode_module.builtin_names = {"Std.UnaryMinus", "Std.UnaryPlus"};
+  bytecode_module.builtin_names = {
+      "Std.UnaryMinus",
+      "Std.UnaryPlus",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
+
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -693,15 +761,18 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Select", "[vm]") {
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c20 = push_i64_const(bytecode_module, 20);
-  bytecode_module.builtin_names = {"Std.Select"};
+  bytecode_module.builtin_names = {
+      "Std.Select",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
+
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},   {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20}, {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0}, {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},         {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -722,34 +793,41 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Branch", "[vm]") {
   add1.name = "AddOne";
   add1.arity = 1;
   add1.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef sub1;
   sub1.name = "SubOne";
   sub1.arity = 1;
   sub1.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kSub, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kSub, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(add1));
   bytecode_module.functions.push_back(std::move(sub1));
-  bytecode_module.builtin_names = {"Std.Branch"};
+  bytecode_module.builtin_names = {
+      "Std.Branch",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
+
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 4},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -762,6 +840,8 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Branch", "[vm]") {
 
 TEST_CASE("VM executes native mul/neg/comparison/or opcodes", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   const auto c6 = push_i64_const(bytecode_module, 6);
@@ -769,36 +849,48 @@ TEST_CASE("VM executes native mul/neg/comparison/or opcodes", "[vm]") {
   const auto c3 = push_i64_const(bytecode_module, 3);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c6},
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kMul,       0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c6},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kMul, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kNeg,       0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c6},
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kCmpNe,     0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kNeg, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c6},
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kCmpLe,     0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kPushConst, c6},
-      {fleaux::bytecode::Opcode::kCmpGe,     0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c6},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kCmpNe, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kOr,        0},
-      {fleaux::bytecode::Opcode::kPrint,     0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kHalt,      0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c6},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kCmpLe, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c6},
+      {.opcode=fleaux::bytecode::Opcode::kCmpGe, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kOr, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -811,24 +903,28 @@ TEST_CASE("VM executes native mul/neg/comparison/or opcodes", "[vm]") {
 
 TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Println");
   const auto c21 = push_i64_const(bytecode_module, 21);
 
   fleaux::bytecode::FunctionDef twice;
   twice.name = "Twice";
   twice.arity = 1;
   twice.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kAdd,       0},
-      {fleaux::bytecode::Opcode::kReturn,    0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
   bytecode_module.functions.push_back(std::move(twice));
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst,    c21},
-      {fleaux::bytecode::Opcode::kCallUserFunc,   0},
-      {fleaux::bytecode::Opcode::kPrint,          0},
-      {fleaux::bytecode::Opcode::kHalt,           0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c21},
+      {.opcode=fleaux::bytecode::Opcode::kCallUserFunc, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -848,10 +944,10 @@ TEST_CASE("VM executes kMakeClosureRef for inline closure callables", "[vm]") {
   closure_fn.name = "__closure_add_capture";
   closure_fn.arity = 2;
   closure_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kLoadLocal, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
   bytecode_module.functions.push_back(std::move(closure_fn));
   bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
@@ -860,17 +956,23 @@ TEST_CASE("VM executes kMakeClosureRef for inline closure callables", "[vm]") {
       .declared_arity = 1,
       .declared_has_variadic_tail = false,
   });
-  bytecode_module.builtin_names = {"Std.Apply"};
+  bytecode_module.builtin_names = {
+      "Std.Apply",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c32},
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kMakeClosureRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c32},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kMakeClosureRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -889,10 +991,10 @@ TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
   sum2.name = "__closure_sum2";
   sum2.arity = 2;
   sum2.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kLoadLocal, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
   bytecode_module.functions.push_back(std::move(sum2));
   bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
@@ -904,13 +1006,10 @@ TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
   bytecode_module.builtin_names = {"Std.Apply"};
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kMakeClosureRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10}, {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=0},  {.opcode=fleaux::bytecode::Opcode::kMakeClosureRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},  {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -936,37 +1035,43 @@ TEST_CASE("VM executes Std.Match with wildcard closure case", "[vm]") {
   zero_fn.name = "CaseZero";
   zero_fn.arity = 0;
   zero_fn.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cZero},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cZero},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef many_fn;
   many_fn.name = "CaseMany";
   many_fn.arity = 0;
   many_fn.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cMany},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cMany},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(zero_fn));
   bytecode_module.functions.push_back(std::move(many_fn));
-  bytecode_module.builtin_names = {"Std.Match"};
+  bytecode_module.builtin_names = {
+      "Std.Match",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
 
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
 
-      {fleaux::bytecode::Opcode::kPushConst, cWildcard},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cWildcard},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
 
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -992,52 +1097,54 @@ TEST_CASE("VM executes Std.Match with predicate pattern case", "[vm]") {
   is_even_fn.name = "IsEven";
   is_even_fn.arity = 1;
   is_even_fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kMod, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kMod, 0},
-      {fleaux::bytecode::Opcode::kCmpEq, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},  {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kMod, .operand=0},        {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2}, {.opcode=fleaux::bytecode::Opcode::kMod, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCmpEq, .operand=0},      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef even_fn;
   even_fn.name = "CaseEven";
   even_fn.arity = 1;
   even_fn.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cEven},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cEven},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   fleaux::bytecode::FunctionDef odd_fn;
   odd_fn.name = "CaseOdd";
   odd_fn.arity = 1;
   odd_fn.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cOdd},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cOdd},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
 
   bytecode_module.functions.push_back(std::move(is_even_fn));
   bytecode_module.functions.push_back(std::move(even_fn));
   bytecode_module.functions.push_back(std::move(odd_fn));
-  bytecode_module.builtin_names = {"Std.Match"};
+  bytecode_module.builtin_names = {
+      "Std.Match",
+      "Std.Println",
+  };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c6},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c6},
 
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
 
-      {fleaux::bytecode::Opcode::kPushConst, cWildcard},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cWildcard},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
 
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1055,37 +1162,41 @@ TEST_CASE("VM strict mode executes native Std.Result builtins", "[vm]") {
   const auto cBoom = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.Result.Ok",
-      "Std.Result.IsOk",
-      "Std.Result.Unwrap",
-      "Std.Result.Err",
-      "Std.Result.IsErr",
-      "Std.Result.UnwrapErr",
+      "Std.Result.Ok",    "Std.Result.IsOk",      "Std.Result.Unwrap", "Std.Result.Err",
+      "Std.Result.IsErr", "Std.Result.UnwrapErr", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c42},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c42},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cBoom},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cBoom},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime(
-      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
@@ -1102,45 +1213,52 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for more arithmetic/logical buil
   const auto c7 = push_i64_const(bytecode_module, 7);
 
   bytecode_module.builtin_names = {
-      "Std.Subtract",
-      "Std.Multiply",
-      "Std.Or",
-      "Std.Equal",
-      "Std.NotEqual",
+      "Std.Subtract", "Std.Multiply", "Std.Or", "Std.Equal", "Std.NotEqual", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c4},
-      {fleaux::bytecode::Opcode::kBuildTuple,  2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint,       0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c4},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kBuildTuple,  2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint,       0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst,   0},
-      {fleaux::bytecode::Opcode::kPushConst,   1},
-      {fleaux::bytecode::Opcode::kBuildTuple,  2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint,       0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kBuildTuple,  2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint,       0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c4},
-      {fleaux::bytecode::Opcode::kBuildTuple,  2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint,       0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt,        0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c4},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1162,37 +1280,41 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for apply/wrap/unwrap/to_num", "
   add_one.name = "AddOne";
   add_one.arity = 1;
   add_one.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode=fleaux::bytecode::Opcode::kLoadLocal, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kAdd, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kReturn, .operand=0},
   };
   bytecode_module.functions.push_back(std::move(add_one));
 
   bytecode_module.builtin_names = {
-      "Std.Apply",
-      "Std.Wrap",
-      "Std.Unwrap",
-      "Std.ToNum",
+      "Std.Apply", "Std.Wrap", "Std.Unwrap", "Std.ToNum", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c41},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c41},
+      {.opcode=fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c7},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c7},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1216,79 +1338,84 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins",
   const auto c5 = push_i64_const(bytecode_module, 5);
 
   bytecode_module.builtin_names = {
-      "Std.Length",
-      "Std.ElementAt",
-      "Std.Take",
-      "Std.Drop",
-      "Std.Slice",
-      "Std.Sqrt",
-      "Std.Math.Sqrt",
-      "Std.Math.Clamp",
+      "Std.Length", "Std.ElementAt", "Std.Take", "Std.Drop", "Std.Slice",
+      "Std.Math.Sqrt", "Std.Math.Clamp", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
       // Std.Length: pass the 3-tuple directly (Option B — no 1-element wrapper).
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kPushConst, c30},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c30},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kPushConst, c30},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kPushConst, c30},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c30},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kPushConst, c30},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c10},
-      {fleaux::bytecode::Opcode::kPushConst, c20},
-      {fleaux::bytecode::Opcode::kPushConst, c30},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c30},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c9},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c9},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 6},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c30},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c9},
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kPushConst, c5},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 7},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c30},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c9},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c9},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c5},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=6},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1296,7 +1423,7 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for tuple/math helper builtins",
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
-  REQUIRE(output.str() == "3\n20\n10 20\n30\n20 30\n3\n3\n5\n");
+  REQUIRE(output.str() == "3\n20\n10 20\n30\n20 30\n3\n5\n");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.ToString and Std.String helpers", "[vm]") {
@@ -1332,91 +1459,109 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.ToString and Std.String 
   const auto cTrimEndOnly = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.ToString",
-      "Std.String.Upper",
-      "Std.String.Lower",
-      "Std.String.Trim",
-      "Std.String.Split",
-      "Std.String.Join",
-      "Std.String.Replace",
-      "Std.String.Contains",
-      "Std.String.StartsWith",
-      "Std.String.EndsWith",
-      "Std.String.Length",
-      "Std.String.TrimStart",
-      "Std.String.TrimEnd",
+      "Std.ToString",          "Std.String.Upper",    "Std.String.Lower",   "Std.String.Trim",
+      "Std.String.Split",      "Std.String.Join",     "Std.String.Replace", "Std.String.Contains",
+      "Std.String.StartsWith", "Std.String.EndsWith", "Std.String.Length",  "Std.String.TrimStart",
+      "Std.String.TrimEnd",    "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c42},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c42},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cHello},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cMixed},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cHello},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cTrim},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cCsv},
-      {fleaux::bytecode::Opcode::kPushConst, cComma},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cMixed},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cComma},
-      {fleaux::bytecode::Opcode::kPushConst, cAbc},
-      {fleaux::bytecode::Opcode::kPushConst, cB},
-      {fleaux::bytecode::Opcode::kPushConst, cBc},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cCsv},
-      {fleaux::bytecode::Opcode::kPushConst, cComma},
-      {fleaux::bytecode::Opcode::kPushConst, cUnderscore},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 6},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cTrim},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cAbc},
-      {fleaux::bytecode::Opcode::kPushConst, cB},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 7},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cAbc},
-      {fleaux::bytecode::Opcode::kPushConst, cAb},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 8},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cCsv},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cComma},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cAbc},
-      {fleaux::bytecode::Opcode::kPushConst, cBc},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 9},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cAbcd},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 10},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cComma},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbc},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cB},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cBc},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cTrimStartOnly},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 11},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cTrimEndOnly},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 12},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cCsv},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cComma},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cUnderscore},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=6},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbc},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cB},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=7},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbc},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAb},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=8},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbc},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cBc},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=9},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbcd},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=10},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cTrimStartOnly},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=11},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cTrimEndOnly},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=12},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1443,61 +1588,73 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Path and Std.OS helpers"
   const auto cOtherBin = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.Path.Join",
-      "Std.Path.Basename",
-      "Std.Path.Extension",
-      "Std.Path.Stem",
-      "Std.Path.Exists",
-      "Std.Path.IsDir",
-      "Std.OS.IsLinux",
-      "Std.Path.WithExtension",
-      "Std.Path.WithBasename",
+      "Std.Path.Join",  "Std.Path.Basename", "Std.Path.Extension",     "Std.Path.Stem",         "Std.Path.Exists",
+      "Std.Path.IsDir", "Std.OS.IsLinux",    "Std.Path.WithExtension", "Std.Path.WithBasename", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cTmp},
-      {fleaux::bytecode::Opcode::kPushConst, cFile},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cTmp},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFile},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFull},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFull},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFull},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFull},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cDot},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFull},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cDot},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 6},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFull},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFull},
-      {fleaux::bytecode::Opcode::kPushConst, cLogExt},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 7},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFull},
-      {fleaux::bytecode::Opcode::kPushConst, cOtherBin},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 8},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cDot},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cDot},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=6},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFull},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cLogExt},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=7},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFull},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cOtherBin},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=8},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1520,25 +1677,30 @@ TEST_CASE("VM strict mode executes native Std.String and Std.Path builtins", "[v
   bytecode_module.builtin_names = {
       "Std.String.Upper",
       "Std.Path.WithExtension",
+      "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cAbc},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cAbc},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cPath},
-      {fleaux::bytecode::Opcode::kPushConst, cLog},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cPath},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cLog},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime(
-      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
@@ -1554,43 +1716,45 @@ TEST_CASE("VM strict mode executes native Std.OS, Std.Tuple, and Std.Dict builti
   const auto cKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.OS.IsLinux",
-      "Std.Tuple.Append",
-      "Std.Dict.Create",
-      "Std.Dict.Set",
-      "Std.Dict.Get",
+      "Std.OS.IsLinux", "Std.Tuple.Append", "Std.Dict.Create", "Std.Dict.Set", "Std.Dict.Get", "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPushConst, cKey},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPushConst, cKey},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cKey},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cKey},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime(
-      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
@@ -1618,59 +1782,69 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
   const auto cHello = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.OS.SetEnv",
-      "Std.OS.Env",
-      "Std.OS.UnsetEnv",
-      "Std.Dir.Create",
-      "Std.File.WriteText",
-      "Std.File.ReadText",
-      "Std.File.Delete",
-      "Std.Dir.Delete",
+      "Std.OS.SetEnv",     "Std.OS.Env",      "Std.OS.UnsetEnv", "Std.Dir.Create", "Std.File.WriteText",
+      "Std.File.ReadText", "Std.File.Delete", "Std.Dir.Delete",  "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, cEnvKey},
-      {fleaux::bytecode::Opcode::kPushConst, cEnvVal},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cEnvKey},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cEnvVal},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cEnvKey},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cEnvKey},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cEnvKey},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cDir},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFile},
-      {fleaux::bytecode::Opcode::kPushConst, cHello},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cEnvKey},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFile},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, cFile},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 6},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cDir},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, cDir},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 7},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFile},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cHello},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFile},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cFile},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=6},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cDir},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=7},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime(
-      fleaux::vm::RuntimeOptions{.allow_runtime_fallback = false});
+  const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
   std::filesystem::remove_all(base);
@@ -1681,8 +1855,7 @@ TEST_CASE("VM strict mode executes native Std.OS env and Std.File/Std.Dir builti
 #endif
 
   REQUIRE(result.has_value());
-  REQUIRE(output.str() ==
-          "vm_native_ok\nvm_native_ok\nTrue\n" + dir_path + "\n" + file_path + "\nhello\nTrue\nTrue\n");
+  REQUIRE(output.str() == "vm_native_ok\nvm_native_ok\nTrue\n" + dir_path + "\n" + file_path + "\nhello\nTrue\nTrue\n");
 }
 
 TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
@@ -1690,10 +1863,10 @@ TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
   bytecode_module.builtin_names = {"Std.Path.Join"};
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;
@@ -1701,8 +1874,7 @@ TEST_CASE("VM native Std.Path.Join reports native error prefix", "[vm]") {
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message ==
-          "native builtin 'Std.Path.Join' threw: PathJoin expects at least 2 arguments");
+  REQUIRE(result.error().message == "native builtin 'Std.Path.Join' threw: PathJoin expects at least 2 arguments");
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpers", "[vm]") {
@@ -1720,89 +1892,100 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpe
   const auto cMissing = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   bytecode_module.builtin_names = {
-      "Std.Tuple.Append",
-      "Std.Tuple.Prepend",
-      "Std.Tuple.Contains",
-      "Std.Tuple.Zip",
-      "Std.Dict.Create",
-      "Std.Dict.Set",
-      "Std.Dict.Get",
-      "Std.Dict.GetDefault",
-      "Std.Dict.Length",
-      "Std.Dict.Keys",
-      "Std.Dict.Values",
+      "Std.Tuple.Append", "Std.Tuple.Prepend", "Std.Tuple.Contains", "Std.Tuple.Zip",
+      "Std.Dict.Create",  "Std.Dict.Set",      "Std.Dict.Get",       "Std.Dict.GetDefault",
+      "Std.Dict.Length",  "Std.Dict.Keys",     "Std.Dict.Values",    "Std.Println",
   };
+  const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size() - 1);
 
   bytecode_module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kPushConst, c0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 1},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 2},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kPushConst, c1},
-      {fleaux::bytecode::Opcode::kPushConst, c2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kPushConst, c3},
-      {fleaux::bytecode::Opcode::kPushConst, c4},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 3},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 4},
-      {fleaux::bytecode::Opcode::kPushConst, cKey},
-      {fleaux::bytecode::Opcode::kPushConst, c9},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 5},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kPushConst, cKey},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 6},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 8},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c1},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c3},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c4},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 9},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
 
-      {fleaux::bytecode::Opcode::kDup, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 10},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=4},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cKey},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c9},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=5},
 
-      {fleaux::bytecode::Opcode::kPushConst, cMissing},
-      {fleaux::bytecode::Opcode::kPushConst, c42},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 7},
-      {fleaux::bytecode::Opcode::kPrint, 0},
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cKey},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=6},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
 
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=8},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=9},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kDup, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=1},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=10},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cMissing},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c42},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=3},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=7},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=kPrintBuiltin},
+
+      {.opcode=fleaux::bytecode::Opcode::kPop, .operand=0},
+
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
   };
 
   std::ostringstream output;

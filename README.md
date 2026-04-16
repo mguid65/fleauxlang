@@ -1,10 +1,10 @@
 # Fleaux
 
-Fleaux is a functional, pipeline-oriented language with a C++ frontend, bytecode runtime, and optional web visual editor.
+Fleaux is a functional, pipeline-oriented language with a C++ frontend, VM runtime, and optional web visual editor.
 
 This repository contains:
 
-- `core/`: parser, lowering, transpiler, bytecode compiler, VM, and CLIs
+- `core/`: parser, analysis/lowering, transpiler, VM compiler, VM, and CLIs
 - `samples/`: runnable `.fleaux` examples
 - `Std.fleaux`: standard library surface (builtins and helpers)
 - `fleaux-visual/`: React + TypeScript visual editor and WASM integration
@@ -95,8 +95,8 @@ Build outputs are placed under:
 
 Main executables:
 
-- `fleaux_transpile_cli`
-- `fleaux_vm_cli` (available when PCRE2 target resolves)
+- `fleaux2cpp`
+- `fleaux` (available when PCRE2 target resolves)
 - `fleaux_core_tests`
 
 ### Running the CLIs
@@ -104,25 +104,25 @@ Main executables:
 ```bash
 cd /home/matthew/CLionProjects/fleauxlang/core
 source cmake-build-debug/generators/conanrun.sh
-./cmake-build-debug/bin/fleaux_vm_cli ../samples/01_hello_world.fleaux
-./cmake-build-debug/bin/fleaux_vm_cli --mode interpreter ../samples/04_function_definitions.fleaux
-./cmake-build-debug/bin/fleaux_vm_cli --all-samples
-./cmake-build-debug/bin/fleaux_transpile_cli ../samples/01_hello_world.fleaux
+./cmake-build-debug/bin/fleaux ../samples/01_hello_world.fleaux
+./cmake-build-debug/bin/fleaux --mode interpreter ../samples/04_function_definitions.fleaux
+./cmake-build-debug/bin/fleaux2cpp ../samples/01_hello_world.fleaux
 ```
 
 Useful VM CLI options:
 
-- `--mode bytecode|interpreter`
+- `--mode vm|interpreter`
 - `--repl`
-- `--all-samples`
 - `--no-run`
 - `--` to forward runtime args to the program
+
+Batch sample execution is handled by `run_samples.py`.
 
 Show help:
 
 ```bash
-./cmake-build-debug/bin/fleaux_vm_cli --help
-./cmake-build-debug/bin/fleaux_transpile_cli --help
+./cmake-build-debug/bin/fleaux --help
+./cmake-build-debug/bin/fleaux2cpp --help
 ```
 
 ## Release build, install, and package
@@ -180,6 +180,10 @@ A quick smoke run after building:
 ```bash
 cd /home/matthew/CLionProjects/fleauxlang/core
 source cmake-build-debug/generators/conanrun.sh
-./cmake-build-debug/bin/fleaux_vm_cli --all-samples
+cd ..
+python3 run_samples.py --mode vm
+
+# Target a sample that expects argv, such as the parser sample.
+python3 run_samples.py --mode vm --sample 25_fleaux_parser.fleaux
 ```
 

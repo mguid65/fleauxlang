@@ -30,3 +30,25 @@ let SafeDivide(a: Number, b: Number): Number =
 (10, 0) -> SafeDivide -> Std.Println;                             // 0.0
 (10, 4) -> SafeDivide -> Std.Println;                             // 8
 
+// -- Branch with inline closures: no named helpers needed --
+// The value at position 1 is forwarded as the argument to whichever closure runs.
+((7, 0) -> Std.GreaterThan,
+ 7,
+ (n: Number): String = ("positive: {}", n) -> Std.String.Format,
+ (n: Number): String = ("non-positive: {}", n) -> Std.String.Format
+) -> Std.Branch -> Std.Println;                                   // positive: 7
+
+((-3, 0) -> Std.GreaterThan,
+ -3,
+ (n: Number): String = ("positive: {}", n) -> Std.String.Format,
+ (n: Number): String = ("non-positive: {}", n) -> Std.String.Format
+) -> Std.Branch -> Std.Println;                                   // non-positive: -3
+
+// -- Zero-parameter closures capture from the outer scope --
+// Useful when the branch result does not depend on the dispatched value.
+let GetLabel(): String = "fleaux";
+((True, (),
+  (): String = (() -> GetLabel) -> Std.String.Upper,
+  (): String = (() -> GetLabel) -> Std.String.Lower
+) -> Std.Branch) -> Std.Println;                                  // FLEAUX
+

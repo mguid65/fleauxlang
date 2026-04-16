@@ -1,6 +1,6 @@
 import Std;
 // -- Basic math builtins --
-(16) -> Std.Sqrt -> Std.Println;                                  // 4.0
+(16) -> Std.Math.Sqrt -> Std.Println;                             // 4.0
 (2, 8) -> Std.Pow -> Std.Println;                                 // 256
 // -- Std.Math namespace --
 (2.7) -> Std.Math.Floor -> Std.Println;                           // 2

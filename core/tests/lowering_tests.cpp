@@ -215,3 +215,54 @@ TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
   REQUIRE(lowered.error().message.find("wildcard '_' must be the final case") != std::string::npos);
 }
 
+TEST_CASE("Lowerer rejects too few fixed args for variadic functions", "[lowering]") {
+  const std::string src =
+      "import Std;\n"
+      "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+      "() -> HeadTail;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "variadic_fixed_arity_lowering.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+}
+
+TEST_CASE("Lowerer rejects Std.Apply callable arity mismatch", "[lowering]") {
+  const std::string src =
+      "let Std.Add(lhs: Number, rhs: Number): Number :: __builtin__;\n"
+      "let Std.Apply(value: Any, func: Any): Any :: __builtin__;\n"
+      "(10, (a: Number, b: Number): Number = (a, b) -> Std.Add) -> Std.Apply;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "apply_callable_arity_mismatch.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+}
+
+TEST_CASE("Lowerer rejects predicate builtins with non-bool callable results", "[lowering]") {
+  const std::string src =
+      "let Std.Tuple.Filter(t: Tuple(Any...), pred: Any): Tuple(Any...) :: __builtin__;\n"
+      "((1, 2, 3), (x: Number): Number = x) -> Std.Tuple.Filter;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "filter_predicate_return_type_mismatch.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("return Bool") != std::string::npos);
+}
+

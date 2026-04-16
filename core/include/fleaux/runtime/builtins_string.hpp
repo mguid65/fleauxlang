@@ -1,6 +1,6 @@
 #pragma once
 // String, conversion, and math helper builtins.
-// Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include <memory>
 #if defined(__has_include)
 #if __has_include(<pcre2.h>)

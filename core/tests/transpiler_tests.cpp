@@ -134,7 +134,7 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(std::filesystem::exists(result.value()));
 
   const std::string generated = read_text(result.value());
-  REQUIRE(generated.find("#include \"fleaux/runtime/fleaux_runtime.hpp\"") != std::string::npos);
+  REQUIRE(generated.find("#include \"fleaux/runtime/runtime_support.hpp\"") != std::string::npos);
   REQUIRE(generated.find("using fleaux::runtime::operator|;") != std::string::npos);
   REQUIRE(generated.find("int main(int argc, char** argv)") != std::string::npos);
 
@@ -222,7 +222,7 @@ TEST_CASE("Transpiler emits runtime scaffold and let symbols", "[transpiler]") {
   REQUIRE(std::filesystem::exists(result.value()));
 
   const std::string generated = read_text(result.value());
-  REQUIRE(generated.find("#include \"fleaux/runtime/fleaux_runtime.hpp\"") != std::string::npos);
+  REQUIRE(generated.find("#include \"fleaux/runtime/runtime_support.hpp\"") != std::string::npos);
   REQUIRE(generated.find("using fleaux::runtime::operator|;") != std::string::npos);
   REQUIRE(generated.find("fleaux::runtime::Value Add4") != std::string::npos);
   REQUIRE(generated.find("fleaux::runtime::Add{}") != std::string::npos);
@@ -286,6 +286,45 @@ TEST_CASE("Transpiler emits inline closure callable refs", "[transpiler]") {
   const std::string generated = read_text(result.value());
   REQUIRE(generated.find("make_callable_ref(") != std::string::npos);
   REQUIRE(generated.find("Apply{}") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects too few fixed args for variadic functions during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_variadic_error";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "variadic_too_few.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "() -> HeadTail -> Std.Println;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects higher-order callable mismatches during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_callable_error";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "apply_arity_mismatch.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Add(lhs: Number, rhs: Number): Number :: __builtin__;\n"
+           "let Std.Apply(value: Any, func: Any): Any :: __builtin__;\n"
+           "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+           "(10, (a: Number, b: Number): Number = (a, b) -> Std.Add) -> Std.Apply -> Std.Println;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
 }
 
 TEST_CASE("Transpiler sample list stays in sync with samples directory", "[transpiler][samples]") {
