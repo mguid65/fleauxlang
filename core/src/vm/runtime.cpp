@@ -14,8 +14,8 @@
 #include <vector>
 
 // The order here is important
-#include "fleaux/runtime/fleaux_runtime.hpp"
-// builtin_map.hpp must be included after fleaux_runtime.hpp
+#include "fleaux/runtime/runtime_support.hpp"
+// builtin_map.hpp must be included after runtime_support.hpp
 #include "builtin_map.hpp"
 
 #include "fleaux/common/overloaded.hpp"
@@ -77,7 +77,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
               const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output) -> LoopResult;
 
 auto dispatch_builtin(const std::string& name, Value arg,
-                      const std::unordered_map<std::string, RuntimeCallable>& builtins)
+                      const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
     -> tl::expected<Value, RuntimeError>;
 
 auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t arity, const bool has_variadic_tail,
@@ -190,7 +190,7 @@ auto pack_call_args(std::vector<Value> values) -> Value {
 }
 
 // Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
-auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
+auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::ostream& output)
     -> tl::expected<std::optional<Value>, RuntimeError>;
 
 auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg,
@@ -305,7 +305,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto arg = pop_stack(stack, "call_builtin");
         if (!arg) return tl::unexpected(arg.error());
 
-        auto result = dispatch_builtin(name, std::move(*arg), builtins);
+        auto result = dispatch_builtin(name, std::move(*arg), builtins, output);
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
         break;
@@ -359,8 +359,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(RuntimeError{"builtin index out of range"});
         }
         const auto& name = bytecode_module.builtin_names[idx];
-        auto callable = [name, &builtins](Value arg) -> Value {
-          auto result = dispatch_builtin(name, std::move(arg), builtins);
+        auto callable = [name, &builtins, &output](Value arg) -> Value {
+          auto result = dispatch_builtin(name, std::move(arg), builtins, output);
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
@@ -431,14 +431,6 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         const auto& locals = frames.back().locals;
         if (slot >= locals.size()) { return tl::unexpected(RuntimeError{"local slot index out of range"}); }
         stack.push_back(locals[slot]);
-        break;
-      }
-
-      case bytecode::Opcode::kPrint: {
-        auto val = pop_stack(stack, "print");
-        if (!val) return tl::unexpected(val.error());
-        fleaux::runtime::print_value_varargs(output, *val);
-        output << '\n';
         break;
       }
 
@@ -755,7 +747,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(RuntimeError{"program terminated without halt"});
 }
 
-auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
+auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::ostream& output)
     -> tl::expected<std::optional<Value>, RuntimeError> {
   auto native_error = [&](const std::string& builtin_name,
                           const std::exception& ex) -> tl::expected<std::optional<Value>, RuntimeError> {
@@ -988,13 +980,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
     kStd_Dict_Entries,
     kStd_Dict_Clear,
     kStd_Branch,
-    kStd_Sqrt,
     kStd_Math_Sqrt,
-    kStd_Sin,
     kStd_Math_Sin,
-    kStd_Cos,
     kStd_Math_Cos,
-    kStd_Tan,
     kStd_Math_Tan,
   };
 
@@ -1139,13 +1127,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
       {"Std.Dict.Entries", BuiltinDispatchKey::kStd_Dict_Entries},
       {"Std.Dict.Clear", BuiltinDispatchKey::kStd_Dict_Clear},
       {"Std.Branch", BuiltinDispatchKey::kStd_Branch},
-      {"Std.Sqrt", BuiltinDispatchKey::kStd_Sqrt},
       {"Std.Math.Sqrt", BuiltinDispatchKey::kStd_Math_Sqrt},
-      {"Std.Sin", BuiltinDispatchKey::kStd_Sin},
       {"Std.Math.Sin", BuiltinDispatchKey::kStd_Math_Sin},
-      {"Std.Cos", BuiltinDispatchKey::kStd_Cos},
       {"Std.Math.Cos", BuiltinDispatchKey::kStd_Math_Cos},
-      {"Std.Tan", BuiltinDispatchKey::kStd_Tan},
       {"Std.Math.Tan", BuiltinDispatchKey::kStd_Math_Tan},
   };
 
@@ -1329,22 +1313,18 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.UnaryPlus' threw: ") + ex.what()});
         }
       }
-      case BuiltinDispatchKey::kStd_Sqrt:
       case BuiltinDispatchKey::kStd_Math_Sqrt: {
         return numeric_unary(name, [](const double v) -> double { return std::sqrt(v); });
         break;
       }
-      case BuiltinDispatchKey::kStd_Sin:
       case BuiltinDispatchKey::kStd_Math_Sin: {
         return numeric_unary(name, [](const double v) -> double { return std::sin(v); });
         break;
       }
-      case BuiltinDispatchKey::kStd_Cos:
       case BuiltinDispatchKey::kStd_Math_Cos: {
         return numeric_unary(name, [](const double v) -> double { return std::cos(v); });
         break;
       }
-      case BuiltinDispatchKey::kStd_Tan:
       case BuiltinDispatchKey::kStd_Math_Tan: {
         return numeric_unary(name, [](const double v) -> double { return std::tan(v); });
         break;
@@ -2607,8 +2587,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
       }
       case BuiltinDispatchKey::kStd_Println: {
         try {
-          fleaux::runtime::print_value_varargs(std::cout, arg);
-          std::cout << '\n';
+          fleaux::runtime::print_value_varargs(output, arg);
+          output << '\n';
           return std::optional<Value>{arg};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2624,7 +2604,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
           std::vector<Value> values;
           values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
           for (std::size_t i = 1; i < args.Size(); ++i) { values.push_back(*args.TryGet(i)); }
-          std::cout << fleaux::runtime::format_values(fmt, values);
+          output << fleaux::runtime::format_values(fmt, values);
           return std::optional<Value>{arg};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2648,15 +2628,15 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
             return fleaux::runtime::make_string(line);
           };
           if (!arg.HasArray()) {
-            std::cout << fleaux::runtime::to_string(arg);
-            std::cout.flush();
+            output << fleaux::runtime::to_string(arg);
+            output.flush();
             return std::optional<Value>{read_line()};
           }
           const auto& args = fleaux::runtime::as_array(arg);
           if (args.Size() == 0) { return std::optional<Value>{read_line()}; }
           if (args.Size() == 1) {
-            std::cout << fleaux::runtime::to_string(*args.TryGet(0));
-            std::cout.flush();
+            output << fleaux::runtime::to_string(*args.TryGet(0));
+            output.flush();
             return std::optional<Value>{read_line()};
           }
           return tl::unexpected(RuntimeError{"native builtin 'Std.Input' threw: Input expects 0 or 1 argument"});
@@ -2988,9 +2968,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg)
 }
 
 auto dispatch_builtin(const std::string& name, Value arg,
-                      const std::unordered_map<std::string, RuntimeCallable>& builtins)
+                      const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
     -> tl::expected<Value, RuntimeError> {
-  auto native = try_run_vm_native_builtin(name, arg);
+  auto native = try_run_vm_native_builtin(name, arg, output);
   if (!native) return tl::unexpected(native.error());
   if (native->has_value()) { return std::move(**native); }
 
@@ -3028,6 +3008,6 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
   return ExecutionResult{0};
 }
 
-Runtime::Runtime(const RuntimeOptions options) : options_(options) {}
+
 
 }  // namespace fleaux::vm

@@ -8,24 +8,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
 
-#include "fleaux/frontend/lowering.hpp"
-#include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::frontend::cpp_transpile {
 
 namespace {
-
-auto read_file(const std::filesystem::path& file) -> std::string {
-  std::ifstream in(file);
-  if (!in) { return {}; }
-
-  std::ostringstream buffer;
-  buffer << in.rdbuf();
-  return buffer.str();
-}
 
 auto sanitize_symbol(std::string value) -> std::string {
   for (char& ch : value) {
@@ -339,112 +328,17 @@ auto emit_let_definition(const ir::IRLet& let, const std::unordered_map<std::str
   return out.str();
 }
 
-auto parse_and_lower(const std::filesystem::path& source_file) -> tl::expected<ir::IRProgram, TranspileError> {
-  const auto source_text = read_file(source_file);
-  if (source_text.empty()) {
-    return tl::unexpected(TranspileError{
-        .message = "Failed to read source file.",
-        .hint = "Check the file path and ensure it is not empty.",
-        .span = std::nullopt,
-    });
-  }
-
-  constexpr parse::Parser parser;
-  const auto parse_result = parser.parse_program(source_text, source_file.string());
-  if (!parse_result) {
-    return tl::unexpected(TranspileError{
-        .message = parse_result.error().message,
-        .hint = parse_result.error().hint,
-        .span = parse_result.error().span,
-    });
-  }
-
-  constexpr lowering::Lowerer lowerer;
-  const auto lowering_result = lowerer.lower(parse_result.value());
-  if (!lowering_result) {
-    return tl::unexpected(TranspileError{
-        .message = lowering_result.error().message,
-        .hint = lowering_result.error().hint,
-        .span = lowering_result.error().span,
-    });
-  }
-
-  return lowering_result.value();
-}
-
-auto resolve_import_source(const std::filesystem::path& current_source, const std::string& module_name)
-    -> std::filesystem::path {
-  if (module_name == "Std" || module_name == "StdBuiltins") { return {}; }
-
-  if (const auto local = current_source.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
-    return std::filesystem::weakly_canonical(local);
-  }
-
-  return {};
-}
-
-auto collect_program(const std::filesystem::path& source_file, std::unordered_map<std::string, ir::IRProgram>& cache,
-                     std::unordered_set<std::string>& in_progress) -> tl::expected<ir::IRProgram, TranspileError> {
-  const std::string key = std::filesystem::weakly_canonical(source_file).string();
-  if (cache.contains(key)) { return cache[key]; }
-
-  if (in_progress.contains(key)) {
-    return tl::unexpected(TranspileError{
-        .message = "Cyclic import detected while transpiling.",
-        .hint = "Break the cycle by moving shared definitions into a third module.",
-        .span = std::nullopt,
-    });
-  }
-
-  in_progress.insert(key);
-  auto current_result = parse_and_lower(source_file);
-  if (!current_result) {
-    in_progress.erase(key);
-    return tl::unexpected(current_result.error());
-  }
-
-  ir::IRProgram merged = current_result.value();
-  std::unordered_set<std::string> seen_symbols;
-  for (const auto& let : merged.lets) { seen_symbols.insert(symbol_name(let.qualifier, let.name)); }
-
-  std::vector<ir::IRExprStatement> imported_exprs;
-  std::vector<ir::IRLet> imported_lets;
-
-  for (const auto& [module_name, span] : current_result->imports) {
-    const auto import_source = resolve_import_source(source_file, module_name);
-    if (import_source.empty()) { continue; }
-
-    auto imported_result = collect_program(import_source, cache, in_progress);
-    if (!imported_result) {
-      in_progress.erase(key);
-      return tl::unexpected(imported_result.error());
-    }
-
-    imported_exprs.insert(imported_exprs.end(), imported_result->expressions.begin(),
-                          imported_result->expressions.end());
-    for (const auto& imported_let : imported_result->lets) {
-      if (const std::string sym = symbol_name(imported_let.qualifier, imported_let.name);
-          seen_symbols.insert(sym).second) {
-        imported_lets.push_back(imported_let);
-      }
-    }
-  }
-
-  merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
-  merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
-
-  cache[key] = merged;
-  in_progress.erase(key);
-  return merged;
+auto make_transpile_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
+                          const std::optional<diag::SourceSpan>& span = std::nullopt) -> TranspileError {
+  return TranspileError{.message = message, .hint = hint, .span = span};
 }
 
 }  // namespace
 
 auto FleauxCppTranspiler::process(const std::filesystem::path& source_file) const -> TranspileResult {
-  std::unordered_map<std::string, ir::IRProgram> cache;
-  std::unordered_set<std::string> in_progress;
-
-  auto merged_result = collect_program(source_file, cache, in_progress);
+  auto merged_result = frontend::source_loader::load_ir_program<TranspileError>(
+      source_file, make_transpile_error, "Cyclic import detected while transpiling.",
+      "Break the cycle by moving shared definitions into a third module.");
   if (!merged_result) { return tl::unexpected(merged_result.error()); }
 
   const auto module_name = sanitize_symbol(source_file.stem().string());
@@ -472,7 +366,7 @@ auto FleauxCppTranspiler::emit_cpp(const ir::IRProgram& program, const std::stri
   }
 
   std::ostringstream out;
-  out << "#include \"fleaux/runtime/fleaux_runtime.hpp\"\n";
+  out << "#include \"fleaux/runtime/runtime_support.hpp\"\n";
   out << "#include <stdexcept>\n";
   out << "#include <string>\n\n";
   out << "using fleaux::runtime::operator|;\n\n";
@@ -481,7 +375,7 @@ auto FleauxCppTranspiler::emit_cpp(const ir::IRProgram& program, const std::stri
   out << "  const char* name;\n";
   out << "  fleaux::runtime::Value operator()(fleaux::runtime::Value) const {\n";
   out << "    throw std::runtime_error(std::string(\"Builtin '\") + name + \"' is not yet implemented in "
-         "fleaux/runtime/fleaux_runtime.hpp\");\n";
+         "fleaux/runtime/runtime_support.hpp\");\n";
   out << "  }\n";
   out << "};\n";
   out << "inline _FleauxMissingBuiltin _fleaux_missing_builtin(const char* name) {\n";

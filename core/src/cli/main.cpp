@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fleaux/common/sample_sources.hpp"
 #include "fleaux/frontend/cpp_transpiler.hpp"
 
 namespace {
@@ -15,7 +16,7 @@ struct CliOptions {
   bool show_help = false;
 };
 
-auto usage_text() -> std::string { return "usage: fleaux_transpile_cli [--all-samples] [file.fleaux]"; }
+auto usage_text() -> std::string { return "usage: fleaux2cpp [--all-samples] [file.fleaux]"; }
 
 void print_help() {
   std::cout << usage_text() << '\n'
@@ -26,31 +27,6 @@ void print_help() {
             << "\n"
             << "Notes:\n"
             << "  - If no source is provided, defaults to test.fleaux\n";
-}
-
-auto resolve_samples_dir(const std::filesystem::path& executable_path) -> std::optional<std::filesystem::path> {
-  if (auto cwd_samples = std::filesystem::current_path() / "samples"; std::filesystem::is_directory(cwd_samples)) {
-    return cwd_samples;
-  }
-
-  const auto exe = std::filesystem::weakly_canonical(executable_path);
-  if (auto repo_samples = exe.parent_path().parent_path().parent_path() / "samples";
-      std::filesystem::is_directory(repo_samples)) {
-    return repo_samples;
-  }
-
-  return std::nullopt;
-}
-
-auto collect_sample_sources(const std::filesystem::path& samples_dir) -> std::vector<std::filesystem::path> {
-  std::vector<std::filesystem::path> out;
-  for (const auto& entry : std::filesystem::directory_iterator(samples_dir)) {
-    if (!entry.is_regular_file()) continue;
-    if (entry.path().extension() != ".fleaux") continue;
-    out.push_back(entry.path());
-  }
-  std::ranges::sort(out);
-  return out;
 }
 
 auto parse_cli_args(int argc, char** argv) -> std::optional<CliOptions> {
@@ -98,12 +74,12 @@ auto main(int argc, char** argv) -> int {
 
   std::vector<std::filesystem::path> sources;
   if (options->all_samples) {
-    const auto samples_dir = resolve_samples_dir(argv[0]);
+    const auto samples_dir = fleaux::common::resolve_samples_dir(argv[0]);
     if (!samples_dir.has_value()) {
       std::cerr << "samples directory not found\n";
       return 2;
     }
-    sources = collect_sample_sources(*samples_dir);
+    sources = fleaux::common::collect_sample_sources(*samples_dir);
   } else {
     sources.push_back(*options->source);
   }

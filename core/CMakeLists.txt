@@ -62,7 +62,7 @@ target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics 
 
 add_library(fleaux_frontend_lowering STATIC)
 target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_frontend_lowering PRIVATE src/frontend/lowering.cpp)
+target_sources(fleaux_frontend_lowering PRIVATE src/frontend/lowering.cpp src/frontend/type_check.cpp)
 target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
 
 add_library(fleaux_frontend_cpp_transpiler STATIC)
@@ -70,8 +70,8 @@ target_include_directories(fleaux_frontend_cpp_transpiler PUBLIC ${CMAKE_CURRENT
 target_sources(fleaux_frontend_cpp_transpiler PRIVATE src/frontend/cpp_transpiler.cpp)
 target_link_libraries(fleaux_frontend_cpp_transpiler PUBLIC fleaux_frontend_lowering fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
 
-add_executable(fleaux_transpile_cli src/cli/main.cpp)
-target_link_libraries(fleaux_transpile_cli PRIVATE fleaux_frontend_cpp_transpiler)
+add_executable(fleaux2cpp src/cli/main.cpp)
+target_link_libraries(fleaux2cpp PRIVATE fleaux_frontend_cpp_transpiler)
 
 if(BUILD_TESTING)
   find_package(Catch2 CONFIG REQUIRED)
@@ -121,10 +121,10 @@ if(FLEAUX_PCRE2_TARGET)
       datatree
       ${FLEAUX_PCRE2_TARGET})
 
-  add_executable(fleaux_vm_cli src/cli/vm_main.cpp)
-  target_link_libraries(fleaux_vm_cli PRIVATE fleaux_vm_interpreter fleaux_vm)
+  add_executable(fleaux src/cli/vm_main.cpp)
+  target_link_libraries(fleaux PRIVATE fleaux_vm_interpreter fleaux_vm)
 elseif(EMSCRIPTEN)
-  message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux_vm_cli targets")
+  message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux targets")
 endif()
 
 if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
@@ -184,10 +184,10 @@ if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
            COMMAND fleaux_core_tests "[vm][jump]")
 endif()
 
-set(FLEAUX_INSTALL_TARGETS fleaux_transpile_cli)
+set(FLEAUX_INSTALL_TARGETS fleaux2cpp)
 
-if(TARGET fleaux_vm_cli)
-  list(APPEND FLEAUX_INSTALL_TARGETS fleaux_vm_cli)
+if(TARGET fleaux)
+  list(APPEND FLEAUX_INSTALL_TARGETS fleaux)
 endif()
 
 install(TARGETS ${FLEAUX_INSTALL_TARGETS}

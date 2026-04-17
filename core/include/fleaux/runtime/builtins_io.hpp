@@ -1,7 +1,12 @@
 #pragma once
 // Path, File, Dir, OS, and file-streaming builtins.
-// Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
-#include "fleaux/runtime/value.hpp"
+// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
+// #include "fleaux/runtime/value.hpp"
+#include <cstdio>
+#if !defined(_WIN32)
+#include <sys/wait.h>
+#endif
+
 namespace fleaux::runtime {
 // Path/File/Dir/OS
 
@@ -332,6 +337,39 @@ struct OSMakeTempDir {
           std::filesystem::create_directory(candidate, ec) && !ec) { return make_string(candidate.string()); }
     }
     return make_null();
+  }
+};
+
+struct OSExec {
+  // arg = command -> (exit_code, combined_output)
+  auto operator()(Value arg) const -> Value {
+    const std::string command = as_path_string_unary(std::move(arg));
+
+#if defined(_WIN32)
+    const std::string wrapped = command + " 2>&1";
+    FILE* pipe = _popen(wrapped.c_str(), "r");
+#else
+    const std::string wrapped = command + " 2>&1";
+    FILE* pipe = popen(wrapped.c_str(), "r");
+#endif
+    if (pipe == nullptr) {
+      throw std::runtime_error{"OSExec: failed to start command"};
+    }
+
+    std::string output;
+    char buffer[4096];
+    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe) != nullptr) { output += buffer; }
+
+#if defined(_WIN32)
+    const int close_status = _pclose(pipe);
+    const Int exit_code = static_cast<Int>(close_status);
+#else
+    const int close_status = pclose(pipe);
+    Int exit_code = static_cast<Int>(close_status);
+    if (WIFEXITED(close_status)) { exit_code = static_cast<Int>(WEXITSTATUS(close_status)); }
+#endif
+
+    return make_tuple(make_int(exit_code), make_string(std::move(output)));
   }
 };
 

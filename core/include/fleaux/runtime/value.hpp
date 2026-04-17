@@ -1,5 +1,5 @@
 // Foundation: type aliases, registries, construction/extraction helpers, printing/format utilities.
-// Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 
 #pragma once
 

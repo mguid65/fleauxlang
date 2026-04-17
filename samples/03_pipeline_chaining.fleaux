@@ -1,7 +1,7 @@
 import Std;
 
 // -- Simple single-step pipeline --
-(7) -> Std.Sqrt -> Std.Println;
+(7) -> Std.Math.Sqrt -> Std.Println;
 
 // -- Multi-step pipeline: (3 + 4) * 2 --
 (3, 4) -> Std.Add -> (_, 2) -> Std.Multiply -> Std.Println;      // 14

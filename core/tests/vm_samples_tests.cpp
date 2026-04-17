@@ -6,8 +6,6 @@
 #include <set>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,8 +13,7 @@
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
-#include "fleaux/frontend/lowering.hpp"
-#include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
@@ -37,110 +34,15 @@ std::filesystem::path samples_dir_path() {
   return repo_root_path() / "samples";
 }
 
-tl::expected<IRProgram, std::string> parse_and_lower_single(const std::filesystem::path& source_file) {
-  std::ifstream in(source_file);
-  if (!in) {
-    return tl::unexpected("Failed to read source file.");
-  }
-  const std::string source((std::istreambuf_iterator<char>(in)),
-                           std::istreambuf_iterator<char>());
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(source, source_file.string());
-  if (!parsed) {
-    return tl::unexpected(parsed.error().message);
-  }
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-  if (!lowered) {
-    return tl::unexpected(lowered.error().message);
-  }
-
-  return lowered.value();
+auto make_load_error(const std::string& message, const std::optional<std::string>& hint,
+                     const std::optional<fleaux::frontend::diag::SourceSpan>&) -> std::string {
+  return hint.has_value() ? message + " (" + *hint + ")" : message;
 }
 
-std::filesystem::path resolve_import_path(const std::filesystem::path& current,
-                                          const std::string& module_name) {
-  if (module_name == "Std" || module_name == "StdBuiltins") {
-    return {};
-  }
-
-  if (const auto local = current.parent_path() / (module_name + ".fleaux");
-      std::filesystem::exists(local)) {
-    return std::filesystem::weakly_canonical(local);
-  }
-
-  return {};
-}
-
-std::string let_key(const std::optional<std::string>& qualifier, const std::string& name) {
-  return qualifier.has_value() ? (*qualifier + "." + name) : name;
-}
-
-tl::expected<IRProgram, std::string> collect_ir_program(
-    const std::filesystem::path& source_file,
-    std::unordered_map<std::string, IRProgram>& cache,
-    std::unordered_set<std::string>& in_progress) {
-  const auto canonical = std::filesystem::weakly_canonical(source_file).string();
-  if (cache.contains(canonical)) {
-    return cache.at(canonical);
-  }
-
-  if (in_progress.contains(canonical)) {
-    return tl::unexpected("Cyclic import detected.");
-  }
-
-  in_progress.insert(canonical);
-
-  auto current = parse_and_lower_single(source_file);
-  if (!current) {
-    in_progress.erase(canonical);
-    return tl::unexpected(current.error());
-  }
-
-  IRProgram merged = current.value();
-  std::unordered_set<std::string> seen;
-  for (const auto& let : merged.lets) {
-    seen.insert(let_key(let.qualifier, let.name));
-  }
-
-  std::vector<fleaux::frontend::ir::IRLet> imported_lets;
-  std::vector<fleaux::frontend::ir::IRExprStatement> imported_exprs;
-
-  for (const auto& [module_name, _span] : current->imports) {
-    const auto import_path = resolve_import_path(source_file, module_name);
-    if (import_path.empty()) {
-      continue;
-    }
-
-    auto imported = collect_ir_program(import_path, cache, in_progress);
-    if (!imported) {
-      in_progress.erase(canonical);
-      return tl::unexpected(imported.error());
-    }
-
-    for (const auto& imported_let : imported->lets) {
-      if (const auto symbol = let_key(imported_let.qualifier, imported_let.name);
-          seen.insert(symbol).second) {
-        imported_lets.push_back(imported_let);
-      }
-    }
-    imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
-  }
-
-  merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
-  merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
-
-  cache[canonical] = merged;
-  in_progress.erase(canonical);
-  return merged;
-}
-
-tl::expected<IRProgram, std::string> collect_and_lower(const std::filesystem::path& source_file) {
-  std::unordered_map<std::string, IRProgram> cache;
-  std::unordered_set<std::string> in_progress;
-  return collect_ir_program(source_file, cache, in_progress);
+tl::expected<IRProgram, std::string> load_ir_program(const std::filesystem::path& source_file) {
+  return fleaux::frontend::source_loader::load_ir_program<std::string>(
+      source_file, make_load_error, "Cyclic import detected.",
+      std::optional<std::string>{"Break the cycle by moving shared definitions into a third module."});
 }
 
 std::vector<std::string> sample_runtime_args(const std::string_view sample_file,
@@ -186,15 +88,15 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(std::filesystem::exists(sample_path));
   const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
-  const auto lowered = collect_and_lower(sample_path);
+  const auto analyzed = load_ir_program(sample_path);
   INFO("sample file: " << sample_path);
-  if (!lowered) {
-    INFO("lowering error: " << lowered.error());
+  if (!analyzed) {
+    INFO("analysis error: " << analyzed.error());
   }
-  REQUIRE(lowered.has_value());
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   if (!compiled_module) {
     INFO("bytecode compile error: " << compiled_module.error().message);
   }
@@ -219,9 +121,9 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
 
   std::optional<std::string> bytecode_error;
   bool bytecode_ok = false;
-  if (const auto lowered = collect_and_lower(sample_path); lowered) {
+  if (const auto analyzed = load_ir_program(sample_path); analyzed) {
     constexpr fleaux::bytecode::BytecodeCompiler compiler;
-    if (const auto compiled_module = compiler.compile(lowered.value()); compiled_module) {
+    if (const auto compiled_module = compiler.compile(analyzed.value()); compiled_module) {
       const fleaux::vm::Runtime runtime;
       set_runtime_process_args(sample_path, runtime_args);
       const auto runtime_result = runtime.execute(compiled_module.value());
@@ -233,7 +135,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
       bytecode_error = compiled_module.error().message;
     }
   } else {
-    bytecode_error = lowered.error();
+    bytecode_error = analyzed.error();
   }
 
   INFO("sample file: " << sample_path);
@@ -321,11 +223,11 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE_FALSE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   REQUIRE_FALSE(compiled_module.has_value());
 }
 
@@ -350,11 +252,11 @@ TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]"
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
@@ -383,11 +285,11 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
@@ -414,19 +316,11 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE_FALSE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
-
-  constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
-  REQUIRE(compiled_module.has_value());
-
-  const fleaux::vm::Runtime runtime;
-  const auto runtime_result = runtime.execute(compiled_module.value());
-  REQUIRE_FALSE(runtime_result.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
 }
 
-TEST_CASE("Inline closures execute in both interpreter and bytecode modes", "[vm][samples][closure]") {
+TEST_CASE("Inline closures execute in both interpreter and VM modes", "[vm][samples][closure]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_inline_closure";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "inline_closure_ok.fleaux";
@@ -444,11 +338,11 @@ TEST_CASE("Inline closures execute in both interpreter and bytecode modes", "[vm
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
@@ -456,7 +350,7 @@ TEST_CASE("Inline closures execute in both interpreter and bytecode modes", "[vm
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Match executes ordered pattern closures in interpreter and bytecode modes", "[vm][samples][match]") {
+TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM modes", "[vm][samples][match]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_match";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "match_ok.fleaux";
@@ -474,11 +368,11 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and byteco
   const auto interpreter_result = interpreter.run_file(source_path);
   REQUIRE(interpreter_result.has_value());
 
-  const auto lowered = collect_and_lower(source_path);
-  REQUIRE(lowered.has_value());
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(lowered.value());
+  const auto compiled_module = compiler.compile(analyzed.value());
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
@@ -492,7 +386,7 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and byteco
   }
 
 #define FLEAUX_VM_BYTECODE_SAMPLE_TEST(sample_file_literal)                              \
-  TEST_CASE("Bytecode VM sample: " sample_file_literal, "[vm][samples][bytecode]") {   \
+  TEST_CASE("Compiled VM sample: " sample_file_literal, "[vm][samples][vm]") {         \
     run_sample_in_bytecode_and_assert(sample_file_literal);                              \
   }
 

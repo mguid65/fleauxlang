@@ -1,6 +1,6 @@
 #pragma once
 // Core builtins: sequence access, arithmetic, comparison, logical, output, control flow.
-// Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include <future>
 #include <vector>
 
@@ -172,6 +172,48 @@ struct Mod {
 struct Pow {
     auto operator()(Value arg) const -> Value {
         return num_result(std::pow(to_double(array_at(arg, 0)), to_double(array_at(arg, 1))));
+    }
+};
+
+struct BitAnd {
+    auto operator()(Value arg) const -> Value {
+        return make_int(as_int_value(array_at(arg, 0)) & as_int_value(array_at(arg, 1)));
+    }
+};
+
+struct BitOr {
+    auto operator()(Value arg) const -> Value {
+        return make_int(as_int_value(array_at(arg, 0)) | as_int_value(array_at(arg, 1)));
+    }
+};
+
+struct BitXor {
+    auto operator()(Value arg) const -> Value {
+        return make_int(as_int_value(array_at(arg, 0)) ^ as_int_value(array_at(arg, 1)));
+    }
+};
+
+struct BitNot {
+    auto operator()(Value arg) const -> Value {
+        return make_int(~as_int_value(unwrap_singleton_arg(std::move(arg))));
+    }
+};
+
+struct BitShiftLeft {
+    auto operator()(Value arg) const -> Value {
+        const Int value = as_int_value(array_at(arg, 0));
+        const Int shift = as_int_value(array_at(arg, 1));
+        if (shift < 0) { throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"}; }
+        return make_int(value << shift);
+    }
+};
+
+struct BitShiftRight {
+    auto operator()(Value arg) const -> Value {
+        const Int value = as_int_value(array_at(arg, 0));
+        const Int shift = as_int_value(array_at(arg, 1));
+        if (shift < 0) { throw std::invalid_argument{"BitShiftRight: shift must be non-negative"}; }
+        return make_int(value >> shift);
     }
 };
 

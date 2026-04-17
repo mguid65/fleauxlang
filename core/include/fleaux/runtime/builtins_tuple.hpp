@@ -1,6 +1,6 @@
 #pragma once
 // Tuple collection builtins (Map, Filter, Sort, Reduce, Range, Zip, etc.).
-// Part of the split fleaux_runtime; included by fleaux/runtime/fleaux_runtime.hpp.
+// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include "fleaux/runtime/value.hpp"
 namespace fleaux::runtime {
 // Tuple builtins

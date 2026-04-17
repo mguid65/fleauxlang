@@ -36,10 +36,12 @@
   X("Std.Divide", Divide)                           \
   X("Std.Mod", Mod)                                 \
   X("Std.Pow", Pow)                                 \
-  X("Std.Sqrt", Sqrt)                               \
-  X("Std.Sin", Sin)                                 \
-  X("Std.Cos", Cos)                                 \
-  X("Std.Tan", Tan)                                 \
+  X("Std.Bit.And", BitAnd)                          \
+  X("Std.Bit.Or", BitOr)                            \
+  X("Std.Bit.Xor", BitXor)                          \
+  X("Std.Bit.Not", BitNot)                          \
+  X("Std.Bit.ShiftLeft", BitShiftLeft)              \
+  X("Std.Bit.ShiftRight", BitShiftRight)            \
   X("Std.Equal", Equal)                             \
   X("Std.NotEqual", NotEqual)                       \
   X("Std.LessThan", LessThan)                       \
@@ -93,6 +95,7 @@
   X("Std.OS.IsMacOS", OSIsMacOS)                    \
   X("Std.OS.Home", OSHome)                          \
   X("Std.OS.TempDir", OSTempDir)                    \
+  X("Std.OS.Exec", OSExec)                          \
   X("Std.OS.MakeTempFile", OSMakeTempFile)          \
   X("Std.OS.MakeTempDir", OSMakeTempDir)            \
   X("Std.Path.Join", PathJoin)                      \
@@ -150,7 +153,24 @@
   X("Std.Dict.Values", DictValues)                  \
   X("Std.Dict.Entries", DictEntries)                \
   X("Std.Dict.Clear", DictClear)                    \
-  X("Std.Dict.Length", DictLength)
+  X("Std.Dict.Length", DictLength)                  \
+  X("Std.Array.GetAt", ArrayGetAt)                  \
+  X("Std.Array.SetAt", ArraySetAt)                  \
+  X("Std.Array.InsertAt", ArrayInsertAt)            \
+  X("Std.Array.RemoveAt", ArrayRemoveAt)            \
+  X("Std.Array.Slice", ArraySlice)                  \
+  X("Std.Array.Concat", ArrayConcat)                \
+  X("Std.Array.SetAt2D", ArraySetAt2D)              \
+  X("Std.Array.Fill", ArrayFill)                    \
+  X("Std.Array.Transpose2D", ArrayTranspose2D)      \
+  X("Std.Array.Slice2D", ArraySlice2D)              \
+  X("Std.Array.Reshape", ArrayReshape)              \
+  X("Std.Array.Rank", ArrayRank)                    \
+  X("Std.Array.Shape", ArrayShape)                  \
+  X("Std.Array.Flatten", ArrayFlatten)              \
+  X("Std.Array.GetAtND", ArrayGetAtND)              \
+  X("Std.Array.SetAtND", ArraySetAtND)              \
+  X("Std.Array.ReshapeND", ArrayReshapeND)
 
 // Each entry is: (fully_qualified_name, numeric_value)
 #define FLEAUX_VM_CONSTANT_BUILTINS(X)                                        \

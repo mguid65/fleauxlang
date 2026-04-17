@@ -1,5 +1,5 @@
-// Internal header: shared stdlib-builtin dispatch map for the bytecode runtime.
-// Include this after fleaux/runtime/fleaux_runtime.hpp is already in scope.
+// Internal header: shared stdlib-builtin dispatch map for the VM runtime.
+// Include this after fleaux/runtime/runtime_support.hpp is already in scope.
 //
 // Defines vm_builtin_callables(), an inline function returning a
 // map<string, RuntimeCallable> covering all builtins exposed by the
@@ -9,7 +9,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "fleaux/runtime/fleaux_runtime.hpp"
+#include "fleaux/runtime/runtime_support.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::vm {
