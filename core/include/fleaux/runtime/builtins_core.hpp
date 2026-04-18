@@ -38,15 +38,15 @@ inline auto normalize_runtime_error_message(std::string message) -> std::string 
 
 struct Wrap {
     // arg = any Value  ->  [arg]
-    auto operator()(Value v) const -> Value {
-        return make_tuple(std::move(v));
+    auto operator()(Value value) const -> Value {
+        return make_tuple(std::move(value));
     }
 };
 
 struct Unwrap {
     // arg = [v]  ->  v
-    auto operator()(Value v) const -> Value {
-        return array_at(v, 0);
+    auto operator()(Value value) const -> Value {
+        return array_at(value, 0);
     }
 };
 
@@ -54,10 +54,10 @@ struct ElementAt {
     // arg = [sequence, index]
     auto operator()(Value arg) const -> Value {
         const auto& seq = as_array(array_at(arg, 0));
-        const std::size_t idx = as_index(array_at(arg, 1));
-        auto r = seq.TryGet(idx);
-        if (!r) throw std::out_of_range{"ElementAt: index out of range"};
-        return *r;
+        const std::size_t idx = as_index_strict(array_at(arg, 1), "ElementAt index");
+        auto result = seq.TryGet(idx);
+        if (!result) throw std::out_of_range{"ElementAt: index out of range"};
+        return *result;
     }
 };
 
@@ -72,11 +72,11 @@ struct Take {
     // arg = [sequence, count]
     auto operator()(Value arg) const -> Value {
         const auto& seq = as_array(array_at(arg, 0));
-        const std::size_t n = std::min(as_index(array_at(arg, 1)), seq.Size());
+        const std::size_t take_count = std::min(as_index_strict(array_at(arg, 1), "Take count"), seq.Size());
         Array out;
-        out.Reserve(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            out.PushBack(*seq.TryGet(i));
+        out.Reserve(take_count);
+        for (std::size_t index = 0; index < take_count; ++index) {
+            out.PushBack(*seq.TryGet(index));
         }
         return Value{std::move(out)};
     }
@@ -86,10 +86,10 @@ struct Drop {
     // arg = [sequence, count]
     auto operator()(Value arg) const -> Value {
         const auto& seq   = as_array(array_at(arg, 0));
-        const std::size_t start = as_index(array_at(arg, 1));
+        const std::size_t start = as_index_strict(array_at(arg, 1), "Drop count");
         Array out;
-        for (std::size_t i = start; i < seq.Size(); ++i) {
-            out.PushBack(*seq.TryGet(i));
+        for (std::size_t index = start; index < seq.Size(); ++index) {
+            out.PushBack(*seq.TryGet(index));
         }
         return Value{std::move(out)};
     }
@@ -108,21 +108,21 @@ struct Slice {
         std::size_t real_stop{0};
         std::size_t real_step{1};
         if (arr.Size() == 2) {
-            real_stop  = as_index(*arr.TryGet(1));
+            real_stop  = as_index_strict(*arr.TryGet(1), "Slice stop");
         } else if (arr.Size() == 3) {
-            real_start = as_index(*arr.TryGet(1));
-            real_stop  = as_index(*arr.TryGet(2));
+            real_start = as_index_strict(*arr.TryGet(1), "Slice start");
+            real_stop  = as_index_strict(*arr.TryGet(2), "Slice stop");
         } else {
-            real_start = as_index(*arr.TryGet(1));
-            real_stop  = as_index(*arr.TryGet(2));
-            real_step  = as_index(*arr.TryGet(3));
+            real_start = as_index_strict(*arr.TryGet(1), "Slice start");
+            real_stop  = as_index_strict(*arr.TryGet(2), "Slice stop");
+            real_step  = as_index_strict(*arr.TryGet(3), "Slice step");
             if (real_step == 0) throw std::invalid_argument{"Slice: step cannot be 0"};
         }
 
         Array out;
         const std::size_t end = std::min(real_stop, seq.Size());
-        for (std::size_t i = real_start; i < end; i += real_step) {
-            out.PushBack(*seq.TryGet(i));
+        for (std::size_t index = real_start; index < end; index += real_step) {
+            out.PushBack(*seq.TryGet(index));
         }
         return Value{std::move(out)};
     }
@@ -130,42 +130,60 @@ struct Slice {
 
 // Arithmetic
 
+inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const char* op_name) -> void {
+    if (is_mixed_signed_unsigned_integer_pair(lhs, rhs)) {
+        throw std::invalid_argument{
+            std::string(op_name) + ": cannot mix Int64 and UInt64 operands without explicit cast"};
+    }
+}
+
 struct Add {
     // arg = [lhs, rhs]
     auto operator()(Value arg) const -> Value {
-        const Value& l = array_at(arg, 0);
-        const Value& r = array_at(arg, 1);
+        const Value& lhs = array_at(arg, 0);
+        const Value& rhs = array_at(arg, 1);
         // String concatenation
-        if (l.HasString() && r.HasString()) {
-            return make_string(as_string(l) + as_string(r));
+        if (lhs.HasString() && rhs.HasString()) {
+            return make_string(as_string(lhs) + as_string(rhs));
         }
-        return num_result(to_double(l) + to_double(r));
+        require_same_integer_kind(lhs, rhs, "Add");
+        return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
     }
 };
 
 struct Subtract {
     auto operator()(Value arg) const -> Value {
-        return num_result(to_double(array_at(arg, 0)) - to_double(array_at(arg, 1)));
+        const Value& lhs = array_at(arg, 0);
+        const Value& rhs = array_at(arg, 1);
+        require_same_integer_kind(lhs, rhs, "Subtract");
+        return num_result(to_double(lhs) - to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
     }
 };
 
 struct Multiply {
     auto operator()(Value arg) const -> Value {
-        return num_result(to_double(array_at(arg, 0)) * to_double(array_at(arg, 1)));
+        const Value& lhs = array_at(arg, 0);
+        const Value& rhs = array_at(arg, 1);
+        require_same_integer_kind(lhs, rhs, "Multiply");
+        return num_result(to_double(lhs) * to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
     }
 };
 
 struct Divide {
     auto operator()(Value arg) const -> Value {
-        return num_result(to_double(array_at(arg, 0)) / to_double(array_at(arg, 1)));
+        const Value& lhs = array_at(arg, 0);
+        const Value& rhs = array_at(arg, 1);
+        require_same_integer_kind(lhs, rhs, "Divide");
+        return num_result(to_double(lhs) / to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
     }
 };
 
 struct Mod {
     auto operator()(Value arg) const -> Value {
-        const double l = to_double(array_at(arg, 0));
-        const double r = to_double(array_at(arg, 1));
-        return num_result(std::fmod(l, r));
+        const Value& lhs = array_at(arg, 0);
+        const Value& rhs = array_at(arg, 1);
+        require_same_integer_kind(lhs, rhs, "Mod");
+        return num_result(std::fmod(to_double(lhs), to_double(rhs)), is_uint_number(lhs) && is_uint_number(rhs));
     }
 };
 
@@ -177,32 +195,35 @@ struct Pow {
 
 struct BitAnd {
     auto operator()(Value arg) const -> Value {
-        return make_int(as_int_value(array_at(arg, 0)) & as_int_value(array_at(arg, 1)));
+        return make_int(as_int_value_strict(array_at(arg, 0), "BitAnd lhs") &
+                        as_int_value_strict(array_at(arg, 1), "BitAnd rhs"));
     }
 };
 
 struct BitOr {
     auto operator()(Value arg) const -> Value {
-        return make_int(as_int_value(array_at(arg, 0)) | as_int_value(array_at(arg, 1)));
+        return make_int(as_int_value_strict(array_at(arg, 0), "BitOr lhs") |
+                        as_int_value_strict(array_at(arg, 1), "BitOr rhs"));
     }
 };
 
 struct BitXor {
     auto operator()(Value arg) const -> Value {
-        return make_int(as_int_value(array_at(arg, 0)) ^ as_int_value(array_at(arg, 1)));
+        return make_int(as_int_value_strict(array_at(arg, 0), "BitXor lhs") ^
+                        as_int_value_strict(array_at(arg, 1), "BitXor rhs"));
     }
 };
 
 struct BitNot {
     auto operator()(Value arg) const -> Value {
-        return make_int(~as_int_value(unwrap_singleton_arg(std::move(arg))));
+        return make_int(~as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "BitNot value"));
     }
 };
 
 struct BitShiftLeft {
     auto operator()(Value arg) const -> Value {
-        const Int value = as_int_value(array_at(arg, 0));
-        const Int shift = as_int_value(array_at(arg, 1));
+        const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftLeft value");
+        const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftLeft shift");
         if (shift < 0) { throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"}; }
         return make_int(value << shift);
     }
@@ -210,8 +231,8 @@ struct BitShiftLeft {
 
 struct BitShiftRight {
     auto operator()(Value arg) const -> Value {
-        const Int value = as_int_value(array_at(arg, 0));
-        const Int shift = as_int_value(array_at(arg, 1));
+        const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftRight value");
+        const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftRight shift");
         if (shift < 0) { throw std::invalid_argument{"BitShiftRight: shift must be non-negative"}; }
         return make_int(value >> shift);
     }
@@ -255,22 +276,22 @@ struct Tan {
 
 struct GreaterThan {
     auto operator()(Value arg) const -> Value {
-        return make_bool(to_double(array_at(arg, 0)) > to_double(array_at(arg, 1)));
+        return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) > 0);
     }
 };
 struct LessThan {
     auto operator()(Value arg) const -> Value {
-        return make_bool(to_double(array_at(arg, 0)) < to_double(array_at(arg, 1)));
+        return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) < 0);
     }
 };
 struct GreaterOrEqual {
     auto operator()(Value arg) const -> Value {
-        return make_bool(to_double(array_at(arg, 0)) >= to_double(array_at(arg, 1)));
+        return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) >= 0);
     }
 };
 struct LessOrEqual {
     auto operator()(Value arg) const -> Value {
-        return make_bool(to_double(array_at(arg, 0)) <= to_double(array_at(arg, 1)));
+        return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) <= 0);
     }
 };
 
@@ -326,10 +347,10 @@ struct Printf {
 
         Array returned_args;
         returned_args.Reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-        for (std::size_t i = 1; i < args.Size(); ++i) {
-            const Value v = *args.TryGet(i);
-            values.push_back(v);
-            returned_args.PushBack(v);
+        for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
+            const Value value = *args.TryGet(arg_index);
+            values.push_back(value);
+            returned_args.PushBack(value);
         }
 
         std::cout << format_values(fmt, values) << '\n';
@@ -373,10 +394,59 @@ struct GetArgs {
         Array out;
         const auto& args = get_process_args();
         out.Reserve(args.size());
-        for (const auto& s : args) {
-            out.PushBack(make_string(s));
+        for (const auto& process_arg : args) {
+            out.PushBack(make_string(process_arg));
         }
         return Value{std::move(out)};
+    }
+};
+
+        struct Type {
+            // arg = [value] | value -> String runtime type name
+            auto operator()(Value arg) const -> Value {
+                return make_string(type_name(unwrap_singleton_arg(std::move(arg))));
+            }
+        };
+
+        struct TypeOf {
+            // Alias of Type for compatibility with Std.TypeOf
+            auto operator()(Value arg) const -> Value {
+                return Type{}(std::move(arg));
+            }
+        };
+
+struct ToInt64 {
+    auto operator()(Value arg) const -> Value {
+        return make_int(as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "ToInt64"));
+    }
+};
+
+struct ToUInt64 {
+    auto operator()(Value arg) const -> Value {
+        const Value value = unwrap_singleton_arg(std::move(arg));
+        return as_number(value).Visit(
+            [](const Int signed_value) -> Value {
+                if (signed_value < 0) {
+                    throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"};
+                }
+                return make_uint(static_cast<UInt>(signed_value));
+            },
+            [](const UInt unsigned_value) -> Value { return make_uint(unsigned_value); },
+            [](const Float float_value) -> Value {
+                if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0) {
+                    throw std::invalid_argument{"ToUInt64: cannot cast Float64 value to UInt64"};
+                }
+                if (float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
+                    throw std::out_of_range{"ToUInt64: Float64 value out of UInt64 range"};
+                }
+                return make_uint(static_cast<UInt>(float_value));
+            });
+    }
+};
+
+struct ToFloat64 {
+    auto operator()(Value arg) const -> Value {
+        return make_float(to_double(unwrap_singleton_arg(std::move(arg))));
     }
 };
 
@@ -419,8 +489,8 @@ struct Match {
         }
 
         const Value subject = *args.TryGet(0);
-        for (std::size_t i = 1; i < args.Size(); ++i) {
-            const auto& case_tuple = as_array(*args.TryGet(i));
+        for (std::size_t case_index = 1; case_index < args.Size(); ++case_index) {
+            const auto& case_tuple = as_array(*args.TryGet(case_index));
             if (case_tuple.Size() != 2) {
                 throw std::invalid_argument{"Match case must be a (pattern, handler) tuple"};
             }
@@ -513,10 +583,10 @@ struct Try {
     // arg = [value, func_ref]
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "Try");
-        const Value& val = *args.TryGet(0);
-        const Value& func = *args.TryGet(1);
+        const Value& value = *args.TryGet(0);
+        const Value& function_ref = *args.TryGet(1);
         try {
-            return ResultOk{}(make_tuple(invoke_callable_ref(func, val)));
+            return ResultOk{}(make_tuple(invoke_callable_ref(function_ref, value)));
         } catch (const std::exception& ex) {
             return ResultErr{}(make_tuple(make_string(normalize_runtime_error_message(ex.what()))));
         }
@@ -528,25 +598,26 @@ struct ExpParallel {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "Exp.Parallel");
         const auto& items = as_array(*args.TryGet(0));
-        const Value func = *args.TryGet(1);
+        const Value function_ref = *args.TryGet(1);
 
         std::vector<std::future<Value>> futures;
         futures.reserve(items.Size());
-        for (std::size_t i = 0; i < items.Size(); ++i) {
-            const Value item = *items.TryGet(i);
-            futures.push_back(std::async(std::launch::async, [func, item]() -> Value {
-                return invoke_callable_ref(func, item);
+        for (std::size_t item_index = 0; item_index < items.Size(); ++item_index) {
+            const Value item = *items.TryGet(item_index);
+            futures.push_back(std::async(std::launch::async, [function_ref, item]() -> Value {
+                return invoke_callable_ref(function_ref, item);
             }));
         }
 
         Array out;
         out.Reserve(items.Size());
-        for (std::size_t i = 0; i < futures.size(); ++i) {
+        for (std::size_t future_index = 0; future_index < futures.size(); ++future_index) {
             try {
-                out.PushBack(futures[i].get());
+                out.PushBack(futures[future_index].get());
             } catch (const std::exception& ex) {
                 return ResultErr{}(make_tuple(
-                    make_tuple(make_int(static_cast<Int>(i)), make_string(normalize_runtime_error_message(ex.what())))));
+                    make_tuple(make_int(static_cast<Int>(future_index)),
+                               make_string(normalize_runtime_error_message(ex.what())))));
             }
         }
         return ResultOk{}(make_tuple(Value{std::move(out)}));
@@ -565,11 +636,11 @@ struct Branch {
     // arg = [condition, value, true_func_ref, false_func_ref]
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 4, "Branch");
-        const Value& cond = *args.TryGet(0);
-        const Value& val = *args.TryGet(1);
-        const Value& tf = *args.TryGet(2);
-        const Value& ff = *args.TryGet(3);
-        return as_bool(cond) ? invoke_callable_ref(tf, val) : invoke_callable_ref(ff, val);
+        const Value& condition = *args.TryGet(0);
+        const Value& value = *args.TryGet(1);
+        const Value& true_func = *args.TryGet(2);
+        const Value& false_func = *args.TryGet(3);
+        return as_bool(condition) ? invoke_callable_ref(true_func, value) : invoke_callable_ref(false_func, value);
     }
 };
 
@@ -578,10 +649,10 @@ struct Loop {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "Loop");
         Value state = *args.TryGet(0);
-        const Value& cf = *args.TryGet(1);
-        const Value& sf = *args.TryGet(2);
-        while (as_bool(invoke_callable_ref(cf, state))) {
-            state = invoke_callable_ref(sf, std::move(state));
+        const Value& continue_func = *args.TryGet(1);
+        const Value& step_func = *args.TryGet(2);
+        while (as_bool(invoke_callable_ref(continue_func, state))) {
+            state = invoke_callable_ref(step_func, std::move(state));
         }
         return state;
     }
@@ -592,16 +663,16 @@ struct LoopN {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 4, "LoopN");
         Value state = *args.TryGet(0);
-        const Value& cf = *args.TryGet(1);
-        const Value& sf = *args.TryGet(2);
-        const std::size_t max_iters = as_index(*args.TryGet(3));
+        const Value& continue_func = *args.TryGet(1);
+        const Value& step_func = *args.TryGet(2);
+        const std::size_t max_iters = as_index_strict(*args.TryGet(3), "LoopN max_iters");
 
         std::size_t steps = 0;
-        while (as_bool(invoke_callable_ref(cf, state))) {
+        while (as_bool(invoke_callable_ref(continue_func, state))) {
             if (steps >= max_iters) {
                 throw std::runtime_error{"LoopN: exceeded max_iters"};
             }
-            state = invoke_callable_ref(sf, std::move(state));
+            state = invoke_callable_ref(step_func, std::move(state));
             ++steps;
         }
         return state;

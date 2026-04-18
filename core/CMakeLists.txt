@@ -81,7 +81,9 @@ if(BUILD_TESTING)
       tests/parser_tests.cpp
       tests/lowering_tests.cpp
       tests/transpiler_tests.cpp
-      tests/runtime_builtins_tests.cpp)
+      tests/runtime_builtins_tests.cpp
+      tests/repl_line_editor_tests.cpp
+      src/cli/line_editor.cpp)
   target_compile_definitions(fleaux_core_tests PRIVATE
       FLEAUX_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
   target_link_libraries(fleaux_core_tests PRIVATE
@@ -97,7 +99,7 @@ endif()
 
 add_library(fleaux_bytecode STATIC)
 target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_bytecode PRIVATE src/bytecode/compiler.cpp)
+target_sources(fleaux_bytecode PRIVATE src/bytecode/compiler.cpp src/bytecode/optimizer.cpp src/bytecode/serialization.cpp src/bytecode/module_loader.cpp)
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected)
 
 if(FLEAUX_PCRE2_TARGET)
@@ -121,7 +123,7 @@ if(FLEAUX_PCRE2_TARGET)
       datatree
       ${FLEAUX_PCRE2_TARGET})
 
-  add_executable(fleaux src/cli/vm_main.cpp)
+  add_executable(fleaux src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp)
   target_link_libraries(fleaux PRIVATE fleaux_vm_interpreter fleaux_vm)
 elseif(EMSCRIPTEN)
   message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux targets")

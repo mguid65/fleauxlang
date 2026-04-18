@@ -1,17 +1,23 @@
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <set>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/module.hpp"
 #include "fleaux/bytecode/opcode.hpp"
+#include "fleaux/bytecode/optimizer.hpp"
+#include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
+#include "fleaux/vm/runtime.hpp"
 
 #ifndef FLEAUX_REPO_ROOT
 #error "FLEAUX_REPO_ROOT must be defined by CMake for bytecode tests."
@@ -191,8 +197,8 @@ TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
 
 TEST_CASE("Bytecode compiler emits kLoopCall for Std.Loop", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Continue(n: Number): Bool = (n, 0) -> Std.GreaterThan;
-let Step(n: Number): Number = (n, 1) -> Std.Subtract;
+let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
+let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 (10, Continue, Step) -> Std.Loop -> Std.Println;
 )",
       "bytecode_native_loop.fleaux");
@@ -213,8 +219,8 @@ let Step(n: Number): Number = (n, 1) -> Std.Subtract;
 
 TEST_CASE("Bytecode compiler emits kLoopNCall for Std.LoopN", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Continue(n: Number): Bool = (n, 0) -> Std.GreaterThan;
-let Step(n: Number): Number = (n, 1) -> Std.Subtract;
+let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
+let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 (10, Continue, Step, 100) -> Std.LoopN -> Std.Println;
 )",
       "bytecode_native_loopn.fleaux");
@@ -235,8 +241,8 @@ let Step(n: Number): Number = (n, 1) -> Std.Subtract;
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with user function refs", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Inc(x: Number): Number = (x, 1) -> Std.Add;
-let Dec(x: Number): Number = (x, 1) -> Std.Subtract;
+let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;
+let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
 (True, 10, Inc, Dec) -> Std.Branch -> Std.Println;
 )",
       "bytecode_native_branch_safe.fleaux");
@@ -306,7 +312,7 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
 TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
-      "(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
+      "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
       "bytecode_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -326,7 +332,7 @@ TEST_CASE("Bytecode compiler emits closure materialization for inline closure li
 
 TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
-      "let MakeAdder(n: Number): Any = (x: Number): Number = (x, n) -> Std.Add;\n"
+      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
       "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n",
       "bytecode_captured_closure.fleaux");
 
@@ -366,7 +372,7 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
 
 TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
-      "(10, ((head: Number, tail: Any...): Number = head)) -> Std.Apply -> Std.Println;\n",
+      "(10, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
       "bytecode_variadic_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -402,9 +408,9 @@ TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
 
 TEST_CASE("Bytecode compiler keeps Std.Branch as builtin for callable locals", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Inc(x: Number): Number = (x, 1) -> Std.Add;
-let Dec(x: Number): Number = (x, 1) -> Std.Subtract;
-let ChooseApply(x: Number, tf: Any, ff: Any): Number =
+let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;
+let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
+let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
     ((x, 0) -> Std.GreaterThan, x, tf, ff) -> Std.Branch;
 (10, Inc, Dec) -> ChooseApply -> Std.Println;
 )",
@@ -488,7 +494,7 @@ TEST_CASE("Bytecode compiler returns error for unknown call target", "[bytecode]
 // ---------------------------------------------------------------------------
 TEST_CASE("Bytecode compiler emits user function and kCallUserFunc", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Double(x: Number): Number = (x, x) -> Std.Add;
+let Double(x: Float64): Float64 = (x, x) -> Std.Add;
 (7) -> Double -> Std.Println;
 )",
       "bytecode_user_func.fleaux");
@@ -537,3 +543,839 @@ TEST_CASE("Bytecode compiler stores constants in pool", "[bytecode]") {
   REQUIRE(std::holds_alternative<std::string>(c.data));
   REQUIRE(std::get<std::string>(c.data) == "hello");
 }
+
+// ---------------------------------------------------------------------------
+// NoOpEliminationPass
+// ---------------------------------------------------------------------------
+TEST_CASE("NoOpEliminationPass removes kNoOp from top-level instructions", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::NoOpEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 2);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("NoOpEliminationPass removes kNoOp from function body", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  fleaux::bytecode::FunctionDef fn;
+  fn.name = "Foo";
+  fn.arity = 0;
+  fn.instructions = {
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+  module.functions.push_back(std::move(fn));
+
+  fleaux::bytecode::NoOpEliminationPass{}.run(module);
+
+  REQUIRE(module.functions[0].instructions.size() == 2);
+  REQUIRE(module.functions[0].instructions[0].opcode == fleaux::bytecode::Opcode::kLoadLocal);
+  REQUIRE(module.functions[0].instructions[1].opcode == fleaux::bytecode::Opcode::kReturn);
+}
+
+TEST_CASE("NoOpEliminationPass is a no-op when there are no kNoOps", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::NoOpEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 2);
+}
+
+TEST_CASE("BytecodeOptimizer baseline always runs NoOpEliminationPass", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  const auto result = optimizer.optimize(module);  // default = kBaseline
+
+  REQUIRE(result.has_value());
+  REQUIRE(module.instructions.size() == 1);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+// ---------------------------------------------------------------------------
+// ConstantPoolDeduplicationPass
+// ---------------------------------------------------------------------------
+TEST_CASE("ConstantPoolDeduplicationPass merges duplicate pool entries", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  // Pool: [42, 99, 42] -- entry 0 and 2 are duplicates.
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{42}},
+      fleaux::bytecode::ConstValue{std::int64_t{99}},
+      fleaux::bytecode::ConstValue{std::int64_t{42}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},  // push 42 (first)
+      {fleaux::bytecode::Opcode::kPushConst, 1},  // push 99
+      {fleaux::bytecode::Opcode::kPushConst, 2},  // push 42 (duplicate)
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
+
+  // Pool should now have 2 entries: 42 and 99.
+  REQUIRE(module.constants.size() == 2);
+  REQUIRE(std::get<std::int64_t>(module.constants[0].data) == 42);
+  REQUIRE(std::get<std::int64_t>(module.constants[1].data) == 99);
+
+  // Both pushes of 42 now point to index 0; the 99 push stays at index 1.
+  REQUIRE(module.instructions[0].operand == 0);
+  REQUIRE(module.instructions[1].operand == 1);
+  REQUIRE(module.instructions[2].operand == 0);
+}
+
+TEST_CASE("ConstantPoolDeduplicationPass is a no-op when all entries are unique", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+      fleaux::bytecode::ConstValue{std::int64_t{2}},
+      fleaux::bytecode::ConstValue{std::int64_t{3}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
+
+  REQUIRE(module.constants.size() == 3);
+  REQUIRE(module.instructions[0].operand == 0);
+  REQUIRE(module.instructions[1].operand == 1);
+  REQUIRE(module.instructions[2].operand == 2);
+}
+
+TEST_CASE("ConstantPoolDeduplicationPass deduplicates string constants", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::string{"hello"}},
+      fleaux::bytecode::ConstValue{std::string{"hello"}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
+
+  REQUIRE(module.constants.size() == 1);
+  REQUIRE(module.instructions[0].operand == 0);
+  REQUIRE(module.instructions[1].operand == 0);
+}
+
+// ---------------------------------------------------------------------------
+// DeadPushEliminationPass
+// ---------------------------------------------------------------------------
+TEST_CASE("DeadPushEliminationPass removes kPushConst followed by kPop", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::DeadPushEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 1);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("DeadPushEliminationPass removes kLoadLocal followed by kPop", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::DeadPushEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 1);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("DeadPushEliminationPass does not remove kPop after a non-push", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  // kCallBuiltin has side effects; the kPop after it is live.
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
+      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::DeadPushEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 4);
+}
+
+TEST_CASE("DeadPushEliminationPass handles multiple consecutive dead pairs", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::DeadPushEliminationPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 1);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("BytecodeOptimizer extended mode also eliminates kNoOps", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kNoOp, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  const auto result = optimizer.optimize(
+      module, fleaux::bytecode::OptimizerConfig{.mode = fleaux::bytecode::OptimizationMode::kExtended});
+
+  REQUIRE(result.has_value());
+  REQUIRE(module.instructions.size() == 1);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+// ---------------------------------------------------------------------------
+// Bytecode Serialization
+// ---------------------------------------------------------------------------
+TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][serialization]") {
+  fleaux::bytecode::Module original;
+  original.header.module_name = "RoundTrip";
+  original.header.source_path = "RoundTrip.fleaux";
+  original.header.source_hash = 12345;
+  original.header.optimization_mode = 1;
+  original.dependencies = {
+      fleaux::bytecode::ModuleDependency{.module_name = "Std", .is_symbolic = true},
+      fleaux::bytecode::ModuleDependency{.module_name = "20_export", .is_symbolic = false},
+  };
+  original.exports = {
+      fleaux::bytecode::ExportedSymbol{
+          .name = "RoundTrip.Double",
+          .kind = fleaux::bytecode::ExportKind::kFunction,
+          .index = 0,
+          .builtin_name = {},
+      },
+      fleaux::bytecode::ExportedSymbol{
+          .name = "RoundTrip.Println",
+          .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+          .index = 0,
+          .builtin_name = "RoundTrip.Println",
+      },
+  };
+  original.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  original.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{20}},
+  };
+  original.builtin_names = {"Std.Println"};
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(serialized.value());
+  REQUIRE(deserialized.has_value());
+
+  const auto& restored = deserialized.value();
+  REQUIRE(restored.header.module_name == original.header.module_name);
+  REQUIRE(restored.header.source_path == original.header.source_path);
+  REQUIRE(restored.header.source_hash == original.header.source_hash);
+  REQUIRE(restored.header.optimization_mode == original.header.optimization_mode);
+  REQUIRE(restored.header.payload_checksum != 0);
+  REQUIRE(restored.dependencies.size() == original.dependencies.size());
+  REQUIRE(restored.exports.size() == original.exports.size());
+  REQUIRE(restored.instructions.size() == original.instructions.size());
+  REQUIRE(restored.constants.size() == original.constants.size());
+  REQUIRE(restored.builtin_names.size() == original.builtin_names.size());
+
+  REQUIRE(restored.dependencies[0].module_name == "Std");
+  REQUIRE(restored.dependencies[0].is_symbolic);
+  REQUIRE(restored.dependencies[1].module_name == "20_export");
+  REQUIRE_FALSE(restored.dependencies[1].is_symbolic);
+  REQUIRE(restored.exports[0].name == "RoundTrip.Double");
+  REQUIRE(restored.exports[0].kind == fleaux::bytecode::ExportKind::kFunction);
+  REQUIRE(restored.exports[0].index == 0);
+  REQUIRE(restored.exports[1].kind == fleaux::bytecode::ExportKind::kBuiltinAlias);
+  REQUIRE(restored.exports[1].builtin_name == "RoundTrip.Println");
+
+  for (std::size_t i = 0; i < restored.instructions.size(); ++i) {
+    REQUIRE(restored.instructions[i].opcode == original.instructions[i].opcode);
+    REQUIRE(restored.instructions[i].operand == original.instructions[i].operand);
+  }
+
+  REQUIRE(std::get<std::int64_t>(restored.constants[0].data) == 10);
+  REQUIRE(std::get<std::int64_t>(restored.constants[1].data) == 20);
+  REQUIRE(restored.builtin_names[0] == "Std.Println");
+}
+
+TEST_CASE("Bytecode serialization handles all constant types", "[bytecode][serialization]") {
+  fleaux::bytecode::Module original;
+  original.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{-42}},
+      fleaux::bytecode::ConstValue{std::uint64_t{9999}},
+      fleaux::bytecode::ConstValue{3.14159},
+      fleaux::bytecode::ConstValue{true},
+      fleaux::bytecode::ConstValue{std::string{"hello world"}},
+      fleaux::bytecode::ConstValue{std::monostate{}},
+  };
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(serialized.value());
+  REQUIRE(deserialized.has_value());
+
+  const auto& restored = deserialized.value();
+  REQUIRE(restored.constants.size() == 6);
+  REQUIRE(std::get<std::int64_t>(restored.constants[0].data) == -42);
+  REQUIRE(std::get<std::uint64_t>(restored.constants[1].data) == 9999);
+  REQUIRE(std::abs(std::get<double>(restored.constants[2].data) - 3.14159) < 0.00001);
+  REQUIRE(std::get<bool>(restored.constants[3].data) == true);
+  REQUIRE(std::get<std::string>(restored.constants[4].data) == "hello world");
+  REQUIRE(std::holds_alternative<std::monostate>(restored.constants[5].data));
+}
+
+TEST_CASE("Bytecode serialization handles functions", "[bytecode][serialization]") {
+  fleaux::bytecode::Module original;
+  fleaux::bytecode::FunctionDef fn;
+  fn.name = "MyFunc";
+  fn.arity = 2;
+  fn.has_variadic_tail = false;
+  fn.instructions = {
+      {fleaux::bytecode::Opcode::kLoadLocal, 0},
+      {fleaux::bytecode::Opcode::kLoadLocal, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kReturn, 0},
+  };
+  original.functions.push_back(std::move(fn));
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(serialized.value());
+  REQUIRE(deserialized.has_value());
+
+  const auto& restored = deserialized.value();
+  REQUIRE(restored.functions.size() == 1);
+  REQUIRE(restored.functions[0].name == "MyFunc");
+  REQUIRE(restored.functions[0].arity == 2);
+  REQUIRE(restored.functions[0].has_variadic_tail == false);
+  REQUIRE(restored.functions[0].instructions.size() == 4);
+}
+
+TEST_CASE("Bytecode deserialization rejects invalid magic", "[bytecode][serialization]") {
+  std::vector<std::uint8_t> bad_buffer;
+  bad_buffer.push_back(0xFF);
+  bad_buffer.push_back(0xFF);
+  bad_buffer.push_back(0xFF);
+  bad_buffer.push_back(0xFF);
+
+  const auto result = fleaux::bytecode::deserialize_module(bad_buffer);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Invalid magic") != std::string::npos);
+}
+
+TEST_CASE("Bytecode deserialization rejects version mismatch", "[bytecode][serialization]") {
+  std::vector<std::uint8_t> bad_buffer;
+  // Write correct magic.
+  std::uint32_t magic = 0x464C4558;
+  std::uint32_t bad_version = 999;
+  const auto* magic_bytes = reinterpret_cast<const std::uint8_t*>(&magic);
+  const auto* version_bytes = reinterpret_cast<const std::uint8_t*>(&bad_version);
+  bad_buffer.insert(bad_buffer.end(), magic_bytes, magic_bytes + 4);
+  bad_buffer.insert(bad_buffer.end(), version_bytes, version_bytes + 4);
+
+  const auto result = fleaux::bytecode::deserialize_module(bad_buffer);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Version") != std::string::npos);
+}
+
+TEST_CASE("Bytecode deserialization rejects payload checksum mismatch", "[bytecode][serialization]") {
+  fleaux::bytecode::Module module;
+  module.header.module_name = "Checksum";
+  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+
+  auto corrupted = serialized.value();
+  REQUIRE(corrupted.size() > 16);
+  corrupted.back() ^= 0x01;
+
+  const auto result = fleaux::bytecode::deserialize_module(corrupted);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("checksum") != std::string::npos);
+}
+
+TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", "[bytecode][serialization]") {
+  const std::string source_text =
+      "import Std;\n"
+      "import 20_export;\n"
+      "let Local(x: Float64): Any = (y: Float64): Float64 = (x, y) -> Std.Add;\n"
+      "(4, 5) -> Std.Add -> Std.Println;\n";
+  const auto ir_program = lower_source_to_ir(source_text, "bytecode_roundtrip.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                        .source_path = std::filesystem::path("bytecode_roundtrip.fleaux"),
+                                                        .source_text = source_text,
+                                                        .module_name = "bytecode_roundtrip",
+                                                    });
+  REQUIRE(compiled.has_value());
+
+  const auto& original = compiled.value();
+  REQUIRE(original.header.module_name == "bytecode_roundtrip");
+  REQUIRE(original.header.source_path == "bytecode_roundtrip.fleaux");
+  REQUIRE(original.header.source_hash != 0);
+  REQUIRE(original.dependencies.size() == 2);
+  REQUIRE(original.dependencies[0].module_name == "Std");
+  REQUIRE(original.dependencies[0].is_symbolic);
+  REQUIRE(original.dependencies[1].module_name == "20_export");
+  REQUIRE_FALSE(original.dependencies[1].is_symbolic);
+  REQUIRE(original.exports.size() == 1);
+  REQUIRE(original.exports[0].name == "Local");
+  REQUIRE(original.exports[0].kind == fleaux::bytecode::ExportKind::kFunction);
+  REQUIRE(original.functions.size() >= 2);  // Local + synthetic closure helper.
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(serialized.value());
+  REQUIRE(deserialized.has_value());
+
+  const auto& restored = deserialized.value();
+
+  REQUIRE(restored.instructions.size() == original.instructions.size());
+  REQUIRE(restored.constants.size() == original.constants.size());
+  REQUIRE(restored.builtin_names.size() == original.builtin_names.size());
+  REQUIRE(restored.functions.size() == original.functions.size());
+  REQUIRE(restored.closures.size() == original.closures.size());
+  REQUIRE(restored.header.module_name == original.header.module_name);
+  REQUIRE(restored.header.source_hash == original.header.source_hash);
+  REQUIRE(restored.dependencies.size() == original.dependencies.size());
+  REQUIRE(restored.exports.size() == original.exports.size());
+  REQUIRE(restored.exports[0].name == "Local");
+
+  for (std::size_t i = 0; i < restored.instructions.size(); ++i) {
+    REQUIRE(restored.instructions[i].opcode == original.instructions[i].opcode);
+    REQUIRE(restored.instructions[i].operand == original.instructions[i].operand);
+  }
+}
+
+TEST_CASE("Bytecode module loader imports serialized dependency modules", "[bytecode][serialization][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_serialized_imports";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "20_export.fleaux";
+  const auto entry_path = temp_dir / "21_import.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import 20_export;\n"
+           "(4) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(temp_dir / "20_export.fleaux.bc"));
+  REQUIRE(std::filesystem::exists(temp_dir / "21_import.fleaux.bc"));
+
+  std::filesystem::remove(dependency_path);
+
+  const auto cached_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(cached_load.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(cached_load.value());
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader can start from a serialized entry module", "[bytecode][serialization][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_serialized_entry";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "20_export.fleaux";
+  const auto entry_path = temp_dir / "21_import.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import 20_export;\n"
+           "(4) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+
+  const auto entry_bytecode_path = temp_dir / "21_import.fleaux.bc";
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  std::filesystem::remove(entry_path);
+  std::filesystem::remove(dependency_path);
+
+  const auto bytecode_only_load = fleaux::bytecode::load_linked_module(entry_bytecode_path);
+  REQUIRE(bytecode_only_load.has_value());
+  REQUIRE(bytecode_only_load->exports.size() == 0);
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(bytecode_only_load.value());
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader handles diamond dependencies with serialized fallback",
+          "[bytecode][serialization][imports][diamond]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_diamond_imports";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto shared_path = temp_dir / "shared.fleaux";
+  const auto left_path = temp_dir / "left.fleaux";
+  const auto right_path = temp_dir / "right.fleaux";
+  const auto root_path = temp_dir / "root.fleaux";
+
+  {
+    std::ofstream out(shared_path);
+    out << "import Std;\n"
+           "(\"shared-init\") -> Std.Println;\n"
+           "let Add1(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(left_path);
+    out << "import shared;\n"
+           "let Left(x: Float64): Float64 = (x) -> Add1;\n";
+  }
+
+  {
+    std::ofstream out(right_path);
+    out << "import shared;\n"
+           "let Right(x: Float64): Float64 = (x) -> Add1;\n";
+  }
+
+  {
+    std::ofstream out(root_path);
+    out << "import left;\n"
+           "import right;\n"
+           "(4) -> Left -> Right -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(root_path);
+  REQUIRE(initial_load.has_value());
+
+  REQUIRE(std::filesystem::exists(temp_dir / "shared.fleaux.bc"));
+  REQUIRE(std::filesystem::exists(temp_dir / "left.fleaux.bc"));
+  REQUIRE(std::filesystem::exists(temp_dir / "right.fleaux.bc"));
+  REQUIRE(std::filesystem::exists(temp_dir / "root.fleaux.bc"));
+
+  std::filesystem::remove(shared_path);
+
+  const auto cached_load = fleaux::bytecode::load_linked_module(root_path);
+  REQUIRE(cached_load.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto runtime_result = runtime.execute(cached_load.value(), output);
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+
+  const std::string text = output.str();
+  REQUIRE(text.find("shared-init") != std::string::npos);
+  const auto first = text.find("shared-init");
+  REQUIRE(text.find("shared-init", first + 1) == std::string::npos);
+}
+
+TEST_CASE("ConstantFoldingPass folds safe literal unary and binary sequences", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{true},
+      fleaux::bytecode::ConstValue{std::int64_t{2}},
+      fleaux::bytecode::ConstValue{std::int64_t{3}},
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{4}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kNot, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 3},
+      {fleaux::bytecode::Opcode::kPushConst, 4},
+      {fleaux::bytecode::Opcode::kCmpGt, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantFoldingPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 4);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[3].opcode == fleaux::bytecode::Opcode::kHalt);
+
+  REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == false);
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data) == 5);
+  REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[2].operand)].data) == true);
+}
+
+TEST_CASE("ConstantFoldingPass folds kDiv and preserves floating semantics", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{4}},
+      fleaux::bytecode::ConstValue{std::int64_t{0}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kDiv, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kDiv, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantFoldingPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 3);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
+
+  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2.5);
+
+  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(std::isinf(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+}
+
+TEST_CASE("ConstantFoldingPass folds kMod and preserves NaN on mod-by-zero", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{4}},
+      fleaux::bytecode::ConstValue{std::int64_t{0}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kMod, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kMod, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantFoldingPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 3);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
+
+  REQUIRE(std::holds_alternative<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2);
+
+  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(std::isnan(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+}
+
+TEST_CASE("ConstantFoldingPass folds kPow with integer and floating outputs", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{2}},
+      fleaux::bytecode::ConstValue{std::int64_t{8}},
+      fleaux::bytecode::ConstValue{std::int64_t{-1}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPow, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kPow, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantFoldingPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 3);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
+
+  REQUIRE(std::holds_alternative<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 256);
+
+  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data) == 0.5);
+}
+
+TEST_CASE("BytecodeOptimizer baseline does not run ConstantFoldingPass", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{2}},
+      fleaux::bytecode::ConstValue{std::int64_t{3}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  const auto result = optimizer.optimize(module, fleaux::bytecode::OptimizerConfig{
+                                                     .mode = fleaux::bytecode::OptimizationMode::kBaseline,
+                                                 });
+  REQUIRE(result.has_value());
+  REQUIRE(module.instructions.size() == 4);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kAdd);
+}
+
+TEST_CASE("BytecodeOptimizer extended mode runs ConstantFoldingPass", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{2}},
+      fleaux::bytecode::ConstValue{std::int64_t{3}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kAdd, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  const auto result = optimizer.optimize(module, fleaux::bytecode::OptimizerConfig{
+                                                     .mode = fleaux::bytecode::OptimizationMode::kExtended,
+                                                 });
+  REQUIRE(result.has_value());
+  REQUIRE(module.instructions.size() == 2);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 5);
+}
+
+TEST_CASE("ConstantPropagationSelectPass folds literal kSelect true branch", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{true},
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{20}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantPropagationSelectPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 2);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[0].operand == 1);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("ConstantPropagationSelectPass folds literal kSelect false branch", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{false},
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{20}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  fleaux::bytecode::ConstantPropagationSelectPass{}.run(module);
+
+  REQUIRE(module.instructions.size() == 2);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[0].operand == 2);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("BytecodeOptimizer extended mode propagates folded kSelect condition", "[bytecode][optimizer]") {
+  fleaux::bytecode::Module module;
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+      fleaux::bytecode::ConstValue{std::int64_t{10}},
+      fleaux::bytecode::ConstValue{std::int64_t{20}},
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kCmpEq, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kPushConst, 3},
+      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  const auto result = optimizer.optimize(module, fleaux::bytecode::OptimizerConfig{
+                                                     .mode = fleaux::bytecode::OptimizationMode::kExtended,
+                                                 });
+  REQUIRE(result.has_value());
+  REQUIRE(module.instructions.size() == 2);
+  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 10);
+}
+

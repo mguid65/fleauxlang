@@ -117,6 +117,9 @@ auto compile_constant(const ir::IRConstant& c) -> std::string {
   if (const auto* i = std::get_if<std::int64_t>(&c.val); i != nullptr) {
     return "fleaux::runtime::make_int(" + std::to_string(*i) + ")";
   }
+  if (const auto* u = std::get_if<std::uint64_t>(&c.val); u != nullptr) {
+    return "fleaux::runtime::make_uint(static_cast<fleaux::runtime::UInt>(" + std::to_string(*u) + "ULL))";
+  }
   if (const auto* d = std::get_if<double>(&c.val); d != nullptr) {
     std::ostringstream out;
     out << "fleaux::runtime::make_float(" << *d << ")";
@@ -196,9 +199,9 @@ auto compile_expr(const ir::IRExpr& expr, const std::unordered_map<std::string, 
 
     std::ostringstream out;
     out << "fleaux::runtime::make_tuple(";
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-      if (i > 0) { out << ", "; }
-      out << parts[i];
+    for (std::size_t part_index = 0; part_index < parts.size(); ++part_index) {
+      if (part_index > 0) { out << ", "; }
+      out << parts[part_index];
     }
     out << ")";
     return out.str();

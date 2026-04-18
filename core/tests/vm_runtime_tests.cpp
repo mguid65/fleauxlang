@@ -18,6 +18,11 @@ auto push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_
   return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 }
 
+auto push_u64_const(fleaux::bytecode::Module& bytecode_module, const std::uint64_t value) -> std::int64_t {
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
+  return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+}
+
 }  // namespace
 
 TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
@@ -40,9 +45,12 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
   };
 
   std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
+  constexpr fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
 }
@@ -635,6 +643,83 @@ TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "False\n");
+}
+
+TEST_CASE("VM kPushConst preserves UInt64 constants", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.builtin_names = {
+      "Std.Type",
+      "Std.Println",
+  };
+  const auto c42u = push_u64_const(bytecode_module, 42U);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c42u},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "UInt64\n");
+}
+
+TEST_CASE("VM native kAdd preserves UInt64 for UInt64 operands", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.builtin_names = {
+      "Std.Type",
+      "Std.Println",
+  };
+  const auto c40u = push_u64_const(bytecode_module, 40U);
+  const auto c2u = push_u64_const(bytecode_module, 2U);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c40u},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2u},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "UInt64\n");
+}
+
+TEST_CASE("VM native kAdd rejects mixed Int64 and UInt64 operands", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.builtin_names = {
+      "Std.Type",
+      "Std.Println",
+  };
+  const auto c_neg2 = push_i64_const(bytecode_module, -2);
+  const auto c5u = push_u64_const(bytecode_module, 5U);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c_neg2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5u},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE_FALSE(result.has_value());
 }
 
 TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Add", "[vm]") {
@@ -1995,3 +2080,30 @@ TEST_CASE("VM kCallBuiltin uses native dispatch for Std.Tuple and Std.Dict helpe
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 2 3\n0 1 2\nTrue\n(1, 3) (2, 4)\n9\n1\nk\n9\n42\n");
 }
+
+TEST_CASE("VM native Std.ElementAt rejects fractional index", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{1.5});
+  const auto cIdx = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.builtin_names = {"Std.ElementAt"};
+
+  bytecode_module.instructions = {
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c10},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=c20},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kPushConst, .operand=cIdx},
+      {.opcode=fleaux::bytecode::Opcode::kBuildTuple, .operand=2},
+      {.opcode=fleaux::bytecode::Opcode::kCallBuiltin, .operand=0},
+      {.opcode=fleaux::bytecode::Opcode::kHalt, .operand=0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("expects an integer value") != std::string::npos);
+}
+

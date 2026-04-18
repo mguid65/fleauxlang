@@ -1,8 +1,10 @@
 #include "fleaux/vm/interpreter.hpp"
 
 #include <filesystem>
+#include <cstdlib>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -30,8 +32,82 @@ using fleaux::frontend::ir::IRTupleExpr;
 using fleaux::runtime::RuntimeCallable;
 using fleaux::runtime::Value;
 
+auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
+                const std::optional<SourceSpan>& span = std::nullopt) -> InterpretError;
+
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return frontend::source_loader::symbol_key(qualifier, name);
+}
+
+auto format_ir_type(const frontend::ir::IRSimpleType& type) -> std::string {
+  const auto append_variadic = [](std::string base, const bool variadic) {
+    if (variadic) { base += "..."; }
+    return base;
+  };
+
+  if (!type.alternatives.empty()) {
+    std::ostringstream out;
+    for (std::size_t idx = 0; idx < type.alternatives.size(); ++idx) {
+      if (idx > 0) { out << " | "; }
+      out << type.alternatives[idx];
+    }
+    return append_variadic(out.str(), type.variadic);
+  }
+
+  return append_variadic(type.name, type.variadic);
+}
+
+auto format_let_signature(const frontend::ir::IRLet& let) -> std::string {
+  std::ostringstream out;
+  out << "let " << let_key(let.qualifier, let.name) << "(";
+  for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
+    if (idx > 0) { out << ", "; }
+    out << let.params[idx].name << ": " << format_ir_type(let.params[idx].type);
+  }
+  out << "): " << format_ir_type(let.return_type);
+  if (let.is_builtin) { out << " :: __builtin__"; }
+  return out.str();
+}
+
+auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
+  fleaux::runtime::register_help_metadata(fleaux::runtime::HelpMetadata{
+      .name = let_key(let.qualifier, let.name),
+      .signature = format_let_signature(let),
+      .doc_lines = let.doc_comments,
+      .is_builtin = let.is_builtin,
+  });
+}
+
+auto find_std_file() -> std::optional<std::filesystem::path> {
+  if (const char* env_path = std::getenv("FLEAUX_STD_PATH"); env_path != nullptr && *env_path != '\0') {
+    const std::filesystem::path candidate(env_path);
+    if (std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
+  }
+
+  std::filesystem::path cursor = std::filesystem::current_path();
+  while (true) {
+    const auto candidate = cursor / "Std.fleaux";
+    if (std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
+    if (cursor == cursor.root_path()) { break; }
+    cursor = cursor.parent_path();
+  }
+
+  return std::nullopt;
+}
+
+auto preload_std_help_metadata() -> void {
+  const auto std_file = find_std_file();
+  if (!std_file.has_value()) { return; }
+
+  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(
+      *std_file, make_error);
+  if (!parsed_std) { return; }
+
+  for (const auto& let : parsed_std->lets) {
+    if (!let.qualifier.has_value()) { continue; }
+    if (!(let.qualifier.value() == "Std" || let.qualifier->starts_with("Std."))) { continue; }
+    register_help_for_let(let);
+  }
 }
 
 enum class OperatorDispatchKey {
@@ -74,8 +150,8 @@ auto operator_dispatch_key(const std::string& op) -> std::optional<OperatorDispa
   return std::nullopt;
 }
 
-auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
-                const std::optional<SourceSpan>& span = std::nullopt) -> InterpretError {
+auto make_error(const std::string& message, const std::optional<std::string>& hint,
+                const std::optional<SourceSpan>& span) -> InterpretError {
   return InterpretError{
       .message = message,
       .hint = hint,
@@ -119,6 +195,7 @@ struct EvalState {
 
   void register_let(const frontend::ir::IRLet& let, const std::shared_ptr<EvalState>& self) {
     const std::string full_name = let_key(let.qualifier, let.name);
+    register_help_for_let(let);
 
     if (const auto idx_it = let_indices.find(full_name); idx_it != let_indices.end()) {
       program.lets[idx_it->second] = let;
@@ -207,10 +284,19 @@ struct EvalState {
             [&](const frontend::ir::IRConstant& constant) -> Value {
               return std::visit(common::overloaded{
                                     [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
-                                    [](bool b) -> Value { return fleaux::runtime::make_bool(b); },
-                                    [](std::int64_t i) -> Value { return fleaux::runtime::make_int(i); },
-                                    [](double d) -> Value { return fleaux::runtime::make_float(d); },
-                                    [](const std::string& s) -> Value { return fleaux::runtime::make_string(s); },
+                                    [](const bool bool_value) -> Value { return fleaux::runtime::make_bool(bool_value); },
+                                    [](const std::int64_t int_value) -> Value {
+                                      return fleaux::runtime::make_int(int_value);
+                                    },
+                                    [](const std::uint64_t uint_value) -> Value {
+                                      return fleaux::runtime::make_uint(uint_value);
+                                    },
+                                    [](const double float_value) -> Value {
+                                      return fleaux::runtime::make_float(float_value);
+                                    },
+                                    [](const std::string& string_value) -> Value {
+                                      return fleaux::runtime::make_string(string_value);
+                                    },
                                 },
                                 constant.val);
             },
@@ -392,6 +478,9 @@ auto execute_program_in_state(const std::shared_ptr<EvalState>& state, const IRP
 
 struct InterpreterSession::Impl {
   explicit Impl(const std::vector<std::string>& process_args) : state(std::make_shared<EvalState>()) {
+    fleaux::runtime::clear_help_metadata_registry();
+    preload_std_help_metadata();
+
     std::vector<std::string> args_storage;
     args_storage.reserve(process_args.size() + 1U);
     args_storage.emplace_back("<repl>");
@@ -428,6 +517,9 @@ auto Interpreter::run_file(const std::filesystem::path& source_file, const std::
 
   auto merged_result = load_ir_program(source_file);
   if (!merged_result) { return tl::unexpected(merged_result.error()); }
+
+  fleaux::runtime::clear_help_metadata_registry();
+  preload_std_help_metadata();
 
   std::vector<std::string> args_storage;
   args_storage.reserve(process_args.size() + 1U);

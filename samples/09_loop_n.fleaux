@@ -3,18 +3,18 @@ import Std;
 // Like Loop but raises an error if max_iters is exceeded.
 // Useful for bounding potentially infinite iterations.
 // -- Bounded countdown with a safety cap --
-let CountContinue(n: Number): Bool = (n, 0) -> Std.GreaterThan;
-let CountStep(n: Number): Number   = (n, 1) -> Std.Subtract;
+let CountContinue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
+let CountStep(n: Float64): Float64   = (n, 1) -> Std.Subtract;
 (10, CountContinue, CountStep, 100) -> Std.LoopN -> Std.Println; // 0
 // -- Collatz conjecture: iterate until reaching 1, bounded --
 // step: if even -> n/2, if odd -> 3n+1
-let CollatzContinue(n: Number): Bool = (n, 1) -> Std.GreaterThan;
-let CollatzEvenStep(n: Number): Number = (n, 2) -> Std.Divide;
-let CollatzOddStep(n: Number): Number  = ((n, 3) -> Std.Multiply, 1) -> Std.Add;
-let CollatzStep(n: Number): Number =
+let CollatzContinue(n: Float64): Bool = (n, 1) -> Std.GreaterThan;
+let CollatzEvenStep(n: Float64): Float64 = (n, 2) -> Std.Divide;
+let CollatzOddStep(n: Float64): Float64  = ((n, 3) -> Std.Multiply, 1) -> Std.Add;
+let CollatzStep(n: Float64): Float64 =
     ((n, 2) -> Std.Mod -> (_, 0) -> Std.Equal, n, CollatzEvenStep, CollatzOddStep) -> Std.Branch;
 (27, CollatzContinue, CollatzStep, 1000) -> Std.LoopN -> Std.Println;  // 1
 // -- Power of 2 just below a limit: double until >= 500 --
-let PowContinue(n: Number): Bool = (n, 500) -> Std.LessThan;
-let PowStep(n: Number): Number   = (n, 2) -> Std.Multiply;
+let PowContinue(n: Float64): Bool = (n, 500) -> Std.LessThan;
+let PowStep(n: Float64): Float64   = (n, 2) -> Std.Multiply;
 (1, PowContinue, PowStep, 50) -> Std.LoopN -> Std.Println;       // 512

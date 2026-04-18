@@ -3,7 +3,7 @@ import Std;
 let ToErr(_vals: Any): Any = ("division by zero") -> Std.Result.Err;
 let ToOkDiv(vals: Any): Any = (vals) -> Std.Divide -> Std.Result.Ok;
 
-let SafeDiv(lhs: Number, rhs: Number): Any =
+let SafeDiv(lhs: Float64, rhs: Float64): Any =
   ((rhs, 0) -> Std.Equal, (lhs, rhs), ToErr, ToOkDiv) -> Std.Branch;
 
 let PrintResult(r: Any): Any =

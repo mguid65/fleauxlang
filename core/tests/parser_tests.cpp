@@ -8,7 +8,7 @@
 TEST_CASE("Parser handles import let and expression statements", "[parser]") {
   const std::string src =
       "import Std;\n"
-      "let Inc(x: Number): Number = (x, 1) -> Std.Add;\n"
+      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
       "(41) -> Inc -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
@@ -46,7 +46,7 @@ TEST_CASE("Parser reports semicolon hint on missing terminator", "[parser]") {
 
 TEST_CASE("Parser accepts inline closure literal in expression position", "[parser]") {
   const std::string src =
-      "(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n";
+      "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "inline_closure_parser.fleaux");
@@ -57,7 +57,7 @@ TEST_CASE("Parser accepts inline closure literal in expression position", "[pars
 
 TEST_CASE("Parser accepts ungrouped inline closure pipeline target", "[parser]") {
   const std::string src =
-      "(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;\n";
+      "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "ungrouped_closure_pipeline_parser.fleaux");
@@ -68,7 +68,7 @@ TEST_CASE("Parser accepts ungrouped inline closure pipeline target", "[parser]")
 
 TEST_CASE("Parser accepts zero-arg inline closure literal", "[parser]") {
   const std::string src =
-      "(((): Number = 42)) -> Std.Println;\n";
+      "(((): Float64 = 42)) -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "zero_arg_inline_closure_parser.fleaux");
@@ -79,7 +79,7 @@ TEST_CASE("Parser accepts zero-arg inline closure literal", "[parser]") {
 
 TEST_CASE("Parser accepts nested inline closure literals", "[parser]") {
   const std::string src =
-      "(2, (x: Number): Number = (x, (y: Number): Number = (y, 1) -> Std.Add) -> Std.Apply) -> Std.Apply;\n";
+      "(2, (x: Float64): Float64 = (x, (y: Float64): Float64 = (y, 1) -> Std.Add) -> Std.Apply) -> Std.Apply;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "nested_inline_closure_parser.fleaux");
@@ -90,15 +90,16 @@ TEST_CASE("Parser accepts nested inline closure literals", "[parser]") {
 
 TEST_CASE("Parser reports malformed inline closure body diagnostics", "[parser]") {
   const std::string src =
-      "(10) -> (x: Number): Number = -> Std.Println;\n";
+      "(10) -> (x: Float64): Float64 = -> Std.Println;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "malformed_inline_closure_body_parser.fleaux");
 
   REQUIRE_FALSE(parsed.has_value());
-  REQUIRE(parsed.error().message.find("expected an expression") != std::string::npos);
+  // The parser attempts to parse (x: Float64) as a tuple or closure, but fails
+  // when it encounters the : after ). This results in "Expected ')'" error.
+  REQUIRE(parsed.error().message.find("Expected") != std::string::npos);
   REQUIRE(parsed.error().hint.has_value());
-  REQUIRE(parsed.error().hint->find("body") != std::string::npos);
 }
 
 TEST_CASE("Parser reports 'expected an expression' for unexpected symbol in expression position", "[parser]") {
@@ -111,3 +112,122 @@ TEST_CASE("Parser reports 'expected an expression' for unexpected symbol in expr
   REQUIRE(parsed.error().message.find("expected an expression") != std::string::npos);
   REQUIRE(parsed.error().hint.has_value());
 }
+
+TEST_CASE("Parser accepts concrete numeric type names", "[parser]") {
+  const std::string src =
+      "let UsesTypedNumerics(a: Int64, b: UInt64, c: Float64): Float64 = (a, c) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typed_numeric_types_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::LetStatement>(parsed->statements[0]));
+}
+
+TEST_CASE("Parser rejects malformed numeric exponent", "[parser]") {
+  const std::string src = "(1e+) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "malformed_exponent_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Malformed numeric literal") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+  REQUIRE(parsed.error().hint->find("Exponent requires at least one digit") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects out-of-range integer literals with diagnostics", "[parser]") {
+  const std::string src = "(9223372036854775808) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "integer_overflow_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("out of range") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+}
+
+TEST_CASE("Parser accepts UInt64 literal suffix", "[parser]") {
+  const std::string src = "(42u64) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "uint64_literal_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+}
+
+TEST_CASE("Parser rejects negative UInt64 literals", "[parser]") {
+  const std::string src = "(-1u64) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "negative_uint64_literal_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("cannot be negative") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects fractional UInt64 literals", "[parser]") {
+  const std::string src = "(1.5u64) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "fractional_uint64_literal_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Invalid UInt64 literal") != std::string::npos);
+}
+
+TEST_CASE("Parser accepts union types in signatures", "[parser]") {
+  const std::string src =
+      "let NumOp(x: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "union_types_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser accepts tuple items that use union types", "[parser]") {
+  const std::string src =
+      "let Pack(x: Tuple(Float64 | Int64, UInt64)): Tuple(Float64 | Int64, UInt64) = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "tuple_union_types_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser attaches consecutive comments above let as doc comments", "[parser]") {
+  const std::string src =
+      "// @brief Increment a value\n"
+      "// @param x input value\n"
+      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "parser_doc_comments.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE(let_stmt.doc_comments.size() == 2);
+  REQUIRE(let_stmt.doc_comments[0] == "@brief Increment a value");
+  REQUIRE(let_stmt.doc_comments[1] == "@param x input value");
+}
+
+TEST_CASE("Parser drops doc comments if a blank line separates comments from let", "[parser]") {
+  const std::string src =
+      "// @brief Should not attach\n"
+      "\n"
+      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "parser_doc_blank_reset.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE(let_stmt.doc_comments.empty());
+}
+

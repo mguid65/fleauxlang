@@ -18,7 +18,7 @@ TEST_CASE("SourceSpan caret width follows span bounds", "[diagnostics]") {
 TEST_CASE("format_diagnostic includes location and hint", "[diagnostics]") {
   fleaux::frontend::diag::SourceSpan span;
   span.source_name = "sample.fleaux";
-  span.source_text = "let x: Number = 1;\n";
+  span.source_text = "let x: Float64 = 1;\n";
   span.line = 1;
   span.col = 5;
   span.end_line = 1;

@@ -12,8 +12,8 @@ struct TupleAppend {
         const auto& src = as_array(*args.TryGet(0));
         Array out;
         out.Reserve(src.Size() + 1);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            out.PushBack(*src.TryGet(i));
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            out.PushBack(*src.TryGet(index));
         }
         out.PushBack(*args.TryGet(1));
         return Value{std::move(out)};
@@ -28,8 +28,8 @@ struct TuplePrepend {
         Array out;
         out.Reserve(src.Size() + 1);
         out.PushBack(*args.TryGet(1));
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            out.PushBack(*src.TryGet(i));
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            out.PushBack(*src.TryGet(index));
         }
         return Value{std::move(out)};
     }
@@ -41,8 +41,8 @@ struct TupleReverse {
         const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
-        for (std::size_t i = src.Size(); i > 0; --i) {
-            out.PushBack(*src.TryGet(i - 1));
+        for (std::size_t reverse_index = src.Size(); reverse_index > 0; --reverse_index) {
+            out.PushBack(*src.TryGet(reverse_index - 1));
         }
         return Value{std::move(out)};
     }
@@ -54,8 +54,8 @@ struct TupleContains {
         const auto& args = require_args(arg, 2, "TupleContains");
         const auto& src = as_array(*args.TryGet(0));
         const Value& item = *args.TryGet(1);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (*src.TryGet(i) == item) {
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (*src.TryGet(index) == item) {
                 return make_bool(true);
             }
         }
@@ -67,13 +67,13 @@ struct TupleZip {
     // arg = [sequenceA, sequenceB]  ->  [(a0,b0), (a1,b1), ...]
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleZip");
-        const auto& a = as_array(*args.TryGet(0));
-        const auto& b = as_array(*args.TryGet(1));
-        const std::size_t n = std::min(a.Size(), b.Size());
+        const auto& lhs_arr = as_array(*args.TryGet(0));
+        const auto& rhs_arr = as_array(*args.TryGet(1));
+        const std::size_t min_size = std::min(lhs_arr.Size(), rhs_arr.Size());
         Array out;
-        out.Reserve(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            out.PushBack(make_tuple(*a.TryGet(i), *b.TryGet(i)));
+        out.Reserve(min_size);
+        for (std::size_t index = 0; index < min_size; ++index) {
+            out.PushBack(make_tuple(*lhs_arr.TryGet(index), *rhs_arr.TryGet(index)));
         }
         return Value{std::move(out)};
     }
@@ -84,12 +84,12 @@ struct TupleMap {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "TupleMap");
         const auto& src = as_array(*args.TryGet(0));
-        const Value& func = *args.TryGet(1);
+        const Value& function_ref = *args.TryGet(1);
 
         Array out;
         out.Reserve(src.Size());
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            out.PushBack(invoke_callable_ref(func, *src.TryGet(i)));
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            out.PushBack(invoke_callable_ref(function_ref, *src.TryGet(index)));
         }
         return Value{std::move(out)};
     }
@@ -103,8 +103,8 @@ struct TupleFilter {
         const Value& pred = *args.TryGet(1);
 
         Array out;
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (const Value& item = *src.TryGet(i); as_bool(invoke_callable_ref(pred, item))) {
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (const Value& item = *src.TryGet(index); as_bool(invoke_callable_ref(pred, item))) {
                 out.PushBack(item);
             }
         }
@@ -118,8 +118,8 @@ struct TupleSort {
         const auto& src = as_array(arg);
         std::vector<Value> items;
         items.reserve(src.Size());
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            items.push_back(*src.TryGet(i));
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            items.push_back(*src.TryGet(index));
         }
 
         std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) -> bool {
@@ -141,11 +141,11 @@ struct TupleUnique {
         const auto& src = as_array(arg);
         Array out;
         out.Reserve(src.Size());
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             bool seen = false;
-            for (std::size_t j = 0; j < out.Size(); ++j) {
-                if (*out.TryGet(j) == item) {
+            for (std::size_t existing_index = 0; existing_index < out.Size(); ++existing_index) {
+                if (*out.TryGet(existing_index) == item) {
                     seen = true;
                     break;
                 }
@@ -167,8 +167,8 @@ struct TupleMin {
         }
         const Value& first = *src.TryGet(0);
         const Value* best = &first;
-        for (std::size_t i = 1; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+        for (std::size_t index = 1; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             if (compare_values_for_sort(item, *best) < 0) {
                 best = &item;
             }
@@ -186,8 +186,8 @@ struct TupleMax {
         }
         const Value& first = *src.TryGet(0);
         const Value* best = &first;
-        for (std::size_t i = 1; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+        for (std::size_t index = 1; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             if (compare_values_for_sort(item, *best) > 0) {
                 best = &item;
             }
@@ -201,12 +201,12 @@ struct TupleReduce {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 3, "TupleReduce");
         const auto& src = as_array(*args.TryGet(0));
-        Value acc = *args.TryGet(1);
-        const Value& fn = *args.TryGet(2);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            acc = invoke_callable_ref(fn, make_tuple(std::move(acc), *src.TryGet(i)));
+        Value accumulator = *args.TryGet(1);
+        const Value& reducer = *args.TryGet(2);
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            accumulator = invoke_callable_ref(reducer, make_tuple(std::move(accumulator), *src.TryGet(index)));
         }
-        return acc;
+        return accumulator;
     }
 };
 
@@ -216,9 +216,9 @@ struct TupleFindIndex {
         const auto& args = require_args(arg, 2, "TupleFindIndex");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
-                return make_int(static_cast<Int>(i));
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
+                return make_int(static_cast<Int>(index));
             }
         }
         return make_int(-1);
@@ -231,8 +231,8 @@ struct TupleAny {
         const auto& args = require_args(arg, 2, "TupleAny");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
                 return make_bool(true);
             }
         }
@@ -246,8 +246,8 @@ struct TupleAll {
         const auto& args = require_args(arg, 2, "TupleAll");
         const auto& src = as_array(*args.TryGet(0));
         const Value& pred = *args.TryGet(1);
-        for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (!as_bool(invoke_callable_ref(pred, *src.TryGet(i)))) {
+        for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (!as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
                 return make_bool(false);
             }
         }
@@ -282,12 +282,12 @@ struct TupleRange {
 
         Array out;
         if (step > 0) {
-            for (Int i = start; i < stop; i += step) {
-                out.PushBack(make_int(i));
+            for (Int current = start; current < stop; current += step) {
+                out.PushBack(make_int(current));
             }
         } else {
-            for (Int i = start; i > stop; i += step) {
-                out.PushBack(make_int(i));
+            for (Int current = start; current > stop; current += step) {
+                out.PushBack(make_int(current));
             }
         }
         return Value{std::move(out)};

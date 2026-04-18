@@ -13,24 +13,24 @@ import Std;
 ((10, 5) -> Std.GreaterThan, "greater", "lesser") -> Std.Select -> Std.Println;  // greater
 
 // -- Absolute value: x if x >= 0 else -x --
-let Abs(x: Number): Number =
+let Abs(x: Float64): Float64 =
     ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
 
 (7) -> Abs -> Std.Println;                                        // 7
 (-7) -> Abs -> Std.Println;                                       // 7
 
 // -- Min and Max via Select --
-let Min(a: Number, b: Number): Number =
+let Min(a: Float64, b: Float64): Float64 =
     ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
 
-let Max(a: Number, b: Number): Number =
+let Max(a: Float64, b: Float64): Float64 =
     ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
 
 (4, 9) -> Min -> Std.Println;                                     // 4
 (4, 9) -> Max -> Std.Println;                                     // 9
 
 // -- Clamping a value to a range [lo, hi] --
-let Clamp(x: Number, lo: Number, hi: Number): Number =
+let Clamp(x: Float64, lo: Float64, hi: Float64): Float64 =
     (x, lo) -> Max -> (_, hi) -> Min;
 
 (-5, 0, 100) -> Clamp -> Std.Println;                             // 0
@@ -38,7 +38,7 @@ let Clamp(x: Number, lo: Number, hi: Number): Number =
 (150, 0, 100) -> Clamp -> Std.Println;                            // 100
 
 // -- Selecting a numeric label based on sign --
-let SignLabel(x: Number): String =
+let SignLabel(x: Float64): String =
     ((x, 0) -> Std.GreaterThan, "positive",
      ((x, 0) -> Std.Equal, "zero", "negative") -> Std.Select) -> Std.Select;
 

@@ -8,23 +8,25 @@ namespace fleaux::runtime {
 // Multidimensional array builtins
 
 [[nodiscard]] inline auto checked_index(const Value& value, const char* name) -> std::size_t {
-  const Int i = as_int_value(value);
-  if (i < 0) { throw std::out_of_range(std::format("{} expects non-negative index, got {}", name, i)); }
-  return static_cast<std::size_t>(i);
+  const Int index_value = as_int_value_strict(value, name);
+  if (index_value < 0) {
+    throw std::out_of_range(std::format("{} expects non-negative index, got {}", name, index_value));
+  }
+  return static_cast<std::size_t>(index_value);
 }
 
-[[nodiscard]] inline auto array_shape(const Value& v) -> std::optional<std::vector<std::size_t>> {
-  if (!v.HasArray()) { return std::vector<std::size_t>{}; }
+[[nodiscard]] inline auto array_shape(const Value& value) -> std::optional<std::vector<std::size_t>> {
+  if (!value.HasArray()) { return std::vector<std::size_t>{}; }
 
-  const auto& arr = as_array(v);
+  const auto& arr = as_array(value);
   std::vector<std::size_t> shape;
   shape.push_back(arr.Size());
   if (arr.Size() == 0) { return shape; }
 
   auto first_child_shape = array_shape(*arr.TryGet(0));
   if (!first_child_shape.has_value()) { return std::nullopt; }
-  for (std::size_t i = 1; i < arr.Size(); ++i) {
-    if (auto child_shape = array_shape(*arr.TryGet(i));
+  for (std::size_t child_index = 1; child_index < arr.Size(); ++child_index) {
+    if (auto child_shape = array_shape(*arr.TryGet(child_index));
         !child_shape.has_value() || child_shape.value() != first_child_shape.value()) {
       return std::nullopt;
     }
@@ -34,19 +36,21 @@ namespace fleaux::runtime {
   return shape;
 }
 
-inline void flatten_into(const Value& v, Array& out) {
-  if (!v.HasArray()) {
-    out.PushBack(v);
+inline void flatten_into(const Value& value, Array& out) {
+  if (!value.HasArray()) {
+    out.PushBack(value);
     return;
   }
-  const auto& arr = as_array(v);
-  for (std::size_t i = 0; i < arr.Size(); ++i) { flatten_into(*arr.TryGet(i), out); }
+  const auto& arr = as_array(value);
+  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+    flatten_into(*arr.TryGet(element_index), out);
+  }
 }
 
-[[nodiscard]] inline auto set_at_path(const Value& v, const std::vector<std::size_t>& path, const std::size_t depth,
+[[nodiscard]] inline auto set_at_path(const Value& value, const std::vector<std::size_t>& path, const std::size_t depth,
                                       const Value& replacement) -> Value {
   if (depth == path.size()) { return replacement; }
-  const auto& arr = as_array(v);
+  const auto& arr = as_array(value);
   const std::size_t idx = path.at(depth);
   if (idx >= arr.Size()) {
     throw std::out_of_range(
@@ -55,11 +59,11 @@ inline void flatten_into(const Value& v, Array& out) {
 
   Array out;
   out.Reserve(arr.Size());
-  for (std::size_t i = 0; i < arr.Size(); ++i) {
-    if (i == idx) {
-      out.PushBack(set_at_path(*arr.TryGet(i), path, depth + 1, replacement));
+  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+    if (element_index == idx) {
+      out.PushBack(set_at_path(*arr.TryGet(element_index), path, depth + 1, replacement));
     } else {
-      out.PushBack(*arr.TryGet(i));
+      out.PushBack(*arr.TryGet(element_index));
     }
   }
   return Value{std::move(out)};
@@ -71,7 +75,9 @@ inline void flatten_into(const Value& v, Array& out) {
 
   Array out;
   out.Reserve(dims.at(depth));
-  for (std::size_t i = 0; i < dims.at(depth); ++i) { out.PushBack(reshape_from_flat(flat, dims, depth + 1, cursor)); }
+  for (std::size_t element_index = 0; element_index < dims.at(depth); ++element_index) {
+    out.PushBack(reshape_from_flat(flat, dims, depth + 1, cursor));
+  }
   return Value{std::move(out)};
 }
 
@@ -101,7 +107,9 @@ struct ArraySetAt {
 
     Array out;
     out.Reserve(arr.Size());
-    for (std::size_t i = 0; i < arr.Size(); ++i) { out.PushBack(i == idx ? replacement : *arr.TryGet(i)); }
+    for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+      out.PushBack(element_index == idx ? replacement : *arr.TryGet(element_index));
+    }
     return Value{std::move(out)};
   }
 };
@@ -119,9 +127,13 @@ struct ArrayInsertAt {
 
     Array out;
     out.Reserve(arr.Size() + 1);
-    for (std::size_t i = 0; i < idx; ++i) { out.PushBack(*arr.TryGet(i)); }
+    for (std::size_t element_index = 0; element_index < idx; ++element_index) {
+      out.PushBack(*arr.TryGet(element_index));
+    }
     out.PushBack(value);
-    for (std::size_t i = idx; i < arr.Size(); ++i) { out.PushBack(*arr.TryGet(i)); }
+    for (std::size_t element_index = idx; element_index < arr.Size(); ++element_index) {
+      out.PushBack(*arr.TryGet(element_index));
+    }
     return Value{std::move(out)};
   }
 };
@@ -138,8 +150,8 @@ struct ArrayRemoveAt {
 
     Array out;
     out.Reserve(arr.Size() - 1);
-    for (std::size_t i = 0; i < arr.Size(); ++i) {
-      if (i != idx) { out.PushBack(*arr.TryGet(i)); }
+    for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+      if (element_index != idx) { out.PushBack(*arr.TryGet(element_index)); }
     }
     return Value{std::move(out)};
   }
@@ -159,7 +171,9 @@ struct ArraySlice {
 
     Array out;
     out.Reserve(stop - start);
-    for (std::size_t i = start; i < stop; ++i) { out.PushBack(*arr.TryGet(i)); }
+    for (std::size_t element_index = start; element_index < stop; ++element_index) {
+      out.PushBack(*arr.TryGet(element_index));
+    }
     return Value{std::move(out)};
   }
 };
@@ -173,8 +187,8 @@ struct ArrayConcat {
 
     Array out;
     out.Reserve(lhs.Size() + rhs.Size());
-    for (std::size_t i = 0; i < lhs.Size(); ++i) { out.PushBack(*lhs.TryGet(i)); }
-    for (std::size_t i = 0; i < rhs.Size(); ++i) { out.PushBack(*rhs.TryGet(i)); }
+    for (std::size_t lhs_index = 0; lhs_index < lhs.Size(); ++lhs_index) { out.PushBack(*lhs.TryGet(lhs_index)); }
+    for (std::size_t rhs_index = 0; rhs_index < rhs.Size(); ++rhs_index) { out.PushBack(*rhs.TryGet(rhs_index)); }
     return Value{std::move(out)};
   }
 };
@@ -201,17 +215,19 @@ struct ArraySetAt2D {
 
     Array out_grid;
     out_grid.Reserve(grid.Size());
-    for (std::size_t r = 0; r < grid.Size(); ++r) {
-      const auto& row_val = *grid.TryGet(r);
+    for (std::size_t row_index = 0; row_index < grid.Size(); ++row_index) {
+      const auto& row_val = *grid.TryGet(row_index);
       const auto& row = as_array(row_val);
-      if (r != row_idx) {
+      if (row_index != row_idx) {
         out_grid.PushBack(row_val);
         continue;
       }
 
       Array new_row;
       new_row.Reserve(row.Size());
-      for (std::size_t c = 0; c < row.Size(); ++c) { new_row.PushBack(c == col_idx ? new_val : *row.TryGet(c)); }
+      for (std::size_t column_index = 0; column_index < row.Size(); ++column_index) {
+        new_row.PushBack(column_index == col_idx ? new_val : *row.TryGet(column_index));
+      }
       out_grid.PushBack(Value{std::move(new_row)});
     }
 
@@ -240,8 +256,8 @@ struct ArrayFill {
 
     Array out;
     out.Reserve(src.Size());
-    for (std::size_t i = 0; i < src.Size(); ++i) {
-      out.PushBack((i >= start_idx && i < end_idx) ? fill_val : *src.TryGet(i));
+    for (std::size_t element_index = 0; element_index < src.Size(); ++element_index) {
+      out.PushBack((element_index >= start_idx && element_index < end_idx) ? fill_val : *src.TryGet(element_index));
     }
 
     return Value{std::move(out)};
@@ -259,20 +275,20 @@ struct ArrayTranspose2D {
     const std::size_t num_cols = first_row.Size();
     const std::size_t num_rows = grid.Size();
 
-    for (std::size_t r = 1; r < num_rows; ++r) {
-      if (const auto& row = as_array(*grid.TryGet(r)); row.Size() != num_cols) {
-        throw std::invalid_argument(std::format("ArrayTranspose2D: ragged grid detected at row {}", r));
+    for (std::size_t row_index = 1; row_index < num_rows; ++row_index) {
+      if (const auto& row = as_array(*grid.TryGet(row_index)); row.Size() != num_cols) {
+        throw std::invalid_argument(std::format("ArrayTranspose2D: ragged grid detected at row {}", row_index));
       }
     }
 
     Array out_grid;
     out_grid.Reserve(num_cols);
-    for (std::size_t c = 0; c < num_cols; ++c) {
+    for (std::size_t column_index = 0; column_index < num_cols; ++column_index) {
       Array new_row;
       new_row.Reserve(num_rows);
-      for (std::size_t r = 0; r < num_rows; ++r) {
-        const auto& row = as_array(*grid.TryGet(r));
-        new_row.PushBack(*row.TryGet(c));
+      for (std::size_t row_index = 0; row_index < num_rows; ++row_index) {
+        const auto& row = as_array(*grid.TryGet(row_index));
+        new_row.PushBack(*row.TryGet(column_index));
       }
       out_grid.PushBack(Value{std::move(new_row)});
     }
@@ -304,15 +320,18 @@ struct ArraySlice2D {
 
     Array out_grid;
     out_grid.Reserve(row_end - row_start);
-    for (std::size_t r = row_start; r < row_end; ++r) {
-      const auto& row = as_array(*grid.TryGet(r));
+    for (std::size_t row_index = row_start; row_index < row_end; ++row_index) {
+      const auto& row = as_array(*grid.TryGet(row_index));
       if (col_end > row.Size()) {
-        throw std::out_of_range(std::format("ArraySlice2D: col_end {} exceeds row {} size {}", col_end, r, row.Size()));
+        throw std::out_of_range(
+            std::format("ArraySlice2D: col_end {} exceeds row {} size {}", col_end, row_index, row.Size()));
       }
 
       Array new_row;
       new_row.Reserve(col_end - col_start);
-      for (std::size_t c = col_start; c < col_end; ++c) { new_row.PushBack(*row.TryGet(c)); }
+      for (std::size_t column_index = col_start; column_index < col_end; ++column_index) {
+        new_row.PushBack(*row.TryGet(column_index));
+      }
       out_grid.PushBack(Value{std::move(new_row)});
     }
 
@@ -339,11 +358,11 @@ struct ArrayReshape {
 
     Array out_grid;
     out_grid.Reserve(num_rows);
-    for (std::size_t r = 0; r < num_rows; ++r) {
+    for (std::size_t row_index = 0; row_index < num_rows; ++row_index) {
       Array new_row;
       new_row.Reserve(num_cols);
-      for (std::size_t c = 0; c < num_cols; ++c) {
-        const std::size_t flat_idx = r * num_cols + c;
+      for (std::size_t column_index = 0; column_index < num_cols; ++column_index) {
+        const std::size_t flat_idx = row_index * num_cols + column_index;
         new_row.PushBack(*flat.TryGet(flat_idx));
       }
       out_grid.PushBack(Value{std::move(new_row)});
@@ -414,8 +433,8 @@ struct ArraySetAtND {
 
     std::vector<std::size_t> path;
     path.reserve(indices.Size());
-    for (std::size_t i = 0; i < indices.Size(); ++i) {
-      path.push_back(checked_index(*indices.TryGet(i), "ArraySetAtND index"));
+    for (std::size_t index_position = 0; index_position < indices.Size(); ++index_position) {
+      path.push_back(checked_index(*indices.TryGet(index_position), "ArraySetAtND index"));
     }
     return set_at_path(value, path, 0, replacement);
   }
@@ -431,8 +450,8 @@ struct ArrayReshapeND {
     std::vector<std::size_t> dims;
     dims.reserve(shape_tuple.Size());
     std::size_t total = 1;
-    for (std::size_t i = 0; i < shape_tuple.Size(); ++i) {
-      const std::size_t dim = checked_index(*shape_tuple.TryGet(i), "ArrayReshapeND shape");
+    for (std::size_t shape_index = 0; shape_index < shape_tuple.Size(); ++shape_index) {
+      const std::size_t dim = checked_index(*shape_tuple.TryGet(shape_index), "ArrayReshapeND shape");
       dims.push_back(dim);
       if (dim != 0 && total > (std::numeric_limits<std::size_t>::max() / dim)) {
         throw std::invalid_argument("ArrayReshapeND: shape product overflows size_t");

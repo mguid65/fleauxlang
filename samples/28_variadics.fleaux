@@ -23,9 +23,9 @@ let Rest(head: Any, rest: Any...): Any  = rest;
 // ── Practical example: variadic sum ──────────────────────────────────────────
 // The variadic tail arrives as a plain tuple, so any Tuple built-in applies.
 
-let AddTwo(acc: Number, x: Number): Number = (acc, x) -> Std.Add;
+let AddTwo(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;
 
-let Sum(nums: Any...): Number =
+let Sum(nums: Any...): Float64 =
     (nums, 0, AddTwo) -> Std.Tuple.Reduce;
 
 () -> Sum -> Std.Println;                                  // 0

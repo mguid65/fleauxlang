@@ -27,8 +27,8 @@ import Std;
 ```fleaux
 import Std;
 
-let Square(x: Number): Number = (x, x) -> Std.Multiply;
-let Average(a: Number, b: Number): Number =
+let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+let Average(a: Float64, b: Float64): Float64 =
     (a, b) -> Std.Add -> (_, 2) -> Std.Divide;
 
 (6) -> Square -> Std.Println;
@@ -42,7 +42,7 @@ let Average(a: Number, b: Number): Number =
 ```fleaux
 import Std;
 
-let Add4(x: Number): Number = (4, x) -> Std.Add;
+let Add4(x: Float64): Float64 = (4, x) -> Std.Add;
 ```
 
 `main.fleaux`
