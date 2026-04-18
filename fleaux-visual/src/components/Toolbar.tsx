@@ -134,6 +134,10 @@ export function Toolbar() {
         className="text-xs font-mono border border-orange-600 text-orange-300 hover:bg-orange-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Tuple</button>
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'String', value: '', label: '""' } })}
         className="text-xs font-mono border border-emerald-600 text-emerald-300 hover:bg-emerald-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ String</button>
+      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Bool', value: 'True', label: 'True' } })}
+        className="text-xs font-mono border border-amber-600 text-amber-300 hover:bg-amber-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Bool</button>
+      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Null', value: 'null', label: 'null' } })}
+        className="text-xs font-mono border border-slate-600 text-slate-300 hover:bg-slate-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Null</button>
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Int64', value: '0', label: '0' } })}
         className="text-xs font-mono border border-cyan-600 text-cyan-300 hover:bg-cyan-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Int64</button>
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'UInt64', value: '0', label: '0' } })}
