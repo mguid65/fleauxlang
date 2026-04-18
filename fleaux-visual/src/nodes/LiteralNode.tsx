@@ -40,25 +40,42 @@ function formatLiteralLabel(valueType: LiteralData['valueType'], value: string):
   }
 }
 
+function normalizeLiteralValue(valueType: LiteralData['valueType'], value: string): string {
+  switch (valueType) {
+    case 'Bool':
+      return value.trim().toLowerCase() === 'false' ? 'False' : 'True';
+    case 'Null':
+      return 'null';
+    default:
+      return value;
+  }
+}
+
 export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(data.value);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
-  
+
   const colors = VALUE_TYPE_COLORS[data.valueType];
   const badge = BADGE_COLORS[data.valueType];
+  const isBoolLiteral = data.valueType === 'Bool';
+  const isNullLiteral = data.valueType === 'Null';
 
   const handleSave = () => {
-    if (editValue !== data.value) {
+    const normalizedValue = normalizeLiteralValue(data.valueType, editValue);
+    const nextLabel = formatLiteralLabel(data.valueType, normalizedValue);
+
+    if (normalizedValue !== data.value || nextLabel !== data.label) {
       updateNodeData(id, {
-        value: editValue,
-        label: formatLiteralLabel(data.valueType, editValue),
+        value: normalizedValue,
+        label: nextLabel,
       });
     }
+    setEditValue(normalizedValue);
     setIsEditing(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
     if (e.key === 'Enter') handleSave();
     if (e.key === 'Escape') {
       setEditValue(data.value);
@@ -72,20 +89,40 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
         {data.valueType}
       </span>
       {isEditing ? (
-        <input
-          autoFocus
-          type={isNumericLiteralType(data.valueType) ? 'number' : 'text'}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={handleKeyDown}
-          className="w-full mt-1 px-2 py-1 text-sm font-mono bg-slate-900 border border-slate-600 rounded text-sky-200 focus:border-sky-400 outline-none"
-        />
+        isBoolLiteral ? (
+          <select
+            autoFocus
+            value={normalizeLiteralValue('Bool', editValue)}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            className="w-full mt-1 px-2 py-1 text-sm font-mono bg-slate-900 border border-slate-600 rounded text-amber-200 focus:border-amber-400 outline-none"
+          >
+            <option value="True">True</option>
+            <option value="False">False</option>
+          </select>
+        ) : (
+          <input
+            autoFocus
+            type={isNumericLiteralType(data.valueType) ? 'number' : 'text'}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            className="w-full mt-1 px-2 py-1 text-sm font-mono bg-slate-900 border border-slate-600 rounded text-sky-200 focus:border-sky-400 outline-none"
+          />
+        )
       ) : (
         <div
-          onClick={() => setIsEditing(true)}
-          className="text-sm font-mono mt-1 truncate max-w-[200px] cursor-text hover:opacity-80 transition-opacity"
-          title="Click to edit"
+          onClick={() => {
+            if (isNullLiteral) {
+              return;
+            }
+            setEditValue(normalizeLiteralValue(data.valueType, data.value));
+            setIsEditing(true);
+          }}
+          className={`text-sm font-mono mt-1 truncate max-w-[200px] transition-opacity ${isNullLiteral ? 'cursor-default opacity-90' : 'cursor-text hover:opacity-80'}`}
+          title={isNullLiteral ? 'Null literals are fixed' : 'Click to edit'}
         >
           {data.label}
         </div>
