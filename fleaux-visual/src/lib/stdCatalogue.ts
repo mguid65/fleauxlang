@@ -23,433 +23,433 @@ export const STD_VALUES: StdValueEntry[] = [
     "qualifiedName": "Std.Half",
     "namespace": "Std",
     "name": "Half",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Third",
     "namespace": "Std",
     "name": "Third",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.TwoThirds",
     "namespace": "Std",
     "name": "TwoThirds",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Sixth",
     "namespace": "Std",
     "name": "Sixth",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ThreeQuarters",
     "namespace": "Std",
     "name": "ThreeQuarters",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootTwo",
     "namespace": "Std",
     "name": "RootTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootThree",
     "namespace": "Std",
     "name": "RootThree",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.HalfRootTwo",
     "namespace": "Std",
     "name": "HalfRootTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.LnTwo",
     "namespace": "Std",
     "name": "LnTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.LnLnTwo",
     "namespace": "Std",
     "name": "LnLnTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootLnFour",
     "namespace": "Std",
     "name": "RootLnFour",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivRootTwo",
     "namespace": "Std",
     "name": "OneDivRootTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Pi",
     "namespace": "Std",
     "name": "Pi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.HalfPi",
     "namespace": "Std",
     "name": "HalfPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ThirdPi",
     "namespace": "Std",
     "name": "ThirdPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.SixthPi",
     "namespace": "Std",
     "name": "SixthPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.TwoPi",
     "namespace": "Std",
     "name": "TwoPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Tau",
     "namespace": "Std",
     "name": "Tau",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.TwoThirdsPi",
     "namespace": "Std",
     "name": "TwoThirdsPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ThreeQuartersPi",
     "namespace": "Std",
     "name": "ThreeQuartersPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.FourThirdsPi",
     "namespace": "Std",
     "name": "FourThirdsPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivTwoPi",
     "namespace": "Std",
     "name": "OneDivTwoPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivRootTwoPi",
     "namespace": "Std",
     "name": "OneDivRootTwoPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootPi",
     "namespace": "Std",
     "name": "RootPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootHalfPi",
     "namespace": "Std",
     "name": "RootHalfPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootTwoPi",
     "namespace": "Std",
     "name": "RootTwoPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.LogRootTwoPi",
     "namespace": "Std",
     "name": "LogRootTwoPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivRootPi",
     "namespace": "Std",
     "name": "OneDivRootPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootOneDivPi",
     "namespace": "Std",
     "name": "RootOneDivPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.PiMinusThree",
     "namespace": "Std",
     "name": "PiMinusThree",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.FourMinusPi",
     "namespace": "Std",
     "name": "FourMinusPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.PiPowE",
     "namespace": "Std",
     "name": "PiPowE",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.PiSqr",
     "namespace": "Std",
     "name": "PiSqr",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.PiSqrDivSix",
     "namespace": "Std",
     "name": "PiSqrDivSix",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.PiCubed",
     "namespace": "Std",
     "name": "PiCubed",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.CbrtPi",
     "namespace": "Std",
     "name": "CbrtPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivCbrtPi",
     "namespace": "Std",
     "name": "OneDivCbrtPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Log2E",
     "namespace": "Std",
     "name": "Log2E",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.E",
     "namespace": "Std",
     "name": "E",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ExpMinusHalf",
     "namespace": "Std",
     "name": "ExpMinusHalf",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ExpMinusOne",
     "namespace": "Std",
     "name": "ExpMinusOne",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.EPowPi",
     "namespace": "Std",
     "name": "EPowPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootE",
     "namespace": "Std",
     "name": "RootE",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Log10E",
     "namespace": "Std",
     "name": "Log10E",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivLog10E",
     "namespace": "Std",
     "name": "OneDivLog10E",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.LnTen",
     "namespace": "Std",
     "name": "LnTen",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Degree",
     "namespace": "Std",
     "name": "Degree",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Radian",
     "namespace": "Std",
     "name": "Radian",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.SinOne",
     "namespace": "Std",
     "name": "SinOne",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.CosOne",
     "namespace": "Std",
     "name": "CosOne",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.SinhOne",
     "namespace": "Std",
     "name": "SinhOne",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.CoshOne",
     "namespace": "Std",
     "name": "CoshOne",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Phi",
     "namespace": "Std",
     "name": "Phi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.LnPhi",
     "namespace": "Std",
     "name": "LnPhi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivLnPhi",
     "namespace": "Std",
     "name": "OneDivLnPhi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Euler",
     "namespace": "Std",
     "name": "Euler",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.OneDivEuler",
     "namespace": "Std",
     "name": "OneDivEuler",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.EulerSqr",
     "namespace": "Std",
     "name": "EulerSqr",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ZetaTwo",
     "namespace": "Std",
     "name": "ZetaTwo",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ZetaThree",
     "namespace": "Std",
     "name": "ZetaThree",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Catalan",
     "namespace": "Std",
     "name": "Catalan",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Glaisher",
     "namespace": "Std",
     "name": "Glaisher",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.Khinchin",
     "namespace": "Std",
     "name": "Khinchin",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.ExtremeValueSkewness",
     "namespace": "Std",
     "name": "ExtremeValueSkewness",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RayleighSkewness",
     "namespace": "Std",
     "name": "RayleighSkewness",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RayleighKurtosis",
     "namespace": "Std",
     "name": "RayleighKurtosis",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RayleighKurtosisExcess",
     "namespace": "Std",
     "name": "RayleighKurtosisExcess",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.TwoDivPi",
     "namespace": "Std",
     "name": "TwoDivPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.RootTwoDivPi",
     "namespace": "Std",
     "name": "RootTwoDivPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.QuarterPi",
     "namespace": "Std",
     "name": "QuarterPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.InvPi",
     "namespace": "Std",
     "name": "InvPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   },
   {
     "qualifiedName": "Std.TwoDivRootPi",
     "namespace": "Std",
     "name": "TwoDivRootPi",
-    "valueType": "Number"
+    "valueType": "Float64"
   }
 ];
 
@@ -490,13 +490,85 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "returnType": "String"
   },
   {
+    "qualifiedName": "Std.Help",
+    "namespace": "Std",
+    "name": "Help",
+    "params": [
+      {
+        "name": "name",
+        "type": "String"
+      }
+    ],
+    "returnType": "String"
+  },
+  {
+    "qualifiedName": "Std.Type",
+    "namespace": "Std",
+    "name": "Type",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "String"
+  },
+  {
+    "qualifiedName": "Std.TypeOf",
+    "namespace": "Std",
+    "name": "TypeOf",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "String"
+  },
+  {
+    "qualifiedName": "Std.ToInt64",
+    "namespace": "Std",
+    "name": "ToInt64",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Int64"
+  },
+  {
+    "qualifiedName": "Std.ToUInt64",
+    "namespace": "Std",
+    "name": "ToUInt64",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "UInt64"
+  },
+  {
+    "qualifiedName": "Std.ToFloat64",
+    "namespace": "Std",
+    "name": "ToFloat64",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Float64"
+  },
+  {
     "qualifiedName": "Std.Exit",
     "namespace": "Std",
     "name": "Exit",
     "params": [
       {
         "name": "code",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Any"
@@ -508,14 +580,14 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
     "qualifiedName": "Std.Subtract",
@@ -524,14 +596,14 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
     "qualifiedName": "Std.Multiply",
@@ -540,14 +612,14 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
     "qualifiedName": "Std.Divide",
@@ -556,14 +628,14 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
     "qualifiedName": "Std.Mod",
@@ -572,14 +644,14 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
     "qualifiedName": "Std.Pow",
@@ -588,62 +660,106 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Number"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64 | Int64 | UInt64"
   },
   {
-    "qualifiedName": "Std.Sqrt",
-    "namespace": "Std",
-    "name": "Sqrt",
+    "qualifiedName": "Std.Bit.And",
+    "namespace": "Std.Bit",
+    "name": "And",
     "params": [
       {
-        "name": "val",
-        "type": "Number"
+        "name": "lhs",
+        "type": "Int64"
+      },
+      {
+        "name": "rhs",
+        "type": "Int64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
-    "qualifiedName": "Std.Tan",
-    "namespace": "Std",
-    "name": "Tan",
+    "qualifiedName": "Std.Bit.Or",
+    "namespace": "Std.Bit",
+    "name": "Or",
     "params": [
       {
-        "name": "val",
-        "type": "Number"
+        "name": "lhs",
+        "type": "Int64"
+      },
+      {
+        "name": "rhs",
+        "type": "Int64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
-    "qualifiedName": "Std.Sin",
-    "namespace": "Std",
-    "name": "Sin",
+    "qualifiedName": "Std.Bit.Xor",
+    "namespace": "Std.Bit",
+    "name": "Xor",
     "params": [
       {
-        "name": "val",
-        "type": "Number"
+        "name": "lhs",
+        "type": "Int64"
+      },
+      {
+        "name": "rhs",
+        "type": "Int64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
-    "qualifiedName": "Std.Cos",
-    "namespace": "Std",
-    "name": "Cos",
+    "qualifiedName": "Std.Bit.Not",
+    "namespace": "Std.Bit",
+    "name": "Not",
     "params": [
       {
-        "name": "val",
-        "type": "Number"
+        "name": "value",
+        "type": "Int64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
+  },
+  {
+    "qualifiedName": "Std.Bit.ShiftLeft",
+    "namespace": "Std.Bit",
+    "name": "ShiftLeft",
+    "params": [
+      {
+        "name": "value",
+        "type": "Int64"
+      },
+      {
+        "name": "bits",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Int64"
+  },
+  {
+    "qualifiedName": "Std.Bit.ShiftRight",
+    "namespace": "Std.Bit",
+    "name": "ShiftRight",
+    "params": [
+      {
+        "name": "value",
+        "type": "Int64"
+      },
+      {
+        "name": "bits",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.GreaterThan",
@@ -652,11 +768,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
     "returnType": "Bool"
@@ -668,11 +784,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
     "returnType": "Bool"
@@ -684,11 +800,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
     "returnType": "Bool"
@@ -700,11 +816,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Float64 | Int64 | UInt64"
       }
     ],
     "returnType": "Bool"
@@ -748,10 +864,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "val",
-        "type": "Any"
+        "type": "Bool"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Bool"
   },
   {
     "qualifiedName": "Std.And",
@@ -760,11 +876,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Bool"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Bool"
       }
     ],
     "returnType": "Bool"
@@ -776,11 +892,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "Bool"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "Bool"
       }
     ],
     "returnType": "Bool"
@@ -1028,7 +1144,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "max_iters",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Any"
@@ -1040,10 +1156,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "val",
-        "type": "Any"
+        "type": "Float64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.UnaryMinus",
@@ -1052,10 +1168,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "val",
-        "type": "Any"
+        "type": "Float64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.ToString",
@@ -1076,10 +1192,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Sin",
@@ -1088,10 +1204,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Cos",
@@ -1100,10 +1216,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Tan",
@@ -1112,10 +1228,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Floor",
@@ -1124,10 +1240,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Ceil",
@@ -1136,10 +1252,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Abs",
@@ -1148,10 +1264,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Log",
@@ -1160,10 +1276,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.Math.Clamp",
@@ -1172,18 +1288,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "x",
-        "type": "Number"
+        "type": "Float64"
       },
       {
         "name": "lo",
-        "type": "Number"
+        "type": "Float64"
       },
       {
         "name": "hi",
-        "type": "Number"
+        "type": "Float64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.String.Upper",
@@ -1355,7 +1471,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.String.CharAt",
@@ -1368,7 +1484,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "index",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "String"
@@ -1384,11 +1500,11 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "start",
-        "type": "Number"
+        "type": "Int64"
       },
       {
         "name": "stop",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "String"
@@ -1408,10 +1524,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "start",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.String.Format",
@@ -1459,7 +1575,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.String.Regex.Replace",
@@ -1517,6 +1633,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "name": "TempDir",
     "params": [],
     "returnType": "String"
+  },
+  {
+    "qualifiedName": "Std.OS.Exec",
+    "namespace": "Std.OS",
+    "name": "Exec",
+    "params": [
+      {
+        "name": "command",
+        "type": "String"
+      }
+    ],
+    "returnType": "Tuple(Int64, String)"
   },
   {
     "qualifiedName": "Std.OS.MakeTempFile",
@@ -1839,7 +1967,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.Dir.Create",
@@ -2079,7 +2207,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.Tuple.Any",
@@ -2120,7 +2248,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "stop",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Any...)"
@@ -2136,7 +2264,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "count",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Any...)"
@@ -2152,7 +2280,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "count",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Any...)"
@@ -2168,7 +2296,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "count",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Any"
@@ -2183,7 +2311,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Tuple(Any...)"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
   },
   {
     "qualifiedName": "Std.Slice",
@@ -2196,7 +2324,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "stop",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Any...)"
@@ -2211,7 +2339,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Float64"
   },
   {
     "qualifiedName": "Std.GetArgs",
@@ -2259,7 +2387,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "nbytes",
-        "type": "Number"
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Any, String, Bool)"
@@ -2501,7 +2629,311 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any"
       }
     ],
-    "returnType": "Number"
+    "returnType": "Int64"
+  },
+  {
+    "qualifiedName": "Std.Array.GetAt",
+    "namespace": "Std.Array",
+    "name": "GetAt",
+    "params": [
+      {
+        "name": "array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "index",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Any"
+  },
+  {
+    "qualifiedName": "Std.Array.SetAt",
+    "namespace": "Std.Array",
+    "name": "SetAt",
+    "params": [
+      {
+        "name": "array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "index",
+        "type": "Int64"
+      },
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.InsertAt",
+    "namespace": "Std.Array",
+    "name": "InsertAt",
+    "params": [
+      {
+        "name": "array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "index",
+        "type": "Int64"
+      },
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.RemoveAt",
+    "namespace": "Std.Array",
+    "name": "RemoveAt",
+    "params": [
+      {
+        "name": "array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "index",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Slice",
+    "namespace": "Std.Array",
+    "name": "Slice",
+    "params": [
+      {
+        "name": "array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "start",
+        "type": "Int64"
+      },
+      {
+        "name": "stop",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Concat",
+    "namespace": "Std.Array",
+    "name": "Concat",
+    "params": [
+      {
+        "name": "lhs",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "rhs",
+        "type": "Tuple(Any...)"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.SetAt2D",
+    "namespace": "Std.Array",
+    "name": "SetAt2D",
+    "params": [
+      {
+        "name": "grid",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "row",
+        "type": "Int64"
+      },
+      {
+        "name": "col",
+        "type": "Int64"
+      },
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Fill",
+    "namespace": "Std.Array",
+    "name": "Fill",
+    "params": [
+      {
+        "name": "tuple",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "start_index",
+        "type": "Int64"
+      },
+      {
+        "name": "length",
+        "type": "Int64"
+      },
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Transpose2D",
+    "namespace": "Std.Array",
+    "name": "Transpose2D",
+    "params": [
+      {
+        "name": "grid",
+        "type": "Tuple(Any...)"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Slice2D",
+    "namespace": "Std.Array",
+    "name": "Slice2D",
+    "params": [
+      {
+        "name": "grid",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "row_start",
+        "type": "Int64"
+      },
+      {
+        "name": "row_end",
+        "type": "Int64"
+      },
+      {
+        "name": "col_start",
+        "type": "Int64"
+      },
+      {
+        "name": "col_end",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Reshape",
+    "namespace": "Std.Array",
+    "name": "Reshape",
+    "params": [
+      {
+        "name": "flat_array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "rows",
+        "type": "Int64"
+      },
+      {
+        "name": "cols",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Rank",
+    "namespace": "Std.Array",
+    "name": "Rank",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Int64"
+  },
+  {
+    "qualifiedName": "Std.Array.Shape",
+    "namespace": "Std.Array",
+    "name": "Shape",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.Flatten",
+    "namespace": "Std.Array",
+    "name": "Flatten",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Any...)"
+  },
+  {
+    "qualifiedName": "Std.Array.GetAtND",
+    "namespace": "Std.Array",
+    "name": "GetAtND",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      },
+      {
+        "name": "indices",
+        "type": "Tuple(Any...)"
+      }
+    ],
+    "returnType": "Any"
+  },
+  {
+    "qualifiedName": "Std.Array.SetAtND",
+    "namespace": "Std.Array",
+    "name": "SetAtND",
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      },
+      {
+        "name": "indices",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "replacement",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Any"
+  },
+  {
+    "qualifiedName": "Std.Array.ReshapeND",
+    "namespace": "Std.Array",
+    "name": "ReshapeND",
+    "params": [
+      {
+        "name": "flat_array",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "shape",
+        "type": "Tuple(Any...)"
+      }
+    ],
+    "returnType": "Any"
   }
 ];
 
@@ -2527,6 +2959,7 @@ export const STD_BY_NAMESPACE: Map<string, StdFunctionEntry[]> = (() => {
 
 export const STD_NAMESPACES = [
   "Std",
+  "Std.Bit",
   "Std.Result",
   "Std.Exp",
   "Std.Math",
@@ -2537,5 +2970,6 @@ export const STD_NAMESPACES = [
   "Std.File",
   "Std.Dir",
   "Std.Tuple",
-  "Std.Dict"
+  "Std.Dict",
+  "Std.Array"
 ] as const;

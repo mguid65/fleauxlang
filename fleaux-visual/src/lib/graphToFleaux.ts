@@ -80,6 +80,9 @@ function renderLiteral(data: LiteralData): string {
   switch (data.valueType) {
     case 'String':
       return quoteString(data.value);
+    case 'Float64':
+    case 'Int64':
+    case 'UInt64':
     case 'Number':
       return data.value.trim() === '' ? '0' : data.value;
     case 'Bool': {
@@ -104,7 +107,6 @@ function parseIndexedHandle(handle: string | null | undefined, prefix: string): 
 function getIncomingEdges(
   nodeId: string,
   ctx: GraphContext,
-  _letCtx: LetContext | null,
 ): FleauxEdge[] {
   return ctx.incomingByTarget.get(nodeId) ?? [];
 }
@@ -112,9 +114,8 @@ function getIncomingEdges(
 function getPipelineInput(
   node: Node<FleauxNodeData>,
   ctx: GraphContext,
-  letCtx: LetContext | null,
 ): FleauxEdge | null {
-  const edges = getIncomingEdges(node.id, ctx, letCtx).filter((edge) => edge.targetHandle == null);
+  const edges = getIncomingEdges(node.id, ctx).filter((edge) => edge.targetHandle == null);
   if (edges.length > 1) {
     throw new GraphSerializationError(
       `Node '${node.data.label}' has multiple pipeline inputs. Only one unhandled incoming edge is supported.`,
@@ -126,11 +127,10 @@ function getPipelineInput(
 function getIndexedInputs(
   node: Node<FleauxNodeData>,
   ctx: GraphContext,
-  letCtx: LetContext | null,
   handlePrefix: string,
 ): Map<number, FleauxEdge> {
   const indexed = new Map<number, FleauxEdge>();
-  const relevant = getIncomingEdges(node.id, ctx, letCtx);
+  const relevant = getIncomingEdges(node.id, ctx);
 
   for (const edge of relevant) {
     const index = parseIndexedHandle(edge.targetHandle, handlePrefix);
@@ -240,8 +240,8 @@ function serializeTupleNode(
   letCtx: LetContext | null,
   visiting: Set<string>,
 ): string {
-  const indexedInputs = getIndexedInputs(node, ctx, letCtx, 'tuple-in-');
-  const pipelineInput = getPipelineInput(node, ctx, letCtx);
+  const indexedInputs = getIndexedInputs(node, ctx, 'tuple-in-');
+  const pipelineInput = getPipelineInput(node, ctx);
   if (pipelineInput) {
     throw new GraphSerializationError(
       `Tuple node '${node.data.label}' received a pipeline input without a slot handle. Connect tuple inputs to explicit tuple slots.`,
@@ -292,8 +292,8 @@ function serializeCallNode(
   }
 
   const paramCount = node.data.params.length;
-  const indexedInputs = getIndexedInputs(node, ctx, letCtx, handlePrefix);
-  const pipelineInput = getPipelineInput(node, ctx, letCtx);
+  const indexedInputs = getIndexedInputs(node, ctx, handlePrefix);
+  const pipelineInput = getPipelineInput(node, ctx);
 
   if (indexedInputs.size > 0 && pipelineInput) {
     throw new GraphSerializationError(

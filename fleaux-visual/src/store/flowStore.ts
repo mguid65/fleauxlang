@@ -39,6 +39,7 @@ export interface FlowState {
   clearGraph: () => void;
   loadGraphFromSource: (sourceText: string) => void;
   runGraphWithWasm: () => Promise<void>;
+  runEditorSourceWithWasm: () => Promise<void>;
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -119,15 +120,26 @@ export const useFlowStore = create<FlowState>()(
     },
 
     loadGraphFromSource(sourceText) {
-      const imported = importFleauxSourceToGraph(sourceText);
-      set((state) => {
-        state.nodes = imported.nodes;
-        state.edges = imported.edges;
-        state.sourceText = sourceText;
-        state.wasmOutput = '';
-        state.wasmStatus = 'idle';
-        state.wasmMessage = `Loaded ${imported.nodes.length} nodes from source`;
-      });
+      try {
+        const imported = importFleauxSourceToGraph(sourceText);
+        set((state) => {
+          state.nodes = imported.nodes;
+          state.edges = imported.edges;
+          state.sourceText = sourceText;
+          state.wasmOutput = '';
+          state.wasmStatus = 'success';
+          state.wasmMessage = `Loaded ${imported.nodes.length} nodes from source`;
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set((state) => {
+          state.sourceText = sourceText;
+          state.wasmOutput = '';
+          state.wasmStatus = 'error';
+          state.wasmMessage = `Failed to load source: ${message}`;
+        });
+        throw error;
+      }
     },
 
     removeEdge(id) {
@@ -159,7 +171,7 @@ export const useFlowStore = create<FlowState>()(
         set((state) => {
           state.wasmStatus = 'success';
           state.wasmOutput = result.output;
-          state.wasmMessage = `Ran with ${result.version} (exit ${result.exitCode})`;
+          state.wasmMessage = `Ran generated graph with ${result.version} (exit ${result.exitCode})`;
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -168,6 +180,41 @@ export const useFlowStore = create<FlowState>()(
           state.wasmMessage = message;
           state.sourceText = generatedSource;
           state.wasmOutput = '';
+        });
+      }
+    },
+
+    async runEditorSourceWithWasm() {
+      const currentSource = get().sourceText;
+
+      if (currentSource.trim().length === 0) {
+        set((state) => {
+          state.wasmStatus = 'error';
+          state.wasmOutput = '';
+          state.wasmMessage = 'Editor source is empty. Generate graph source or type Fleaux code before running.';
+        });
+        return;
+      }
+
+      set((state) => {
+        state.wasmStatus = 'running';
+        state.wasmOutput = '';
+        state.wasmMessage = 'Running editor source with Fleaux WASM…';
+      });
+
+      try {
+        const result = await wasmRunSource(currentSource);
+        set((state) => {
+          state.wasmStatus = 'success';
+          state.wasmOutput = result.output;
+          state.wasmMessage = `Ran editor source with ${result.version} (exit ${result.exitCode})`;
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set((state) => {
+          state.wasmStatus = 'error';
+          state.wasmOutput = '';
+          state.wasmMessage = message;
         });
       }
     },

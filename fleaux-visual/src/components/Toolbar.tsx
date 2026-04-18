@@ -25,7 +25,6 @@ export function Toolbar() {
   const loadGraphFromSource = useFlowStore((s) => s.loadGraphFromSource);
   const runGraphWithWasm = useFlowStore((s) => s.runGraphWithWasm);
   const wasmStatus = useFlowStore((s) => s.wasmStatus);
-  const wasmMessage = useFlowStore((s) => s.wasmMessage);
   const [openNs, setOpenNs] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -104,13 +103,6 @@ export function Toolbar() {
   const nodes = useFlowStore((s) => s.nodes);
   const userFunctions = extractUserFunctions(nodes);
   const isRunningWasm = wasmStatus === 'running';
-  const wasmStatusStyles: Record<typeof wasmStatus, string> = {
-    idle: 'border-slate-700 text-slate-400',
-    running: 'border-amber-700 text-amber-300',
-    success: 'border-emerald-700 text-emerald-300',
-    error: 'border-red-800 text-red-300',
-  };
-
   const handleLoadFile = async (evt: ChangeEvent<HTMLInputElement>) => {
     const file = evt.target.files?.[0];
     if (!file) {
@@ -142,8 +134,12 @@ export function Toolbar() {
         className="text-xs font-mono border border-orange-600 text-orange-300 hover:bg-orange-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Tuple</button>
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'String', value: '', label: '""' } })}
         className="text-xs font-mono border border-emerald-600 text-emerald-300 hover:bg-emerald-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ String</button>
-      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Number', value: '0', label: '0' } })}
-        className="text-xs font-mono border border-sky-600 text-sky-300 hover:bg-sky-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Number</button>
+      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Int64', value: '0', label: '0' } })}
+        className="text-xs font-mono border border-cyan-600 text-cyan-300 hover:bg-cyan-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Int64</button>
+      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'UInt64', value: '0', label: '0' } })}
+        className="text-xs font-mono border border-indigo-600 text-indigo-300 hover:bg-indigo-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ UInt64</button>
+      <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Float64', value: '0.0', label: '0.0' } })}
+        className="text-xs font-mono border border-sky-600 text-sky-300 hover:bg-sky-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Float64</button>
 
       {/* ── Std functions ────────────────────────────────────── */}
       <div className="border-t border-[#2d3148] my-1" />
@@ -260,11 +256,11 @@ export function Toolbar() {
         disabled={isRunningWasm}
         className="text-xs font-mono border border-indigo-700 text-indigo-300 hover:bg-indigo-950 disabled:opacity-50 disabled:cursor-not-allowed rounded px-3 py-1.5 transition-colors cursor-pointer"
       >
-        {isRunningWasm ? 'Running…' : 'Run Graph'}
+        {isRunningWasm ? 'Generating…' : 'Generate + Run Graph'}
       </button>
-      <div className={`text-[10px] font-mono border rounded px-2 py-1 whitespace-pre-wrap wrap-break-word ${wasmStatusStyles[wasmStatus]}`}>
-        {wasmStatus.toUpperCase()}
-        {wasmMessage ? `\n${wasmMessage}` : ''}
+      <div className="text-[10px] text-slate-500 leading-4">
+        Generated source and runtime output appear in the editor pane.
+        {wasmStatus === 'running' ? ' Graph execution is in progress.' : ''}
       </div>
 
       <div className="border-t border-[#2d3148] my-1" />

@@ -171,6 +171,27 @@ cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
 npm run dev
 ```
 
+### Deploy visual editor to GitHub Pages
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+npm run deploy:gh-pages
+```
+
+To test deployment without pushing:
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+bash scripts/deploy-gh-pages.sh --dry-run
+```
+
+To test the same base path locally before pushing:
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+VITE_BASE_PATH=/fleauxlang/ npm run build:pages
+```
+
 ## Try the sample set
 
 The `samples/` directory contains numbered examples from hello world to imports, loops, tuples, dictionaries, error handling, and experimental parallel helpers.
