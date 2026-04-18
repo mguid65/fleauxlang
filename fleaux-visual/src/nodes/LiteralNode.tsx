@@ -4,6 +4,9 @@ import type { LiteralData } from '../lib/types';
 import { useFlowStore } from '../store/flowStore';
 
 const VALUE_TYPE_COLORS: Record<LiteralData['valueType'], string> = {
+  Float64: 'border-sky-500 bg-sky-950 text-sky-300',
+  Int64: 'border-cyan-500 bg-cyan-950 text-cyan-300',
+  UInt64: 'border-indigo-500 bg-indigo-950 text-indigo-300',
   Number: 'border-sky-500 bg-sky-950 text-sky-300',
   String: 'border-emerald-500 bg-emerald-950 text-emerald-300',
   Bool: 'border-amber-500 bg-amber-950 text-amber-300',
@@ -11,11 +14,31 @@ const VALUE_TYPE_COLORS: Record<LiteralData['valueType'], string> = {
 };
 
 const BADGE_COLORS: Record<LiteralData['valueType'], string> = {
+  Float64: 'bg-sky-800 text-sky-200',
+  Int64: 'bg-cyan-800 text-cyan-200',
+  UInt64: 'bg-indigo-800 text-indigo-200',
   Number: 'bg-sky-800 text-sky-200',
   String: 'bg-emerald-800 text-emerald-200',
   Bool: 'bg-amber-800 text-amber-200',
   Null: 'bg-slate-700 text-slate-300',
 };
+
+function isNumericLiteralType(valueType: LiteralData['valueType']): boolean {
+  return valueType === 'Float64' || valueType === 'Int64' || valueType === 'UInt64' || valueType === 'Number';
+}
+
+function formatLiteralLabel(valueType: LiteralData['valueType'], value: string): string {
+  switch (valueType) {
+    case 'String':
+      return JSON.stringify(value);
+    case 'Bool':
+      return value.trim().toLowerCase() === 'false' ? 'False' : 'True';
+    case 'Null':
+      return 'null';
+    default:
+      return value.trim() || '0';
+  }
+}
 
 export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
   const [isEditing, setIsEditing] = useState(false);
@@ -27,7 +50,10 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
 
   const handleSave = () => {
     if (editValue !== data.value) {
-      updateNodeData(id, { value: editValue, label: editValue || '(empty)' });
+      updateNodeData(id, {
+        value: editValue,
+        label: formatLiteralLabel(data.valueType, editValue),
+      });
     }
     setIsEditing(false);
   };
@@ -48,7 +74,7 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
       {isEditing ? (
         <input
           autoFocus
-          type={data.valueType === 'Number' ? 'number' : 'text'}
+          type={isNumericLiteralType(data.valueType) ? 'number' : 'text'}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleSave}

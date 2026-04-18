@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { FleauxEdge, FleauxNodeData, StdFuncData, UserFuncData } from './types';
+import type { FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, UserFuncData } from './types';
 import { STD_FUNCTIONS, STD_VALUES } from './stdCatalogue';
 
 export class FleauxImportError extends Error {
@@ -236,7 +236,7 @@ function addEdge(ctx: BuildContext, source: SourceRef, target: string, targetHan
 function createLiteralNode(
   ctx: BuildContext,
   id: string,
-  valueType: 'Number' | 'String' | 'Bool' | 'Null',
+  valueType: LiteralValueType,
   value: string,
 ): SourceRef {
   const label = valueType === 'String' ? JSON.stringify(value) : value;
@@ -249,12 +249,22 @@ function createLiteralNode(
   return { nodeId: id };
 }
 
-function parseLiteralToken(token: string): { valueType: 'Number' | 'String' | 'Bool' | 'Null'; value: string } | null {
+function inferNumericLiteralType(token: string): LiteralValueType {
+  if (token.includes('.') || token.includes('e') || token.includes('E')) {
+    return 'Float64';
+  }
+
+  return token.startsWith('-') ? 'Int64' : 'Int64';
+}
+
+function parseLiteralToken(token: string): { valueType: LiteralValueType; value: string } | null {
   if (/^"(?:[^"\\]|\\.)*"$/s.test(token)) {
     try { return { valueType: 'String', value: JSON.parse(token) as string }; }
     catch { return { valueType: 'String', value: token.slice(1, -1) }; }
   }
-  if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) return { valueType: 'Number', value: token };
+  if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) {
+    return { valueType: inferNumericLiteralType(token), value: token };
+  }
   if (token === 'True' || token === 'False') return { valueType: 'Bool', value: token };
   if (token === 'null') return { valueType: 'Null', value: 'null' };
   return null;

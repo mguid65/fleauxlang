@@ -16,10 +16,14 @@ interface FleauxNodeDataBase extends Record<string, unknown> {
   label: string;
 }
 
+export type NumericLiteralValueType = 'Float64' | 'Int64' | 'UInt64';
+export type LegacyNumericLiteralValueType = 'Number';
+export type LiteralValueType = NumericLiteralValueType | LegacyNumericLiteralValueType | 'String' | 'Bool' | 'Null';
+
 // Data carried on every node (union-narrowed by `kind`)
 export interface LiteralData extends FleauxNodeDataBase {
   kind: 'literal';
-  valueType: 'Number' | 'String' | 'Bool' | 'Null';
+  valueType: LiteralValueType;
   value: string;
 }
 

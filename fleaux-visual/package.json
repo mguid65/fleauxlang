@@ -12,6 +12,8 @@
     "wasm:smoke": "npm run wasm:configure && npm run wasm:build",
     "typecheck": "tsc -b --pretty",
     "build": "npm run generate:std && tsc -b && vite build",
+    "build:pages": "npm run generate:std && tsc -b && vite build",
+    "deploy:gh-pages": "bash scripts/deploy-gh-pages.sh",
     "lint": "eslint .",
     "preview": "vite preview"
   },

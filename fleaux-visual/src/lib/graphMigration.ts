@@ -11,6 +11,16 @@ export function migrateGraphNodes(
   return nodes.map((node): Node<FleauxNodeData> => {
     const data = node.data as Record<string, unknown>;
 
+    if (data.kind === 'literal' && data.valueType === 'Number') {
+      return {
+        ...node,
+        data: {
+          ...data,
+          valueType: 'Float64',
+        } as FleauxNodeData,
+      };
+    }
+
     // Check if this is an old-style std namespace node
     if (data.kind === 'std' && typeof data.namespace === 'string') {
       // Convert to a stdFunc node using Std.Apply as a sensible default

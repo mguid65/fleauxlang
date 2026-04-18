@@ -44,6 +44,51 @@ npm run typecheck
 npm run build
 ```
 
+## GitHub Pages deployment
+
+This app is set up for manual deployment to a `gh-pages` branch.
+
+Expected default URL for a repository named `fleauxlang`:
+
+- `https://<your-user>.github.io/fleauxlang/`
+
+The build uses Vite's `base` setting via `VITE_BASE_PATH`, so repo Pages and user/org Pages can both work:
+
+- repo Pages example: `VITE_BASE_PATH=/fleauxlang/`
+- user/org Pages example: `VITE_BASE_PATH=/`
+
+Local Pages-style build test:
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+VITE_BASE_PATH=/fleauxlang/ npm run build:pages
+```
+
+Repository setup:
+
+1. Push the repository to GitHub.
+2. In GitHub, open `Settings -> Pages`.
+3. Set `Source` to `Deploy from a branch`.
+4. Select branch `gh-pages` and folder `/ (root)`.
+
+Deploy manually from your local clone:
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+npm run deploy:gh-pages
+```
+
+Dry-run mode (build + prepare commit, no push):
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+bash scripts/deploy-gh-pages.sh --dry-run
+```
+
+Important note:
+
+- The deployed site serves the committed assets in `public/`, including `public/wasm/`. If you rebuild the WASM coordinator locally, commit the updated files before deploying.
+
 ## Current Features
 
 - Drag/drop node graph canvas

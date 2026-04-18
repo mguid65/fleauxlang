@@ -29,10 +29,15 @@ export interface WasmRunResult {
 // Emscripten's import.meta.url path resolution) is completely bypassed.
 let modulePromise: Promise<FleauxWasmModule> | null = null;
 
+function resolvePublicAssetUrl(path: string): string {
+  const normalizedPath = path.replace(/^\/+/, '');
+  return new URL(normalizedPath, window.location.origin + import.meta.env.BASE_URL).toString();
+}
+
 export async function loadFleauxWasmCoordinator(): Promise<FleauxWasmModule> {
   if (!modulePromise) {
     modulePromise = (async () => {
-      const coordinatorUrl = '/wasm/fleaux_wasm_coordinator.js';
+      const coordinatorUrl = resolvePublicAssetUrl('wasm/fleaux_wasm_coordinator.js');
 
       const response = await fetch(coordinatorUrl);
       if (!response.ok) {
@@ -52,7 +57,7 @@ export async function loadFleauxWasmCoordinator(): Promise<FleauxWasmModule> {
       // public path, regardless of what import.meta.url resolved to inside
       // the blob module.
       const instance = await factory({
-        locateFile: (filename: string) => `/wasm/${filename}`,
+        locateFile: (filename: string) => resolvePublicAssetUrl(`wasm/${filename}`),
       });
 
       URL.revokeObjectURL(blobUrl);
