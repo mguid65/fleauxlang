@@ -30,7 +30,9 @@ namespace fleaux::vm {
 #undef FLEAUX_INSERT_BUILTIN
 
     // Numeric constants (zero-arg: ignore the argument, return the constant).
-    auto constant = [](const double v) { return [v](Value) -> Value { return make_float(v); }; };
+    auto constant = [](const double constant_value) {
+      return [constant_value](Value) -> Value { return make_float(constant_value); };
+    };
 #define FLEAUX_INSERT_CONST_BUILTIN(name_literal, numeric_value) out.emplace(name_literal, constant(numeric_value));
     FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_CONST_BUILTIN)
 #undef FLEAUX_INSERT_CONST_BUILTIN

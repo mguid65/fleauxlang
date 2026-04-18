@@ -47,19 +47,21 @@ auto split_source_lines(const std::string& source) -> std::vector<std::string> {
   return lines;
 }
 
-auto num_digits(int n) -> int {
-  if (n <= 0) { return 1; }
+auto num_digits(int value) -> int {
+  if (value <= 0) { return 1; }
   int count = 0;
-  while (n > 0) {
-    n /= 10;
+  while (value > 0) {
+    value /= 10;
     ++count;
   }
   return count;
 }
 
-auto pad_left(const std::string& s, const int width) -> std::string {
-  if (static_cast<int>(s.size()) >= width) { return s; }
-  return std::string(static_cast<std::size_t>(width - static_cast<int>(s.size())), ' ') + s;
+auto pad_left(const std::string& text, const int width) -> std::string {
+  if (width <= 0) { return text; }
+  const auto target_width = static_cast<std::size_t>(width);
+  if (text.size() >= target_width) { return text; }
+  return std::string(target_width - text.size(), ' ') + text;
 }
 
 }  // namespace
@@ -84,7 +86,7 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
   if (!span->source_name.empty()) { out << span->source_name << ":"; }
   out << span->line << ":" << span->col;
 
-  if (const bool has_source = !span->source_text.empty() && span->line >= 1) {
+  if (const bool has_source = !span->source_text.empty() && span->line >= 1; has_source) {
     const auto lines = split_source_lines(span->source_text);
     const int error_line = span->line;
     const int line_count = static_cast<int>(lines.size());
@@ -94,9 +96,12 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
     const int gw = num_digits(max_shown);
     const auto blank_gutter = std::string(static_cast<std::size_t>(gw), ' ');
 
-    auto emit_line = [&](const int ln) {
-      if (ln < 1 || ln > line_count) { return; }
-      out << "\n" << pad_left(std::to_string(ln), gw) << " | " << lines[static_cast<std::size_t>(ln - 1)];
+    auto emit_line = [&](const int line_number) -> void {
+      if (line_number < 1 || line_number > line_count) { return; }
+      out << "\n"
+          << pad_left(std::to_string(line_number), gw)
+          << " | "
+          << lines[static_cast<std::size_t>(line_number - 1)];
     };
 
     out << "\n" << blank_gutter << " |";

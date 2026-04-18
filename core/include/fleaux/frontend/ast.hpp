@@ -30,8 +30,13 @@ struct TypeList {
   std::optional<diag::SourceSpan> span;
 };
 
+struct UnionTypeList {
+  std::vector<TypeBox> alternatives;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct TypeNode {
-  std::variant<std::string, QualifiedId, Box<TypeList>> value;
+  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>> value;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -47,7 +52,7 @@ struct ParameterDeclList {
 };
 
 struct Constant {
-  std::variant<std::int64_t, double, bool, std::string, std::monostate> val;
+  std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> val;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -101,6 +106,7 @@ struct LetStatement {
   std::variant<std::string, QualifiedId> id;
   ParameterDeclList params;
   TypeNode rtype;
+  std::vector<std::string> doc_comments;
   std::optional<Expression> expr;
   bool is_builtin = false;
   std::optional<diag::SourceSpan> span;
@@ -127,6 +133,9 @@ namespace fleaux::frontend::ir {
 struct IRSimpleType {
   std::string name;
   bool variadic = false;
+  // Non-empty when this is a union type (e.g. Float64 | Int64 | UInt64).
+  // `name` holds the first alternative; `alternatives` holds all of them.
+  std::vector<std::string> alternatives;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -148,7 +157,7 @@ struct IRClosureExpr;
 using IRClosureExprBox = Box<IRClosureExpr>;
 
 struct IRConstant {
-  std::variant<std::int64_t, double, bool, std::string, std::monostate> val;
+  std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> val;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -194,6 +203,7 @@ struct IRLet {
   std::string name;
   std::vector<IRParam> params;
   IRSimpleType return_type;
+  std::vector<std::string> doc_comments;
   std::optional<IRExpr> body;
   bool is_builtin = false;
   std::optional<diag::SourceSpan> span;

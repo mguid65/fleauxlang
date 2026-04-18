@@ -165,7 +165,7 @@ void transpile_sample_and_assert(const std::string_view sample_file) {
   REQUIRE(run_result.exit_code == 0);
 }
 
-constexpr std::array<std::string_view, 33> kExpectedSamples = {
+constexpr std::array<std::string_view, 34> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -199,6 +199,7 @@ constexpr std::array<std::string_view, 33> kExpectedSamples = {
     "31_result_ok_err.fleaux",
     "32_try_empty_tuple.fleaux",
     "33_exp_parallel.fleaux",
+    "34_help.fleaux",
 };
 
 }  // namespace
@@ -211,7 +212,7 @@ TEST_CASE("Transpiler emits runtime scaffold and let symbols", "[transpiler]") {
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let Add4(x: Number): Number = (4, x) -> Std.Add;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n"
            "(4) -> Add4 -> Std.Println;\n";
   }
 
@@ -228,6 +229,26 @@ TEST_CASE("Transpiler emits runtime scaffold and let symbols", "[transpiler]") {
   REQUIRE(generated.find("fleaux::runtime::Add{}") != std::string::npos);
 }
 
+TEST_CASE("Transpiler emits make_uint for UInt64 literals", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_uint64";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "uint64_literal.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(42u64) -> Std.Type -> Std.Println;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE(result.has_value());
+  const std::string generated = read_text(result.value());
+  REQUIRE(generated.find("fleaux::runtime::make_uint") != std::string::npos);
+  REQUIRE(generated.find("ULL") != std::string::npos);
+}
+
 TEST_CASE("Transpiler resolves local module imports", "[transpiler]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_imports";
   std::filesystem::create_directories(temp_dir);
@@ -236,7 +257,7 @@ TEST_CASE("Transpiler resolves local module imports", "[transpiler]") {
   {
     std::ofstream out(export_path);
     out << "import Std;\n"
-           "let Add4(x: Number): Number = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
   }
 
   const auto main_path = temp_dir / "21_import.fleaux";
@@ -276,7 +297,7 @@ TEST_CASE("Transpiler emits inline closure callable refs", "[transpiler]") {
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;\n";
+           "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
   }
 
   const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
@@ -296,7 +317,7 @@ TEST_CASE("Transpiler rejects too few fixed args for variadic functions during a
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
            "() -> HeadTail -> Std.Println;\n";
   }
 
@@ -314,15 +335,134 @@ TEST_CASE("Transpiler rejects higher-order callable mismatches during analysis",
   const auto source_path = temp_dir / "apply_arity_mismatch.fleaux";
   {
     std::ofstream out(source_path);
-    out << "let Std.Add(lhs: Number, rhs: Number): Number :: __builtin__;\n"
+    out << "let Std.Add(lhs: Float64, rhs: Float64): Float64 :: __builtin__;\n"
            "let Std.Apply(value: Any, func: Any): Any :: __builtin__;\n"
            "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
-           "(10, (a: Number, b: Number): Number = (a, b) -> Std.Add) -> Std.Apply -> Std.Println;\n";
+           "(10, (a: Float64, b: Float64): Float64 = (a, b) -> Std.Add) -> Std.Apply -> Std.Println;\n";
   }
 
   const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
   const auto result = transpiler.process(source_path);
 
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects Float64 for Std.Exit integer-only parameter flow during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_integer_only_error";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "integer_only_args.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.ElementAt(tuple: Tuple(Any...), count: Float64): Any :: __builtin__;\n"
+           "let Std.Bit.And(lhs: Float64, rhs: Float64): Float64 :: __builtin__;\n"
+           "((1, 2, 3), 1.5) -> Std.ElementAt;\n"
+           "(1.25, 3) -> Std.Bit.And;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(result.error().hint.has_value());
+  REQUIRE(result.error().hint->find("Int64/UInt64") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects Float64 for Exit and n-D integer tuple parameters during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_integer_only_nd_exit_error";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "integer_only_nd_exit_args.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Exit(code: Float64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple(Any...)): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Any...)): Any :: __builtin__;\n"
+           "(0.5) -> Std.Exit;\n"
+           "(((1, 2), (3, 4)), (1, 0.25)) -> Std.Array.GetAtND;\n"
+           "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(result.error().hint.has_value());
+  REQUIRE(result.error().hint->find("Int64/UInt64") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects Float64 for integer-only builtin parameters during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_number_integer_only_error";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "number_integer_only_args.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Exit(code: Float64): Any :: __builtin__;\n"
+           "let UsesFloatExit(code: Float64): Any = (code) -> Std.Exit;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(result.error().hint.has_value());
+  REQUIRE(result.error().hint->find("Int64/UInt64") != std::string::npos);
+}
+
+TEST_CASE("Transpiler rejects Float64 for concrete numeric parameters during analysis", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_number_concrete_numeric";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "number_to_concrete_numeric_rejected.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let NeedsInt(x: Int64): Int64 = x;\n"
+           "let Forward(n: Float64): Int64 = (n) -> NeedsInt;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+}
+
+TEST_CASE("Transpiler accepts Float64 values where Float64 is expected", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_float64_to_number";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "float64_to_number_ok.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Pi(): Float64 = 3.14159;\n"
+           "let AcceptFloat(x: Float64): Float64 = x;\n"
+           "(Std.Pi) -> AcceptFloat;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
+  REQUIRE(result.has_value());
+}
+
+TEST_CASE("Transpiler rejects Float64 values where Int64 is expected", "[transpiler]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_transpiler_float64_to_int64";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "float64_to_int64_rejected.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Pi(): Float64 = 3.14159;\n"
+           "let NeedsInt(x: Int64): Int64 = x;\n"
+           "(Std.Pi) -> NeedsInt;\n";
+  }
+
+  const fleaux::frontend::cpp_transpile::FleauxCppTranspiler transpiler;
+  const auto result = transpiler.process(source_path);
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
 }

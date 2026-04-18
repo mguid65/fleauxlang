@@ -18,7 +18,7 @@ import Std;
 (True, True) -> && -> Std.Println;                                // True
 (False, True) -> || -> Std.Println;                               // True
 // -- Compound conditions --
-let InRange(x: Number, lo: Number, hi: Number): Bool =
+let InRange(x: Float64, lo: Float64, hi: Float64): Bool =
     ((x, lo) -> Std.GreaterOrEqual, (x, hi) -> Std.LessOrEqual) -> Std.And;
 (5, 1, 10) -> InRange -> Std.Println;                             // True
 (15, 1, 10) -> InRange -> Std.Println;                            // False

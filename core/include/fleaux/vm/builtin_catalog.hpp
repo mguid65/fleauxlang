@@ -6,9 +6,15 @@
   X("Std.Printf", Printf)                           \
   X("Std.Println", Println)                         \
   X("Std.GetArgs", GetArgs)                         \
+  X("Std.Type", Type)                               \
+  X("Std.TypeOf", TypeOf)                           \
+  X("Std.ToInt64", ToInt64)                         \
+  X("Std.ToUInt64", ToUInt64)                       \
+  X("Std.ToFloat64", ToFloat64)                     \
   X("Std.ToString", ToString)                       \
   X("Std.ToNum", ToNum)                             \
   X("Std.Input", Input)                             \
+  X("Std.Help", Help)                               \
   X("Std.Exit", Exit)                               \
   X("Std.Select", Select)                           \
   X("Std.Match", Match)                             \

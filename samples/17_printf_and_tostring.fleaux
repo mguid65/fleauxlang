@@ -22,7 +22,7 @@ import Std;
 ("Hello, {}!", "World") -> Std.String.Format -> Std.Println;      // Hello, World!
 
 // -- Building a formatted string for later use --
-let FormatScore(name: String, score: Number): String =
+let FormatScore(name: String, score: Float64): String =
     ("{} scored {} points", name, score) -> Std.String.Format;
 
 ("Alice", 98) -> FormatScore -> Std.Println;                      // Alice scored 98 points

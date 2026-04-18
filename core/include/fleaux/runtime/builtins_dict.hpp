@@ -7,10 +7,10 @@ namespace fleaux::runtime {
 
 // Keys are stored as type-prefixed strings to avoid collisions between types
 // that have the same serialized form (e.g. integer 1 vs string "1").
-//  string  -> "s:<value>"
-//  number  -> "n:<value>"
-//  bool    -> "b:<true|false>"
-//  null    -> "z:"
+//  string     -> "s:<value>"
+//  numeric    -> "n:<value>"  (Int64/UInt64/Float64)
+//  bool       -> "b:<true|false>"
+//  null       -> "z:"
 [[nodiscard]] inline auto dict_key_from_value(const Value& key_val) -> std::string {
     switch (sort_tag_of(key_val)) {
         case SortTag::String:
@@ -33,8 +33,8 @@ namespace fleaux::runtime {
 [[nodiscard]] inline auto sorted_dict_keys(const Object& obj) -> std::vector<std::string> {
     std::vector<std::string> keys;
     keys.reserve(obj.Size());
-    for (const auto &k: obj | std::views::keys) {
-        keys.push_back(k);
+    for (const auto& internal_key : obj | std::views::keys) {
+        keys.push_back(internal_key);
     }
     std::ranges::sort(keys);
     return keys;
@@ -52,8 +52,8 @@ namespace fleaux::runtime {
         if (tag == 'n') {
             // parse as number
             std::size_t consumed = 0;
-            const double d = std::stod(payload, &consumed);
-            if (consumed == payload.size()) return num_result(d);
+            const double parsed_number = std::stod(payload, &consumed);
+            if (consumed == payload.size()) return num_result(parsed_number);
         }
     }
     // Fallback: return as-is (handles any legacy unadorned string keys)
@@ -197,15 +197,15 @@ struct DictMerge {
     auto operator()(Value arg) const -> Value {
         const auto& args = require_args(arg, 2, "DictMerge");
         Object out = as_object(*args.TryGet(0));
-        for (const auto& overlay = as_object(*args.TryGet(1)); const auto& [k, v] : overlay) {
-            out[k] = v;
+        for (const auto& overlay = as_object(*args.TryGet(1)); const auto& [internal_key, mapped_value] : overlay) {
+            out[internal_key] = mapped_value;
         }
         return Value{std::move(out)};
     }
 };
 
 struct DictLength {
-    // arg = (dict) or dict -> Number
+    // arg = (dict) or dict -> Int64 (count of entries)
     auto operator()(Value arg) const -> Value {
         const Value dict_val = unwrap_singleton_arg(std::move(arg));
         return make_int(static_cast<Int>(as_object(dict_val).Size()));

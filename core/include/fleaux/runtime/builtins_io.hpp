@@ -23,7 +23,9 @@ struct PathJoin {
     const auto& args = as_array(arg);
     if (args.Size() < 2) { throw std::invalid_argument{"PathJoin expects at least 2 arguments"}; }
     std::filesystem::path result = to_string(*args.TryGet(0));
-    for (std::size_t i = 1; i < args.Size(); ++i) { result /= to_string(*args.TryGet(i)); }
+    for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
+      result /= to_string(*args.TryGet(segment_index));
+    }
     return make_string(result.string());
   }
 };
@@ -85,20 +87,20 @@ struct PathStem {
 struct PathWithExtension {
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 2, "PathWithExtension");
-    std::filesystem::path p = to_string(*args.TryGet(0));
-    std::string ext = to_string(*args.TryGet(1));
-    if (!ext.empty() && ext[0] != '.') { ext.insert(ext.begin(), '.'); }
-    p.replace_extension(ext);
-    return make_string(p.string());
+    std::filesystem::path path = to_string(*args.TryGet(0));
+    std::string extension = to_string(*args.TryGet(1));
+    if (!extension.empty() && extension[0] != '.') { extension.insert(extension.begin(), '.'); }
+    path.replace_extension(extension);
+    return make_string(path.string());
   }
 };
 
 struct PathWithBasename {
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 2, "PathWithBasename");
-    std::filesystem::path p = to_string(*args.TryGet(0));
-    p.replace_filename(to_string(*args.TryGet(1)));
-    return make_string(p.string());
+    std::filesystem::path path = to_string(*args.TryGet(0));
+    path.replace_filename(to_string(*args.TryGet(1)));
+    return make_string(path.string());
   }
 };
 
@@ -187,7 +189,7 @@ struct DirList {
     }
     Array out;
     out.Reserve(names.size());
-    for (const auto& n : names) { out.PushBack(make_string(n)); }
+    for (const auto& name : names) { out.PushBack(make_string(name)); }
     return Value{std::move(out)};
   }
 };
@@ -201,7 +203,7 @@ struct DirListFull {
     }
     Array out;
     out.Reserve(names.size());
-    for (const auto& n : names) { out.PushBack(make_string(n)); }
+    for (const auto& name : names) { out.PushBack(make_string(name)); }
     return Value{std::move(out)};
   }
 };
@@ -209,7 +211,7 @@ struct DirListFull {
 struct OSEnv {
   auto operator()(Value arg) const -> Value {
     const std::string key = as_path_string_unary(std::move(arg));
-    if (const char* val = std::getenv(key.c_str())) { return make_string(val); }
+    if (const char* env_value = std::getenv(key.c_str())) { return make_string(env_value); }
     return make_null();
   }
 };
@@ -316,7 +318,7 @@ struct OSMakeTempFile {
     std::error_code ec;
     const auto dir = std::filesystem::temp_directory_path(ec);
     if (ec) { return make_null(); }
-    for (int i = 0; i < 100; ++i) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
       if (const auto candidate = dir / ("fleaux_" + random_suffix() + ".tmp");
           !std::filesystem::exists(candidate, ec) && !ec) {
         if (std::ofstream out(candidate); out.good()) { return make_string(candidate.string()); }
@@ -332,7 +334,7 @@ struct OSMakeTempDir {
     std::error_code ec;
     const auto dir = std::filesystem::temp_directory_path(ec);
     if (ec) { return make_null(); }
-    for (int i = 0; i < 100; ++i) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
       if (const auto candidate = dir / ("fleaux_" + random_suffix());
           std::filesystem::create_directory(candidate, ec) && !ec) { return make_string(candidate.string()); }
     }
@@ -400,12 +402,12 @@ struct FileReadLine {
   // arg = handle_token   ->  (handle_token, line, eof_bool)
   auto operator()(Value arg) const -> Value {
     const Value token = unwrap_singleton_arg(std::move(arg));
-    auto& e = require_handle(token, "FileReadLine");
-    if (e.mode.find('r') == std::string::npos) { throw std::runtime_error{"FileReadLine: read failed"}; }
+    auto& handle_entry = require_handle(token, "FileReadLine");
+    if (handle_entry.mode.find('r') == std::string::npos) { throw std::runtime_error{"FileReadLine: read failed"}; }
     std::string line;
     bool eof = false;
-    if (!std::getline(e.stream, line)) {
-      if (e.stream.eof()) {
+    if (!std::getline(handle_entry.stream, line)) {
+      if (handle_entry.stream.eof()) {
         eof = true;
         line.clear();
       } else {
@@ -421,13 +423,13 @@ struct FileReadChunk {
   // arg = (handle_token, nbytes)  ->  (handle_token, chunk_string, eof_bool)
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 2, "FileReadChunk");
-    auto& e = require_handle(*args.TryGet(0), "FileReadChunk");
-    const std::size_t nbytes = as_index(*args.TryGet(1));
+    auto& handle_entry = require_handle(*args.TryGet(0), "FileReadChunk");
+    const std::size_t nbytes = as_index_strict(*args.TryGet(1), "FileReadChunk nbytes");
     std::string buf(nbytes, '\0');
-    e.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
-    const std::streamsize n = e.stream.gcount();
-    buf.resize(static_cast<std::size_t>(n));
-    const bool eof = (n == 0 || e.stream.eof());
+    handle_entry.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
+    const std::streamsize bytes_read = handle_entry.stream.gcount();
+    buf.resize(static_cast<std::size_t>(bytes_read));
+    const bool eof = (bytes_read == 0 || handle_entry.stream.eof());
     auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
     return make_tuple(make_handle_token(slot, gen), make_string(std::move(buf)), make_bool(eof));
   }
@@ -437,10 +439,10 @@ struct FileWriteChunk {
   // arg = (handle_token, data_string)  ->  handle_token
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 2, "FileWriteChunk");
-    auto& e = require_handle(*args.TryGet(0), "FileWriteChunk");
+    auto& handle_entry = require_handle(*args.TryGet(0), "FileWriteChunk");
     const std::string& data = as_string(*args.TryGet(1));
-    e.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
-    if (!e.stream) throw std::runtime_error{"FileWriteChunk: write failed"};
+    handle_entry.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
+    if (!handle_entry.stream) throw std::runtime_error{"FileWriteChunk: write failed"};
     auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
     return make_handle_token(slot, gen);
   }
@@ -450,9 +452,9 @@ struct FileFlush {
   // arg = handle_token ->  handle_token
   auto operator()(Value arg) const -> Value {
     const Value token = unwrap_singleton_arg(std::move(arg));
-    auto& e = require_handle(token, "FileFlush");
-    e.stream.flush();
-    if (!e.stream) throw std::runtime_error{"FileFlush: flush failed"};
+    auto& handle_entry = require_handle(token, "FileFlush");
+    handle_entry.stream.flush();
+    if (!handle_entry.stream) throw std::runtime_error{"FileFlush: flush failed"};
     auto [slot, gen] = handle_id_from_value(token).value();
     return make_handle_token(slot, gen);
   }

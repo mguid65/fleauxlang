@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -31,23 +32,24 @@ using fleaux::runtime::Value;
 
 // Value helpers
 
-auto const_to_value(const bytecode::ConstValue& c) -> Value {
+auto const_to_value(const bytecode::ConstValue& const_value) -> Value {
   using namespace fleaux::runtime;
   return std::visit(common::overloaded{[](const std::int64_t& val) -> Value { return make_int(val); },
+                                       [](const std::uint64_t& val) -> Value { return make_uint(val); },
                                        [](const double& val) -> Value { return make_float(val); },
                                        [](const bool& val) -> Value { return make_bool(val); },
                                        [](const std::string& val) -> Value { return make_string(val); },
                                        [](const std::monostate&) -> Value { return make_null(); }},
-                    c.data);
+                    const_value.data);
 }
 
 // Stack helpers
 
 auto pop_stack(std::vector<Value>& stack, const char* context) -> tl::expected<Value, RuntimeError> {
   if (stack.empty()) { return tl::unexpected(RuntimeError{std::string("stack underflow on ") + context}); }
-  Value v = std::move(stack.back());
+  Value value = std::move(stack.back());
   stack.pop_back();
-  return v;
+  return value;
 }
 
 template <typename Fn>
@@ -95,8 +97,8 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
 
     try {
       const auto& arr = fleaux::runtime::as_array(arg);
-      for (std::uint32_t i = 0; i < arity; ++i) {
-        auto elem = arr.TryGet(i);
+      for (std::uint32_t arg_index = 0; arg_index < arity; ++arg_index) {
+        auto elem = arr.TryGet(arg_index);
         if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"}); }
         locals.push_back(*elem);
       }
@@ -120,11 +122,15 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"}); }
-    for (std::size_t i = 0; i < fixed_count; ++i) { locals.push_back(*arr.TryGet(i)); }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      locals.push_back(*arr.TryGet(arg_index));
+    }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t i = fixed_count; i < arr.Size(); ++i) { tail.PushBack(*arr.TryGet(i)); }
+    for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
+      tail.PushBack(*arr.TryGet(arg_index));
+    }
     locals.emplace_back(std::move(tail));
     return locals;
   } catch (const std::exception& ex) {
@@ -147,8 +153,8 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
 
     try {
       const auto& arr = fleaux::runtime::as_array(arg);
-      for (std::uint32_t i = 0; i < declared_arity; ++i) {
-        auto elem = arr.TryGet(i);
+      for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
+        auto elem = arr.TryGet(arg_index);
         if (!elem) { return tl::unexpected(RuntimeError{"too few arguments for inline closure"}); }
         out.push_back(*elem);
       }
@@ -167,11 +173,15 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for inline closure"}); }
-    for (std::size_t i = 0; i < fixed_count; ++i) { out.push_back(*arr.TryGet(i)); }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      out.push_back(*arr.TryGet(arg_index));
+    }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t i = fixed_count; i < arr.Size(); ++i) { tail.PushBack(*arr.TryGet(i)); }
+    for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
+      tail.PushBack(*arr.TryGet(arg_index));
+    }
     out.emplace_back(std::move(tail));
     return out;
   } catch (const std::exception& ex) {
@@ -220,7 +230,11 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
   if (fn_idx >= bytecode_module.functions.size()) {
     return tl::unexpected(RuntimeError{"function index out of range"});
   }
-  const auto& [name, arity, has_variadic_tail, instructions] = bytecode_module.functions[fn_idx];
+  const auto& function = bytecode_module.functions[fn_idx];
+  const auto& name = function.name;
+  const auto arity = function.arity;
+  const auto has_variadic_tail = function.has_variadic_tail;
+  const auto& instructions = function.instructions;
 
   std::vector<Value> inner_stack;
   std::vector<CallFrame> inner_frames;
@@ -273,7 +287,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       }
 
       case bytecode::Opcode::kPop: {
-        if (auto v = pop_stack(stack, "pop"); !v) return tl::unexpected(v.error());
+        if (auto popped_value = pop_stack(stack, "pop"); !popped_value) return tl::unexpected(popped_value.error());
         break;
       }
 
@@ -284,12 +298,14 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       }
 
       case bytecode::Opcode::kBuildTuple: {
-        const auto n = static_cast<std::size_t>(operand);
-        if (stack.size() < n) { return tl::unexpected(RuntimeError{"stack underflow on build_tuple"}); }
+        const auto tuple_size = static_cast<std::size_t>(operand);
+        if (stack.size() < tuple_size) { return tl::unexpected(RuntimeError{"stack underflow on build_tuple"}); }
         Array arr;
-        arr.Reserve(n);
-        const auto base = stack.size() - n;
-        for (std::size_t i = 0; i < n; ++i) { arr.PushBack(stack[base + i]); }
+        arr.Reserve(tuple_size);
+        const auto base = stack.size() - tuple_size;
+        for (std::size_t element_index = 0; element_index < tuple_size; ++element_index) {
+          arr.PushBack(stack[base + element_index]);
+        }
         stack.resize(base);
         stack.emplace_back(std::move(arr));
         break;
@@ -319,7 +335,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto arg = pop_stack(stack, "call_user_func");
         if (!arg) return tl::unexpected(arg.error());
 
-        const auto& [name, arity, has_variadic_tail, instructions] = bytecode_module.functions[fn_idx];
+        const auto& function = bytecode_module.functions[fn_idx];
+        const auto& name = function.name;
+        const auto arity = function.arity;
+        const auto has_variadic_tail = function.has_variadic_tail;
+        const auto& instructions = function.instructions;
         CallFrame new_frame;
         new_frame.instructions = &instructions;
         new_frame.ip = 0;
@@ -345,9 +365,9 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         // all futures complete via .get() before run_loop continues, so the
         // captured refs are still live during any async invocation.
         auto callable = [&bytecode_module, fn_idx, &builtins, &output](Value call_arg) -> Value {
-          auto r = run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, output);
-          if (!r) throw std::runtime_error(r.error().message);
-          return std::move(*r);
+          auto run_result = run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, output);
+          if (!run_result) throw std::runtime_error(run_result.error().message);
+          return std::move(*run_result);
         };
         stack.push_back(fleaux::runtime::make_callable_ref(std::move(callable)));
         break;
@@ -386,7 +406,9 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
         std::vector<Value> captured_values;
         captured_values.reserve(capture_count);
-        for (std::size_t i = 0; i < capture_count; ++i) { captured_values.push_back(*capture_array.TryGet(i)); }
+        for (std::size_t capture_index = 0; capture_index < capture_count; ++capture_index) {
+          captured_values.push_back(*capture_array.TryGet(capture_index));
+        }
 
         // Callable captures bytecode_module, builtins, and output by reference.
         // Same lifetime contract as kMakeUserFuncRef: valid for the duration of
@@ -468,7 +490,9 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (lhs->HasString() && rhs->HasString()) {
             return fleaux::runtime::make_string(fleaux::runtime::as_string(*lhs) + fleaux::runtime::as_string(*rhs));
           }
-          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs));
+          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "add");
+          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs),
+                                             fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -481,7 +505,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "sub");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("sub", [&]() -> Value {
-          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) - fleaux::runtime::to_double(*rhs));
+          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "sub");
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) - fleaux::runtime::to_double(*rhs),
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -494,7 +521,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "mul");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("mul", [&]() -> Value {
-          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) * fleaux::runtime::to_double(*rhs));
+          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mul");
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) * fleaux::runtime::to_double(*rhs),
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -508,7 +538,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("div", [&]() -> Value {
           // Native division follows floating-point semantics (e.g. x/0 -> inf).
-          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) / fleaux::runtime::to_double(*rhs));
+          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "div");
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) / fleaux::runtime::to_double(*rhs),
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -521,8 +554,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "mod");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("mod", [&]() -> Value {
+          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mod");
           return fleaux::runtime::num_result(
-              std::fmod(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)));
+              std::fmod(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)),
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -577,7 +612,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_lt");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_lt", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::to_double(*lhs) < fleaux::runtime::to_double(*rhs));
+          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) < 0);
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -590,7 +625,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_gt");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_gt", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::to_double(*lhs) > fleaux::runtime::to_double(*rhs));
+          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) > 0);
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -603,7 +638,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_le");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_le", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::to_double(*lhs) <= fleaux::runtime::to_double(*rhs));
+          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) <= 0);
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -616,7 +651,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_ge");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_ge", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::to_double(*lhs) >= fleaux::runtime::to_double(*rhs));
+          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) >= 0);
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -719,7 +754,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
         std::size_t limit = 0;
         try {
-          const auto as_int = fleaux::runtime::as_int_value(*max_iters);
+          const auto as_int = fleaux::runtime::as_int_value_strict(*max_iters, "LoopN max_iters");
           if (as_int < 0) {
             return tl::unexpected(RuntimeError{"native 'loop_n_call' threw: LoopN: max_iters must be non-negative"});
           }
@@ -754,12 +789,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     return tl::unexpected(RuntimeError{std::string("native builtin '") + builtin_name + "' threw: " + ex.what()});
   };
 
-  auto expect_n = [&](const char* builtin_name, const std::size_t n) -> tl::expected<const Array*, RuntimeError> {
+  auto expect_n = [&](const char* builtin_name,
+                      const std::size_t expected_count) -> tl::expected<const Array*, RuntimeError> {
     try {
       const auto& args = fleaux::runtime::as_array(arg);
-      if (args.Size() != n) {
+      if (args.Size() != expected_count) {
         return tl::unexpected(RuntimeError{std::string("native builtin '") + builtin_name + "' expects exactly " +
-                                           std::to_string(n) + " arguments"});
+                                           std::to_string(expected_count) + " arguments"});
       }
       return &args;
     } catch (const std::exception& ex) {
@@ -771,12 +807,12 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
   auto expect_unary = [&](const char* builtin_name) -> tl::expected<const Value*, RuntimeError> {
     if (!arg.HasArray()) return &arg;
     if (const auto& args = fleaux::runtime::as_array(arg); args.Size() == 1) {
-      const auto v0 = args.TryGet(0);
-      if (!v0) {
+      const auto first_arg = args.TryGet(0);
+      if (!first_arg) {
         return tl::unexpected(
             RuntimeError{std::string("native builtin '") + builtin_name + "' argument unpack failed"});
       }
-      return &*v0;
+      return &*first_arg;
     }
     return &arg;
   };
@@ -819,24 +855,24 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
 
   auto numeric_unary = [&](const std::string& builtin_name,
                            const auto& fn) -> tl::expected<std::optional<Value>, RuntimeError> {
-    auto v = expect_unary(builtin_name.c_str());
-    if (!v) return tl::unexpected(v.error());
+    auto val = expect_unary(builtin_name.c_str());
+    if (!val) return tl::unexpected(val.error());
     try {
-      return std::optional<Value>{fleaux::runtime::num_result(fn(fleaux::runtime::to_double(*v.value())))};
+      return std::optional<Value>{fleaux::runtime::num_result(fn(fleaux::runtime::to_double(*val.value())))};
     } catch (const std::exception& ex) { return native_error(builtin_name, ex); }
   };
 
-  auto trim_left_copy = [](std::string s) -> std::string {
-    const auto it = std::ranges::find_if(s, [](const unsigned char ch) -> bool { return !std::isspace(ch); });
-    s.erase(s.begin(), it);
-    return s;
+  auto trim_left_copy = [](std::string str_val) -> std::string {
+    const auto it = std::ranges::find_if(str_val, [](const unsigned char ch) -> bool { return !std::isspace(ch); });
+    str_val.erase(str_val.begin(), it);
+    return str_val;
   };
 
-  auto trim_right_copy = [](std::string s) -> std::string {
+  auto trim_right_copy = [](std::string str_val) -> std::string {
     const auto rit =
-        std::ranges::find_if(std::views::reverse(s), [](const unsigned char ch) -> bool { return !std::isspace(ch); });
-    s.erase(rit.base(), s.end());
-    return s;
+        std::ranges::find_if(std::views::reverse(str_val), [](const unsigned char ch) -> bool { return !std::isspace(ch); });
+    str_val.erase(rit.base(), str_val.end());
+    return str_val;
   };
 
   enum class BuiltinDispatchKey {
@@ -962,6 +998,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     kStd_Println,
     kStd_Printf,
     kStd_GetArgs,
+    kStd_Type,
     kStd_Input,
     kStd_Exit,
     kStd_Tuple_Map,
@@ -1109,6 +1146,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       {"Std.Println", BuiltinDispatchKey::kStd_Println},
       {"Std.Printf", BuiltinDispatchKey::kStd_Printf},
       {"Std.GetArgs", BuiltinDispatchKey::kStd_GetArgs},
+      {"Std.Type", BuiltinDispatchKey::kStd_Type},
+      {"Std.TypeOf", BuiltinDispatchKey::kStd_Type},
       {"Std.Input", BuiltinDispatchKey::kStd_Input},
       {"Std.Exit", BuiltinDispatchKey::kStd_Exit},
       {"Std.Tuple.Map", BuiltinDispatchKey::kStd_Tuple_Map},
@@ -1150,23 +1189,23 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
       }
       case BuiltinDispatchKey::kStd_Subtract:
-        return numeric_bin("Std.Subtract", [](const double l, const double r) -> double { return l - r; });
+        return numeric_bin("Std.Subtract", [](const double lhs, const double rhs) -> double { return lhs - rhs; });
       case BuiltinDispatchKey::kStd_Multiply:
-        return numeric_bin("Std.Multiply", [](const double l, const double r) -> double { return l * r; });
+        return numeric_bin("Std.Multiply", [](const double lhs, const double rhs) -> double { return lhs * rhs; });
       case BuiltinDispatchKey::kStd_Divide:
-        return numeric_bin("Std.Divide", [](const double l, const double r) -> double { return l / r; });
+        return numeric_bin("Std.Divide", [](const double lhs, const double rhs) -> double { return lhs / rhs; });
       case BuiltinDispatchKey::kStd_Mod:
-        return numeric_bin("Std.Mod", [](const double l, const double r) -> double { return std::fmod(l, r); });
+        return numeric_bin("Std.Mod", [](const double lhs, const double rhs) -> double { return std::fmod(lhs, rhs); });
       case BuiltinDispatchKey::kStd_Pow:
-        return numeric_bin("Std.Pow", [](const double l, const double r) -> double { return std::pow(l, r); });
+        return numeric_bin("Std.Pow", [](const double lhs, const double rhs) -> double { return std::pow(lhs, rhs); });
       case BuiltinDispatchKey::kStd_GreaterThan:
-        return numeric_cmp("Std.GreaterThan", [](const double l, const double r) -> bool { return l > r; });
+        return numeric_cmp("Std.GreaterThan", [](const double lhs, const double rhs) -> bool { return lhs > rhs; });
       case BuiltinDispatchKey::kStd_LessThan:
-        return numeric_cmp("Std.LessThan", [](const double l, const double r) -> bool { return l < r; });
+        return numeric_cmp("Std.LessThan", [](const double lhs, const double rhs) -> bool { return lhs < rhs; });
       case BuiltinDispatchKey::kStd_GreaterOrEqual:
-        return numeric_cmp("Std.GreaterOrEqual", [](const double l, const double r) -> bool { return l >= r; });
+        return numeric_cmp("Std.GreaterOrEqual", [](const double lhs, const double rhs) -> bool { return lhs >= rhs; });
       case BuiltinDispatchKey::kStd_LessOrEqual:
-        return numeric_cmp("Std.LessOrEqual", [](const double l, const double r) -> bool { return l <= r; });
+        return numeric_cmp("Std.LessOrEqual", [](const double lhs, const double rhs) -> bool { return lhs <= rhs; });
       case BuiltinDispatchKey::kStd_Equal:
       case BuiltinDispatchKey::kStd_NotEqual: {
         auto args = expect_binary(name.c_str());
@@ -1175,10 +1214,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         return std::optional<Value>{fleaux::runtime::make_bool(dispatch == BuiltinDispatchKey::kStd_Equal ? eq : !eq)};
       }
       case BuiltinDispatchKey::kStd_Not: {
-        auto v = expect_unary("Std.Not");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Not");
+        if (!val) return tl::unexpected(val.error());
         try {
-          return std::optional<Value>{fleaux::runtime::make_bool(!fleaux::runtime::as_bool(*v.value()))};
+          return std::optional<Value>{fleaux::runtime::make_bool(!fleaux::runtime::as_bool(*val.value()))};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Not' threw: ") + ex.what()});
         }
@@ -1207,13 +1246,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         auto args = expect_n("Std.Select", 3);
         if (!args) return tl::unexpected(args.error());
         const auto cond = (*args)->TryGet(0);
-        const auto tv = (*args)->TryGet(1);
-        const auto fv = (*args)->TryGet(2);
-        if (!cond || !tv || !fv) {
+        const auto true_value = (*args)->TryGet(1);
+        const auto false_value = (*args)->TryGet(2);
+        if (!cond || !true_value || !false_value) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Select' argument unpack failed"});
         }
         try {
-          return std::optional<Value>{fleaux::runtime::as_bool(*cond) ? *tv : *fv};
+          return std::optional<Value>{fleaux::runtime::as_bool(*cond) ? *true_value : *false_value};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Select' threw: ") + ex.what()});
         }
@@ -1296,67 +1335,68 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
       }
       case BuiltinDispatchKey::kStd_UnaryMinus: {
-        auto v = expect_unary("Std.UnaryMinus");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.UnaryMinus");
+        if (!val) return tl::unexpected(val.error());
         try {
-          return std::optional<Value>{fleaux::runtime::num_result(-fleaux::runtime::to_double(*v.value()))};
+          return std::optional<Value>{fleaux::runtime::num_result(-fleaux::runtime::to_double(*val.value()))};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.UnaryMinus' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_UnaryPlus: {
-        auto v = expect_unary("Std.UnaryPlus");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.UnaryPlus");
+        if (!val) return tl::unexpected(val.error());
         try {
-          return std::optional<Value>{fleaux::runtime::num_result(+fleaux::runtime::to_double(*v.value()))};
+          return std::optional<Value>{fleaux::runtime::num_result(+fleaux::runtime::to_double(*val.value()))};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.UnaryPlus' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_Math_Sqrt: {
-        return numeric_unary(name, [](const double v) -> double { return std::sqrt(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::sqrt(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Sin: {
-        return numeric_unary(name, [](const double v) -> double { return std::sin(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::sin(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Cos: {
-        return numeric_unary(name, [](const double v) -> double { return std::cos(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::cos(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Tan: {
-        return numeric_unary(name, [](const double v) -> double { return std::tan(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::tan(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Floor: {
-        return numeric_unary(name, [](const double v) -> double { return std::floor(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::floor(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Ceil: {
-        return numeric_unary(name, [](const double v) -> double { return std::ceil(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::ceil(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Abs: {
-        return numeric_unary(name, [](const double v) -> double { return std::fabs(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::fabs(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Log: {
-        return numeric_unary(name, [](const double v) -> double { return std::log(v); });
+        return numeric_unary(name, [](const double value) -> double { return std::log(value); });
         break;
       }
       case BuiltinDispatchKey::kStd_Math_Clamp: {
         auto args = expect_n("Std.Math.Clamp", 3);
         if (!args) return tl::unexpected(args.error());
-        const auto x = (*args)->TryGet(0);
-        const auto lo = (*args)->TryGet(1);
-        const auto hi = (*args)->TryGet(2);
-        if (!x || !lo || !hi) {
+        const auto value_to_clamp = (*args)->TryGet(0);
+        const auto lower_bound = (*args)->TryGet(1);
+        const auto upper_bound = (*args)->TryGet(2);
+        if (!value_to_clamp || !lower_bound || !upper_bound) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Math.Clamp' argument unpack failed"});
         }
         try {
-          return std::optional<Value>{fleaux::runtime::num_result(std::clamp(
-              fleaux::runtime::to_double(*x), fleaux::runtime::to_double(*lo), fleaux::runtime::to_double(*hi)))};
+          return std::optional<Value>{fleaux::runtime::num_result(std::clamp(fleaux::runtime::to_double(*value_to_clamp),
+                                                                              fleaux::runtime::to_double(*lower_bound),
+                                                                              fleaux::runtime::to_double(*upper_bound)))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1364,12 +1404,12 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         auto args = expect_n("Std.Apply", 2);
         if (!args) return tl::unexpected(args.error());
         const auto value = (*args)->TryGet(0);
-        const auto func = (*args)->TryGet(1);
-        if (!value || !func) {
+        const auto function_ref = (*args)->TryGet(1);
+        if (!value || !function_ref) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Apply' argument unpack failed"});
         }
         try {
-          return std::optional<Value>{fleaux::runtime::invoke_callable_ref(*func, *value)};
+          return std::optional<Value>{fleaux::runtime::invoke_callable_ref(*function_ref, *value)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1404,7 +1444,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         std::size_t limit = 0;
         try {
-          const auto as_int = fleaux::runtime::as_int_value(*max_iters);
+          const auto as_int = fleaux::runtime::as_int_value_strict(*max_iters, "LoopN max_iters");
           if (as_int < 0) {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.LoopN' threw: LoopN: max_iters must be non-negative"});
@@ -1445,8 +1485,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& arr = fleaux::runtime::as_array(*seq);
-          const auto i = fleaux::runtime::as_index(*idx);
-          const auto elem = arr.TryGet(i);
+          const auto element_index = fleaux::runtime::as_index_strict(*idx, "ElementAt index");
+          const auto elem = arr.TryGet(element_index);
           if (!elem) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.ElementAt' threw: ElementAt: index out of range"});
           }
@@ -1469,10 +1509,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         if (!seq || !count) { return tl::unexpected(RuntimeError{"native builtin 'Std.Take' argument unpack failed"}); }
         try {
           const auto& arr = fleaux::runtime::as_array(*seq);
-          const auto n = std::min(fleaux::runtime::as_index(*count), arr.Size());
+          const auto take_count = std::min(fleaux::runtime::as_index_strict(*count, "Take count"), arr.Size());
           Array out;
-          out.Reserve(n);
-          for (std::size_t i = 0; i < n; ++i) { out.PushBack(*arr.TryGet(i)); }
+          out.Reserve(take_count);
+          for (std::size_t index = 0; index < take_count; ++index) { out.PushBack(*arr.TryGet(index)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1485,9 +1525,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         if (!seq || !count) { return tl::unexpected(RuntimeError{"native builtin 'Std.Drop' argument unpack failed"}); }
         try {
           const auto& arr = fleaux::runtime::as_array(*seq);
-          const auto start = fleaux::runtime::as_index(*count);
+          const auto start = fleaux::runtime::as_index_strict(*count, "Drop count");
           Array out;
-          for (std::size_t i = start; i < arr.Size(); ++i) { out.PushBack(*arr.TryGet(i)); }
+          for (std::size_t index = start; index < arr.Size(); ++index) { out.PushBack(*arr.TryGet(index)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1503,83 +1543,83 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& arr = fleaux::runtime::as_array(*seq);
-          const auto real_start = fleaux::runtime::as_index(*start);
-          const auto real_stop = std::min(fleaux::runtime::as_index(*stop), arr.Size());
+          const auto real_start = fleaux::runtime::as_index_strict(*start, "Slice start");
+          const auto real_stop = std::min(fleaux::runtime::as_index_strict(*stop, "Slice stop"), arr.Size());
           Array out;
-          for (std::size_t i = real_start; i < real_stop; ++i) { out.PushBack(*arr.TryGet(i)); }
+          for (std::size_t index = real_start; index < real_stop; ++index) { out.PushBack(*arr.TryGet(index)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_ToNum: {
-        auto v = expect_unary("Std.ToNum");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.ToNum");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const std::string& s = fleaux::runtime::as_string(*v.value());
+          const std::string& str = fleaux::runtime::as_string(*val.value());
           std::size_t consumed = 0;
-          const double d = std::stod(s, &consumed);
-          if (consumed != s.size()) {
+          const double parsed_number = std::stod(str, &consumed);
+          if (consumed != str.size()) {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.ToNum' threw: ToNum: trailing characters in input"});
           }
-          return std::optional<Value>{fleaux::runtime::num_result(d)};
+          return std::optional<Value>{fleaux::runtime::num_result(parsed_number)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_ToString: {
-        auto v = expect_unary("Std.ToString");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.ToString");
+        if (!val) return tl::unexpected(val.error());
         try {
-          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::to_string(*v.value()))};
+          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::to_string(*val.value()))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Upper: {
-        auto v = expect_unary("Std.String.Upper");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.Upper");
+        if (!val) return tl::unexpected(val.error());
         try {
-          std::string s = fleaux::runtime::to_string(*v.value());
-          std::ranges::transform(s, s.begin(),
+          std::string str = fleaux::runtime::to_string(*val.value());
+          std::ranges::transform(str, str.begin(),
                                  [](const unsigned char ch) -> char { return static_cast<char>(std::toupper(ch)); });
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(s))};
+          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Lower: {
-        auto v = expect_unary("Std.String.Lower");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.Lower");
+        if (!val) return tl::unexpected(val.error());
         try {
-          std::string s = fleaux::runtime::to_string(*v.value());
-          std::ranges::transform(s, s.begin(),
+          std::string str = fleaux::runtime::to_string(*val.value());
+          std::ranges::transform(str, str.begin(),
                                  [](const unsigned char ch) -> char { return static_cast<char>(std::tolower(ch)); });
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(s))};
+          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Trim: {
-        auto v = expect_unary("Std.String.Trim");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.Trim");
+        if (!val) return tl::unexpected(val.error());
         try {
-          auto s = fleaux::runtime::to_string(*v.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(trim_left_copy(std::move(s))))};
+          auto str = fleaux::runtime::to_string(*val.value());
+          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(trim_left_copy(std::move(str))))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_TrimStart: {
-        auto v = expect_unary("Std.String.TrimStart");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.TrimStart");
+        if (!val) return tl::unexpected(val.error());
         try {
-          auto s = fleaux::runtime::to_string(*v.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_left_copy(std::move(s)))};
+          auto str = fleaux::runtime::to_string(*val.value());
+          return std::optional<Value>{fleaux::runtime::make_string(trim_left_copy(std::move(str)))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_TrimEnd: {
-        auto v = expect_unary("Std.String.TrimEnd");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.TrimEnd");
+        if (!val) return tl::unexpected(val.error());
         try {
-          auto s = fleaux::runtime::to_string(*v.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(std::move(s)))};
+          auto str = fleaux::runtime::to_string(*val.value());
+          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(std::move(str)))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1592,7 +1632,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.String.Split' argument unpack failed"});
         }
         try {
-          const std::string s = fleaux::runtime::to_string(*input);
+          const std::string str = fleaux::runtime::to_string(*input);
           const std::string delim = fleaux::runtime::to_string(*sep);
           if (delim.empty()) {
             return tl::unexpected(
@@ -1601,12 +1641,12 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           Array out;
           std::size_t pos = 0;
           while (true) {
-            const std::size_t found = s.find(delim, pos);
+            const std::size_t found = str.find(delim, pos);
             if (found == std::string::npos) {
-              out.PushBack(fleaux::runtime::make_string(s.substr(pos)));
+              out.PushBack(fleaux::runtime::make_string(str.substr(pos)));
               break;
             }
-            out.PushBack(fleaux::runtime::make_string(s.substr(pos, found - pos)));
+            out.PushBack(fleaux::runtime::make_string(str.substr(pos, found - pos)));
             pos = found + delim.size();
           }
           return std::optional<Value>{Value{std::move(out)}};
@@ -1626,15 +1666,15 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           std::ostringstream oss;
           if (parts->HasArray()) {
             const auto& arr = fleaux::runtime::as_array(*parts);
-            for (std::size_t i = 0; i < arr.Size(); ++i) {
-              if (i > 0) oss << delim;
-              oss << fleaux::runtime::to_string(*arr.TryGet(i));
+            for (std::size_t part_index = 0; part_index < arr.Size(); ++part_index) {
+              if (part_index > 0) oss << delim;
+              oss << fleaux::runtime::to_string(*arr.TryGet(part_index));
             }
           } else {
-            const std::string s = fleaux::runtime::to_string(*parts);
-            for (std::size_t i = 0; i < s.size(); ++i) {
-              if (i > 0) oss << delim;
-              oss << s[i];
+            const std::string str = fleaux::runtime::to_string(*parts);
+            for (std::size_t char_index = 0; char_index < str.size(); ++char_index) {
+              if (char_index > 0) oss << delim;
+              oss << str[char_index];
             }
           }
           return std::optional<Value>{fleaux::runtime::make_string(oss.str())};
@@ -1651,17 +1691,17 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.String.Replace' argument unpack failed"});
         }
         try {
-          std::string s = fleaux::runtime::to_string(*input);
+          std::string str = fleaux::runtime::to_string(*input);
           const std::string old_s = fleaux::runtime::to_string(*old_sub);
           const std::string new_s = fleaux::runtime::to_string(*new_sub);
           if (!old_s.empty()) {
             std::size_t pos = 0;
-            while ((pos = s.find(old_s, pos)) != std::string::npos) {
-              s.replace(pos, old_s.size(), new_s);
+            while ((pos = str.find(old_s, pos)) != std::string::npos) {
+              str.replace(pos, old_s.size(), new_s);
               pos += new_s.size();
             }
           }
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(s))};
+          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1674,9 +1714,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.String.Contains' argument unpack failed"});
         }
         try {
-          const std::string s = fleaux::runtime::to_string(*input);
+          const std::string str = fleaux::runtime::to_string(*input);
           const std::string needle = fleaux::runtime::to_string(*sub);
-          return std::optional<Value>{fleaux::runtime::make_bool(s.find(needle) != std::string::npos)};
+          return std::optional<Value>{fleaux::runtime::make_bool(str.find(needle) != std::string::npos)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1689,9 +1729,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.String.StartsWith' argument unpack failed"});
         }
         try {
-          const std::string s = fleaux::runtime::to_string(*input);
-          const std::string p = fleaux::runtime::to_string(*prefix);
-          return std::optional<Value>{fleaux::runtime::make_bool(s.starts_with(p))};
+          const std::string str = fleaux::runtime::to_string(*input);
+          const std::string prefix_str = fleaux::runtime::to_string(*prefix);
+          return std::optional<Value>{fleaux::runtime::make_bool(str.starts_with(prefix_str))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1704,19 +1744,19 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.String.EndsWith' argument unpack failed"});
         }
         try {
-          const std::string s = fleaux::runtime::to_string(*input);
-          const std::string suf = fleaux::runtime::to_string(*suffix);
-          if (suf.size() > s.size()) { return std::optional<Value>{fleaux::runtime::make_bool(false)}; }
-          return std::optional<Value>{fleaux::runtime::make_bool(s.ends_with(suf))};
+          const std::string str = fleaux::runtime::to_string(*input);
+          const std::string suffix_str = fleaux::runtime::to_string(*suffix);
+          if (suffix_str.size() > str.size()) { return std::optional<Value>{fleaux::runtime::make_bool(false)}; }
+          return std::optional<Value>{fleaux::runtime::make_bool(str.ends_with(suffix_str))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_String_Length: {
-        auto v = expect_unary("Std.String.Length");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.String.Length");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_int(
-              static_cast<fleaux::runtime::Int>(fleaux::runtime::to_string(*v.value()).size()))};
+              static_cast<fleaux::runtime::Int>(fleaux::runtime::to_string(*val.value()).size()))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1724,10 +1764,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         auto args = expect_n("Std.String.CharAt", 2);
         if (!args) return tl::unexpected(args.error());
         try {
-          const std::string s = fleaux::runtime::to_string(*(*args)->TryGet(0));
-          const std::size_t idx = fleaux::runtime::as_index(*(*args)->TryGet(1));
-          if (idx >= s.size()) { return std::optional<Value>{fleaux::runtime::make_string("")}; }
-          return std::optional<Value>{fleaux::runtime::make_string(s.substr(idx, 1))};
+          const std::string str = fleaux::runtime::to_string(*(*args)->TryGet(0));
+          const std::size_t idx = fleaux::runtime::as_index_strict(*(*args)->TryGet(1), "StringCharAt index");
+          if (idx >= str.size()) { return std::optional<Value>{fleaux::runtime::make_string("")}; }
+          return std::optional<Value>{fleaux::runtime::make_string(str.substr(idx, 1))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1738,19 +1778,19 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.String.Slice' threw: StringSlice expects 2 or 3 arguments"});
           }
-          const std::string s = fleaux::runtime::to_string(*args.TryGet(0));
+          const std::string str = fleaux::runtime::to_string(*args.TryGet(0));
           std::size_t start = 0;
           std::size_t stop = 0;
           if (args.Size() == 2) {
-            stop = fleaux::runtime::as_index(*args.TryGet(1));
+            stop = fleaux::runtime::as_index_strict(*args.TryGet(1), "StringSlice stop");
           } else {
-            start = fleaux::runtime::as_index(*args.TryGet(1));
-            stop = fleaux::runtime::as_index(*args.TryGet(2));
+            start = fleaux::runtime::as_index_strict(*args.TryGet(1), "StringSlice start");
+            stop = fleaux::runtime::as_index_strict(*args.TryGet(2), "StringSlice stop");
           }
-          if (start > s.size()) start = s.size();
-          if (stop > s.size()) stop = s.size();
+          if (start > str.size()) start = str.size();
+          if (stop > str.size()) stop = str.size();
           if (stop < start) stop = start;
-          return std::optional<Value>{fleaux::runtime::make_string(s.substr(start, stop - start))};
+          return std::optional<Value>{fleaux::runtime::make_string(str.substr(start, stop - start))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -1761,12 +1801,12 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.String.Find' threw: StringFind expects 2 or 3 arguments"});
           }
-          const std::string s = fleaux::runtime::to_string(*args.TryGet(0));
+          const std::string str = fleaux::runtime::to_string(*args.TryGet(0));
           const std::string needle = fleaux::runtime::to_string(*args.TryGet(1));
           std::size_t start = 0;
-          if (args.Size() == 3) { start = fleaux::runtime::as_index(*args.TryGet(2)); }
-          if (start > s.size()) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
-          const auto pos = s.find(needle, start);
+          if (args.Size() == 3) { start = fleaux::runtime::as_index_strict(*args.TryGet(2), "StringFind start"); }
+          if (start > str.size()) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
+          const auto pos = str.find(needle, start);
           if (pos == std::string::npos) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
           return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(pos))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -1782,7 +1822,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const std::string fmt = fleaux::runtime::to_string(*args.TryGet(0));
           std::vector<Value> values;
           values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-          for (std::size_t i = 1; i < args.Size(); ++i) { values.push_back(*args.TryGet(i)); }
+          for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
+            values.push_back(*args.TryGet(arg_index));
+          }
           return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::format_values(fmt, values))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1851,22 +1893,22 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_OS_Env: {
-        auto v = expect_unary("Std.OS.Env");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.OS.Env");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const std::string key = fleaux::runtime::to_string(*v.value());
-          if (const char* val = std::getenv(key.c_str())) {
-            return std::optional<Value>{fleaux::runtime::make_string(val)};
+          const std::string key = fleaux::runtime::to_string(*val.value());
+          if (const char* env_val = std::getenv(key.c_str())) {
+            return std::optional<Value>{fleaux::runtime::make_string(env_val)};
           }
           return std::optional<Value>{fleaux::runtime::make_null()};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_OS_HasEnv: {
-        auto v = expect_unary("Std.OS.HasEnv");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.OS.HasEnv");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const std::string key = fleaux::runtime::to_string(*v.value());
+          const std::string key = fleaux::runtime::to_string(*val.value());
           return std::optional<Value>{fleaux::runtime::make_bool(std::getenv(key.c_str()) != nullptr)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -1907,26 +1949,26 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.OS.SetEnv' argument unpack failed"});
         }
         try {
-          const std::string k = fleaux::runtime::to_string(*key);
-          const std::string v = fleaux::runtime::to_string(*value);
+          const std::string env_key = fleaux::runtime::to_string(*key);
+          const std::string env_val = fleaux::runtime::to_string(*value);
 #if defined(_WIN32)
-          if (_putenv_s(k.c_str(), v.c_str()) != 0) {
+          if (_putenv_s(env_key.c_str(), env_val.c_str()) != 0) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.OS.SetEnv' threw: OSSetEnv failed"});
           }
 #else
-          if (setenv(k.c_str(), v.c_str(), 1) != 0) {
+          if (setenv(env_key.c_str(), env_val.c_str(), 1) != 0) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.OS.SetEnv' threw: OSSetEnv failed"});
           }
 #endif
-          return std::optional<Value>{fleaux::runtime::make_string(v)};
+          return std::optional<Value>{fleaux::runtime::make_string(env_val)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_OS_UnsetEnv: {
-        auto v = expect_unary("Std.OS.UnsetEnv");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.OS.UnsetEnv");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const std::string key = fleaux::runtime::to_string(*v.value());
+          const std::string key = fleaux::runtime::to_string(*val.value());
           const bool existed = std::getenv(key.c_str()) != nullptr;
 #if defined(_WIN32)
           if (_putenv_s(key.c_str(), "") != 0) {
@@ -1947,7 +1989,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           std::error_code ec;
           const auto dir = std::filesystem::temp_directory_path(ec);
           if (ec) return std::optional<Value>{fleaux::runtime::make_null()};
-          for (int i = 0; i < 100; ++i) {
+          for (int attempt = 0; attempt < 100; ++attempt) {
             if (const auto candidate = dir / ("fleaux_" + fleaux::runtime::random_suffix() + ".tmp");
                 !std::filesystem::exists(candidate, ec) && !ec) {
               if (std::ofstream out(candidate); out.good()) {
@@ -1965,7 +2007,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           std::error_code ec;
           const auto dir = std::filesystem::temp_directory_path(ec);
           if (ec) return std::optional<Value>{fleaux::runtime::make_null()};
-          for (int i = 0; i < 100; ++i) {
+          for (int attempt = 0; attempt < 100; ++attempt) {
             if (const auto candidate = dir / ("fleaux_" + fleaux::runtime::random_suffix());
                 std::filesystem::create_directory(candidate, ec) && !ec) {
               return std::optional<Value>{fleaux::runtime::make_string(candidate.string())};
@@ -1982,90 +2024,92 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.Path.Join' threw: PathJoin expects at least 2 arguments"});
           }
-          std::filesystem::path out = fleaux::runtime::to_string(*args.TryGet(0));
-          for (std::size_t i = 1; i < args.Size(); ++i) { out /= fleaux::runtime::to_string(*args.TryGet(i)); }
-          return std::optional<Value>{fleaux::runtime::make_string(out.string())};
+          std::filesystem::path joined_path = fleaux::runtime::to_string(*args.TryGet(0));
+          for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
+            joined_path /= fleaux::runtime::to_string(*args.TryGet(segment_index));
+          }
+          return std::optional<Value>{fleaux::runtime::make_string(joined_path.string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Normalize: {
-        auto v = expect_unary("Std.Path.Normalize");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Normalize");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::path(fleaux::runtime::to_string(*v.value())).lexically_normal().string())};
+              std::filesystem::path(fleaux::runtime::to_string(*val.value())).lexically_normal().string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Basename: {
-        auto v = expect_unary("Std.Path.Basename");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Basename");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::path(fleaux::runtime::to_string(*v.value())).filename().string())};
+              std::filesystem::path(fleaux::runtime::to_string(*val.value())).filename().string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Dirname: {
-        auto v = expect_unary("Std.Path.Dirname");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Dirname");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::path(fleaux::runtime::to_string(*v.value())).parent_path().string())};
+              std::filesystem::path(fleaux::runtime::to_string(*val.value())).parent_path().string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Exists: {
-        auto v = expect_unary("Std.Path.Exists");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Exists");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_bool(
-              std::filesystem::exists(std::filesystem::path(fleaux::runtime::to_string(*v.value()))))};
+              std::filesystem::exists(std::filesystem::path(fleaux::runtime::to_string(*val.value()))))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_IsFile: {
-        auto v = expect_unary("Std.Path.IsFile");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.IsFile");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_bool(
-              std::filesystem::is_regular_file(std::filesystem::path(fleaux::runtime::to_string(*v.value()))))};
+              std::filesystem::is_regular_file(std::filesystem::path(fleaux::runtime::to_string(*val.value()))))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_IsDir: {
-        auto v = expect_unary("Std.Path.IsDir");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.IsDir");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_bool(
-              std::filesystem::is_directory(std::filesystem::path(fleaux::runtime::to_string(*v.value()))))};
+              std::filesystem::is_directory(std::filesystem::path(fleaux::runtime::to_string(*val.value()))))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Absolute: {
-        auto v = expect_unary("Std.Path.Absolute");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Absolute");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::absolute(std::filesystem::path(fleaux::runtime::to_string(*v.value()))).string())};
+              std::filesystem::absolute(std::filesystem::path(fleaux::runtime::to_string(*val.value()))).string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Extension: {
-        auto v = expect_unary("Std.Path.Extension");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Extension");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::path(fleaux::runtime::to_string(*v.value())).extension().string())};
+              std::filesystem::path(fleaux::runtime::to_string(*val.value())).extension().string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Path_Stem: {
-        auto v = expect_unary("Std.Path.Stem");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Path.Stem");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_string(
-              std::filesystem::path(fleaux::runtime::to_string(*v.value())).stem().string())};
+              std::filesystem::path(fleaux::runtime::to_string(*val.value())).stem().string())};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2102,10 +2146,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_File_ReadText: {
-        auto v = expect_unary("Std.File.ReadText");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.ReadText");
+        if (!val) return tl::unexpected(val.error());
         try {
-          std::ifstream in(fleaux::runtime::to_string(*v.value()));
+          std::ifstream in(fleaux::runtime::to_string(*val.value()));
           if (!in) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.ReadText' threw: FileReadText failed"});
           }
@@ -2124,13 +2168,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.File.WriteText' argument unpack failed"});
         }
         try {
-          const std::string p = fleaux::runtime::to_string(*path);
-          std::ofstream out(p, std::ios::trunc);
+          const std::string path_str = fleaux::runtime::to_string(*path);
+          std::ofstream out(path_str, std::ios::trunc);
           if (!out) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.WriteText' threw: FileWriteText failed"});
           }
           out << fleaux::runtime::to_string(*text);
-          return std::optional<Value>{fleaux::runtime::make_string(p)};
+          return std::optional<Value>{fleaux::runtime::make_string(path_str)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2143,21 +2187,21 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.File.AppendText' argument unpack failed"});
         }
         try {
-          const std::string p = fleaux::runtime::to_string(*path);
-          std::ofstream out(p, std::ios::app);
+          const std::string path_str = fleaux::runtime::to_string(*path);
+          std::ofstream out(path_str, std::ios::app);
           if (!out) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.AppendText' threw: FileAppendText failed"});
           }
           out << fleaux::runtime::to_string(*text);
-          return std::optional<Value>{fleaux::runtime::make_string(p)};
+          return std::optional<Value>{fleaux::runtime::make_string(path_str)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_File_ReadLines: {
-        auto v = expect_unary("Std.File.ReadLines");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.ReadLines");
+        if (!val) return tl::unexpected(val.error());
         try {
-          std::ifstream in(fleaux::runtime::to_string(*v.value()));
+          std::ifstream in(fleaux::runtime::to_string(*val.value()));
           if (!in) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.ReadLines' threw: FileReadLines failed"});
           }
@@ -2169,23 +2213,23 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_File_Delete: {
-        auto v = expect_unary("Std.File.Delete");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.Delete");
+        if (!val) return tl::unexpected(val.error());
         try {
           std::error_code ec;
           const bool removed =
-              std::filesystem::remove(std::filesystem::path(fleaux::runtime::to_string(*v.value())), ec);
+              std::filesystem::remove(std::filesystem::path(fleaux::runtime::to_string(*val.value())), ec);
           if (ec) { return tl::unexpected(RuntimeError{"native builtin 'Std.File.Delete' threw: " + ec.message()}); }
           return std::optional<Value>{fleaux::runtime::make_bool(removed)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_File_Size: {
-        auto v = expect_unary("Std.File.Size");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.Size");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(
-              std::filesystem::file_size(std::filesystem::path(fleaux::runtime::to_string(*v.value())))))};
+              std::filesystem::file_size(std::filesystem::path(fleaux::runtime::to_string(*val.value())))))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2212,10 +2256,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_File_ReadLine: {
-        auto v = expect_unary("Std.File.ReadLine");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.ReadLine");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const Value token = *v.value();
+          const Value token = *val.value();
           auto& e = fleaux::runtime::require_handle(token, "FileReadLine");
           if (e.mode.find('r') == std::string::npos) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.ReadLine' threw: FileReadLine: read failed"});
@@ -2250,13 +2294,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.File.ReadChunk' argument unpack failed"});
         }
         try {
-          auto& e = fleaux::runtime::require_handle(*token, "FileReadChunk");
-          const auto n = fleaux::runtime::as_index(*nbytes);
-          std::string buf(n, '\0');
-          e.stream.read(buf.data(), static_cast<std::streamsize>(n));
-          const std::streamsize got = e.stream.gcount();
-          buf.resize(static_cast<std::size_t>(got));
-          const bool eof = (got == 0 || e.stream.eof());
+          auto& handle_entry = fleaux::runtime::require_handle(*token, "FileReadChunk");
+          const auto byte_count = fleaux::runtime::as_index_strict(*nbytes, "FileReadChunk nbytes");
+          std::string buf(byte_count, '\0');
+          handle_entry.stream.read(buf.data(), static_cast<std::streamsize>(byte_count));
+          const std::streamsize bytes_read = handle_entry.stream.gcount();
+          buf.resize(static_cast<std::size_t>(bytes_read));
+          const bool eof = (bytes_read == 0 || handle_entry.stream.eof());
           const auto id = fleaux::runtime::handle_id_from_value(*token);
           if (!id) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.ReadChunk' threw: invalid handle token"});
@@ -2276,10 +2320,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.File.WriteChunk' argument unpack failed"});
         }
         try {
-          auto& e = fleaux::runtime::require_handle(*token, "FileWriteChunk");
-          const std::string& s = fleaux::runtime::as_string(*data);
-          e.stream.write(s.data(), static_cast<std::streamsize>(s.size()));
-          if (!e.stream) {
+          auto& handle_entry = fleaux::runtime::require_handle(*token, "FileWriteChunk");
+          const std::string& data_str = fleaux::runtime::as_string(*data);
+          handle_entry.stream.write(data_str.data(), static_cast<std::streamsize>(data_str.size()));
+          if (!handle_entry.stream) {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.File.WriteChunk' threw: FileWriteChunk: write failed"});
           }
@@ -2292,13 +2336,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_File_Flush: {
-        auto v = expect_unary("Std.File.Flush");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.Flush");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const Value token = *v.value();
-          auto& e = fleaux::runtime::require_handle(token, "FileFlush");
-          e.stream.flush();
-          if (!e.stream) {
+          const Value token = *val.value();
+          auto& handle_entry = fleaux::runtime::require_handle(token, "FileFlush");
+          handle_entry.stream.flush();
+          if (!handle_entry.stream) {
             return tl::unexpected(RuntimeError{"native builtin 'Std.File.Flush' threw: FileFlush: flush failed"});
           }
           const auto id = fleaux::runtime::handle_id_from_value(token);
@@ -2310,10 +2354,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_File_Close: {
-        auto v = expect_unary("Std.File.Close");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.File.Close");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const auto id = fleaux::runtime::handle_id_from_value(*v.value());
+          const auto id = fleaux::runtime::handle_id_from_value(*val.value());
           if (!id) return std::optional<Value>{fleaux::runtime::make_bool(false)};
           return std::optional<Value>{
               fleaux::runtime::make_bool(fleaux::runtime::handle_registry().close(id->slot, id->gen))};
@@ -2325,8 +2369,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         if (!args) return tl::unexpected(args.error());
         const auto path = (*args)->TryGet(0);
         const auto mode = (*args)->TryGet(1);
-        const auto fn = (*args)->TryGet(2);
-        if (!path || !mode || !fn) {
+        const auto function_ref = (*args)->TryGet(2);
+        if (!path || !mode || !function_ref) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.File.WithOpen' argument unpack failed"});
         }
         try {
@@ -2335,7 +2379,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto gen = fleaux::runtime::handle_registry().entries[slot].generation;
           const Value token = fleaux::runtime::make_handle_token(slot, gen);
           try {
-            Value result = fleaux::runtime::invoke_callable_ref(*fn, token);
+            Value result = fleaux::runtime::invoke_callable_ref(*function_ref, token);
             fleaux::runtime::handle_registry().close(slot, gen);
             return std::optional<Value>{std::move(result)};
           } catch (...) {
@@ -2346,55 +2390,55 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dir_Create: {
-        auto v = expect_unary("Std.Dir.Create");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dir.Create");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const std::string path = fleaux::runtime::to_string(*v.value());
+          const std::string path = fleaux::runtime::to_string(*val.value());
           std::filesystem::create_directories(path);
           return std::optional<Value>{fleaux::runtime::make_string(path)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Dir_Delete: {
-        auto v = expect_unary("Std.Dir.Delete");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dir.Delete");
+        if (!val) return tl::unexpected(val.error());
         try {
           std::error_code ec;
           const auto removed =
-              std::filesystem::remove_all(std::filesystem::path(fleaux::runtime::to_string(*v.value())), ec);
+              std::filesystem::remove_all(std::filesystem::path(fleaux::runtime::to_string(*val.value())), ec);
           if (ec) { return tl::unexpected(RuntimeError{"native builtin 'Std.Dir.Delete' threw: " + ec.message()}); }
           return std::optional<Value>{fleaux::runtime::make_bool(removed > 0)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Dir_List: {
-        auto v = expect_unary("Std.Dir.List");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dir.List");
+        if (!val) return tl::unexpected(val.error());
         try {
           std::vector<std::string> names;
           for (const auto& entry :
-               std::filesystem::directory_iterator(std::filesystem::path(fleaux::runtime::to_string(*v.value())))) {
+               std::filesystem::directory_iterator(std::filesystem::path(fleaux::runtime::to_string(*val.value())))) {
             names.push_back(entry.path().filename().string());
           }
           Array out;
           out.Reserve(names.size());
-          for (const auto& n : names) { out.PushBack(fleaux::runtime::make_string(n)); }
+          for (const auto& name_entry : names) { out.PushBack(fleaux::runtime::make_string(name_entry)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
       case BuiltinDispatchKey::kStd_Dir_ListFull: {
-        auto v = expect_unary("Std.Dir.ListFull");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dir.ListFull");
+        if (!val) return tl::unexpected(val.error());
         try {
           std::vector<std::string> names;
           for (const auto& entry :
-               std::filesystem::directory_iterator(std::filesystem::path(fleaux::runtime::to_string(*v.value())))) {
+               std::filesystem::directory_iterator(std::filesystem::path(fleaux::runtime::to_string(*val.value())))) {
             names.push_back(entry.path().string());
           }
           Array out;
           out.Reserve(names.size());
-          for (const auto& n : names) { out.PushBack(fleaux::runtime::make_string(n)); }
+          for (const auto& name_entry : names) { out.PushBack(fleaux::runtime::make_string(name_entry)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2411,7 +2455,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto& src = fleaux::runtime::as_array(*seq);
           Array out;
           out.Reserve(src.Size() + 1);
-          for (std::size_t i = 0; i < src.Size(); ++i) { out.PushBack(*src.TryGet(i)); }
+          for (std::size_t index = 0; index < src.Size(); ++index) { out.PushBack(*src.TryGet(index)); }
           out.PushBack(*item);
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2430,7 +2474,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           Array out;
           out.Reserve(src.Size() + 1);
           out.PushBack(*item);
-          for (std::size_t i = 0; i < src.Size(); ++i) { out.PushBack(*src.TryGet(i)); }
+          for (std::size_t index = 0; index < src.Size(); ++index) { out.PushBack(*src.TryGet(index)); }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2441,7 +2485,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto& src = fleaux::runtime::as_array(arg);
           Array out;
           out.Reserve(src.Size());
-          for (std::size_t i = src.Size(); i > 0; --i) { out.PushBack(*src.TryGet(i - 1)); }
+          for (std::size_t reverse_index = src.Size(); reverse_index > 0; --reverse_index) {
+            out.PushBack(*src.TryGet(reverse_index - 1));
+          }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2456,8 +2502,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (*src.TryGet(i) == *item) { return std::optional<Value>{fleaux::runtime::make_bool(true)}; }
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (*src.TryGet(index) == *item) { return std::optional<Value>{fleaux::runtime::make_bool(true)}; }
           }
           return std::optional<Value>{fleaux::runtime::make_bool(false)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2466,17 +2512,17 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       case BuiltinDispatchKey::kStd_Tuple_Zip: {
         auto args = expect_n("Std.Tuple.Zip", 2);
         if (!args) return tl::unexpected(args.error());
-        const auto a = (*args)->TryGet(0);
-        const auto b = (*args)->TryGet(1);
-        if (!a || !b) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Zip' argument unpack failed"}); }
+        const auto first_elem = (*args)->TryGet(0);
+        const auto second_elem = (*args)->TryGet(1);
+        if (!first_elem || !second_elem) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Zip' argument unpack failed"}); }
         try {
-          const auto& left = fleaux::runtime::as_array(*a);
-          const auto& right = fleaux::runtime::as_array(*b);
-          const std::size_t n = std::min(left.Size(), right.Size());
+          const auto& left = fleaux::runtime::as_array(*first_elem);
+          const auto& right = fleaux::runtime::as_array(*second_elem);
+          const std::size_t min_size = std::min(left.Size(), right.Size());
           Array out;
-          out.Reserve(n);
-          for (std::size_t i = 0; i < n; ++i) {
-            out.PushBack(fleaux::runtime::make_tuple(*left.TryGet(i), *right.TryGet(i)));
+          out.Reserve(min_size);
+          for (std::size_t index = 0; index < min_size; ++index) {
+            out.PushBack(fleaux::runtime::make_tuple(*left.TryGet(index), *right.TryGet(index)));
           }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2549,10 +2595,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dict_Keys: {
-        auto v = expect_unary("Std.Dict.Keys");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dict.Keys");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const auto& obj = fleaux::runtime::as_object(*v.value());
+          const auto& obj = fleaux::runtime::as_object(*val.value());
           const auto keys = fleaux::runtime::sorted_dict_keys(obj);
           Array out;
           out.Reserve(keys.size());
@@ -2562,10 +2608,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dict_Values: {
-        auto v = expect_unary("Std.Dict.Values");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dict.Values");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const auto& obj = fleaux::runtime::as_object(*v.value());
+          const auto& obj = fleaux::runtime::as_object(*val.value());
           const auto keys = fleaux::runtime::sorted_dict_keys(obj);
           Array out;
           out.Reserve(keys.size());
@@ -2577,11 +2623,11 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dict_Length: {
-        auto v = expect_unary("Std.Dict.Length");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dict.Length");
+        if (!val) return tl::unexpected(val.error());
         try {
           return std::optional<Value>{fleaux::runtime::make_int(
-              static_cast<fleaux::runtime::Int>(fleaux::runtime::as_object(*v.value()).Size()))};
+              static_cast<fleaux::runtime::Int>(fleaux::runtime::as_object(*val.value()).Size()))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2603,7 +2649,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const std::string fmt = fleaux::runtime::to_string(*args.TryGet(0));
           std::vector<Value> values;
           values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-          for (std::size_t i = 1; i < args.Size(); ++i) { values.push_back(*args.TryGet(i)); }
+          for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
+            values.push_back(*args.TryGet(arg_index));
+          }
           output << fleaux::runtime::format_values(fmt, values);
           return std::optional<Value>{arg};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2615,8 +2663,16 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           Array out;
           const auto& process_args = fleaux::runtime::get_process_args();
           out.Reserve(process_args.size());
-          for (const auto& s : process_args) { out.PushBack(fleaux::runtime::make_string(s)); }
+          for (const auto& process_arg : process_args) { out.PushBack(fleaux::runtime::make_string(process_arg)); }
           return std::optional<Value>{Value{std::move(out)}};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
+      case BuiltinDispatchKey::kStd_Type: {
+        auto val = expect_unary("Std.Type");
+        if (!val) return tl::unexpected(val.error());
+        try {
+          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::type_name(*val.value()))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2645,13 +2701,22 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       }
       case BuiltinDispatchKey::kStd_Exit: {
         try {
+          auto to_exit_code = [](const Value& value) -> int {
+            const fleaux::runtime::Int code = fleaux::runtime::as_int_value_strict(value, "Exit code");
+            if (code < static_cast<fleaux::runtime::Int>(std::numeric_limits<int>::min()) ||
+                code > static_cast<fleaux::runtime::Int>(std::numeric_limits<int>::max())) {
+              throw std::invalid_argument{"Exit code out of range for host int"};
+            }
+            return static_cast<int>(code);
+          };
+
           if (arg.HasArray()) {
             const auto& args = fleaux::runtime::as_array(arg);
             if (args.Size() == 0) { std::exit(0); }
-            if (args.Size() == 1) { std::exit(static_cast<int>(fleaux::runtime::to_double(*args.TryGet(0)))); }
+            if (args.Size() == 1) { std::exit(to_exit_code(*args.TryGet(0))); }
             return tl::unexpected(RuntimeError{"native builtin 'Std.Exit' threw: Exit expects 0 or 1 argument"});
           }
-          std::exit(static_cast<int>(fleaux::runtime::to_double(arg)));
+          std::exit(to_exit_code(arg));
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2659,16 +2724,16 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         auto args = expect_n("Std.Tuple.Map", 2);
         if (!args) return tl::unexpected(args.error());
         const auto seq = (*args)->TryGet(0);
-        const auto fn = (*args)->TryGet(1);
-        if (!seq || !fn) {
+        const auto function_ref = (*args)->TryGet(1);
+        if (!seq || !function_ref) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Map' argument unpack failed"});
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
           Array out;
           out.Reserve(src.Size());
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            out.PushBack(fleaux::runtime::invoke_callable_ref(*fn, *src.TryGet(i)));
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            out.PushBack(fleaux::runtime::invoke_callable_ref(*function_ref, *src.TryGet(index)));
           }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2685,8 +2750,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
           Array out;
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (const Value& item = *src.TryGet(i);
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (const Value& item = *src.TryGet(index);
                 fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, item))) {
               out.PushBack(item);
             }
@@ -2700,7 +2765,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto& src = fleaux::runtime::as_array(arg);
           std::vector<Value> items;
           items.reserve(src.Size());
-          for (std::size_t i = 0; i < src.Size(); ++i) { items.push_back(*src.TryGet(i)); }
+          for (std::size_t index = 0; index < src.Size(); ++index) { items.push_back(*src.TryGet(index)); }
           std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) -> bool {
             return fleaux::runtime::compare_values_for_sort(lhs, rhs) < 0;
           });
@@ -2716,11 +2781,11 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto& src = fleaux::runtime::as_array(arg);
           Array out;
           out.Reserve(src.Size());
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             bool seen = false;
-            for (std::size_t j = 0; j < out.Size(); ++j) {
-              if (*out.TryGet(j) == item) {
+            for (std::size_t existing_index = 0; existing_index < out.Size(); ++existing_index) {
+              if (*out.TryGet(existing_index) == item) {
                 seen = true;
                 break;
               }
@@ -2739,8 +2804,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
                 RuntimeError{"native builtin 'Std.Tuple.Min' threw: TupleMin expects non-empty tuple"});
           }
           const Value* best = &*src.TryGet(0);
-          for (std::size_t i = 1; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+          for (std::size_t index = 1; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             if (fleaux::runtime::compare_values_for_sort(item, *best) < 0) { best = &item; }
           }
           return std::optional<Value>{*best};
@@ -2755,8 +2820,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
                 RuntimeError{"native builtin 'Std.Tuple.Max' threw: TupleMax expects non-empty tuple"});
           }
           const Value* best = &*src.TryGet(0);
-          for (std::size_t i = 1; i < src.Size(); ++i) {
-            const Value& item = *src.TryGet(i);
+          for (std::size_t index = 1; index < src.Size(); ++index) {
+            const Value& item = *src.TryGet(index);
             if (fleaux::runtime::compare_values_for_sort(item, *best) > 0) { best = &item; }
           }
           return std::optional<Value>{*best};
@@ -2768,18 +2833,19 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         if (!args) return tl::unexpected(args.error());
         const auto seq = (*args)->TryGet(0);
         const auto initial = (*args)->TryGet(1);
-        const auto fn = (*args)->TryGet(2);
-        if (!seq || !initial || !fn) {
+        const auto function_ref = (*args)->TryGet(2);
+        if (!seq || !initial || !function_ref) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Reduce' argument unpack failed"});
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
-          Value acc = *initial;
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            acc =
-                fleaux::runtime::invoke_callable_ref(*fn, fleaux::runtime::make_tuple(std::move(acc), *src.TryGet(i)));
+          Value accumulator = *initial;
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            accumulator = fleaux::runtime::invoke_callable_ref(*function_ref,
+                                                               fleaux::runtime::make_tuple(std::move(accumulator),
+                                                                                           *src.TryGet(index)));
           }
-          return std::optional<Value>{std::move(acc)};
+          return std::optional<Value>{std::move(accumulator)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2793,9 +2859,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(i)))) {
-              return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(i))};
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(index)))) {
+              return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(index))};
             }
           }
           return std::optional<Value>{fleaux::runtime::make_int(-1)};
@@ -2812,8 +2878,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(i)))) {
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(index)))) {
               return std::optional<Value>{fleaux::runtime::make_bool(true)};
             }
           }
@@ -2831,8 +2897,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         }
         try {
           const auto& src = fleaux::runtime::as_array(*seq);
-          for (std::size_t i = 0; i < src.Size(); ++i) {
-            if (!fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(i)))) {
+          for (std::size_t index = 0; index < src.Size(); ++index) {
+            if (!fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(*pred, *src.TryGet(index)))) {
               return std::optional<Value>{fleaux::runtime::make_bool(false)};
             }
           }
@@ -2847,14 +2913,14 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           fleaux::runtime::Int stop = 0;
           fleaux::runtime::Int step = 1;
           if (args.Size() == 1) {
-            stop = fleaux::runtime::as_int_value(*args.TryGet(0));
+            stop = fleaux::runtime::as_int_value_strict(*args.TryGet(0), "TupleRange stop");
           } else if (args.Size() == 2) {
-            start = fleaux::runtime::as_int_value(*args.TryGet(0));
-            stop = fleaux::runtime::as_int_value(*args.TryGet(1));
+            start = fleaux::runtime::as_int_value_strict(*args.TryGet(0), "TupleRange start");
+            stop = fleaux::runtime::as_int_value_strict(*args.TryGet(1), "TupleRange stop");
           } else if (args.Size() == 3) {
-            start = fleaux::runtime::as_int_value(*args.TryGet(0));
-            stop = fleaux::runtime::as_int_value(*args.TryGet(1));
-            step = fleaux::runtime::as_int_value(*args.TryGet(2));
+            start = fleaux::runtime::as_int_value_strict(*args.TryGet(0), "TupleRange start");
+            stop = fleaux::runtime::as_int_value_strict(*args.TryGet(1), "TupleRange stop");
+            step = fleaux::runtime::as_int_value_strict(*args.TryGet(2), "TupleRange step");
           } else {
             return tl::unexpected(
                 RuntimeError{"native builtin 'Std.Tuple.Range' threw: TupleRange expects 1, 2, or 3 arguments"});
@@ -2864,9 +2930,13 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           }
           Array out;
           if (step > 0) {
-            for (fleaux::runtime::Int i = start; i < stop; i += step) { out.PushBack(fleaux::runtime::make_int(i)); }
+            for (fleaux::runtime::Int current = start; current < stop; current += step) {
+              out.PushBack(fleaux::runtime::make_int(current));
+            }
           } else {
-            for (fleaux::runtime::Int i = start; i > stop; i += step) { out.PushBack(fleaux::runtime::make_int(i)); }
+            for (fleaux::runtime::Int current = start; current > stop; current += step) {
+              out.PushBack(fleaux::runtime::make_int(current));
+            }
           }
           return std::optional<Value>{Value{std::move(out)}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -2903,10 +2973,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dict_Entries: {
-        auto v = expect_unary("Std.Dict.Entries");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dict.Entries");
+        if (!val) return tl::unexpected(val.error());
         try {
-          const auto& obj = fleaux::runtime::as_object(*v.value());
+          const auto& obj = fleaux::runtime::as_object(*val.value());
           const auto keys = fleaux::runtime::sorted_dict_keys(obj);
           Array out;
           out.Reserve(keys.size());
@@ -2920,10 +2990,10 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         break;
       }
       case BuiltinDispatchKey::kStd_Dict_Clear: {
-        auto v = expect_unary("Std.Dict.Clear");
-        if (!v) return tl::unexpected(v.error());
+        auto val = expect_unary("Std.Dict.Clear");
+        if (!val) return tl::unexpected(val.error());
         try {
-          (void)fleaux::runtime::as_object(*v.value());
+          (void)fleaux::runtime::as_object(*val.value());
           return std::optional<Value>{Value{fleaux::runtime::Object{}}};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
@@ -2932,15 +3002,15 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         auto args = expect_n("Std.Branch", 4);
         if (!args) return tl::unexpected(args.error());
         const auto cond = (*args)->TryGet(0);
-        const auto val = (*args)->TryGet(1);
-        const auto tf = (*args)->TryGet(2);
-        const auto ff = (*args)->TryGet(3);
-        if (!cond || !val || !tf || !ff) {
+        const auto value = (*args)->TryGet(1);
+        const auto true_func = (*args)->TryGet(2);
+        const auto false_func = (*args)->TryGet(3);
+        if (!cond || !value || !true_func || !false_func) {
           return tl::unexpected(RuntimeError{"native builtin 'Std.Branch' argument unpack failed"});
         }
         try {
-          const Value& chosen = fleaux::runtime::as_bool(*cond) ? *tf : *ff;
-          return std::optional<Value>{fleaux::runtime::invoke_callable_ref(chosen, *val)};
+          const Value& chosen = fleaux::runtime::as_bool(*cond) ? *true_func : *false_func;
+          return std::optional<Value>{fleaux::runtime::invoke_callable_ref(chosen, *value)};
         } catch (const std::exception& ex) {
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Branch' threw: ") + ex.what()});
         }

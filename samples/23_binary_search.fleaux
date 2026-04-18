@@ -1,41 +1,41 @@
 import Std;
 
-let BS_Mid(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =
+let BS_Mid(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64): Float64 =
     ((lo, hi) -> Std.Add, 2) -> Std.Divide -> Std.Math.Floor;
 
-let BS_MidValue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Number =
+let BS_MidValue(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64): Float64 =
     (arr, (arr, target, lo, hi, result) -> BS_Mid) -> Std.ElementAt;
 
-let BS_FoundState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
-    Tuple(Any, Number, Number, Number, Number) =
+let BS_FoundState(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64):
+    Tuple(Any, Float64, Float64, Float64, Float64) =
     (arr, target, 1, 0, (arr, target, lo, hi, result) -> BS_Mid);
 
-let BS_SearchRightState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
-    Tuple(Any, Number, Number, Number, Number) =
+let BS_SearchRightState(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64):
+    Tuple(Any, Float64, Float64, Float64, Float64) =
     (arr, target, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Add, hi, result);
 
-let BS_SearchLeftState(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
-    Tuple(Any, Number, Number, Number, Number) =
+let BS_SearchLeftState(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64):
+    Tuple(Any, Float64, Float64, Float64, Float64) =
     (arr, target, lo, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Subtract, result);
 
-let BS_DecideDirection(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
-    Tuple(Any, Number, Number, Number, Number) =
+let BS_DecideDirection(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64):
+    Tuple(Any, Float64, Float64, Float64, Float64) =
     (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.LessThan,
      (arr, target, lo, hi, result),
      BS_SearchRightState,
      BS_SearchLeftState) -> Std.Branch;
 
-let BS_Continue(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number): Bool =
+let BS_Continue(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64): Bool =
     (lo, hi) -> Std.LessOrEqual;
 
-let BS_Step(arr: Tuple(Any...), target: Number, lo: Number, hi: Number, result: Number):
-    Tuple(Any, Number, Number, Number, Number) =
+let BS_Step(arr: Tuple(Any...), target: Float64, lo: Float64, hi: Float64, result: Float64):
+    Tuple(Any, Float64, Float64, Float64, Float64) =
     (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.Equal,
      (arr, target, lo, hi, result),
      BS_FoundState,
      BS_DecideDirection) -> Std.Branch;
 
-let BinarySearchIndex(arr: Tuple(Any...), target: Number): Number =
+let BinarySearchIndex(arr: Tuple(Any...), target: Float64): Float64 =
     ((arr, target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract, -1), BS_Continue, BS_Step, 256)
         -> Std.LoopN
         -> (_, 4) -> Std.ElementAt;

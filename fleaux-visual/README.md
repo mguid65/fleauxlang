@@ -57,7 +57,7 @@ npm run build
   - `let`
   - `tuple`
   - `std` (explicit Std namespace nodes)
-  - `literal` (`String` / `Number` / `Bool` / `Null`)
+    - `literal` (`String` / `Int64|UInt64|Float64` / `Bool` / `Null`)
 - Std namespace nodes (from `Std.fleaux`) available in toolbar:
   - `Std`, `Std.Exp`, `Std.String`, `Std.String.Regex`, `Std.Tuple`, `Std.Math`, `Std.Path`, `Std.File`, `Std.Dir`, `Std.OS`, `Std.Dict`
 - Quick add toolbar for creating nodes

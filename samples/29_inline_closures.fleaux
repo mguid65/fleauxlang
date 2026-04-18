@@ -1,20 +1,20 @@
 import Std;
 
 // Inline closure as a value passed to Std.Apply.
-(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;
+(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;
 
 // Inline closure as a direct pipeline target (desugars to Std.Apply).
-(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;
+(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;
 
 // Captured lexical value in an inline closure.
-let MakeAdder(n: Number): Any = (x: Number): Number = (x, n) -> Std.Add;
+let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;
 (10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;
 
 // Pipeline into an inline closure target directly.
-(10) -> (x: Number): Number = (x, 10) -> Std.Add -> Std.Println;
+(10) -> (x: Float64): Float64 = (x, 10) -> Std.Add -> Std.Println;
 
 // Inline closure used as a higher-order callback.
-((1, 2, 3), (x: Number): Number = (x, 2) -> Std.Multiply) -> Std.Tuple.Map -> Std.Println;
+((1, 2, 3), (x: Float64): Float64 = (x, 2) -> Std.Multiply) -> Std.Tuple.Map -> Std.Println;
 
 // No params
 () -> (): Any = ("Empty Closure") -> Std.Println;

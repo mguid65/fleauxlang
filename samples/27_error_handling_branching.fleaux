@@ -18,13 +18,13 @@ let ResultPayload(result: Any): Any =
 let IsOk(result: Any): Bool =
     ((result) -> ResultTag, "Ok") -> Std.Equal;
 
-let ReciprocalOk(x: Number): Any =
+let ReciprocalOk(x: Float64): Any =
     (1, x) -> Std.Divide -> Ok;
 
-let ReciprocalErr(x: Number): Any =
+let ReciprocalErr(x: Float64): Any =
     ("division by zero") -> Err;
 
-let SafeReciprocalResult(x: Number): Any =
+let SafeReciprocalResult(x: Float64): Any =
     ((x, 0) -> Std.Equal, x, ReciprocalErr, ReciprocalOk) -> Std.Branch;
 
 let PrintOk(result: Any): Any =

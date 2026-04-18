@@ -16,7 +16,7 @@ import Std;
 () -> Std.Pi -> Std.Math.Cos -> Std.Println;                          // ~-1.0 (cos(pi))
 () -> Std.Pi -> (_, 4) -> Std.Divide -> Std.Math.Tan -> Std.Println;  // ~1.0 (tan(pi/4))
 // -- Degrees to radians: angle * (pi / 180) --
-let DegToRad(deg: Number): Number =
+let DegToRad(deg: Float64): Float64 =
     (deg, () -> Std.Pi -> (_, 180) -> Std.Divide) -> Std.Multiply;
 (90) -> DegToRad -> Std.Math.Sin -> Std.Println;                  // ~1.0
 (60) -> DegToRad -> Std.Math.Cos -> Std.Println;                  // ~0.5

@@ -1,14 +1,16 @@
 #include <algorithm>
-#include <cctype>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/bytecode/module_loader.hpp"
+#include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/cli/repl_driver.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/value.hpp"
@@ -26,6 +28,10 @@ struct CliOptions {
   std::optional<std::filesystem::path> source;
   std::vector<std::string> process_args;
   bool no_run = false;
+  bool optimize = false;
+  bool emit_bytecode = false;
+  bool inspect = false;
+  bool no_color = false;
   bool repl = false;
   bool show_help = false;
 };
@@ -51,7 +57,8 @@ auto vm_runtime_hint_for(const std::string& runtime_message) -> std::optional<st
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [file.fleaux] [-- "
+  return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [--inspect] [--emit-bytecode] "
+         "[--no-color] [file.fleaux|file.fleaux.bc] [-- "
          "<arg1> <arg2> ...]";
 }
 
@@ -64,53 +71,18 @@ void print_help() {
             << "  --engine <mode>        Alias for --mode\n"
             << "  --repl                 Start interactive interpreter REPL\n"
             << "  --no-run               Skip execution and print what would run\n"
+            << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
+            << "  --emit-bytecode        Write/refresh .fleaux.bc cache files while loading modules\n"
+            << "  --inspect              Print header/dependency/export info for a .fleaux.bc module and exit\n"
+            << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n"
             << "\n"
             << "Notes:\n"
             << "  - Default mode is vm\n"
             << "  - REPL forces interpreter mode\n"
+            << "  - In REPL, use :help (or :?) to list REPL commands\n"
             << "  - If no source is provided, defaults to test.fleaux\n"
+            << "  - --inspect expects a .fleaux.bc file (or a .fleaux file with sibling .fleaux.bc)\n"
             << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
-}
-
-auto trim_copy(const std::string& text) -> std::string {
-  const auto begin_it =
-      std::ranges::find_if_not(text, [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
-  const auto end_it = std::ranges::find_if_not(std::views::reverse(text), [](const unsigned char ch) -> bool {
-                        return std::isspace(ch) != 0;
-                      }).base();
-  if (begin_it >= end_it) { return {}; }
-  return {begin_it, end_it};
-}
-
-auto buffer_has_complete_statement(const std::string& buffer) -> bool {
-  int paren_depth = 0;
-  bool in_string = false;
-  bool escaped = false;
-  for (const char ch : buffer) {
-    if (in_string) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch == '\\') {
-        escaped = true;
-      } else if (ch == '"') {
-        in_string = false;
-      }
-      continue;
-    }
-
-    if (ch == '"') {
-      in_string = true;
-      continue;
-    }
-    if (ch == '(') {
-      ++paren_depth;
-      continue;
-    }
-    if (ch == ')') { --paren_depth; }
-  }
-
-  if (paren_depth != 0 || in_string) { return false; }
-  return trim_copy(buffer).ends_with(';');
 }
 
 auto make_cli_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
@@ -118,26 +90,25 @@ auto make_cli_error(const std::string& message, const std::optional<std::string>
   return CliError{.message = message, .hint = hint, .span = span};
 }
 
-auto load_ir_program(const std::filesystem::path& source_file)
-    -> tl::expected<fleaux::frontend::ir::IRProgram, CliError> {
-  return fleaux::frontend::source_loader::load_ir_program<CliError>(
-      source_file, make_cli_error, "Cyclic import detected.", "Break the cycle by moving shared definitions to a third module.");
-}
-
-auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args)
+auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args,
+            const bool optimize, const bool emit_bytecode)
     -> tl::expected<void, CliError> {
-  auto ir_program = load_ir_program(source_file);
-  if (!ir_program) { return tl::unexpected(ir_program.error()); }
-
-  constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto module = compiler.compile(ir_program.value());
-  if (!module) {
+  auto module_result = fleaux::bytecode::load_linked_module(
+      source_file,
+      fleaux::bytecode::ModuleLoadOptions{
+          .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
+                           : fleaux::bytecode::OptimizationMode::kBaseline,
+          .write_bytecode_cache = emit_bytecode,
+      });
+  if (!module_result) {
     return tl::unexpected(CliError{
-        .message = module.error().message,
+        .message = module_result.error().message,
         .hint = "Switch to --mode interpreter for this program.",
         .span = std::nullopt,
     });
   }
+  auto module = std::move(module_result.value());
+
 
   std::vector<std::string> args_storage;
   args_storage.reserve(process_args.size() + 1U);
@@ -149,8 +120,8 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 
-  const fleaux::vm::Runtime runtime;
-  if (const auto exec = runtime.execute(module.value()); !exec) {
+  constexpr fleaux::vm::Runtime runtime;
+  if (const auto exec = runtime.execute(module); !exec) {
     return tl::unexpected(CliError{
         .message = exec.error().message,
         .hint = vm_runtime_hint_for(exec.error().message),
@@ -158,6 +129,61 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
     });
   }
 
+  return {};
+}
+
+void print_module_summary(const fleaux::bytecode::Module& module) {
+  std::cout << "module: " << module.header.module_name << '\n';
+  std::cout << "source_path: " << module.header.source_path << '\n';
+  std::cout << "source_hash: " << module.header.source_hash << '\n';
+  std::cout << "payload_checksum: " << module.header.payload_checksum << '\n';
+  std::cout << "optimization_mode: " << static_cast<int>(module.header.optimization_mode) << '\n';
+
+  std::cout << "dependencies(" << module.dependencies.size() << "):\n";
+  for (const auto& dependency : module.dependencies) {
+    std::cout << "  - " << dependency.module_name;
+    if (dependency.is_symbolic) { std::cout << " [symbolic]"; }
+    std::cout << '\n';
+  }
+
+  std::cout << "exports(" << module.exports.size() << "):\n";
+  for (const auto& exported_symbol : module.exports) {
+    std::cout << "  - " << exported_symbol.name << " kind="
+              << (exported_symbol.kind == fleaux::bytecode::ExportKind::kFunction ? "function" : "builtin_alias")
+              << " index=" << exported_symbol.index;
+    if (exported_symbol.kind == fleaux::bytecode::ExportKind::kBuiltinAlias) {
+      std::cout << " builtin=" << exported_symbol.builtin_name;
+    }
+    std::cout << '\n';
+  }
+}
+
+auto run_inspect(const std::filesystem::path& source_or_bytecode) -> tl::expected<void, CliError> {
+  std::filesystem::path bytecode_path = source_or_bytecode;
+  if (bytecode_path.extension() != ".bc") {
+    bytecode_path += ".bc";
+  }
+
+  std::ifstream in(bytecode_path, std::ios::binary);
+  if (!in) {
+    return tl::unexpected(CliError{
+        .message = "Failed to read bytecode file: " + bytecode_path.string(),
+        .hint = "Provide a .fleaux.bc file or a source path with a sibling .fleaux.bc.",
+        .span = std::nullopt,
+    });
+  }
+
+  const std::vector<std::uint8_t> buffer((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const auto module = fleaux::bytecode::deserialize_module(buffer);
+  if (!module) {
+    return tl::unexpected(CliError{
+        .message = module.error().message,
+        .hint = "The file may be corrupted or from an incompatible bytecode schema.",
+        .span = std::nullopt,
+    });
+  }
+
+  print_module_summary(*module);
   return {};
 }
 
@@ -179,66 +205,24 @@ auto run_interpreter_and_report(const std::filesystem::path& source, const std::
   return 0;
 }
 
-auto run_repl_loop(const std::vector<std::string>& process_args) -> int {
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session(process_args);
-
-  std::cout << "Fleaux interpreter REPL\n"
-            << "Type :help for commands, :quit to exit.\n";
-
-  std::string buffer;
-  while (true) {
-    std::cout << (buffer.empty() ? ">>> " : "... ");
-    std::string line;
-    if (!std::getline(std::cin, line)) {
-      std::cout << '\n';
-      break;
-    }
-
-    if (buffer.empty()) {
-      const auto command = trim_copy(line);
-      if (command == ":quit" || command == ":q") { break; }
-      if (command == ":help") {
-        std::cout << "Commands:\n"
-                  << "  :help    Show this help\n"
-                  << "  :quit    Exit REPL\n"
-                  << "Notes:\n"
-                  << "  - End snippets with ';'\n"
-                  << "  - Multi-line input is supported until a complete statement\n";
-        continue;
-      }
-      if (command.empty()) { continue; }
-    }
-
-    if (!buffer.empty()) { buffer.push_back('\n'); }
-    buffer += line;
-
-    if (!buffer_has_complete_statement(buffer)) { continue; }
-
-    if (const auto result = session.run_snippet(buffer); !result) {
-      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", result.error().message, result.error().span,
-                                                             result.error().hint)
-                << '\n';
-    }
-    buffer.clear();
-  }
-
-  return 0;
-}
-
 auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
+  if (argc < 2) {
+    options.repl = true;
+    options.engine = VmEngine::kInterpreter;
+  }
+
   bool runtime_args_mode = false;
-  for (int i = 1; i < argc; ++i) {
-    const std::string_view token = argv[i];
+  for (int arg_index = 1; arg_index < argc; ++arg_index) {
+    const std::string_view token = argv[arg_index];
     if (!runtime_args_mode && token == "--") {
       runtime_args_mode = true;
       continue;
     }
 
     if (runtime_args_mode) {
-      options.process_args.emplace_back(argv[i]);
+      options.process_args.emplace_back(argv[arg_index]);
       continue;
     }
 
@@ -248,12 +232,12 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
     }
 
     if (token == "--engine" || token == "--mode") {
-      if (i + 1 >= argc) {
+      if (arg_index + 1 >= argc) {
         return tl::unexpected(CliError{.message = std::string("missing value for ") + std::string(token),
                                        .hint = std::nullopt,
                                        .span = std::nullopt});
       }
-      const std::string_view mode_token = argv[++i];
+      const std::string_view mode_token = argv[++arg_index];
       const auto parsed_engine = parse_engine(mode_token);
       if (!parsed_engine.has_value()) {
         return tl::unexpected(CliError{
@@ -268,6 +252,26 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 
     if (token == "--no-run") {
       options.no_run = true;
+      continue;
+    }
+
+    if (token == "--optimize") {
+      options.optimize = true;
+      continue;
+    }
+
+    if (token == "--emit-bytecode") {
+      options.emit_bytecode = true;
+      continue;
+    }
+
+    if (token == "--inspect") {
+      options.inspect = true;
+      continue;
+    }
+
+    if (token == "--no-color") {
+      options.no_color = true;
       continue;
     }
 
@@ -297,7 +301,7 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
     });
   }
 
-  if (!options.repl && !options.source.has_value()) {
+  if (!options.repl && !options.inspect && !options.source.has_value()) {
     options.source = std::filesystem::path("test.fleaux");
   }
 
@@ -305,12 +309,13 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 }
 
 auto run_engine_for_source(const VmEngine engine, const std::filesystem::path& source,
-                           const std::vector<std::string>& process_args) -> int {
+                           const std::vector<std::string>& process_args, const bool optimize,
+                           const bool emit_bytecode) -> int {
   if (engine == VmEngine::kInterpreter) {
     return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
   }
 
-  if (const auto result = run_vm(source, process_args); !result) {
+  if (const auto result = run_vm(source, process_args, optimize, emit_bytecode); !result) {
     return print_diag_and_return("vm-run-vm", result.error());
   }
   return 0;
@@ -327,9 +332,24 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [engine, source_path, process_args, no_run, repl, show_help] = *parsed;
+  const auto& [engine, source_path, process_args, no_run, optimize, emit_bytecode, inspect, no_color, repl, show_help] =
+      *parsed;
   if (show_help) {
     print_help();
+    return 0;
+  }
+
+  if (inspect) {
+    if (!source_path.has_value()) {
+      return print_diag_and_return("vm-inspect", CliError{
+                                                     .message = "inspect mode requires a module path",
+                                                     .hint = "Pass a .fleaux.bc file (or .fleaux with sibling .bc).",
+                                                     .span = std::nullopt,
+                                                 });
+    }
+    if (const auto result = run_inspect(*source_path); !result) {
+      return print_diag_and_return("vm-inspect", result.error());
+    }
     return 0;
   }
 
@@ -338,7 +358,8 @@ auto main(int argc, char** argv) -> int {
       std::cout << "[interpreter] skipped run (--no-run): <repl>\n";
       return 0;
     }
-    return run_repl_loop(process_args);
+    const fleaux::cli::ReplDriver repl_driver;
+      return repl_driver.run(process_args, !no_color);
   }
 
   if (no_run) {
@@ -347,6 +368,6 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  return run_engine_for_source(engine, *source_path, process_args);
+  return run_engine_for_source(engine, *source_path, process_args, optimize, emit_bytecode);
 }
 

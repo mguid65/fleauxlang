@@ -2,9 +2,13 @@
 
 #include <cctype>
 #include <cstdint>
+#include <format>
+#include <limits>
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -13,9 +17,23 @@
 namespace fleaux::frontend::parse {
 namespace {
 
+template <typename T>
+using PResult = tl::expected<T, ParseError>;
+
+#define FLEAUX_TRY_ASSIGN(name, expr)                  \
+  auto name##_result = (expr);                         \
+  if (!name##_result) return tl::unexpected(name##_result.error()); \
+  auto name = std::move(*name##_result)
+
+#define FLEAUX_TRYV(expr)                              \
+  do {                                                 \
+    auto _fleaux_result = (expr);                      \
+    if (!_fleaux_result) return tl::unexpected(_fleaux_result.error()); \
+  } while (false)
+
 enum class TokenKind {
   kIdent,
-  kNumber,
+  kNumeric,
   kString,
   kBool,
   kNull,
@@ -33,8 +51,9 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",  "import", "Number", "String",     "Bool",
-                                                   "Null", "Any",    "Tuple",  "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",     "import",  "Int64", "UInt64",
+                                                   "Float64", "String",  "Bool",   "Null",   "Any",
+                                                   "Tuple",   "__builtin__"};
 
 const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "__builtin__"};
 
@@ -42,7 +61,8 @@ const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
 
-const std::unordered_set<std::string> kSimpleTypes = {"Number", "String", "Bool", "Null", "Any"};
+const std::unordered_set<std::string> kSimpleTypes = {"Int64", "UInt64", "Float64", "String", "Bool",
+                                                      "Null",   "Any"};
 
 auto is_ident_start(const char c) -> bool { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
@@ -74,40 +94,40 @@ auto make_error(const std::string& message, const std::optional<std::string>& hi
   return error;
 }
 
-auto lex_or_throw(const std::string& source, const std::string& source_name, ParseError& error) -> std::vector<Token> {
+auto lex(const std::string& source, const std::string& source_name) -> PResult<std::vector<Token>> {
   std::vector<Token> out;
-  std::size_t i = 0;
+  std::size_t cursor = 0;
   int line = 1;
   int col = 1;
 
-  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int l,
-                  const int c) -> void {
-    Token t;
-    t.kind = kind;
-    t.value = value;
-    t.text = text;
-    t.line = l;
-    t.col = c;
-    out.push_back(std::move(t));
+  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int tok_line,
+                  const int tok_col) -> void {
+    Token token;
+    token.kind = kind;
+    token.value = value;
+    token.text = text;
+    token.line = tok_line;
+    token.col = tok_col;
+    out.push_back(std::move(token));
   };
 
-  while (i < source.size()) {
-    const char c = source[i];
+  while (cursor < source.size()) {
+    const char ch = source[cursor];
 
-    if (c == ' ' || c == '\t' || c == '\r') {
-      ++i;
+    if (ch == ' ' || ch == '\t' || ch == '\r') {
+      ++cursor;
       ++col;
       continue;
     }
-    if (c == '\n') {
-      ++i;
+    if (ch == '\n') {
+      ++cursor;
       ++line;
       col = 1;
       continue;
     }
-    if (starts_with(source, i, "//")) {
-      while (i < source.size() && source[i] != '\n') {
-        ++i;
+    if (starts_with(source, cursor, "//")) {
+      while (cursor < source.size() && source[cursor] != '\n') {
+        ++cursor;
         ++col;
       }
       continue;
@@ -116,9 +136,9 @@ auto lex_or_throw(const std::string& source, const std::string& source_name, Par
     static const std::vector<std::string> kMulti = {"...", "->", "::", "==", "!=", ">=", "<=", "&&", "||"};
     bool matched_multi = false;
     for (const auto& sym : kMulti) {
-      if (starts_with(source, i, sym)) {
+      if (starts_with(source, cursor, sym)) {
         push(TokenKind::kSymbol, sym, sym, line, col);
-        i += sym.size();
+        cursor += sym.size();
         col += static_cast<int>(sym.size());
         matched_multi = true;
         break;
@@ -126,25 +146,25 @@ auto lex_or_throw(const std::string& source, const std::string& source_name, Par
     }
     if (matched_multi) { continue; }
 
-    if (c == '"') {
+    if (ch == '"') {
       const int start_line = line;
       const int start_col = col;
       std::string decoded;
-      std::size_t j = i + 1;
+      std::size_t str_end = cursor + 1;
       int local_col = col + 1;
       bool closed = false;
 
-      while (j < source.size()) {
-        char ch = source[j];
-        if (ch == '"') {
+      while (str_end < source.size()) {
+        char str_ch = source[str_end];
+        if (str_ch == '"') {
           closed = true;
-          ++j;
+          ++str_end;
           ++local_col;
           break;
         }
-        if (ch == '\\') {
-          if (j + 1 >= source.size()) { break; }
-          switch (const char esc = source[j + 1]) {
+        if (str_ch == '\\') {
+          if (str_end + 1 >= source.size()) { break; }
+          switch (const char esc = source[str_end + 1]) {
             case 'n':
               decoded.push_back('\n');
               break;
@@ -164,75 +184,90 @@ auto lex_or_throw(const std::string& source, const std::string& source_name, Par
               decoded.push_back(esc);
               break;
           }
-          j += 2;
+          str_end += 2;
           local_col += 2;
           continue;
         }
-        if (ch == '\n') { break; }
-        decoded.push_back(ch);
-        ++j;
+        if (str_ch == '\n') { break; }
+        decoded.push_back(str_ch);
+        ++str_end;
         ++local_col;
       }
 
       if (!closed) {
-        Token tok;
-        tok.kind = TokenKind::kString;
-        tok.line = start_line;
-        tok.col = start_col;
-        tok.text = "\"";
-        error = make_error("Unterminated string literal", std::nullopt, span_from_token(tok, source_name, source));
-        return {};
+        Token token;
+        token.kind = TokenKind::kString;
+        token.line = start_line;
+        token.col = start_col;
+        token.text = "\"";
+        return tl::unexpected(make_error("Unterminated string literal", std::nullopt,
+                                         span_from_token(token, source_name, source)));
       }
 
-      const auto text = source.substr(i, j - i);
+      const auto text = source.substr(cursor, str_end - cursor);
       push(TokenKind::kString, decoded, text, start_line, start_col);
       col = local_col;
-      i = j;
+      cursor = str_end;
       continue;
     }
 
-    if (std::isdigit(static_cast<unsigned char>(c)) != 0) {
-      const std::size_t start = i;
+    if (std::isdigit(static_cast<unsigned char>(ch)) != 0) {
+      const std::size_t start = cursor;
       const int start_col = col;
 
-      while (i < source.size() && std::isdigit(static_cast<unsigned char>(source[i])) != 0) {
-        ++i;
+      while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
+        ++cursor;
         ++col;
       }
-      if (i < source.size() && source[i] == '.') {
-        ++i;
+      if (cursor < source.size() && source[cursor] == '.') {
+        ++cursor;
         ++col;
-        while (i < source.size() && std::isdigit(static_cast<unsigned char>(source[i])) != 0) {
-          ++i;
+        while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
+          ++cursor;
           ++col;
         }
       }
-      if (i < source.size() && (source[i] == 'e' || source[i] == 'E')) {
-        ++i;
+      if (cursor < source.size() && (source[cursor] == 'e' || source[cursor] == 'E')) {
+        ++cursor;
         ++col;
-        if (i < source.size() && (source[i] == '+' || source[i] == '-')) {
-          ++i;
+        if (cursor < source.size() && (source[cursor] == '+' || source[cursor] == '-')) {
+          ++cursor;
           ++col;
         }
-        while (i < source.size() && std::isdigit(static_cast<unsigned char>(source[i])) != 0) {
-          ++i;
+        const std::size_t exponent_digits_start = cursor;
+        while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
+          ++cursor;
           ++col;
+        }
+        if (cursor == exponent_digits_start) {
+          Token token;
+          token.kind = TokenKind::kNumeric;
+          token.line = line;
+          token.col = start_col;
+          token.text = source.substr(start, cursor - start);
+          return tl::unexpected(make_error("Malformed numeric literal", "Exponent requires at least one digit.",
+                                           span_from_token(token, source_name, source)));
         }
       }
 
-      const auto text = source.substr(start, i - start);
-      push(TokenKind::kNumber, text, text, line, start_col);
+      if (cursor + 3 <= source.size() && source.compare(cursor, 3, "u64") == 0) {
+        cursor += 3;
+        col += 3;
+      }
+
+      const auto text = source.substr(start, cursor - start);
+      push(TokenKind::kNumeric, text, text, line, start_col);
       continue;
     }
 
-    if (is_ident_start(c)) {
-      const std::size_t start = i;
+    if (is_ident_start(ch)) {
+      const std::size_t start = cursor;
       const int start_col = col;
-      while (i < source.size() && is_ident_char(source[i])) {
-        ++i;
+      while (cursor < source.size() && is_ident_char(source[cursor])) {
+        ++cursor;
         ++col;
       }
-      if (const auto text = source.substr(start, i - start); text == "True" || text == "False") {
+      if (const auto text = source.substr(start, cursor - start); text == "True" || text == "False") {
         push(TokenKind::kBool, text, text, line, start_col);
       } else if (text == "null") {
         push(TokenKind::kNull, text, text, line, start_col);
@@ -242,23 +277,22 @@ auto lex_or_throw(const std::string& source, const std::string& source_name, Par
       continue;
     }
 
-    static const std::string kSingle = "()[],:;.=+-*/%^!<>";
-    if (kSingle.find(c) != std::string::npos) {
-      const std::string text(1, c);
+    static const std::string kSingle = "()[],:;.=+-*/%^!<>|";
+    if (kSingle.find(ch) != std::string::npos) {
+      const std::string text(1, ch);
       push(TokenKind::kSymbol, text, text, line, col);
-      ++i;
+      ++cursor;
       ++col;
       continue;
     }
 
-    Token tok;
-    tok.kind = TokenKind::kSymbol;
-    tok.line = line;
-    tok.col = col;
-    tok.text = std::string(1, c);
-    error = make_error("Unexpected character '" + std::string(1, c) + "'", std::nullopt,
-                       span_from_token(tok, source_name, source));
-    return {};
+    Token token;
+    token.kind = TokenKind::kSymbol;
+    token.line = line;
+    token.col = col;
+    token.text = std::string(1, ch);
+    return tl::unexpected(make_error(std::format("Unexpected character '{}'", ch), std::nullopt,
+                                     span_from_token(token, source_name, source)));
   }
 
   push(TokenKind::kEof, "", "", line, col);
@@ -268,7 +302,9 @@ auto lex_or_throw(const std::string& source, const std::string& source_name, Par
 class ParserImpl {
 public:
   ParserImpl(std::string source, std::string source_name, std::vector<Token> tokens)
-      : source_(std::move(source)), source_name_(std::move(source_name)), tokens_(std::move(tokens)) {}
+      : source_(std::move(source)), source_name_(std::move(source_name)), tokens_(std::move(tokens)) {
+    classify_source_lines();
+  }
 
   auto parse() -> ParseResult {
     model::Program program;
@@ -276,8 +312,9 @@ public:
     program.source_name = source_name_;
 
     while (!is(TokenKind::kEof)) {
-      program.statements.push_back(stmt());
-      eat_symbol(";");
+      FLEAUX_TRY_ASSIGN(parsed_stmt, stmt());
+      program.statements.push_back(std::move(parsed_stmt));
+      FLEAUX_TRYV(eat_symbol(";"));
     }
 
     if (!program.statements.empty()) {
@@ -295,6 +332,65 @@ private:
   std::string source_name_;
   std::vector<Token> tokens_;
   std::size_t i_ = 0;
+  std::vector<bool> source_line_is_blank_;
+  std::vector<std::optional<std::string>> source_line_comment_;
+
+  [[nodiscard]] static auto trim_copy(std::string_view text) -> std::string {
+    const auto first = text.find_first_not_of(" \t\r");
+    if (first == std::string_view::npos) { return {}; }
+    const auto last = text.find_last_not_of(" \t\r");
+    return std::string{text.substr(first, last - first + 1)};
+  }
+
+  void classify_source_lines() {
+    source_line_is_blank_.assign(1, false);
+    source_line_comment_.assign(1, std::nullopt);
+
+    std::size_t line_start = 0;
+    while (line_start <= source_.size()) {
+      const std::size_t newline = source_.find('\n', line_start);
+      const std::size_t line_end = newline == std::string::npos ? source_.size() : newline;
+      const std::string_view raw_line(source_.data() + line_start, line_end - line_start);
+      const std::string trimmed = trim_copy(raw_line);
+
+      source_line_is_blank_.push_back(trimmed.empty());
+      if (trimmed.starts_with("//")) {
+        std::string comment_text = trim_copy(std::string_view(trimmed).substr(2));
+        source_line_comment_.push_back(std::move(comment_text));
+      } else {
+        source_line_comment_.push_back(std::nullopt);
+      }
+
+      if (newline == std::string::npos) { break; }
+      line_start = newline + 1;
+    }
+  }
+
+  [[nodiscard]] auto doc_comments_for_line(const int line) const -> std::vector<std::string> {
+    if (line <= 1 || static_cast<std::size_t>(line) >= source_line_is_blank_.size()) { return {}; }
+
+    int cursor = line - 1;
+    if (source_line_is_blank_[static_cast<std::size_t>(cursor)]) { return {}; }
+    if (!source_line_comment_[static_cast<std::size_t>(cursor)].has_value()) { return {}; }
+
+    std::vector<std::string> comments;
+    while (cursor >= 1) {
+      const std::size_t idx = static_cast<std::size_t>(cursor);
+      if (source_line_comment_[idx].has_value()) {
+        comments.push_back(*source_line_comment_[idx]);
+        --cursor;
+        continue;
+      }
+      if (source_line_is_blank_[idx]) {
+        comments.clear();
+        break;
+      }
+      break;
+    }
+
+    std::reverse(comments.begin(), comments.end());
+    return comments;
+  }
 
   [[nodiscard]] auto peek() const -> const Token& { return tokens_[i_]; }
 
@@ -337,10 +433,10 @@ private:
     return span;
   }
 
-  [[noreturn]] void err(const std::string& message, const std::optional<Token>& tok = std::nullopt,
-                        const std::optional<std::string>& hint = std::nullopt) const {
+  [[nodiscard]] auto err(const std::string& message, const std::optional<Token>& tok = std::nullopt,
+                         const std::optional<std::string>& hint = std::nullopt) const -> ParseError {
     const Token& use = tok.has_value() ? *tok : peek();
-    throw make_error(message, hint, span_from_token(use));
+    return make_error(message, hint, span_from_token(use));
   }
 
   auto next() -> const Token& {
@@ -357,49 +453,55 @@ private:
     return false;
   }
 
-  auto eat_symbol(const std::string& symbol) -> const Token& {
+  auto eat_symbol(const std::string& symbol) -> PResult<Token> {
     if (const Token& tok = peek(); !is_symbol(symbol)) {
-      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
-      err("Expected '" + symbol + "', got " + got, tok, hint_for_expected_token(symbol, tok));
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
+      return tl::unexpected(err(std::format("Expected '{}', got {}", symbol, got), tok, hint_for_expected_token(symbol, tok)));
     }
     return next();
   }
 
-  auto eat_ident_token() -> const Token& {
+  auto eat_ident_token() -> PResult<Token> {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent) {
-      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
-      err("Expected 'IDENT', got " + got, tok, hint_for_expected_token("IDENT", tok));
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
+      return tl::unexpected(err(std::format("Expected 'IDENT', got {}", got), tok, hint_for_expected_token("IDENT", tok)));
     }
     return next();
   }
 
-  auto eat_ident_value(const std::string& ident) -> const Token& {
+  auto eat_ident_value(const std::string& ident) -> PResult<Token> {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent || tok.value != ident) {
-      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
-      err("Expected '" + ident + "', got " + got, tok, "Check keyword spelling and statement structure.");
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
+      return tl::unexpected(
+          err(std::format("Expected '{}', got {}", ident, got), tok, "Check keyword spelling and statement structure."));
     }
     return next();
   }
 
-  auto ident() -> std::string {
-    const Token tok = eat_ident_token();
-    if (kKeywords.contains(tok.value)) { err("Keyword '" + tok.value + "' cannot be used as an identifier", tok); }
-    return tok.value;
-  }
-
-  auto ns_ident() -> std::string {
-    const Token tok = eat_ident_token();
-    if (kStructuralKeywords.contains(tok.value)) {
-      err("Keyword '" + tok.value + "' cannot be used as a namespace segment", tok);
+  auto ident() -> PResult<std::string> {
+    FLEAUX_TRY_ASSIGN(tok, eat_ident_token());
+    if (kKeywords.contains(tok.value)) {
+      return tl::unexpected(err(std::format("Keyword '{}' cannot be used as an identifier", tok.value), tok));
     }
     return tok.value;
   }
 
-  auto opt_qid() -> std::variant<std::string, model::QualifiedId> {
+  auto ns_ident() -> PResult<std::string> {
+    FLEAUX_TRY_ASSIGN(tok, eat_ident_token());
+    if (kStructuralKeywords.contains(tok.value)) {
+      return tl::unexpected(err(std::format("Keyword '{}' cannot be used as a namespace segment", tok.value), tok));
+    }
+    return tok.value;
+  }
+
+  auto opt_qid() -> PResult<std::variant<std::string, model::QualifiedId>> {
     const std::size_t start = i_;
-    std::string head = ident();
+    FLEAUX_TRY_ASSIGN(head, ident());
     std::vector<std::string> parts{head};
-    while (match_symbol(".")) { parts.push_back(ns_ident()); }
+    while (match_symbol(".")) {
+      FLEAUX_TRY_ASSIGN(segment, ns_ident());
+      parts.push_back(std::move(segment));
+    }
 
     if (parts.size() == 1U) { return head; }
 
@@ -418,21 +520,22 @@ private:
     return out;
   }
 
-  auto type() -> model::TypeNode {
+  auto type() -> PResult<model::TypeNode> {
     const std::size_t start = i_;
     model::TypeNode base;
 
     if (is_ident_value("Tuple")) {
       next();
-      eat_symbol("(");
+      FLEAUX_TRYV(eat_symbol("("));
       model::TypeList type_list;
       if (!is_symbol(")")) {
         while (true) {
-          type_list.types.emplace_back(type());
+          FLEAUX_TRY_ASSIGN(t, type());
+          type_list.types.emplace_back(std::move(t));
           if (!match_symbol(",")) { break; }
         }
       }
-      eat_symbol(")");
+      FLEAUX_TRYV(eat_symbol(")"));
       type_list.span = span_from_mark(start);
       base.value = std::move(type_list);
       base.span = span_from_mark(start);
@@ -441,7 +544,7 @@ private:
       base.value = token.value;
       base.span = span_from_mark(start);
     } else if (is(TokenKind::kIdent)) {
-      const auto qid = opt_qid();
+      FLEAUX_TRY_ASSIGN(qid, opt_qid());
       if (const auto* simple = std::get_if<std::string>(&qid); simple != nullptr) {
         base.value = *simple;
       } else if (const auto* qualified = std::get_if<model::QualifiedId>(&qid); qualified != nullptr) {
@@ -449,15 +552,31 @@ private:
       }
       base.span = span_from_mark(start);
     } else {
-      err("Expected type");
+      return tl::unexpected(err("Expected type"));
     }
 
     if (match_symbol("...")) {
       if (const auto* base_name = std::get_if<std::string>(&base.value); base_name != nullptr) {
         base.value = *base_name + "...";
       } else {
-        err("Variadic '...' only supported on simple type names");
+        return tl::unexpected(err("Variadic '...' only supported on simple type names"));
       }
+      return base;
+    }
+
+    // Union type: T | U | V
+    if (is_symbol("|")) {
+      model::UnionTypeList union_list;
+      union_list.alternatives.emplace_back(base);
+      while (match_symbol("|")) {
+        FLEAUX_TRY_ASSIGN(t, type());
+        union_list.alternatives.emplace_back(std::move(t));
+      }
+      union_list.span = span_from_mark(start);
+      model::TypeNode union_node;
+      union_node.value = std::move(union_list);
+      union_node.span = span_from_mark(start);
+      return union_node;
     }
 
     return base;
@@ -468,21 +587,23 @@ private:
            std::holds_alternative<std::string>(primary.base.value);
   }
 
-  auto expr(bool allow_ungrouped_closure_stage_split = true) -> model::Expression {
+  auto expr(bool allow_ungrouped_closure_stage_split = true) -> PResult<model::Expression> {
     const std::size_t start = i_;
     model::Expression out;
-    out.expr = flow(allow_ungrouped_closure_stage_split);
+    FLEAUX_TRY_ASSIGN(parsed_flow, flow(allow_ungrouped_closure_stage_split));
+    out.expr = std::move(parsed_flow);
     out.span = span_from_mark(start);
     return out;
   }
 
-  auto closure_stage_flow() -> model::FlowExpression {
+  auto closure_stage_flow() -> PResult<model::FlowExpression> {
     const std::size_t start = i_;
     model::FlowExpression out;
-    out.lhs = primary();
+    FLEAUX_TRY_ASSIGN(lhs, primary());
+    out.lhs = std::move(lhs);
 
     while (match_symbol("->")) {
-      auto stage = primary();
+      FLEAUX_TRY_ASSIGN(stage, primary());
       out.rhs.push_back(stage);
       if (is_call_target_primary(stage)) { break; }
     }
@@ -491,10 +612,11 @@ private:
     return out;
   }
 
-  auto closure_stage_expr() -> model::Expression {
+  auto closure_stage_expr() -> PResult<model::Expression> {
     const std::size_t start = i_;
     model::Expression out;
-    out.expr = closure_stage_flow();
+    FLEAUX_TRY_ASSIGN(parsed_flow, closure_stage_flow());
+    out.expr = std::move(parsed_flow);
     out.span = span_from_mark(start);
     return out;
   }
@@ -513,12 +635,22 @@ private:
 
         const std::size_t param_start = i_;
         model::Parameter p;
-        p.param_name = ident();
+        auto parsed_ident = ident();
+        if (!parsed_ident) {
+          i_ = checkpoint;
+          return false;
+        }
+        p.param_name = std::move(*parsed_ident);
         if (!match_symbol(":")) {
           i_ = checkpoint;
           return false;
         }
-        p.type = type();
+        auto parsed_type = type();
+        if (!parsed_type) {
+          i_ = checkpoint;
+          return false;
+        }
+        p.type = std::move(*parsed_type);
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
 
@@ -538,39 +670,99 @@ private:
     model::ClosureExpression closure;
     closure.params.params = std::move(params);
     closure.params.span = span_from_mark(open_paren_index);
-    closure.rtype = type();
+    auto parsed_rtype = type();
+    if (!parsed_rtype) {
+      i_ = checkpoint;
+      return false;
+    }
+    closure.rtype = std::move(*parsed_rtype);
 
     if (!match_symbol("=")) {
       i_ = checkpoint;
       return false;
     }
 
-    closure.body = allow_ungrouped_closure_stage_split ? closure_stage_expr() : expr();
+    if (allow_ungrouped_closure_stage_split) {
+      auto parsed_body = closure_stage_expr();
+      if (!parsed_body) {
+        i_ = checkpoint;
+        return false;
+      }
+      closure.body = std::move(*parsed_body);
+    } else {
+      auto parsed_body = expr();
+      if (!parsed_body) {
+        i_ = checkpoint;
+        return false;
+      }
+      closure.body = std::move(*parsed_body);
+    }
     closure.span = span_from_mark(open_paren_index);
     out_atom.value = std::move(closure);
     out_atom.span = span_from_mark(open_paren_index);
     return true;
   }
 
-  auto flow(bool allow_ungrouped_closure_stage_split = true) -> model::FlowExpression {
+  auto flow(bool allow_ungrouped_closure_stage_split = true) -> PResult<model::FlowExpression> {
     const std::size_t start = i_;
     model::FlowExpression out;
-    out.lhs = primary();
-    while (match_symbol("->")) { out.rhs.push_back(primary(allow_ungrouped_closure_stage_split)); }
+    FLEAUX_TRY_ASSIGN(lhs, primary());
+    out.lhs = std::move(lhs);
+    while (match_symbol("->")) {
+      FLEAUX_TRY_ASSIGN(stage, primary(allow_ungrouped_closure_stage_split));
+      out.rhs.push_back(std::move(stage));
+    }
     out.span = span_from_mark(start);
     return out;
   }
 
-  auto primary(const bool allow_ungrouped_closure_stage_split = false) -> model::Primary {
+  auto primary(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Primary> {
     const std::size_t start = i_;
     model::Primary out;
-    out.base = atom(allow_ungrouped_closure_stage_split);
+    FLEAUX_TRY_ASSIGN(parsed_atom, atom(allow_ungrouped_closure_stage_split));
+    out.base = std::move(parsed_atom);
     out.span = span_from_mark(start);
     return out;
   }
 
-  auto atom(const bool allow_ungrouped_closure_stage_split = false) -> model::Atom {
+  auto atom(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Atom> {
     const std::size_t start = i_;
+
+    auto parse_number_constant = [&](const Token& num, const bool negate) -> PResult<model::Constant> {
+      model::Constant c;
+      const bool is_u64 = num.value.ends_with("u64");
+      const std::string digits = is_u64 ? num.value.substr(0, num.value.size() - 3) : num.value;
+      try {
+        if (is_u64) {
+          if (negate) {
+            return tl::unexpected(err("UInt64 literal cannot be negative", num,
+                                      "Remove the unary '-' or use an Int64/Float64 literal."));
+          }
+          if (digits.find_first_of(".eE") != std::string::npos) {
+            return tl::unexpected(
+                err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
+          }
+          const auto parsed = std::stoull(digits);
+          if (parsed > std::numeric_limits<std::uint64_t>::max()) {
+            return tl::unexpected(err("Numeric literal is out of range", num, "Use a smaller UInt64 literal."));
+          }
+          c.val = static_cast<std::uint64_t>(parsed);
+        } else if (digits.find_first_of(".eE") != std::string::npos) {
+          const double parsed = std::stod(digits);
+          c.val = negate ? -parsed : parsed;
+        } else {
+          const std::int64_t parsed = std::stoll(digits);
+          c.val = negate ? -parsed : parsed;
+        }
+      } catch (const std::out_of_range&) {
+        return tl::unexpected(err("Numeric literal is out of range", num,
+                                  "Use a smaller value or write the literal as Float64 if appropriate."));
+      } catch (const std::invalid_argument&) {
+        return tl::unexpected(err("Invalid numeric literal", num, "Check number formatting."));
+      }
+      c.span = span_from_mark(start);
+      return c;
+    };
 
     if (match_symbol("(")) {
       model::Atom closure_atom;
@@ -587,26 +779,21 @@ private:
 
       model::DelimitedExpression inner;
       while (true) {
-        inner.items.emplace_back(expr());
+        FLEAUX_TRY_ASSIGN(item_expr, expr());
+        inner.items.emplace_back(std::move(item_expr));
         if (!match_symbol(",")) { break; }
       }
-      eat_symbol(")");
+      FLEAUX_TRYV(eat_symbol(")"));
       inner.span = span_from_mark(start);
       out.value = std::move(inner);
       out.span = span_from_mark(start);
       return out;
     }
 
-    if (is_symbol("-") && peek_ahead(1) != nullptr && peek_ahead(1)->kind == TokenKind::kNumber) {
+    if (is_symbol("-") && peek_ahead(1) != nullptr && peek_ahead(1)->kind == TokenKind::kNumeric) {
       next();
       const Token num = next();
-      model::Constant c;
-      if (num.value.find_first_of(".eE") != std::string::npos) {
-        c.val = -std::stod(num.value);
-      } else {
-        c.val = -std::stoll(num.value);
-      }
-      c.span = span_from_mark(start);
+      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, true));
 
       model::Atom out;
       out.value = std::move(c);
@@ -614,15 +801,9 @@ private:
       return out;
     }
 
-    if (is(TokenKind::kNumber)) {
+    if (is(TokenKind::kNumeric)) {
       const Token num = next();
-      model::Constant c;
-      if (num.value.find_first_of(".eE") != std::string::npos) {
-        c.val = std::stod(num.value);
-      } else {
-        c.val = std::stoll(num.value);
-      }
-      c.span = span_from_mark(start);
+      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, false));
 
       model::Atom out;
       out.value = std::move(c);
@@ -675,11 +856,11 @@ private:
 
     if (!is(TokenKind::kIdent)) {
       const Token& tok = peek();
-      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : ("'" + tok.value + "'");
-      err("expected an expression, got " + got, tok, hint_for_expected_expression(tok));
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
+      return tl::unexpected(err(std::format("expected an expression, got {}", got), tok, hint_for_expected_expression(tok)));
     }
 
-    const auto q = opt_qid();
+    FLEAUX_TRY_ASSIGN(q, opt_qid());
     model::Atom out;
     if (const auto* qualified = std::get_if<model::QualifiedId>(&q); qualified != nullptr) {
       out.value = *qualified;
@@ -690,18 +871,18 @@ private:
     return out;
   }
 
-  auto import_module_name() -> std::string {
+  auto import_module_name() -> PResult<std::string> {
     const Token tok = peek();
     if (tok.kind == TokenKind::kIdent) {
       if (kKeywords.contains(tok.value)) {
-        err("Keyword '" + tok.value + "' cannot be used as an import module name", tok);
+        return tl::unexpected(err(std::format("Keyword '{}' cannot be used as an import module name", tok.value), tok));
       }
       return next().value;
     }
 
-    if (tok.kind == TokenKind::kNumber) {
+    if (tok.kind == TokenKind::kNumeric) {
       std::vector<Token> parts{next()};
-      while (peek().kind == TokenKind::kNumber || peek().kind == TokenKind::kIdent) {
+      while (peek().kind == TokenKind::kNumeric || peek().kind == TokenKind::kIdent) {
         const Token nxt = peek();
         if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) { break; }
         parts.push_back(next());
@@ -712,17 +893,20 @@ private:
       return name;
     }
 
-    err("Expected import module name", tok, "Use a module name like 'Std' or a digit-leading name like '20_export'.");
+    return tl::unexpected(
+        err("Expected import module name", tok, "Use a module name like 'Std' or a digit-leading name like '20_export'."));
   }
 
-  auto let_stmt() -> model::LetStatement {
+  auto let_stmt() -> PResult<model::LetStatement> {
     const std::size_t start = i_;
-    eat_ident_value("let");
+    FLEAUX_TRYV(eat_ident_value("let"));
 
     model::LetStatement out;
-    out.id = opt_qid();
+    out.doc_comments = doc_comments_for_line(tokens_[start].line);
+    FLEAUX_TRY_ASSIGN(let_id, opt_qid());
+    out.id = std::move(let_id);
 
-    eat_symbol("(");
+    FLEAUX_TRYV(eat_symbol("("));
     std::vector<model::Parameter> params;
     const std::size_t params_paren_start = i_ - 1;
 
@@ -730,25 +914,29 @@ private:
       while (true) {
         const std::size_t param_start = i_;
         model::Parameter p;
-        p.param_name = ident();
-        eat_symbol(":");
-        p.type = type();
+        FLEAUX_TRY_ASSIGN(param_name, ident());
+        p.param_name = std::move(param_name);
+        FLEAUX_TRYV(eat_symbol(":"));
+        FLEAUX_TRY_ASSIGN(param_type, type());
+        p.type = std::move(param_type);
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
         if (!match_symbol(",")) { break; }
       }
     }
-    eat_symbol(")");
+    FLEAUX_TRYV(eat_symbol(")"));
 
     out.params.params = std::move(params);
     out.params.span = span_from_mark(params_paren_start);
 
-    eat_symbol(":");
-    out.rtype = type();
+    FLEAUX_TRYV(eat_symbol(":"));
+    FLEAUX_TRY_ASSIGN(rtype, type());
+    out.rtype = std::move(rtype);
 
     if (!(match_symbol("::") || match_symbol("="))) {
-      err("Expected '::' or '='", std::nullopt,
-          "After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions.");
+      return tl::unexpected(err(
+          "Expected '::' or '='", std::nullopt,
+          "After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions."));
     }
 
     if (is_ident_value("__builtin__")) {
@@ -756,19 +944,21 @@ private:
       out.is_builtin = true;
       out.expr = std::nullopt;
     } else {
-      out.expr = expr();
+      FLEAUX_TRY_ASSIGN(let_expr, expr());
+      out.expr = std::move(let_expr);
     }
 
     out.span = span_from_mark(start);
     return out;
   }
 
-  auto stmt() -> model::Statement {
+  auto stmt() -> PResult<model::Statement> {
     if (is_ident_value("import")) {
       const std::size_t start = i_;
       next();
       model::ImportStatement stmt;
-      stmt.module_name = import_module_name();
+      FLEAUX_TRY_ASSIGN(module_name, import_module_name());
+      stmt.module_name = std::move(module_name);
       stmt.span = span_from_mark(start);
       return stmt;
     }
@@ -777,7 +967,8 @@ private:
 
     const std::size_t start = i_;
     model::ExpressionStatement stmt;
-    stmt.expr = expr();
+    FLEAUX_TRY_ASSIGN(statement_expr, expr());
+    stmt.expr = std::move(statement_expr);
     stmt.span = span_from_mark(start);
     return stmt;
   }
@@ -828,7 +1019,7 @@ private:
         return "Close the current tuple/parameter list with ')' before continuing the pipeline.";
       }
       if (is_expression_start(got_tok)) {
-        if (prev_tok.kind == TokenKind::kNumber || prev_tok.kind == TokenKind::kString ||
+        if (prev_tok.kind == TokenKind::kNumeric || prev_tok.kind == TokenKind::kString ||
             prev_tok.kind == TokenKind::kBool || prev_tok.kind == TokenKind::kNull ||
             prev_tok.kind == TokenKind::kIdent || (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == ")")) {
           return "Did you forget a comma? Add ',' between tuple elements or function arguments.";
@@ -837,7 +1028,7 @@ private:
       return "Close the current tuple/parameter list with ')'.";
     }
 
-    if (expected == ":") { return "Add ':' before a type annotation (for example: x: Number)."; }
+    if (expected == ":") { return "Add ':' before a type annotation (for example: x: Float64)."; }
 
     if (expected == "IDENT") {
       if (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == "->") {
@@ -850,7 +1041,7 @@ private:
   }
 
   [[nodiscard]] static auto is_expression_start(const Token& tok) -> bool {
-    if (tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString || tok.kind == TokenKind::kBool ||
+    if (tok.kind == TokenKind::kNumeric || tok.kind == TokenKind::kString || tok.kind == TokenKind::kBool ||
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
     }
@@ -861,7 +1052,7 @@ private:
   }
 
   [[nodiscard]] static auto is_statement_start(const Token& tok) -> bool {
-    if (tok.kind == TokenKind::kIdent || tok.kind == TokenKind::kNumber || tok.kind == TokenKind::kString ||
+    if (tok.kind == TokenKind::kIdent || tok.kind == TokenKind::kNumeric || tok.kind == TokenKind::kString ||
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
@@ -873,14 +1064,11 @@ private:
 }  // namespace
 
 auto Parser::parse_program(const std::string& source, const std::string& source_name) const -> ParseResult {
-  ParseError lex_error;
-  auto tokens = lex_or_throw(source, source_name, lex_error);
-  if (!lex_error.message.empty()) { return tl::unexpected(lex_error); }
+  auto tokens = lex(source, source_name);
+  if (!tokens) { return tl::unexpected(tokens.error()); }
 
-  try {
-    ParserImpl impl(source, source_name, std::move(tokens));
-    return impl.parse();
-  } catch (const ParseError& parse_error) { return tl::unexpected(parse_error); }
+  ParserImpl impl(source, source_name, std::move(*tokens));
+  return impl.parse();
 }
 
 }  // namespace fleaux::frontend::parse

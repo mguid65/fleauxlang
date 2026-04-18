@@ -11,7 +11,7 @@
 // The pipeline operator   value | Builtin{}   returns a Value.
 //
 // Fleaux tuples are represented as Value holding an ArrayNodeType.
-// Fleaux primitives are Value holding a ValueNodeType (Number/Bool/String/Null).
+// Fleaux primitives are Value holding a ValueNodeType (Int64/UInt64/Float64/Bool/String/Null).
 //
 // Control-flow builtins (Loop, LoopN, Apply, Branch, Select) remain templated
 // because their function arguments are C++ callables, not Values.
@@ -99,7 +99,9 @@ inline void set_process_args(const int argc, char** argv) {
   args.clear();
   if (argc <= 0) { return; }
   args.reserve(static_cast<std::size_t>(argc));
-  for (int i = 0; i < argc; ++i) { args.emplace_back((argv != nullptr && argv[i] != nullptr) ? argv[i] : ""); }
+  for (int arg_index = 0; arg_index < argc; ++arg_index) {
+    args.emplace_back((argv != nullptr && argv[arg_index] != nullptr) ? argv[arg_index] : "");
+  }
 }
 
 [[nodiscard]] inline auto get_process_args() -> std::vector<std::string> {
@@ -157,14 +159,14 @@ auto make_callable_ref(F&& fn) -> Value {
   if (!num) { return std::nullopt; }
 
   return num->Visit(
-      [](const Int i) -> std::optional<UInt> {
-        if (i < 0) return std::nullopt;
-        return static_cast<UInt>(i);
+      [](const Int signed_value) -> std::optional<UInt> {
+        if (signed_value < 0) return std::nullopt;
+        return static_cast<UInt>(signed_value);
       },
-      [](const UInt u) -> std::optional<UInt> { return u; },
-      [](const Float d) -> std::optional<UInt> {
-        if (d < 0.0 || std::floor(d) != d) return std::nullopt;
-        return static_cast<UInt>(d);
+      [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
+      [](const Float float_value) -> std::optional<UInt> {
+        if (float_value < 0.0 || std::floor(float_value) != float_value) return std::nullopt;
+        return static_cast<UInt>(float_value);
       });
 }
 
@@ -185,15 +187,15 @@ struct HandleRegistry {
   auto open(const std::string& path, const std::string& mode) -> UInt {
     std::scoped_lock lock(mtx);
     // find a closed slot to reuse
-    for (std::size_t i = 0; i < entries.size(); ++i) {
-      if (entries[i].closed) {
-        auto& entry = entries[i];
+    for (std::size_t slot_index = 0; slot_index < entries.size(); ++slot_index) {
+      if (entries[slot_index].closed) {
+        auto& entry = entries[slot_index];
         entry.generation++;
         entry.closed = false;
         entry.path = path;
         entry.mode = mode;
         open_stream(entry);
-        return static_cast<UInt>(i);
+        return static_cast<UInt>(slot_index);
       }
     }
 
@@ -207,13 +209,13 @@ struct HandleRegistry {
     return static_cast<UInt>(entries.size() - 1);
   }
 
-  static void open_stream(HandleEntry& e) {
+  static void open_stream(HandleEntry& entry) {
     std::ios::openmode flags{};
 
-    const bool is_read = (e.mode.find('r') != std::string::npos);
-    const bool is_write = (e.mode.find('w') != std::string::npos);
-    const bool is_append = (e.mode.find('a') != std::string::npos);
-    const bool is_binary = (e.mode.find('b') != std::string::npos);
+    const bool is_read = (entry.mode.find('r') != std::string::npos);
+    const bool is_write = (entry.mode.find('w') != std::string::npos);
+    const bool is_append = (entry.mode.find('a') != std::string::npos);
+    const bool is_binary = (entry.mode.find('b') != std::string::npos);
 
     if (is_read) flags |= std::ios::in;
     if (is_write) flags |= std::ios::out | std::ios::trunc;
@@ -221,9 +223,9 @@ struct HandleRegistry {
     if (is_binary) flags |= std::ios::binary;
     if (!is_read && !is_write && !is_append) flags |= std::ios::in;
 
-    e.stream.open(e.path, flags);
-    if (!e.stream.is_open()) {
-      throw std::runtime_error{"FileOpen: cannot open '" + e.path + "' with mode '" + e.mode + "'"};
+    entry.stream.open(entry.path, flags);
+    if (!entry.stream.is_open()) {
+      throw std::runtime_error{"FileOpen: cannot open '" + entry.path + "' with mode '" + entry.mode + "'"};
     }
   }
 
@@ -231,18 +233,18 @@ struct HandleRegistry {
   // open() or close() while the pointer is in use.
   [[nodiscard]] auto get(const UInt slot, const UInt gen) -> HandleEntry* {
     if (slot >= entries.size()) return nullptr;
-    auto& e = entries[slot];
-    if (e.closed || e.generation != gen) return nullptr;
-    return &e;
+    auto& entry = entries[slot];
+    if (entry.closed || entry.generation != gen) return nullptr;
+    return &entry;
   }
 
   auto close(const UInt slot, const UInt gen) -> bool {
     std::scoped_lock lock(mtx);
     if (slot >= entries.size()) return false;
-    auto& e = entries[slot];
-    if (e.closed || e.generation != gen) return false;
-    e.stream.close();
-    e.closed = true;
+    auto& entry = entries[slot];
+    if (entry.closed || entry.generation != gen) return false;
+    entry.stream.close();
+    entry.closed = true;
     return true;
   }
 };
@@ -284,22 +286,24 @@ struct HandleId {
   return Value{std::move(token)};
 }
 
-[[nodiscard]] inline auto handle_id_from_value(const Value& v) -> std::optional<HandleId> {
-  const auto& arr = v.TryGetArray();
+[[nodiscard]] inline auto handle_id_from_value(const Value& value) -> std::optional<HandleId> {
+  const auto& arr = value.TryGetArray();
   if (!arr || arr->Size() != 3) return std::nullopt;
   const auto& tag = arr->TryGet(0)->TryGetString();
   if (!tag || *tag != k_handle_tag) return std::nullopt;
   const auto& sn = arr->TryGet(1)->TryGetNumber();
   const auto& gn = arr->TryGet(2)->TryGetNumber();
   if (!sn || !gn) return std::nullopt;
-  auto as_uint = [](const Number& n) -> std::optional<UInt> {
-    return n.Visit(
-        [](const Int i) -> std::optional<UInt> {
-          return i >= 0 ? std::optional<UInt>(static_cast<UInt>(i)) : std::nullopt;
+  auto as_uint = [](const Number& number_value) -> std::optional<UInt> {
+    return number_value.Visit(
+        [](const Int signed_value) -> std::optional<UInt> {
+          return signed_value >= 0 ? std::optional<UInt>(static_cast<UInt>(signed_value)) : std::nullopt;
         },
-        [](const UInt u) -> std::optional<UInt> { return u; },
-        [](const Float d) -> std::optional<UInt> {
-          return d >= 0 && std::floor(d) == d ? std::optional<UInt>(static_cast<UInt>(d)) : std::nullopt;
+        [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
+        [](const Float float_value) -> std::optional<UInt> {
+          return float_value >= 0 && std::floor(float_value) == float_value
+                     ? std::optional<UInt>(static_cast<UInt>(float_value))
+                     : std::nullopt;
         });
   };
   const auto slot = as_uint(*sn);
@@ -311,9 +315,9 @@ struct HandleId {
 [[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
   const auto id = handle_id_from_value(token);
   if (!id) throw std::runtime_error{std::string(op) + ": not a valid handle token"};
-  HandleEntry* e = handle_registry().get(id->slot, id->gen);
-  if (!e) throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
-  return *e;
+  HandleEntry* entry = handle_registry().get(id->slot, id->gen);
+  if (!entry) throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+  return *entry;
 }
 
 [[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
@@ -352,11 +356,11 @@ inline auto operator|(Value arg, const Value& callable_ref) -> Value {
 // Construction helpers
 
 inline auto make_null() -> Value { return Value{Null{}}; }
-inline auto make_bool(bool v) -> Value { return Value{v}; }
-inline auto make_int(Int v) -> Value { return Value{v}; }
-inline auto make_uint(UInt v) -> Value { return Value{v}; }
-inline auto make_float(Float v) -> Value { return Value{v}; }
-inline auto make_string(String v) -> Value { return Value{std::move(v)}; }
+inline auto make_bool(bool value) -> Value { return Value{value}; }
+inline auto make_int(Int value) -> Value { return Value{value}; }
+inline auto make_uint(UInt value) -> Value { return Value{value}; }
+inline auto make_float(Float value) -> Value { return Value{value}; }
+inline auto make_string(String value) -> Value { return Value{std::move(value)}; }
 inline auto make_array() -> Value { return Value{Array{}}; }
 
 // Build a tuple Value from a variadic list of Values.
@@ -374,90 +378,200 @@ auto make_tuple(Values&&... vals) -> Value {
 
 // Extraction helpers
 
-[[nodiscard]] inline auto as_array(const Value& v) -> const Array& {
-  auto r = v.TryGetArray();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Array"};
-  return *r;
+[[nodiscard]] inline auto as_array(const Value& value) -> const Array& {
+  auto result = value.TryGetArray();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_array(Value& v) -> Array& {
-  auto r = v.TryGetArray();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Array"};
-  return *r;
+[[nodiscard]] inline auto as_array(Value& value) -> Array& {
+  auto result = value.TryGetArray();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_number(const Value& v) -> const Number& {
-  auto r = v.TryGetNumber();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Number"};
-  return *r;
+[[nodiscard]] inline auto as_number(const Value& value) -> const Number& {
+  auto result = value.TryGetNumber();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_bool(const Value& v) -> Bool {
-  auto r = v.TryGetBool();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Bool"};
-  return *r;
+[[nodiscard]] inline auto as_bool(const Value& value) -> Bool {
+  auto result = value.TryGetBool();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Bool"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_string(const Value& v) -> const String& {
-  auto r = v.TryGetString();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected String"};
-  return *r;
+[[nodiscard]] inline auto as_string(const Value& value) -> const String& {
+  auto result = value.TryGetString();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected String"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_object(const Value& v) -> const Object& {
-  auto r = v.TryGetObject();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Object"};
-  return *r;
+[[nodiscard]] inline auto as_object(const Value& value) -> const Object& {
+  auto result = value.TryGetObject();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Object"};
+  return *result;
 }
 
-[[nodiscard]] inline auto as_object(Value& v) -> Object& {
-  auto r = v.TryGetObject();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Object"};
-  return *r;
+[[nodiscard]] inline auto as_object(Value& value) -> Object& {
+  auto result = value.TryGetObject();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Object"};
+  return *result;
 }
 
 // Get the Nth element of an Array Value (throws on out-of-range).
-[[nodiscard]] inline auto array_at(const Value& v, const std::size_t i) -> const Value& {
-  auto r = as_array(v).TryGet(i);
-  if (!r) throw std::out_of_range{"fleaux::runtime: array index out of range"};
-  return *r;
+[[nodiscard]] inline auto array_at(const Value& value, const std::size_t index) -> const Value& {
+  auto result = as_array(value).TryGet(index);
+  if (!result) throw std::out_of_range{"fleaux::runtime: array index out of range"};
+  return *result;
 }
 
-[[nodiscard]] inline auto array_at(Value& v, const std::size_t i) -> Value& {
-  auto r = v.TryGetArray();
-  if (!r) throw std::runtime_error{"fleaux::runtime: expected Array"};
-  Array& arr = *r;
-  if (i >= arr.Size()) throw std::out_of_range{"fleaux::runtime: array index out of range"};
-  return arr[i];
+[[nodiscard]] inline auto array_at(Value& value, const std::size_t index) -> Value& {
+  auto result = value.TryGetArray();
+  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  Array& arr = *result;
+  if (index >= arr.Size()) throw std::out_of_range{"fleaux::runtime: array index out of range"};
+  return arr[index];
 }
 
 // Convert any numeric Value to double.
 [[nodiscard]] inline auto to_double(const Value& val) -> double {
-  return as_number(val).Visit([](const Int i) -> double { return static_cast<double>(i); },
-                              [](const UInt u) -> double { return static_cast<double>(u); },
-                              [](const Float d) -> double { return d; });
+  return as_number(val).Visit([](const Int signed_value) -> double { return static_cast<double>(signed_value); },
+                              [](const UInt unsigned_value) -> double {
+                                return static_cast<double>(unsigned_value);
+                              },
+                              [](const Float float_value) -> double { return float_value; });
 }
 
-// Convert a double result back to the most correct Number Value.
-[[nodiscard]] inline auto num_result(const double val) -> Value {
-  if (val == std::floor(val) && val >= static_cast<double>(std::numeric_limits<Int>::min()) &&
-      val <= static_cast<double>(std::numeric_limits<Int>::max())) {
-    return make_int(static_cast<Int>(val));
+// Convert a double result back to the most correct numeric Value (Int64, UInt64, or Float64).
+[[nodiscard]] inline auto num_result(const double val, const bool prefer_unsigned = false) -> Value {
+  if (val == std::floor(val) && std::isfinite(val)) {
+    if (prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
+      return make_uint(static_cast<UInt>(val));
+    }
+    if (val >= static_cast<double>(std::numeric_limits<Int>::min()) &&
+        val <= static_cast<double>(std::numeric_limits<Int>::max())) {
+      return make_int(static_cast<Int>(val));
+    }
+    if (!prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
+      return make_uint(static_cast<UInt>(val));
+    }
   }
   return make_float(val);
 }
 
-// Extract the integer index embedded in a Number Value.
+[[nodiscard]] inline auto is_uint_number(const Value& val) -> bool {
+  return as_number(val).Visit([](const Int) -> bool { return false; }, [](const UInt) -> bool { return true; },
+                              [](const Float) -> bool { return false; });
+}
+
+[[nodiscard]] inline auto is_int_number(const Value& val) -> bool {
+  return as_number(val).Visit([](const Int) -> bool { return true; }, [](const UInt) -> bool { return false; },
+                              [](const Float) -> bool { return false; });
+}
+
+[[nodiscard]] inline auto is_float_number(const Value& val) -> bool {
+  return as_number(val).Visit([](const Int) -> bool { return false; }, [](const UInt) -> bool { return false; },
+                              [](const Float) -> bool { return true; });
+}
+
+[[nodiscard]] inline auto is_mixed_signed_unsigned_integer_pair(const Value& lhs, const Value& rhs) -> bool {
+  if (is_float_number(lhs) || is_float_number(rhs)) { return false; }
+  return (is_int_number(lhs) && is_uint_number(rhs)) || (is_uint_number(lhs) && is_int_number(rhs));
+}
+
+[[nodiscard]] inline auto compare_numbers(const Value& lhs, const Value& rhs) -> int {
+  const bool lhs_float = is_float_number(lhs);
+  const bool rhs_float = is_float_number(rhs);
+  if (lhs_float || rhs_float) {
+    const double lhs_value = to_double(lhs);
+    const double rhs_value = to_double(rhs);
+    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  }
+
+  if (is_int_number(lhs) && is_int_number(rhs)) {
+    const Int lhs_value = as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                                               [](const UInt) -> Int { return 0; },
+                                               [](const Float) -> Int { return 0; });
+    const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                                               [](const UInt) -> Int { return 0; },
+                                               [](const Float) -> Int { return 0; });
+    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  }
+
+  if (is_uint_number(lhs) && is_uint_number(rhs)) {
+    const UInt lhs_value = as_number(lhs).Visit([](const Int) -> UInt { return 0; },
+                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
+                                                [](const Float) -> UInt { return 0; });
+    const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
+                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
+                                                [](const Float) -> UInt { return 0; });
+    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  }
+
+  if (is_int_number(lhs) && is_uint_number(rhs)) {
+    const Int lhs_value = as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                                               [](const UInt) -> Int { return 0; },
+                                               [](const Float) -> Int { return 0; });
+    const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
+                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
+                                                [](const Float) -> UInt { return 0; });
+    if (lhs_value < 0) { return -1; }
+    const UInt lhs_as_uint = static_cast<UInt>(lhs_value);
+    return (lhs_as_uint < rhs_value) ? -1 : ((lhs_as_uint > rhs_value) ? 1 : 0);
+  }
+
+  const UInt lhs_value = as_number(lhs).Visit([](const Int) -> UInt { return 0; },
+                                              [](const UInt unsigned_value) -> UInt { return unsigned_value; },
+                                              [](const Float) -> UInt { return 0; });
+  const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                                             [](const UInt) -> Int { return 0; },
+                                             [](const Float) -> Int { return 0; });
+  if (rhs_value < 0) { return 1; }
+  const UInt rhs_as_uint = static_cast<UInt>(rhs_value);
+  return (lhs_value < rhs_as_uint) ? -1 : ((lhs_value > rhs_as_uint) ? 1 : 0);
+}
+
+// Extract the integer index embedded in a numeric (Int64/UInt64/Float64) Value.
 [[nodiscard]] inline auto as_index(const Value& val) -> std::size_t {
-  return as_number(val).Visit([](const Int i) -> std::size_t { return static_cast<std::size_t>(i); },
-                              [](const UInt u) -> std::size_t { return static_cast<std::size_t>(u); },
-                              [](const Float d) -> std::size_t { return static_cast<std::size_t>(d); });
+  return as_number(val).Visit(
+      [](const Int signed_value) -> std::size_t { return static_cast<std::size_t>(signed_value); },
+      [](const UInt unsigned_value) -> std::size_t { return static_cast<std::size_t>(unsigned_value); },
+      [](const Float float_value) -> std::size_t { return static_cast<std::size_t>(float_value); });
 }
 
 [[nodiscard]] inline auto as_int_value(const Value& val) -> Int {
-  return as_number(val).Visit([](const Int i) -> Int { return i; },
-                              [](const UInt u) -> Int { return static_cast<Int>(u); },
-                              [](const Float d) -> Int { return static_cast<Int>(d); });
+  return as_number(val).Visit([](const Int signed_value) -> Int { return signed_value; },
+                              [](const UInt unsigned_value) -> Int { return static_cast<Int>(unsigned_value); },
+                              [](const Float float_value) -> Int { return static_cast<Int>(float_value); });
+}
+
+[[nodiscard]] inline auto as_int_value_strict(const Value& val, const std::string_view name) -> Int {
+  return as_number(val).Visit(
+      [&](const Int signed_value) -> Int { return signed_value; },
+      [&](const UInt unsigned_value) -> Int {
+        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
+          throw std::out_of_range(std::format("{} out of Int64 range", name));
+        }
+        return static_cast<Int>(unsigned_value);
+      },
+      [&](const Float float_value) -> Int {
+        if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
+          throw std::invalid_argument(std::format("{} expects an integer value", name));
+        }
+        if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
+            float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
+          throw std::out_of_range(std::format("{} out of Int64 range", name));
+        }
+        return static_cast<Int>(float_value);
+      });
+}
+
+[[nodiscard]] inline auto as_index_strict(const Value& val, const std::string_view name) -> std::size_t {
+  const Int index_value = as_int_value_strict(val, name);
+  if (index_value < 0) { throw std::out_of_range(std::format("{} expects non-negative integer", name)); }
+  return static_cast<std::size_t>(index_value);
 }
 
 // Python make_node semantics: when one argument is provided, the callee sees
@@ -471,20 +585,24 @@ auto make_tuple(Values&&... vals) -> Value {
 
 // Value printing
 
-[[nodiscard]] inline auto format_number(const Number& num) -> std::string {
-  return num.Visit([](const Int i) -> std::string { return std::format("{}", i); },
-                   [](const UInt u) -> std::string { return std::format("{}", u); },
-                   [](const Float d) -> std::string { return std::format("{}", d); });
+[[nodiscard]] inline auto format_number(const Number& number_value) -> std::string {
+  return number_value.Visit([](const Int signed_value) -> std::string { return std::format("{}", signed_value); },
+                            [](const UInt unsigned_value) -> std::string {
+                              return std::format("{}", unsigned_value);
+                            },
+                            [](const Float float_value) -> std::string {
+                              return std::format("{}", float_value);
+                            });
 }
 
 // Print a Value as a scalar/tuple repr for the C++ runtime.
-inline void print_value_repr(std::ostream& os, const Value& v) {
-  v.Visit(
+inline void print_value_repr(std::ostream& os, const Value& value) {
+  value.Visit(
       [&](const Array& arr) -> void {
         os << '(';
-        for (std::size_t i = 0; i < arr.Size(); ++i) {
-          if (i > 0) { os << ", "; }
-          print_value_repr(os, *arr.TryGet(i));
+        for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+          if (element_index > 0) { os << ", "; }
+          print_value_repr(os, *arr.TryGet(element_index));
         }
         if (arr.Size() == 1) { os << ','; }
         os << ')';
@@ -497,7 +615,7 @@ inline void print_value_repr(std::ostream& os, const Value& v) {
         // Collect and sort internal keys so output is deterministic.
         std::vector<std::string> sorted_keys;
         sorted_keys.reserve(obj.Size());
-        for (const auto& k : obj | std::views::keys) sorted_keys.push_back(k);
+        for (const auto& internal_key : obj | std::views::keys) sorted_keys.push_back(internal_key);
         std::ranges::sort(sorted_keys);
         bool first = true;
         for (const auto& ikey : sorted_keys) {
@@ -531,23 +649,44 @@ inline void print_value_repr(std::ostream& os, const Value& v) {
 }
 
 // Tuple args are printed as varargs, space-separated.
-inline void print_value_varargs(std::ostream& os, const Value& v) {
-  if (!v.HasArray()) {
-    print_value_repr(os, v);
+inline void print_value_varargs(std::ostream& os, const Value& value) {
+  if (!value.HasArray()) {
+    print_value_repr(os, value);
     return;
   }
 
-  const auto& arr = as_array(v);
-  for (std::size_t i = 0; i < arr.Size(); ++i) {
-    if (i > 0) { os << ' '; }
-    print_value_repr(os, *arr.TryGet(i));
+  const auto& arr = as_array(value);
+  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+    if (element_index > 0) { os << ' '; }
+    print_value_repr(os, *arr.TryGet(element_index));
   }
 }
 
-inline auto to_string(const Value& v) -> std::string {
+inline auto to_string(const Value& value) -> std::string {
   std::ostringstream oss;
-  print_value_repr(oss, v);
+  print_value_repr(oss, value);
   return oss.str();
+}
+
+[[nodiscard]] inline auto type_name(const Value& value) -> std::string {
+  if (callable_id_from_value(value).has_value()) { return "Callable"; }
+  if (handle_id_from_value(value).has_value()) { return "Handle"; }
+
+  return value.Visit(
+      [](const Array&) -> std::string { return "Tuple"; },
+      [](const Generic&) -> std::string { return "Generic"; },
+      [](const Object&) -> std::string { return "Dict"; },
+      [](const ValueNode& vn) -> std::string {
+        return vn.Visit(
+            [](const Null&) -> std::string { return "Null"; },
+            [](const Bool&) -> std::string { return "Bool"; },
+            [](const Number& number_value) -> std::string {
+              return number_value.Visit([](const Int) -> std::string { return "Int64"; },
+                                        [](const UInt) -> std::string { return "UInt64"; },
+                                        [](const Float) -> std::string { return "Float64"; });
+            },
+            [](const String&) -> std::string { return "String"; });
+      });
 }
 
 enum class SortTag {
@@ -560,8 +699,8 @@ enum class SortTag {
   String,
 };
 
-[[nodiscard]] inline auto sort_tag_of(const Value& v) -> SortTag {
-  const auto tag = v.Visit([](const Array&) -> SortTag { return SortTag::Array; },
+[[nodiscard]] inline auto sort_tag_of(const Value& value) -> SortTag {
+  const auto tag = value.Visit([](const Array&) -> SortTag { return SortTag::Array; },
                            [](const Generic&) -> SortTag { return SortTag::Generic; },
                            [](const Object&) -> SortTag { return SortTag::Object; },
                            [](const ValueNode& vn) -> SortTag {
@@ -576,9 +715,11 @@ enum class SortTag {
 [[nodiscard]] inline auto compare_values_for_sort(const Value& lhs, const Value& rhs) -> int;
 
 [[nodiscard]] inline auto compare_arrays_for_sort(const Array& lhs, const Array& rhs) -> int {
-  const std::size_t n = std::min(lhs.Size(), rhs.Size());
-  for (std::size_t i = 0; i < n; ++i) {
-    if (const int c = compare_values_for_sort(*lhs.TryGet(i), *rhs.TryGet(i)); c != 0) { return c; }
+  const std::size_t min_size = std::min(lhs.Size(), rhs.Size());
+  for (std::size_t element_index = 0; element_index < min_size; ++element_index) {
+    if (const int cmp = compare_values_for_sort(*lhs.TryGet(element_index), *rhs.TryGet(element_index)); cmp != 0) {
+      return cmp;
+    }
   }
   if (lhs.Size() < rhs.Size()) { return -1; }
   if (lhs.Size() > rhs.Size()) { return 1; }
@@ -595,19 +736,17 @@ enum class SortTag {
     case SortTag::Null:
       return 0;
     case SortTag::Bool: {
-      const bool l = as_bool(lhs);
-      const bool r = as_bool(rhs);
-      return (l < r) ? -1 : ((l > r) ? 1 : 0);
+      const bool lhs_bool = as_bool(lhs);
+      const bool rhs_bool = as_bool(rhs);
+      return (lhs_bool < rhs_bool) ? -1 : ((lhs_bool > rhs_bool) ? 1 : 0);
     }
     case SortTag::Number: {
-      const double l = to_double(lhs);
-      const double r = to_double(rhs);
-      return (l < r) ? -1 : ((l > r) ? 1 : 0);
+      return compare_numbers(lhs, rhs);
     }
     case SortTag::String: {
-      const String& l = as_string(lhs);
-      const String& r = as_string(rhs);
-      return (l < r) ? -1 : ((l > r) ? 1 : 0);
+      const String& lhs_string = as_string(lhs);
+      const String& rhs_string = as_string(rhs);
+      return (lhs_string < rhs_string) ? -1 : ((lhs_string > rhs_string) ? 1 : 0);
     }
     case SortTag::Array:
       return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
@@ -619,9 +758,11 @@ enum class SortTag {
   throw std::invalid_argument{"TupleSort internal error"};
 }
 
-[[nodiscard]] inline auto require_args(const Value& arg, std::size_t n, const char* name) -> const Array& {
+[[nodiscard]] inline auto require_args(const Value& arg, std::size_t expected_count, const char* name) -> const Array& {
   const auto& args = as_array(arg);
-  if (args.Size() != n) { throw std::invalid_argument(std::format("{} expects {} arguments", name, n)); }
+  if (args.Size() != expected_count) {
+    throw std::invalid_argument(std::format("{} expects {} arguments", name, expected_count));
+  }
   return args;
 }
 
@@ -635,7 +776,9 @@ enum class SortTag {
   std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
   std::string out;
   out.reserve(size);
-  for (std::size_t i = 0; i < size; ++i) { out.push_back(alphabet[dist(rng)]); }
+  for (std::size_t char_index = 0; char_index < size; ++char_index) {
+    out.push_back(alphabet[dist(rng)]);
+  }
   return out;
 }
 
@@ -643,28 +786,40 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
   if (ec) { throw std::runtime_error(std::format("{} failed: {}", op, ec.message())); }
 }
 
-[[nodiscard]] inline auto trim_left(std::string s) -> std::string {
-  const auto it = std::ranges::find_if_not(s, [](const unsigned char c) -> bool { return std::isspace(c) != 0; });
-  s.erase(s.begin(), it);
-  return s;
+[[nodiscard]] inline auto trim_left(std::string text) -> std::string {
+  const auto it =
+      std::ranges::find_if_not(text, [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
+  text.erase(text.begin(), it);
+  return text;
 }
 
-[[nodiscard]] inline auto trim_right(std::string s) -> std::string {
-  const auto it = std::ranges::find_if_not(std::views::reverse(s),
-                                           [](const unsigned char c) -> bool { return std::isspace(c) != 0; });
-  s.erase(it.base(), s.end());
-  return s;
+[[nodiscard]] inline auto trim_right(std::string text) -> std::string {
+  const auto it = std::ranges::find_if_not(std::views::reverse(text),
+                                           [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
+  text.erase(it.base(), text.end());
+  return text;
 }
 
 [[nodiscard]] inline auto format_value_plain(const Value& value) -> std::string {
 #if FLEAUX_HAS_STD_FORMAT
   if (const auto num = value.TryGetNumber()) {
-    return num->Visit([&](const Int i) -> std::string { return std::vformat("{}", std::make_format_args(i)); },
-                      [&](const UInt u) -> std::string { return std::vformat("{}", std::make_format_args(u)); },
-                      [&](const Float d) -> std::string { return std::vformat("{}", std::make_format_args(d)); });
+    return num->Visit(
+        [&](const Int signed_value) -> std::string {
+          return std::vformat("{}", std::make_format_args(signed_value));
+        },
+        [&](const UInt unsigned_value) -> std::string {
+          return std::vformat("{}", std::make_format_args(unsigned_value));
+        },
+        [&](const Float float_value) -> std::string {
+          return std::vformat("{}", std::make_format_args(float_value));
+        });
   }
-  if (const auto b = value.TryGetBool()) { return std::vformat("{}", std::make_format_args(*b)); }
-  if (const auto s = value.TryGetString()) { return std::vformat("{}", std::make_format_args(*s)); }
+  if (const auto bool_value = value.TryGetBool()) {
+    return std::vformat("{}", std::make_format_args(*bool_value));
+  }
+  if (const auto string_value = value.TryGetString()) {
+    return std::vformat("{}", std::make_format_args(*string_value));
+  }
 #endif
   return to_string(value);
 }
@@ -673,12 +828,23 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 #if FLEAUX_HAS_STD_FORMAT
   const std::string single_fmt = std::format("{{0:{}}}", spec);
   if (const auto num = value.TryGetNumber()) {
-    return num->Visit([&](const Int i) -> std::string { return std::vformat(single_fmt, std::make_format_args(i)); },
-                      [&](const UInt u) -> std::string { return std::vformat(single_fmt, std::make_format_args(u)); },
-                      [&](const Float d) -> std::string { return std::vformat(single_fmt, std::make_format_args(d)); });
+    return num->Visit(
+        [&](const Int signed_value) -> std::string {
+          return std::vformat(single_fmt, std::make_format_args(signed_value));
+        },
+        [&](const UInt unsigned_value) -> std::string {
+          return std::vformat(single_fmt, std::make_format_args(unsigned_value));
+        },
+        [&](const Float float_value) -> std::string {
+          return std::vformat(single_fmt, std::make_format_args(float_value));
+        });
   }
-  if (const auto b = value.TryGetBool()) { return std::vformat(single_fmt, std::make_format_args(*b)); }
-  if (const auto s = value.TryGetString()) { return std::vformat(single_fmt, std::make_format_args(*s)); }
+  if (const auto bool_value = value.TryGetBool()) {
+    return std::vformat(single_fmt, std::make_format_args(*bool_value));
+  }
+  if (const auto string_value = value.TryGetString()) {
+    return std::vformat(single_fmt, std::make_format_args(*string_value));
+  }
   const std::string repr = to_string(value);
   return std::vformat(single_fmt, std::make_format_args(repr));
 #else
@@ -695,31 +861,31 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
   bool saw_auto_index = false;
   bool saw_manual_index = false;
 
-  for (std::size_t i = 0; i < fmt.size();) {
-    const std::size_t next_special = fmt.find_first_of("{}", i);
+  for (std::size_t cursor = 0; cursor < fmt.size();) {
+    const std::size_t next_special = fmt.find_first_of("{}", cursor);
     if (next_special == std::string::npos) {
-      out.append(fmt, i, fmt.size() - i);
+      out.append(fmt, cursor, fmt.size() - cursor);
       break;
     }
 
-    if (next_special > i) {
-      out.append(fmt, i, next_special - i);
-      i = next_special;
+    if (next_special > cursor) {
+      out.append(fmt, cursor, next_special - cursor);
+      cursor = next_special;
       continue;
     }
 
-    const char ch = fmt[i];
+    const char ch = fmt[cursor];
     if (ch == '{') {
-      if (i + 1 < fmt.size() && fmt[i + 1] == '{') {
+      if (cursor + 1 < fmt.size() && fmt[cursor + 1] == '{') {
         out.push_back('{');
-        i += 2;
+        cursor += 2;
         continue;
       }
 
-      const std::size_t close = fmt.find('}', i + 1);
+      const std::size_t close = fmt.find('}', cursor + 1);
       if (close == std::string::npos) { throw std::invalid_argument{"Printf format string has unmatched '{'"}; }
 
-      const std::string field = fmt.substr(i + 1, close - (i + 1));
+      const std::string field = fmt.substr(cursor + 1, close - (cursor + 1));
       std::size_t index = 0;
       std::string spec;
 
@@ -754,14 +920,14 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
         out += format_value_with_spec(values[index], spec);
       }
 
-      i = close + 1;
+      cursor = close + 1;
       continue;
     }
 
     if (ch == '}') {
-      if (i + 1 < fmt.size() && fmt[i + 1] == '}') {
+      if (cursor + 1 < fmt.size() && fmt[cursor + 1] == '}') {
         out.push_back('}');
-        i += 2;
+        cursor += 2;
         continue;
       }
       throw std::invalid_argument{"Printf format string has unmatched '}'"};

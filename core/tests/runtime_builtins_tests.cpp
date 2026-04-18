@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 
 #include "fleaux/runtime/runtime_support.hpp"
@@ -29,6 +31,9 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
 
     Value r2 = make_tuple(tpl, make_int(2)) | ElementAt{};
     REQUIRE(as_bool(r2));
+
+    REQUIRE_THROWS_WITH(make_tuple(tpl, make_float(1.9)) | ElementAt{},
+                        Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 
   SECTION("Length") {
@@ -63,6 +68,12 @@ TEST_CASE("Runtime builtins: arithmetic and logic", "[runtime]") {
   REQUIRE(to_double(make_tuple(make_float(10.0), make_float(4.0)) | Divide{}) == 2.5);
   REQUIRE(to_double(make_tuple(make_int(2), make_int(8)) | Pow{}) == 256.0);
   REQUIRE(to_double(make_tuple(make_int(10), make_int(3)) | Mod{}) == 1.0);
+  REQUIRE(as_string((make_tuple(make_uint(40), make_uint(2)) | Add{}) | Type{}) == "UInt64");
+  REQUIRE_THROWS_AS(make_tuple(make_int(-2), make_uint(5)) | Add{}, std::invalid_argument);
+  REQUIRE(as_string((make_tuple(make_uint(40), make_uint(2)) | Divide{}) | Type{}) == "UInt64");
+  REQUIRE_THROWS_AS(make_tuple(make_int(-10), make_uint(3)) | Divide{}, std::invalid_argument);
+  REQUIRE(as_string((make_tuple(make_uint(40), make_uint(3)) | Mod{}) | Type{}) == "UInt64");
+  REQUIRE_THROWS_AS(make_tuple(make_int(-10), make_uint(3)) | Mod{}, std::invalid_argument);
   REQUIRE(to_double(make_int(5) | UnaryMinus{}) == -5.0);
   REQUIRE(as_string(make_tuple(make_string("hello"), make_string(" world")) | Add{}) == "hello world");
 
@@ -80,6 +91,8 @@ TEST_CASE("Runtime builtins: arithmetic and logic", "[runtime]") {
   REQUIRE(to_double(make_int(0) | BitNot{}) == -1.0);
   REQUIRE(to_double(make_tuple(make_int(3), make_int(2)) | BitShiftLeft{}) == 12.0);
   REQUIRE(to_double(make_tuple(make_int(12), make_int(2)) | BitShiftRight{}) == 3.0);
+  REQUIRE_THROWS_WITH(make_tuple(make_float(6.5), make_int(3)) | BitAnd{},
+                      Catch::Matchers::ContainsSubstring("expects an integer value"));
 
   Value r = make_tuple(make_bool(true), make_int(11), make_int(22)) | Select{};
   REQUIRE(to_double(r) == 11.0);
@@ -90,6 +103,24 @@ TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
   REQUIRE(as_array(result).Size() == 2);
   REQUIRE(to_double(array_at(result, 0)) == 0.0);
   REQUIRE(as_string(array_at(result, 1)) == "fleaux_exec_ok");
+}
+
+TEST_CASE("Runtime builtins: FileReadChunk rejects fractional nbytes", "[runtime]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_runtime_builtins_tests";
+  std::filesystem::create_directories(temp_dir);
+  const auto file_path = temp_dir / "readchunk_numeric_guard.txt";
+  {
+    std::ofstream out(file_path);
+    out << "abc";
+  }
+
+  const Value handle = make_tuple(make_string(file_path.string())) | FileOpen{};
+  REQUIRE_THROWS_WITH(make_tuple(handle, make_float(1.5)) | FileReadChunk{},
+                      Catch::Matchers::ContainsSubstring("expects an integer value"));
+
+  (void)(handle | FileClose{});
+  std::error_code ec;
+  std::filesystem::remove(file_path, ec);
 }
 
 TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]") {
@@ -225,6 +256,24 @@ TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
   }
 }
 
+TEST_CASE("Runtime builtins: Std.Type and Std.TypeOf", "[runtime]") {
+  REQUIRE(as_string(make_int(42) | Type{}) == "Int64");
+  REQUIRE(as_string(make_uint(42) | Type{}) == "UInt64");
+  REQUIRE(as_string(make_float(3.14) | Type{}) == "Float64");
+  REQUIRE(as_string(make_bool(true) | Type{}) == "Bool");
+  REQUIRE(as_string(make_string("x") | Type{}) == "String");
+  REQUIRE(as_string(make_null() | Type{}) == "Null");
+  REQUIRE(as_string(make_tuple(make_int(1), make_int(2)) | Type{}) == "Tuple");
+
+  Value dict{Object{}};
+  REQUIRE(as_string(dict | Type{}) == "Dict");
+
+  const Value callable = make_callable_ref([](const Value& v) -> Value { return v; });
+  REQUIRE(as_string(callable | Type{}) == "Callable");
+
+  REQUIRE(as_string(make_tuple(make_int(1)) | TypeOf{}) == "Int64");
+}
+
 TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   const Value grid =
       make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), make_tuple(make_int(4), make_int(5), make_int(6)));
@@ -332,6 +381,12 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
         make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(2))) | ArrayReshapeND{};
     REQUIRE(to_double(make_tuple(reshaped_nd, make_tuple(make_int(1), make_int(1), make_int(1))) | ArrayGetAtND{}) ==
             8.0);
+
+    REQUIRE_THROWS_WITH(make_tuple(cube, make_tuple(make_int(1), make_float(0.5), make_int(1))) | ArrayGetAtND{},
+                        Catch::Matchers::ContainsSubstring("expects an integer value"));
+    REQUIRE_THROWS_WITH(
+        make_tuple(flattened, make_tuple(make_int(2), make_float(2.5), make_int(2))) | ArrayReshapeND{},
+        Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 }
 
@@ -354,5 +409,27 @@ TEST_CASE("Runtime builtins: string regex", "[runtime]") {
     REQUIRE(as_string(array_at(parts, 0)) == "one");
     REQUIRE(as_string(array_at(parts, 1)) == "two");
     REQUIRE(as_string(array_at(parts, 2)) == "three");
+  }
+}
+
+TEST_CASE("Runtime builtins: numeric cast helpers", "[runtime]") {
+  SECTION("ToInt64") {
+    REQUIRE(as_int_value(make_int(42) | ToInt64{}) == 42);
+    REQUIRE(as_int_value(make_float(3.0) | ToInt64{}) == 3);
+    REQUIRE_THROWS_AS(make_float(1.5) | ToInt64{}, std::invalid_argument);
+  }
+
+  SECTION("ToUInt64") {
+    REQUIRE(is_uint_number(make_int(5) | ToUInt64{}));
+    REQUIRE(is_uint_number(make_uint(10) | ToUInt64{}));
+    REQUIRE_THROWS_AS(make_int(-1) | ToUInt64{}, std::invalid_argument);
+    REQUIRE_THROWS_AS(make_float(-0.5) | ToUInt64{}, std::invalid_argument);
+  }
+
+  SECTION("ToFloat64") {
+    REQUIRE(is_float_number(make_int(7) | ToFloat64{}));
+    REQUIRE(is_float_number(make_uint(7) | ToFloat64{}));
+    REQUIRE(is_float_number(make_float(7.0) | ToFloat64{}));
+    REQUIRE(to_double(make_int(3) | ToFloat64{}) == 3.0);
   }
 }

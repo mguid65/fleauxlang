@@ -1,99 +1,107 @@
 import StdBuiltins;
 
 // Mathematical constants derived from boost::math::constants
-let Std.Half(): Number :: 0.5000000000000000000000000000000000000e-01;
-let Std.Third(): Number :: 3.333333333333333333333333333333333333e-01;
-let Std.TwoThirds(): Number :: 6.666666666666666666666666666666666666e-01;
-let Std.Sixth(): Number :: 1.666666666666666666666666666666666666e-01;
-let Std.ThreeQuarters(): Number :: 7.500000000000000000000000000000000000e-01;
-let Std.RootTwo(): Number :: 1.414213562373095048801688724209698078e+00;
-let Std.RootThree(): Number :: 1.732050807568877293527446341505872366e+00;
-let Std.HalfRootTwo(): Number :: 7.071067811865475244008443621048490392e-01;
-let Std.LnTwo(): Number :: 6.931471805599453094172321214581765680e-01;
-let Std.LnLnTwo(): Number :: -3.665129205816643270124391582326694694e-01;
-let Std.RootLnFour(): Number :: 1.177410022515474691011569326459699637e+00;
-let Std.OneDivRootTwo(): Number :: 7.071067811865475244008443621048490392e-01;
-let Std.Pi(): Number :: 3.141592653589793238462643383279502884e+00;
-let Std.HalfPi(): Number :: 1.570796326794896619231321691639751442e+00;
-let Std.ThirdPi(): Number :: 1.047197551196597746154214461093167628e+00;
-let Std.SixthPi(): Number :: 5.235987755982988730771072305465838140e-01;
-let Std.TwoPi(): Number :: 6.283185307179586476925286766559005768e+00;
-let Std.Tau(): Number :: 6.283185307179586476925286766559005768e+00;
-let Std.TwoThirdsPi(): Number :: 2.094395102393195492308428922186335256e+00;
-let Std.ThreeQuartersPi(): Number :: 2.356194490192344928846982537459627163e+00;
-let Std.FourThirdsPi(): Number :: 4.188790204786390984616857844372670512e+00;
-let Std.OneDivTwoPi(): Number :: 1.591549430918953357688837633725143620e-01;
-let Std.OneDivRootTwoPi(): Number :: 3.989422804014326779399460599343818684e-01;
-let Std.RootPi(): Number :: 1.772453850905516027298167483341145182e+00;
-let Std.RootHalfPi(): Number :: 1.253314137315500251207882642405522626e+00;
-let Std.RootTwoPi(): Number :: 2.506628274631000502415765284811045253e+00;
-let Std.LogRootTwoPi(): Number :: 9.189385332046727417803297364056176398e-01;
-let Std.OneDivRootPi(): Number :: 5.641895835477562869480794515607725858e-01;
-let Std.RootOneDivPi(): Number :: 5.641895835477562869480794515607725858e-01;
-let Std.PiMinusThree(): Number :: 1.415926535897932384626433832795028841e-01;
-let Std.FourMinusPi(): Number :: 8.584073464102067615373566167204971158e-01;
-let Std.PiPowE(): Number :: 2.245915771836104547342715220454373502e+01;
-let Std.PiSqr(): Number :: 9.869604401089358618834490999876151135e+00;
-let Std.PiSqrDivSix(): Number :: 1.644934066848226436472415166646025189e+00;
-let Std.PiCubed(): Number :: 3.100627668029982017547631506710139520e+01;
-let Std.CbrtPi(): Number :: 1.464591887561523263020142527263790391e+00;
-let Std.OneDivCbrtPi(): Number :: 6.827840632552956814670208331581645981e-01;
-let Std.Log2E(): Number :: 1.44269504088896340735992468100189213742664595415298;
-let Std.E(): Number :: 2.718281828459045235360287471352662497e+00;
-let Std.ExpMinusHalf(): Number :: 6.065306597126334236037995349911804534e-01;
-let Std.ExpMinusOne(): Number :: 3.678794411714423215955237701614608674e-01;
-let Std.EPowPi(): Number :: 2.314069263277926900572908636794854738e+01;
-let Std.RootE(): Number :: 1.648721270700128146848650787814163571e+00;
-let Std.Log10E(): Number :: 4.342944819032518276511289189166050822e-01;
-let Std.OneDivLog10E(): Number :: 2.302585092994045684017991454684364207e+00;
-let Std.LnTen(): Number :: 2.302585092994045684017991454684364207e+00;
-let Std.Degree(): Number :: 1.745329251994329576923690768488612713e-02;
-let Std.Radian(): Number :: 5.729577951308232087679815481410517033e+01;
-let Std.SinOne(): Number :: 8.414709848078965066525023216302989996e-01;
-let Std.CosOne(): Number :: 5.403023058681397174009366074429766037e-01;
-let Std.SinhOne(): Number :: 1.175201193643801456882381850595600815e+00;
-let Std.CoshOne(): Number :: 1.543080634815243778477905620757061682e+00;
-let Std.Phi(): Number :: 1.618033988749894848204586834365638117e+00;
-let Std.LnPhi(): Number :: 4.812118250596034474977589134243684231e-01;
-let Std.OneDivLnPhi(): Number :: 2.078086921235027537601322606117795767e+00;
-let Std.Euler(): Number :: 5.772156649015328606065120900824024310e-01;
-let Std.OneDivEuler(): Number :: 1.732454714600633473583025315860829681e+00;
-let Std.EulerSqr(): Number :: 3.331779238077186743183761363552442266e-01;
-let Std.ZetaTwo(): Number :: 1.644934066848226436472415166646025189e+00;
-let Std.ZetaThree(): Number :: 1.202056903159594285399738161511449990e+00;
-let Std.Catalan(): Number :: 9.159655941772190150546035149323841107e-01;
-let Std.Glaisher(): Number :: 1.282427129100622636875342568869791727e+00;
-let Std.Khinchin(): Number :: 2.685452001065306445309714835481795693e+00;
-let Std.ExtremeValueSkewness(): Number :: 1.139547099404648657492793019389846112e+00;
-let Std.RayleighSkewness(): Number :: 6.311106578189371381918993515442277798e-01;
-let Std.RayleighKurtosis(): Number :: 3.245089300687638062848660410619754415e+00;
-let Std.RayleighKurtosisExcess(): Number :: 2.450893006876380628486604106197544154e-01;
-let Std.TwoDivPi(): Number :: 6.366197723675813430755350534900574481e-01;
-let Std.RootTwoDivPi(): Number :: 7.978845608028653558798921198687637369e-01;
-let Std.QuarterPi(): Number :: 0.785398163397448309615660845819875721049292;
-let Std.InvPi(): Number :: 0.3183098861837906715377675267450287240689192;
-let Std.TwoDivRootPi(): Number :: 1.12837916709551257389615890312154517168810125;
+let Std.Half(): Float64 :: 0.5000000000000000000000000000000000000e-01;
+let Std.Third(): Float64 :: 3.333333333333333333333333333333333333e-01;
+let Std.TwoThirds(): Float64 :: 6.666666666666666666666666666666666666e-01;
+let Std.Sixth(): Float64 :: 1.666666666666666666666666666666666666e-01;
+let Std.ThreeQuarters(): Float64 :: 7.500000000000000000000000000000000000e-01;
+let Std.RootTwo(): Float64 :: 1.414213562373095048801688724209698078e+00;
+let Std.RootThree(): Float64 :: 1.732050807568877293527446341505872366e+00;
+let Std.HalfRootTwo(): Float64 :: 7.071067811865475244008443621048490392e-01;
+let Std.LnTwo(): Float64 :: 6.931471805599453094172321214581765680e-01;
+let Std.LnLnTwo(): Float64 :: -3.665129205816643270124391582326694694e-01;
+let Std.RootLnFour(): Float64 :: 1.177410022515474691011569326459699637e+00;
+let Std.OneDivRootTwo(): Float64 :: 7.071067811865475244008443621048490392e-01;
+let Std.Pi(): Float64 :: 3.141592653589793238462643383279502884e+00;
+let Std.HalfPi(): Float64 :: 1.570796326794896619231321691639751442e+00;
+let Std.ThirdPi(): Float64 :: 1.047197551196597746154214461093167628e+00;
+let Std.SixthPi(): Float64 :: 5.235987755982988730771072305465838140e-01;
+let Std.TwoPi(): Float64 :: 6.283185307179586476925286766559005768e+00;
+let Std.Tau(): Float64 :: 6.283185307179586476925286766559005768e+00;
+let Std.TwoThirdsPi(): Float64 :: 2.094395102393195492308428922186335256e+00;
+let Std.ThreeQuartersPi(): Float64 :: 2.356194490192344928846982537459627163e+00;
+let Std.FourThirdsPi(): Float64 :: 4.188790204786390984616857844372670512e+00;
+let Std.OneDivTwoPi(): Float64 :: 1.591549430918953357688837633725143620e-01;
+let Std.OneDivRootTwoPi(): Float64 :: 3.989422804014326779399460599343818684e-01;
+let Std.RootPi(): Float64 :: 1.772453850905516027298167483341145182e+00;
+let Std.RootHalfPi(): Float64 :: 1.253314137315500251207882642405522626e+00;
+let Std.RootTwoPi(): Float64 :: 2.506628274631000502415765284811045253e+00;
+let Std.LogRootTwoPi(): Float64 :: 9.189385332046727417803297364056176398e-01;
+let Std.OneDivRootPi(): Float64 :: 5.641895835477562869480794515607725858e-01;
+let Std.RootOneDivPi(): Float64 :: 5.641895835477562869480794515607725858e-01;
+let Std.PiMinusThree(): Float64 :: 1.415926535897932384626433832795028841e-01;
+let Std.FourMinusPi(): Float64 :: 8.584073464102067615373566167204971158e-01;
+let Std.PiPowE(): Float64 :: 2.245915771836104547342715220454373502e+01;
+let Std.PiSqr(): Float64 :: 9.869604401089358618834490999876151135e+00;
+let Std.PiSqrDivSix(): Float64 :: 1.644934066848226436472415166646025189e+00;
+let Std.PiCubed(): Float64 :: 3.100627668029982017547631506710139520e+01;
+let Std.CbrtPi(): Float64 :: 1.464591887561523263020142527263790391e+00;
+let Std.OneDivCbrtPi(): Float64 :: 6.827840632552956814670208331581645981e-01;
+let Std.Log2E(): Float64 :: 1.44269504088896340735992468100189213742664595415298;
+let Std.E(): Float64 :: 2.718281828459045235360287471352662497e+00;
+let Std.ExpMinusHalf(): Float64 :: 6.065306597126334236037995349911804534e-01;
+let Std.ExpMinusOne(): Float64 :: 3.678794411714423215955237701614608674e-01;
+let Std.EPowPi(): Float64 :: 2.314069263277926900572908636794854738e+01;
+let Std.RootE(): Float64 :: 1.648721270700128146848650787814163571e+00;
+let Std.Log10E(): Float64 :: 4.342944819032518276511289189166050822e-01;
+let Std.OneDivLog10E(): Float64 :: 2.302585092994045684017991454684364207e+00;
+let Std.LnTen(): Float64 :: 2.302585092994045684017991454684364207e+00;
+let Std.Degree(): Float64 :: 1.745329251994329576923690768488612713e-02;
+let Std.Radian(): Float64 :: 5.729577951308232087679815481410517033e+01;
+let Std.SinOne(): Float64 :: 8.414709848078965066525023216302989996e-01;
+let Std.CosOne(): Float64 :: 5.403023058681397174009366074429766037e-01;
+let Std.SinhOne(): Float64 :: 1.175201193643801456882381850595600815e+00;
+let Std.CoshOne(): Float64 :: 1.543080634815243778477905620757061682e+00;
+let Std.Phi(): Float64 :: 1.618033988749894848204586834365638117e+00;
+let Std.LnPhi(): Float64 :: 4.812118250596034474977589134243684231e-01;
+let Std.OneDivLnPhi(): Float64 :: 2.078086921235027537601322606117795767e+00;
+let Std.Euler(): Float64 :: 5.772156649015328606065120900824024310e-01;
+let Std.OneDivEuler(): Float64 :: 1.732454714600633473583025315860829681e+00;
+let Std.EulerSqr(): Float64 :: 3.331779238077186743183761363552442266e-01;
+let Std.ZetaTwo(): Float64 :: 1.644934066848226436472415166646025189e+00;
+let Std.ZetaThree(): Float64 :: 1.202056903159594285399738161511449990e+00;
+let Std.Catalan(): Float64 :: 9.159655941772190150546035149323841107e-01;
+let Std.Glaisher(): Float64 :: 1.282427129100622636875342568869791727e+00;
+let Std.Khinchin(): Float64 :: 2.685452001065306445309714835481795693e+00;
+let Std.ExtremeValueSkewness(): Float64 :: 1.139547099404648657492793019389846112e+00;
+let Std.RayleighSkewness(): Float64 :: 6.311106578189371381918993515442277798e-01;
+let Std.RayleighKurtosis(): Float64 :: 3.245089300687638062848660410619754415e+00;
+let Std.RayleighKurtosisExcess(): Float64 :: 2.450893006876380628486604106197544154e-01;
+let Std.TwoDivPi(): Float64 :: 6.366197723675813430755350534900574481e-01;
+let Std.RootTwoDivPi(): Float64 :: 7.978845608028653558798921198687637369e-01;
+let Std.QuarterPi(): Float64 :: 0.785398163397448309615660845819875721049292;
+let Std.InvPi(): Float64 :: 0.3183098861837906715377675267450287240689192;
+let Std.TwoDivRootPi(): Float64 :: 1.12837916709551257389615890312154517168810125;
 
 let Std.Println(args: Any...) : Tuple(Any...) :: __builtin__;
 let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __builtin__;
 let Std.Input() : String :: __builtin__;
-let Std.Exit(code: Number) : Any :: __builtin__;
-let Std.Add(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Subtract(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Multiply(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Divide(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Mod(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Pow(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Bit.And(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Bit.Or(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Bit.Xor(lhs: Number, rhs: Number) : Number :: __builtin__;
-let Std.Bit.Not(value: Number) : Number :: __builtin__;
-let Std.Bit.ShiftLeft(value: Number, bits: Number) : Number :: __builtin__;
-let Std.Bit.ShiftRight(value: Number, bits: Number) : Number :: __builtin__;
-let Std.GreaterThan(lhs: Number, rhs: Number) : Bool :: __builtin__;
-let Std.LessThan(lhs: Number, rhs: Number) : Bool :: __builtin__;
-let Std.GreaterOrEqual(lhs: Number, rhs: Number) : Bool :: __builtin__;
-let Std.LessOrEqual(lhs: Number, rhs: Number) : Bool :: __builtin__;
+let Std.Help(name: String) : String :: __builtin__;
+let Std.Type(value: Any) : String :: __builtin__;
+let Std.TypeOf(value: Any) : String :: __builtin__;
+// Explicit numeric cast functions. Mixed Int64/UInt64 arithmetic requires
+// an explicit cast; there is no implicit promotion between integer kinds.
+let Std.ToInt64(value: Any) : Int64 :: __builtin__;
+let Std.ToUInt64(value: Any) : UInt64 :: __builtin__;
+let Std.ToFloat64(value: Any) : Float64 :: __builtin__;
+let Std.Exit(code: Int64) : Any :: __builtin__;
+let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+let Std.Bit.And(lhs: Int64, rhs: Int64) : Int64 :: __builtin__;
+let Std.Bit.Or(lhs: Int64, rhs: Int64) : Int64 :: __builtin__;
+let Std.Bit.Xor(lhs: Int64, rhs: Int64) : Int64 :: __builtin__;
+let Std.Bit.Not(value: Int64) : Int64 :: __builtin__;
+let Std.Bit.ShiftLeft(value: Int64, bits: Int64) : Int64 :: __builtin__;
+let Std.Bit.ShiftRight(value: Int64, bits: Int64) : Int64 :: __builtin__;
+let Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
 let Std.Equal(lhs: Any, rhs: Any) : Bool :: __builtin__;
 let Std.NotEqual(lhs: Any, rhs: Any) : Bool :: __builtin__;
 let Std.Not(val: Bool) : Bool :: __builtin__;
@@ -138,20 +146,20 @@ let Std.Branch(condition: Bool, value: Any, true_func: Any, false_func: Any) : A
 let Std.Loop(state: Any, continue_func: Any, step_func: Any) : Any :: __builtin__;
 // @brief Iterate with a hard iteration cap; raises if cap is exceeded.
 // ((n, acc), Continue, Step, 1000) -> Std.LoopN;
-let Std.LoopN(state: Any, continue_func: Any, step_func: Any, max_iters: Number) : Any :: __builtin__;
-let Std.UnaryPlus(val: Number) : Number :: __builtin__;
-let Std.UnaryMinus(val: Number) : Number :: __builtin__;
+let Std.LoopN(state: Any, continue_func: Any, step_func: Any, max_iters: Int64) : Any :: __builtin__;
+let Std.UnaryPlus(val: Float64) : Float64 :: __builtin__;
+let Std.UnaryMinus(val: Float64) : Float64 :: __builtin__;
 let Std.ToString(val: Any) : String :: __builtin__;
 // Math builtins (nested namespace API)
-let Std.Math.Sqrt(x: Number) : Number :: __builtin__;
-let Std.Math.Sin(x: Number) : Number :: __builtin__;
-let Std.Math.Cos(x: Number) : Number :: __builtin__;
-let Std.Math.Tan(x: Number) : Number :: __builtin__;
-let Std.Math.Floor(x: Number) : Number :: __builtin__;
-let Std.Math.Ceil(x: Number) : Number :: __builtin__;
-let Std.Math.Abs(x: Number) : Number :: __builtin__;
-let Std.Math.Log(x: Number) : Number :: __builtin__;
-let Std.Math.Clamp(x: Number, lo: Number, hi: Number) : Number :: __builtin__;
+let Std.Math.Sqrt(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Sin(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Cos(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Tan(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Floor(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Ceil(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Abs(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Log(x: Float64) : Float64 :: __builtin__;
+let Std.Math.Clamp(x: Float64, lo: Float64, hi: Float64) : Float64 :: __builtin__;
 // String builtins (nested namespace API)
 let Std.String.Upper(s: String) : String :: __builtin__;
 let Std.String.Lower(s: String) : String :: __builtin__;
@@ -164,13 +172,13 @@ let Std.String.Replace(s: String, old: String, new: String) : String :: __builti
 let Std.String.Contains(s: String, sub: String) : Bool :: __builtin__;
 let Std.String.StartsWith(s: String, prefix: String) : Bool :: __builtin__;
 let Std.String.EndsWith(s: String, suffix: String) : Bool :: __builtin__;
-let Std.String.Length(s: String) : Number :: __builtin__;
-let Std.String.CharAt(s: String, index: Number) : String :: __builtin__;
-let Std.String.Slice(s: String, start: Number, stop: Number) : String :: __builtin__;
-let Std.String.Find(s: String, sub: String, start: Number) : Number :: __builtin__;
+let Std.String.Length(s: String) : Int64 :: __builtin__;
+let Std.String.CharAt(s: String, index: Int64) : String :: __builtin__;
+let Std.String.Slice(s: String, start: Int64, stop: Int64) : String :: __builtin__;
+let Std.String.Find(s: String, sub: String, start: Int64) : Int64 :: __builtin__;
 let Std.String.Format(fmt_str: String, args: Any...) : String :: __builtin__;
 let Std.String.Regex.IsMatch(s: String, pattern: String) : Bool :: __builtin__;
-let Std.String.Regex.Find(s: String, pattern: String) : Number :: __builtin__;
+let Std.String.Regex.Find(s: String, pattern: String) : Int64 :: __builtin__;
 let Std.String.Regex.Replace(s: String, pattern: String, repl: String) : String :: __builtin__;
 let Std.String.Regex.Split(s: String, pattern: String) : Tuple(Any...) :: __builtin__;
 // Path/filesystem builtins (nested namespace API)
@@ -179,7 +187,7 @@ let Std.OS.Home() : String :: __builtin__;
 let Std.OS.TempDir() : String :: __builtin__;
 // @brief Execute a shell command and return (exit_code, combined_output).
 // ("echo hi") -> Std.OS.Exec;
-let Std.OS.Exec(command: String) : Tuple(Number, String) :: __builtin__;
+let Std.OS.Exec(command: String) : Tuple(Int64, String) :: __builtin__;
 let Std.OS.MakeTempFile() : String :: __builtin__;
 let Std.OS.MakeTempDir() : String :: __builtin__;
 let Std.OS.Env(name: String) : Any :: __builtin__;
@@ -206,7 +214,7 @@ let Std.File.WriteText(path: String, text: String) : String :: __builtin__;
 let Std.File.AppendText(path: String, text: String) : String :: __builtin__;
 let Std.File.ReadLines(path: String) : Tuple(Any...) :: __builtin__;
 let Std.File.Delete(path: String) : Bool :: __builtin__;
-let Std.File.Size(path: String) : Number :: __builtin__;
+let Std.File.Size(path: String) : Int64 :: __builtin__;
 // Directory builtins (nested namespace API)
 let Std.Dir.Create(path: String) : String :: __builtin__;
 let Std.Dir.Delete(path: String) : Bool :: __builtin__;
@@ -225,34 +233,34 @@ let Std.Tuple.Unique(t: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
 let Std.Tuple.Min(t: Tuple(Any...)) : Any :: __builtin__;
 let Std.Tuple.Max(t: Tuple(Any...)) : Any :: __builtin__;
 let Std.Tuple.Reduce(t: Tuple(Any...), initial: Any, func: Any) : Any :: __builtin__;
-let Std.Tuple.FindIndex(t: Tuple(Any...), pred: Any) : Number :: __builtin__;
+let Std.Tuple.FindIndex(t: Tuple(Any...), pred: Any) : Int64 :: __builtin__;
 let Std.Tuple.Any(t: Tuple(Any...), pred: Any) : Bool :: __builtin__;
 let Std.Tuple.All(t: Tuple(Any...), pred: Any) : Bool :: __builtin__;
-let Std.Tuple.Range(stop: Number) : Tuple(Any...) :: __builtin__;
+let Std.Tuple.Range(stop: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Take the first `count` items from `tuple` and return them as a new Tuple
 // ((1, 2, 3, 4), 2) -> Std.Take;
 // Result: (1, 2)
-let Std.Take(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__;
+let Std.Take(tuple: Tuple(Any...), count: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Drop the first `count` items from `tuple` and return the remaining elements as a new Tuple
 // ((1, 2, 3, 4), 2) -> Std.Drop;
 // Result: (3, 4)
-let Std.Drop(tuple: Tuple(Any...), count: Number) : Tuple(Any...) :: __builtin__;
+let Std.Drop(tuple: Tuple(Any...), count: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Get the element at position `count` in `tuple`
 // ((1, 2, 3, 4), 2) -> Std.ElementAt;
 // Result: 3
-let Std.ElementAt(tuple: Tuple(Any...), count: Number) : Any :: __builtin__;
+let Std.ElementAt(tuple: Tuple(Any...), count: Int64) : Any :: __builtin__;
 // @brief Return the number of elements in `tuple`
 // ((1, 2, 3),) -> Std.Length;
 // Result: 3
-let Std.Length(tuple: Tuple(Any...)) : Number :: __builtin__;
+let Std.Length(tuple: Tuple(Any...)) : Int64 :: __builtin__;
 // @brief Slice a tuple. Accepts (tuple, stop), (tuple, start, stop), or (tuple, start, stop, step)
 // ((1, 2, 3, 4), 1, 3) -> Std.Slice;
 // Result: (2, 3)
-let Std.Slice(tuple: Tuple(Any...), stop: Number) : Tuple(Any...) :: __builtin__;
+let Std.Slice(tuple: Tuple(Any...), stop: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Parse a string to a number
 // ("42") -> Std.ToNum;
 // Result: 42
-let Std.ToNum(val: String) : Number :: __builtin__;
+let Std.ToNum(val: String) : Float64 :: __builtin__;
 // @brief Return command-line arguments as a tuple of strings
 // () -> Std.GetArgs;
 let Std.GetArgs() : Tuple(Any...) :: __builtin__;
@@ -270,7 +278,7 @@ let Std.File.ReadLine(handle: Any) : Tuple(Any, String, Bool) :: __builtin__;
 // @brief Read up to nbytes bytes from an open handle.
 // Returns (handle, chunk, eof).
 // (handle, 4096) -> Std.File.ReadChunk;
-let Std.File.ReadChunk(handle: Any, nbytes: Number) : Tuple(Any, String, Bool) :: __builtin__;
+let Std.File.ReadChunk(handle: Any, nbytes: Int64) : Tuple(Any, String, Bool) :: __builtin__;
 
 // @brief Write a string chunk to an open handle. Returns the handle.
 // (handle, "data") -> Std.File.WriteChunk;
@@ -328,37 +336,37 @@ let Std.Dict.Entries(dict: Any) : Tuple(Any...) :: __builtin__;
 // @brief Return a new empty dictionary.
 // (dict) -> Std.Dict.Clear;
 let Std.Dict.Clear(dict: Any) : Any :: __builtin__;
-// @brief Number of entries in dictionary.
+// @brief Float64 of entries in dictionary.
 // (dict) -> Std.Dict.Length;
-let Std.Dict.Length(dict: Any) : Number :: __builtin__;
+let Std.Dict.Length(dict: Any) : Int64 :: __builtin__;
 
 // Array support builtins
 // @brief Get element at index from a 1-D array.
 // (array, index) -> Std.Array.GetAt;
-let Std.Array.GetAt(array: Tuple(Any...), index: Number) : Any :: __builtin__;
+let Std.Array.GetAt(array: Tuple(Any...), index: Int64) : Any :: __builtin__;
 // @brief Return a new array with one element replaced.
 // (array, index, value) -> Std.Array.SetAt;
-let Std.Array.SetAt(array: Tuple(Any...), index: Number, value: Any) : Tuple(Any...) :: __builtin__;
+let Std.Array.SetAt(array: Tuple(Any...), index: Int64, value: Any) : Tuple(Any...) :: __builtin__;
 // @brief Insert an element at index and return a new array.
 // (array, index, value) -> Std.Array.InsertAt;
-let Std.Array.InsertAt(array: Tuple(Any...), index: Number, value: Any) : Tuple(Any...) :: __builtin__;
+let Std.Array.InsertAt(array: Tuple(Any...), index: Int64, value: Any) : Tuple(Any...) :: __builtin__;
 // @brief Remove an element at index and return a new array.
 // (array, index) -> Std.Array.RemoveAt;
-let Std.Array.RemoveAt(array: Tuple(Any...), index: Number) : Tuple(Any...) :: __builtin__;
+let Std.Array.RemoveAt(array: Tuple(Any...), index: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Slice a 1-D array using [start, stop).
 // (array, start, stop) -> Std.Array.Slice;
-let Std.Array.Slice(array: Tuple(Any...), start: Number, stop: Number) : Tuple(Any...) :: __builtin__;
+let Std.Array.Slice(array: Tuple(Any...), start: Int64, stop: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Concatenate two 1-D arrays.
 // (lhs, rhs) -> Std.Array.Concat;
 let Std.Array.Concat(lhs: Tuple(Any...), rhs: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
 // @brief Set element at (row, col) in a 2D array (tuple of tuples).
 // (grid, row, col, value) -> Std.Array.SetAt2D;
 // Returns a new grid with the element replaced.
-let Std.Array.SetAt2D(grid: Tuple(Any...), row: Number, col: Number, value: Any) : Tuple(Any...) :: __builtin__;
+let Std.Array.SetAt2D(grid: Tuple(Any...), row: Int64, col: Int64, value: Any) : Tuple(Any...) :: __builtin__;
 // @brief Fill a contiguous region in a tuple with a value.
 // (tuple, start_index, length, value) -> Std.Array.Fill;
 // Returns a new tuple with elements [start_index, start_index+length) set to value.
-let Std.Array.Fill(tuple: Tuple(Any...), start_index: Number, length: Number, value: Any) : Tuple(Any...) :: __builtin__;
+let Std.Array.Fill(tuple: Tuple(Any...), start_index: Int64, length: Int64, value: Any) : Tuple(Any...) :: __builtin__;
 // @brief Transpose a 2D array (swap rows and columns).
 // (grid) -> Std.Array.Transpose2D;
 // Returns a new grid where rows become columns.
@@ -366,14 +374,14 @@ let Std.Array.Transpose2D(grid: Tuple(Any...)) : Tuple(Any...) :: __builtin__;
 // @brief Extract a rectangular slice from a 2D array.
 // (grid, row_start, row_end, col_start, col_end) -> Std.Array.Slice2D;
 // Returns a new grid containing elements in [row_start, row_end) x [col_start, col_end).
-let Std.Array.Slice2D(grid: Tuple(Any...), row_start: Number, row_end: Number, col_start: Number, col_end: Number) : Tuple(Any...) :: __builtin__;
+let Std.Array.Slice2D(grid: Tuple(Any...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Reshape a flattened array into a 2D grid.
-// (flat_array, rows: Number, cols: Number) -> Std.Array.Reshape;
+// (flat_array, rows: Float64, cols: Float64) -> Std.Array.Reshape;
 // Returns a grid of rows x cols, interpreting flat_array in row-major order.
-let Std.Array.Reshape(flat_array: Tuple(Any...), rows: Number, cols: Number) : Tuple(Any...) :: __builtin__;
+let Std.Array.Reshape(flat_array: Tuple(Any...), rows: Int64, cols: Int64) : Tuple(Any...) :: __builtin__;
 // @brief Return the rank (number of dimensions) of a rectangular array value.
 // (value) -> Std.Array.Rank;
-let Std.Array.Rank(value: Any) : Number :: __builtin__;
+let Std.Array.Rank(value: Any) : Int64 :: __builtin__;
 // @brief Return the shape tuple for a rectangular array value.
 // (value) -> Std.Array.Shape;
 let Std.Array.Shape(value: Any) : Tuple(Any...) :: __builtin__;

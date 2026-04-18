@@ -4,11 +4,11 @@ import Std;
 // building larger transformations from smaller named pieces.
 
 // -- Step 1: define small reusable building blocks --
-let Square(x: Number): Number   = (x, x) -> Std.Multiply;
-let Double(x: Number): Number   = (x, 2) -> Std.Multiply;
-let Inc(x: Number): Number      = (x, 1) -> Std.Add;
-let Negate(x: Number): Number   = (0, x) -> Std.Subtract;
-let Abs(x: Number): Number      = ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
+let Square(x: Float64): Float64   = (x, x) -> Std.Multiply;
+let Double(x: Float64): Float64   = (x, 2) -> Std.Multiply;
+let Inc(x: Float64): Float64      = (x, 1) -> Std.Add;
+let Negate(x: Float64): Float64   = (0, x) -> Std.Subtract;
+let Abs(x: Float64): Float64      = ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
 
 // -- Step 2: compose them in pipelines --
 
@@ -19,7 +19,7 @@ let Abs(x: Number): Number      = ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> St
 (-7) -> Negate -> Abs -> Std.Println;                             // 7
 
 // -- Passing composed behaviour through Apply --
-let ApplyTwice(x: Number, f: Any): Number =
+let ApplyTwice(x: Float64, f: Any): Float64 =
     (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
 
 (3, Double) -> ApplyTwice -> Std.Println;                         // 12
@@ -30,17 +30,17 @@ let ApplyTwice(x: Number, f: Any): Number =
 ((1, 2, 3, 4, 5), Double) -> Std.Tuple.Map -> Std.Println;       // (2,4,6,8,10)
 
 // -- Filter then map: keep evens, then double them --
-let IsEven(x: Number): Bool = (x, 2) -> Std.Mod -> (_, 0) -> Std.Equal;
+let IsEven(x: Float64): Bool = (x, 2) -> Std.Mod -> (_, 0) -> Std.Equal;
 
 ((1, 2, 3, 4, 5, 6), IsEven) -> Std.Tuple.Filter
     -> (_, Double) -> Std.Tuple.Map
     -> Std.Println;                                               // (4,8,12)
 
 // -- Conditional composition via Branch --
-let Positive(x: Number): Number = (x, 1) -> Std.Add;
-let NonPositive(x: Number): Number = (0, x) -> Std.Subtract;
+let Positive(x: Float64): Float64 = (x, 1) -> Std.Add;
+let NonPositive(x: Float64): Float64 = (0, x) -> Std.Subtract;
 
-let Transform(x: Number): Number =
+let Transform(x: Float64): Float64 =
     ((x, 0) -> Std.GreaterThan, x, Positive, NonPositive) -> Std.Branch;
 
 (5)  -> Transform -> Std.Println;                                 // 6

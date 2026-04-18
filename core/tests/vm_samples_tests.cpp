@@ -151,7 +151,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 33> kExpectedSamples = {
+constexpr std::array<std::string_view, 34> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -185,6 +185,7 @@ constexpr std::array<std::string_view, 33> kExpectedSamples = {
     "31_result_ok_err.fleaux",
     "32_try_empty_tuple.fleaux",
     "33_exp_parallel.fleaux",
+    "34_help.fleaux",
 };
 
 }  // namespace
@@ -276,7 +277,7 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Collect(rest: Any...): Any = rest;\n"
-           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
            "(1) -> Collect -> Std.Length -> Std.Println;\n"
            "((10, 20, 30)) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
@@ -308,8 +309,36 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let HeadTail(head: Number, rest: Any...): Any = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
            "() -> HeadTail -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+}
+
+TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_integer_only_params";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "integer_only_params_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Array.GetAt(array: Tuple(Any...), index: Int64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple(Any...)): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Any...)): Any :: __builtin__;\n"
+           "let Std.Exit(code: Int64): Any :: __builtin__;\n"
+           "let UseFloatExit(code: Float64): Any = (code) -> Std.Exit;\n"
+           "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+           "((1, 2, 3), 1.5) -> Std.Array.GetAt -> Std.Println;\n"
+           "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
+           "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
+           "(1) -> UseFloatExit -> Std.Println;\n"
+           "(1.25) -> Std.Exit -> Std.Println;\n";
   }
 
   constexpr fleaux::vm::Interpreter interpreter;
@@ -328,9 +357,9 @@ TEST_CASE("Inline closures execute in both interpreter and VM modes", "[vm][samp
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(10, (x: Number): Number = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n"
-           "(10) -> (x: Number): Number = (x, 1) -> Std.Add -> Std.Println;\n"
-           "let MakeAdder(n: Number): Any = (x: Number): Number = (x, n) -> Std.Add;\n"
+           "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n"
+           "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n"
+           "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
            "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
   }
 
@@ -358,7 +387,7 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let IsEven(n: Number): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
+           "let IsEven(n: Float64): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
            "(0, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
            "(3, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
            "(8, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
@@ -378,6 +407,57 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
   REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Std.Type and Std.TypeOf execute in both interpreter and VM modes", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_typeof";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "typeof_ok.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(1) -> Std.Type -> Std.Println;\n"
+           "(1.5) -> Std.Type -> Std.Println;\n"
+           "(\"hi\") -> Std.TypeOf -> Std.Println;\n"
+           "((1, 2, 3)) -> Std.Type -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value());
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_float64_constants";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "float64_constant_int64_reject.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Pi(): Float64 = 3.14159;\n"
+           "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+           "let NeedsInt(x: Int64): Int64 = x;\n"
+           "(Std.Pi) -> NeedsInt -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal)                                      \

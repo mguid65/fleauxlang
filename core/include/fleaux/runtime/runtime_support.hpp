@@ -14,4 +14,5 @@
 #include "fleaux/runtime/builtins_io.hpp"      // Path, File, Dir, OS, file-streaming
 #include "fleaux/runtime/builtins_dict.hpp"    // Dict builtins
 #include "fleaux/runtime/builtins_array.hpp"   // Array utilities
+#include "fleaux/runtime/builtins_help.hpp"    // Help/introspection
 
