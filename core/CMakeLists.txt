@@ -158,7 +158,7 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       "SHELL:-sEXPORT_ES6=1"
       "SHELL:-sENVIRONMENT=web,worker"
       "SHELL:-sNO_EXIT_RUNTIME=1"
-      "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\"]"
+      "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_last_status\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\"]"
       "SHELL:-sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\"]")
   set_target_properties(fleaux_wasm_coordinator PROPERTIES
       OUTPUT_NAME "fleaux_wasm_coordinator"

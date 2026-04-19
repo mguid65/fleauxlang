@@ -2,6 +2,7 @@
 // Path, File, Dir, OS, and file-streaming builtins.
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 // #include "fleaux/runtime/value.hpp"
+#include <array>
 #include <cstdio>
 #if !defined(_WIN32)
 #include <sys/wait.h>
@@ -10,10 +11,148 @@
 namespace fleaux::runtime {
 // Path/File/Dir/OS
 
+namespace detail {
+#if defined(__EMSCRIPTEN__)
+[[nodiscard]] inline auto web_workspace_directory_path() -> std::filesystem::path {
+  return std::filesystem::path{"/workspace"};
+}
+
+[[nodiscard]] inline auto web_current_working_directory_path_storage() -> std::filesystem::path& {
+  static std::filesystem::path cwd = web_workspace_directory_path();
+  return cwd;
+}
+
+[[nodiscard]] inline auto web_default_home_directory_path() -> std::filesystem::path {
+  return std::filesystem::path{"/home/web_user"};
+}
+
+[[nodiscard]] inline auto web_default_temp_directory_path() -> std::filesystem::path {
+  return std::filesystem::path{"/tmp"};
+}
+
+inline void ensure_web_virtual_filesystem() {
+  static const bool initialized = [] {
+    std::error_code ec;
+    std::filesystem::create_directories(web_workspace_directory_path(), ec);
+    ec.clear();
+    std::filesystem::create_directories(web_default_home_directory_path(), ec);
+    ec.clear();
+    std::filesystem::create_directories(web_default_temp_directory_path(), ec);
+    web_current_working_directory_path_storage() = web_workspace_directory_path();
+    return true;
+  }();
+  (void)initialized;
+}
+
+inline void ensure_runtime_filesystem_ready() { ensure_web_virtual_filesystem(); }
+
+[[nodiscard]] inline auto web_env_overrides() -> std::unordered_map<std::string, std::string>& {
+  static std::unordered_map<std::string, std::string> vars;
+  return vars;
+}
+
+[[nodiscard]] inline auto web_env_override(std::string_view key) -> std::optional<std::string> {
+  ensure_web_virtual_filesystem();
+  if (const auto it = web_env_overrides().find(std::string(key)); it != web_env_overrides().end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] inline auto current_working_directory_path() -> std::filesystem::path {
+  ensure_web_virtual_filesystem();
+  return web_current_working_directory_path_storage();
+}
+
+[[nodiscard]] inline auto web_home_directory_path() -> std::filesystem::path {
+  if (const auto home = web_env_override("HOME"); home.has_value()) { return std::filesystem::path(*home); }
+  if (const auto userprofile = web_env_override("USERPROFILE"); userprofile.has_value()) {
+    return std::filesystem::path(*userprofile);
+  }
+  ensure_web_virtual_filesystem();
+  std::error_code ec;
+  std::filesystem::create_directories(web_default_home_directory_path(), ec);
+  return web_default_home_directory_path();
+}
+
+[[nodiscard]] inline auto web_temp_directory_path() -> std::filesystem::path {
+  if (const auto tmpdir = web_env_override("TMPDIR"); tmpdir.has_value()) { return std::filesystem::path(*tmpdir); }
+  if (const auto tmp = web_env_override("TMP"); tmp.has_value()) { return std::filesystem::path(*tmp); }
+  if (const auto temp = web_env_override("TEMP"); temp.has_value()) { return std::filesystem::path(*temp); }
+  ensure_web_virtual_filesystem();
+  std::error_code ec;
+  std::filesystem::create_directories(web_default_temp_directory_path(), ec);
+  return web_default_temp_directory_path();
+}
+
+[[nodiscard]] inline auto web_env_value(std::string_view key) -> std::optional<std::string> {
+  if (key == "PWD") { return current_working_directory_path().string(); }
+  if (const auto overridden = web_env_override(key); overridden.has_value()) { return overridden; }
+  if (key == "HOME" || key == "USERPROFILE") { return web_home_directory_path().string(); }
+  if (key == "TMPDIR" || key == "TMP" || key == "TEMP") { return web_temp_directory_path().string(); }
+  return std::nullopt;
+}
+
+[[nodiscard]] inline auto resolve_runtime_path(std::string_view raw_path) -> std::filesystem::path {
+  ensure_web_virtual_filesystem();
+  const std::filesystem::path path(raw_path);
+  if (path.is_absolute()) { return path.lexically_normal(); }
+  return (current_working_directory_path() / path).lexically_normal();
+}
+
+inline void set_web_env_value(std::string key, std::string value) {
+  ensure_web_virtual_filesystem();
+  std::filesystem::path resolved = resolve_runtime_path(value);
+  std::error_code ec;
+  if (key == "PWD") {
+    std::filesystem::create_directories(resolved, ec);
+    web_current_working_directory_path_storage() = resolved.lexically_normal();
+    return;
+  }
+
+  if (key == "HOME" || key == "USERPROFILE" || key == "TMPDIR" || key == "TMP" || key == "TEMP") {
+    std::filesystem::create_directories(resolved, ec);
+    web_env_overrides()[key] = resolved.string();
+    return;
+  }
+
+  web_env_overrides()[key] = value;
+}
+
+[[nodiscard]] inline auto unset_web_env_value(const std::string& key) -> bool {
+  ensure_web_virtual_filesystem();
+  if (key == "PWD") {
+    const bool existed = true;
+    web_current_working_directory_path_storage() = web_workspace_directory_path();
+    return existed;
+  }
+  return web_env_overrides().erase(key) > 0;
+}
+
+[[noreturn]] inline void throw_web_unsupported(std::string_view builtin_name, std::string_view capability) {
+  throw std::runtime_error(std::string(builtin_name) + " is unavailable on web/WASM targets: " + std::string(capability));
+}
+#else
+[[nodiscard]] inline auto current_working_directory_path() -> std::filesystem::path {
+  std::error_code ec;
+  auto cwd = std::filesystem::current_path(ec);
+  if (!ec) { return cwd; }
+  return std::filesystem::path{"."};
+}
+
+[[nodiscard]] inline auto resolve_runtime_path(std::string_view raw_path) -> std::filesystem::path {
+  return std::filesystem::path(raw_path);
+}
+
+inline void ensure_runtime_filesystem_ready() {}
+#endif
+
+}  // namespace detail
+
 struct Cwd {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "Cwd");
-    return make_string(std::filesystem::current_path().string());
+    return make_string(detail::current_working_directory_path().string());
   }
 };
 
@@ -50,25 +189,34 @@ struct PathDirname {
 
 struct PathExists {
   auto operator()(Value arg) const -> Value {
-    return make_bool(std::filesystem::exists(std::filesystem::path(as_path_string_unary(std::move(arg)))));
+    detail::ensure_runtime_filesystem_ready();
+    return make_bool(std::filesystem::exists(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
   }
 };
 
 struct PathIsFile {
   auto operator()(Value arg) const -> Value {
-    return make_bool(std::filesystem::is_regular_file(std::filesystem::path(as_path_string_unary(std::move(arg)))));
+    detail::ensure_runtime_filesystem_ready();
+    return make_bool(std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
   }
 };
 
 struct PathIsDir {
   auto operator()(Value arg) const -> Value {
-    return make_bool(std::filesystem::is_directory(std::filesystem::path(as_path_string_unary(std::move(arg)))));
+    detail::ensure_runtime_filesystem_ready();
+    return make_bool(std::filesystem::is_directory(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
   }
 };
 
 struct PathAbsolute {
   auto operator()(Value arg) const -> Value {
-    return make_string(std::filesystem::absolute(std::filesystem::path(as_path_string_unary(std::move(arg)))).string());
+    detail::ensure_runtime_filesystem_ready();
+    const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
+#if defined(__EMSCRIPTEN__)
+    return make_string(path.string());
+#else
+    return make_string(std::filesystem::absolute(path).string());
+#endif
   }
 };
 
@@ -106,7 +254,8 @@ struct PathWithBasename {
 
 struct FileReadText {
   auto operator()(Value arg) const -> Value {
-    std::ifstream in(as_path_string_unary(std::move(arg)));
+    detail::ensure_runtime_filesystem_ready();
+    std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
     if (!in) { throw std::runtime_error{"FileReadText failed"}; }
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -116,29 +265,32 @@ struct FileReadText {
 
 struct FileWriteText {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     const auto& args = require_args(arg, 2, "FileWriteText");
-    const std::string path = to_string(*args.TryGet(0));
+    const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
     std::ofstream out(path, std::ios::trunc);
     if (!out) { throw std::runtime_error{"FileWriteText failed"}; }
     out << to_string(*args.TryGet(1));
-    return make_string(path);
+    return make_string(path.string());
   }
 };
 
 struct FileAppendText {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     const auto& args = require_args(arg, 2, "FileAppendText");
-    const std::string path = to_string(*args.TryGet(0));
+    const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
     std::ofstream out(path, std::ios::app);
     if (!out) { throw std::runtime_error{"FileAppendText failed"}; }
     out << to_string(*args.TryGet(1));
-    return make_string(path);
+    return make_string(path.string());
   }
 };
 
 struct FileReadLines {
   auto operator()(Value arg) const -> Value {
-    std::ifstream in(as_path_string_unary(std::move(arg)));
+    detail::ensure_runtime_filesystem_ready();
+    std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
     if (!in) { throw std::runtime_error{"FileReadLines failed"}; }
     Array out;
     std::string line;
@@ -149,8 +301,9 @@ struct FileReadLines {
 
 struct FileDelete {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     std::error_code ec;
-    const bool removed = std::filesystem::remove(std::filesystem::path(as_path_string_unary(std::move(arg))), ec);
+    const bool removed = std::filesystem::remove(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
     throw_if_filesystem_error(ec, "FileDelete");
     return make_bool(removed);
   }
@@ -158,23 +311,25 @@ struct FileDelete {
 
 struct FileSize {
   auto operator()(Value arg) const -> Value {
-    return make_int(
-        static_cast<Int>(std::filesystem::file_size(std::filesystem::path(as_path_string_unary(std::move(arg))))));
+    detail::ensure_runtime_filesystem_ready();
+    return make_int(static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
   }
 };
 
 struct DirCreate {
   auto operator()(Value arg) const -> Value {
-    const std::string path = as_path_string_unary(std::move(arg));
+    detail::ensure_runtime_filesystem_ready();
+    const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
     std::filesystem::create_directories(path);
-    return make_string(path);
+    return make_string(path.string());
   }
 };
 
 struct DirDelete {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     std::error_code ec;
-    const auto removed = std::filesystem::remove_all(std::filesystem::path(as_path_string_unary(std::move(arg))), ec);
+    const auto removed = std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
     throw_if_filesystem_error(ec, "DirDelete");
     return make_bool(removed > 0);
   }
@@ -182,9 +337,9 @@ struct DirDelete {
 
 struct DirList {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     std::vector<std::string> names;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(std::filesystem::path(as_path_string_unary(std::move(arg))))) {
+    for (const auto& entry : std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
       names.push_back(entry.path().filename().string());
     }
     Array out;
@@ -196,9 +351,9 @@ struct DirList {
 
 struct DirListFull {
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     std::vector<std::string> names;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(std::filesystem::path(as_path_string_unary(std::move(arg))))) {
+    for (const auto& entry : std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
       names.push_back(entry.path().string());
     }
     Array out;
@@ -211,15 +366,24 @@ struct DirListFull {
 struct OSEnv {
   auto operator()(Value arg) const -> Value {
     const std::string key = as_path_string_unary(std::move(arg));
+#if defined(__EMSCRIPTEN__)
+    if (const auto emulated = detail::web_env_value(key); emulated.has_value()) { return make_string(*emulated); }
+    return make_null();
+#else
     if (const char* env_value = std::getenv(key.c_str())) { return make_string(env_value); }
     return make_null();
+#endif
   }
 };
 
 struct OSHasEnv {
   auto operator()(Value arg) const -> Value {
     const std::string key = as_path_string_unary(std::move(arg));
+#if defined(__EMSCRIPTEN__)
+    return make_bool(detail::web_env_value(key).has_value());
+#else
     return make_bool(std::getenv(key.c_str()) != nullptr);
+#endif
   }
 };
 
@@ -228,6 +392,10 @@ struct OSSetEnv {
     const auto& args = require_args(arg, 2, "OSSetEnv");
     const std::string key = to_string(*args.TryGet(0));
     const std::string value = to_string(*args.TryGet(1));
+#if defined(__EMSCRIPTEN__)
+    detail::set_web_env_value(key, value);
+    return make_string(value);
+#else
 #if defined(_WIN32)
     const int rc = _putenv_s(key.c_str(), value.c_str());
     if (rc != 0) { throw std::runtime_error{"OSSetEnv failed"}; }
@@ -235,12 +403,16 @@ struct OSSetEnv {
     if (setenv(key.c_str(), value.c_str(), 1) != 0) { throw std::runtime_error{"OSSetEnv failed"}; }
 #endif
     return make_string(value);
+#endif
   }
 };
 
 struct OSUnsetEnv {
   auto operator()(Value arg) const -> Value {
     const std::string key = as_path_string_unary(std::move(arg));
+#if defined(__EMSCRIPTEN__)
+    return make_bool(detail::unset_web_env_value(key));
+#else
     const bool existed = std::getenv(key.c_str()) != nullptr;
 #if defined(_WIN32)
     const int rc = _putenv_s(key.c_str(), "");
@@ -249,13 +421,16 @@ struct OSUnsetEnv {
     if (unsetenv(key.c_str()) != 0) { throw std::runtime_error{"OSUnsetEnv failed"}; }
 #endif
     return make_bool(existed);
+#endif
   }
 };
 
 struct OSIsWindows {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSIsWindows");
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return make_bool(false);
+#elif defined(_WIN32)
     return make_bool(true);
 #else
     return make_bool(false);
@@ -266,7 +441,9 @@ struct OSIsWindows {
 struct OSIsLinux {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSIsLinux");
-#if defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+    return make_bool(false);
+#elif defined(__linux__)
     return make_bool(true);
 #else
     return make_bool(false);
@@ -277,7 +454,9 @@ struct OSIsLinux {
 struct OSIsMacOS {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSIsMacOS");
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+    return make_bool(false);
+#elif defined(__APPLE__)
     return make_bool(true);
 #else
     return make_bool(false);
@@ -288,6 +467,9 @@ struct OSIsMacOS {
 struct OSHome {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSHome");
+#if defined(__EMSCRIPTEN__)
+    return make_string(detail::web_home_directory_path().string());
+#else
     if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') { return make_string(home); }
     if (const char* userprofile = std::getenv("USERPROFILE"); userprofile != nullptr && userprofile[0] != '\0') {
       return make_string(userprofile);
@@ -302,13 +484,18 @@ struct OSHome {
     const auto cwd = std::filesystem::current_path(ec);
     if (!ec) { return make_string(cwd.string()); }
     return make_string(".");
+#endif
   }
 };
 
 struct OSTempDir {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSTempDir");
+#if defined(__EMSCRIPTEN__)
+    return make_string(detail::web_temp_directory_path().string());
+#else
     return make_string(std::filesystem::temp_directory_path().string());
+#endif
   }
 };
 
@@ -316,8 +503,12 @@ struct OSMakeTempFile {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSMakeTempFile");
     std::error_code ec;
+#if defined(__EMSCRIPTEN__)
+    const auto dir = detail::web_temp_directory_path();
+#else
     const auto dir = std::filesystem::temp_directory_path(ec);
     if (ec) { return make_null(); }
+#endif
     for (int attempt = 0; attempt < 100; ++attempt) {
       if (const auto candidate = dir / ("fleaux_" + random_suffix() + ".tmp");
           !std::filesystem::exists(candidate, ec) && !ec) {
@@ -332,8 +523,12 @@ struct OSMakeTempDir {
   auto operator()(Value arg) const -> Value {
     (void)require_args(arg, 0, "OSMakeTempDir");
     std::error_code ec;
+#if defined(__EMSCRIPTEN__)
+    const auto dir = detail::web_temp_directory_path();
+#else
     const auto dir = std::filesystem::temp_directory_path(ec);
     if (ec) { return make_null(); }
+#endif
     for (int attempt = 0; attempt < 100; ++attempt) {
       if (const auto candidate = dir / ("fleaux_" + random_suffix());
           std::filesystem::create_directory(candidate, ec) && !ec) { return make_string(candidate.string()); }
@@ -347,6 +542,10 @@ struct OSExec {
   auto operator()(Value arg) const -> Value {
     const std::string command = as_path_string_unary(std::move(arg));
 
+#if defined(__EMSCRIPTEN__)
+    return make_tuple(make_int(-1), make_string("Std.OS.Exec is unavailable on web/WASM targets: shell command execution is not supported in the browser"));
+#endif
+
 #if defined(_WIN32)
     const std::string wrapped = command + " 2>&1";
     FILE* pipe = _popen(wrapped.c_str(), "r");
@@ -359,8 +558,8 @@ struct OSExec {
     }
 
     std::string output;
-    char buffer[4096];
-    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe) != nullptr) { output += buffer; }
+    std::array<char, 4096> buffer{};
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) { output += buffer.data(); }
 
 #if defined(_WIN32)
     const int close_status = _pclose(pipe);
@@ -380,6 +579,7 @@ struct OSExec {
 struct FileOpen {
   // arg = (path, mode)  OR  (path,) defaults mode to "r"
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     const auto& arr = arg.TryGetArray();
     std::string path, mode = "r";
     if (arr && arr->Size() == 2) {
@@ -392,7 +592,7 @@ struct FileOpen {
     } else {
       path = as_string(arg);
     }
-    const UInt slot = handle_registry().open(path, mode);
+    const UInt slot = handle_registry().open(detail::resolve_runtime_path(path).string(), mode);
     const UInt gen = handle_registry().entries[slot].generation;
     return make_handle_token(slot, gen);
   }
@@ -474,8 +674,9 @@ struct FileWithOpen {
   // arg = (path, mode, func_ref)  ->  result of func_ref(handle_token)
   // Guarantees close even if func throws.
   auto operator()(Value arg) const -> Value {
+    detail::ensure_runtime_filesystem_ready();
     const auto& args = require_args(arg, 3, "FileWithOpen");
-    const std::string path = as_string(*args.TryGet(0));
+    const std::string path = detail::resolve_runtime_path(as_string(*args.TryGet(0))).string();
     const std::string mode = as_string(*args.TryGet(1));
     const Value& fn = *args.TryGet(2);
     const UInt slot = handle_registry().open(path, mode);
