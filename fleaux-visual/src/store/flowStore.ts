@@ -14,7 +14,7 @@ import type { FleauxEdge, FleauxNodeData } from '../lib/types';
 import { initialNodes, initialEdges } from './initialGraph';
 import { migrateGraphNodes } from '../lib/graphMigration';
 import { serializeGraphToFleaux } from '../lib/graphToFleaux';
-import { wasmRunSource } from '../lib/wasmCoordinator';
+import { wasmRunSource, WasmCoordinatorError, WasmStatusCode } from '../lib/wasmCoordinator';
 import { importFleauxSourceToGraph } from '../lib/fleauxToGraph';
 
 export type WasmValidationStatus = 'idle' | 'running' | 'success' | 'error';
@@ -174,10 +174,12 @@ export const useFlowStore = create<FlowState>()(
           state.wasmMessage = `Ran generated graph with ${result.version} (exit ${result.exitCode})`;
         });
       } catch (error) {
+        const isUnavailable =
+          error instanceof WasmCoordinatorError && error.statusCode === WasmStatusCode.RuntimeUnavailable;
         const message = error instanceof Error ? error.message : String(error);
         set((state) => {
           state.wasmStatus = 'error';
-          state.wasmMessage = message;
+          state.wasmMessage = isUnavailable ? `WASM runtime not available: ${message}` : message;
           state.sourceText = generatedSource;
           state.wasmOutput = '';
         });
@@ -210,11 +212,13 @@ export const useFlowStore = create<FlowState>()(
           state.wasmMessage = `Ran editor source with ${result.version} (exit ${result.exitCode})`;
         });
       } catch (error) {
+        const isUnavailable =
+          error instanceof WasmCoordinatorError && error.statusCode === WasmStatusCode.RuntimeUnavailable;
         const message = error instanceof Error ? error.message : String(error);
         set((state) => {
           state.wasmStatus = 'error';
           state.wasmOutput = '';
-          state.wasmMessage = message;
+          state.wasmMessage = isUnavailable ? `WASM runtime not available: ${message}` : message;
         });
       }
     },

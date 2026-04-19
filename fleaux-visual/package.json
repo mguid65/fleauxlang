@@ -10,6 +10,8 @@
     "wasm:configure": "cd ../core && conan install . --profile=../fleaux-visual/wasm/emscripten_wasm_full -o '&:build_wasm_coordinator=True' --build=missing && bash -lc '. cmake-build-wasm/Release/generators/conanbuild.sh && cmake -S . -B cmake-build-wasm/Release -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=cmake-build-wasm/Release/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DFLEAUX_BUILD_WASM_COORDINATOR=ON'",
     "wasm:build": "cmake --build ../core/cmake-build-wasm/Release --target fleaux_wasm_coordinator",
     "wasm:smoke": "npm run wasm:configure && npm run wasm:build",
+    "test:wasm": "npm run wasm:smoke && playwright test tests/wasm-coordinator.spec.ts",
+    "test:wasm:install": "playwright install chromium",
     "typecheck": "tsc -b --pretty",
     "build": "npm run generate:std && tsc -b && vite build",
     "build:pages": "npm run generate:std && tsc -b && vite build",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",

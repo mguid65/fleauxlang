@@ -185,11 +185,16 @@ let Std.String.Regex.Split(s: String, pattern: String) : Tuple(Any...) :: __buil
 let Std.OS.Cwd() : String :: __builtin__;
 let Std.OS.Home() : String :: __builtin__;
 let Std.OS.TempDir() : String :: __builtin__;
+// On web/WASM targets, OS/path/file operations run inside an in-memory virtual filesystem.
+// The default layout is rooted at /workspace, with /home/web_user and /tmp also available.
 // @brief Execute a shell command and return (exit_code, combined_output).
 // ("echo hi") -> Std.OS.Exec;
+// On web/WASM targets this returns (-1, message) because browsers do not expose shell execution.
 let Std.OS.Exec(command: String) : Tuple(Int64, String) :: __builtin__;
 let Std.OS.MakeTempFile() : String :: __builtin__;
 let Std.OS.MakeTempDir() : String :: __builtin__;
+// On web/WASM targets, Std.OS.Env / HasEnv / SetEnv / UnsetEnv operate on a small virtual environment.
+// Builtin values include PWD, HOME, USERPROFILE, TMPDIR, TMP, and TEMP.
 let Std.OS.Env(name: String) : Any :: __builtin__;
 let Std.OS.HasEnv(name: String) : Bool :: __builtin__;
 let Std.OS.SetEnv(name: String, value: String) : String :: __builtin__;
