@@ -25,10 +25,7 @@ TEST_CASE("format_diagnostic includes location and hint", "[diagnostics]") {
   span.end_col = 6;
 
   const std::string rendered = fleaux::frontend::diag::format_diagnostic(
-      "parse",
-      "Expected ';'",
-      span,
-      std::optional<std::string>{"Terminate the current statement with ';'."},
+      "parse", "Expected ';'", span, std::optional<std::string>{"Terminate the current statement with ';'."},
       std::nullopt);
 
   REQUIRE(rendered.find("error[parse]") != std::string::npos);

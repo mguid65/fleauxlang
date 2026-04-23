@@ -124,7 +124,7 @@ export function Toolbar() {
     <aside className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-[#1a1d2e] border border-[#2d3148] rounded-xl p-3 shadow-xl w-52 max-h-[92vh] overflow-auto">
       <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Add Node</div>
 
-      {/* ── Primitive nodes ─────────────────────────────────── */}
+      {/*  Primitive nodes  */}
       <div className="text-[10px] text-slate-500 uppercase tracking-wider">Primitives</div>
       <button onClick={() => addPrimitive({ type: 'importNode', data: { kind: 'import', moduleName: 'Std', label: 'import Std' } })}
         className="text-xs font-mono border border-teal-600 text-teal-300 hover:bg-teal-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Import</button>
@@ -145,7 +145,7 @@ export function Toolbar() {
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'Float64', value: '0.0', label: '0.0' } })}
         className="text-xs font-mono border border-sky-600 text-sky-300 hover:bg-sky-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Float64</button>
 
-      {/* ── Std functions ────────────────────────────────────── */}
+      {/*  Std functions  */}
       <div className="border-t border-[#2d3148] my-1" />
 
       {userFunctions.length > 0 && (

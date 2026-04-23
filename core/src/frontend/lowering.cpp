@@ -1,4 +1,5 @@
 #include "fleaux/frontend/lowering.hpp"
+#include "fleaux/frontend/analysis.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
 #include <algorithm>
@@ -42,8 +43,65 @@ auto split_id(const std::variant<std::string, model::QualifiedId>& id)
 }
 
 auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
+  const auto lower_bridge_type_node = [&](const auto& self, const model::TypeNode& node) -> types::TypeNode {
+    types::TypeNode out;
+    out.span = node.span;
+    out.variadic = node.variadic;
+    std::visit(
+        fleaux::common::overloaded{
+            [&](const std::string& simple) -> void {
+              std::string raw = simple;
+              if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                out.variadic = true;
+                raw = raw.substr(0, raw.size() - 3U);
+              }
+              out.kind = types::TypeNodeKind::kNamed;
+              out.name = raw;
+            },
+            [&](const model::QualifiedId& qualified) -> void {
+              out.kind = types::TypeNodeKind::kNamed;
+              out.name = qualified.qualifier.qualifier + "." + qualified.id;
+            },
+            [&](const Box<model::TypeList>& type_list) -> void {
+              out.kind = types::TypeNodeKind::kTuple;
+              out.name = "Tuple";
+              out.items.reserve(type_list->types.size());
+              for (const auto& item : type_list->types) {
+                out.items.push_back(self(self, *item));
+              }
+            },
+            [&](const Box<model::UnionTypeList>& union_list) -> void {
+              out.kind = types::TypeNodeKind::kUnion;
+              for (const auto& alt : union_list->alternatives) {
+                out.items.push_back(self(self, *alt));
+              }
+              if (!out.items.empty()) { out.name = out.items.front().name; }
+            },
+            [&](const Box<model::AppliedTypeNode>& applied) -> void {
+              out.kind = types::TypeNodeKind::kApplied;
+              out.name = applied->name;
+              out.items.reserve(applied->args.types.size());
+              for (const auto& arg : applied->args.types) {
+                out.items.push_back(self(self, *arg));
+              }
+            },
+            [&](const Box<model::FunctionTypeNode>& func) -> void {
+              out.kind = types::TypeNodeKind::kFunction;
+              out.name = "Function";
+              out.items.reserve(func->params.types.size() + 1);
+              for (const auto& param : func->params.types) {
+                out.items.push_back(self(self, *param));
+              }
+              out.items.push_back(self(self, *func->return_type));
+            }},
+        node.value);
+    return out;
+  };
+
   ir::IRSimpleType out;
   out.span = type.span;
+  out.variadic = type.variadic;
+  out.bridge_type_node = lower_bridge_type_node(lower_bridge_type_node, type);
   std::visit(
       fleaux::common::overloaded{
           [&](const std::string& simple) -> void {
@@ -57,13 +115,39 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
           [&](const model::QualifiedId& qualified) -> void { out.name = qualified.qualifier.qualifier + "." + qualified.id; },
           [&](const Box<model::UnionTypeList>& union_list) -> void {
             for (const auto& alt : union_list->alternatives) {
-              if (const ir::IRSimpleType lowered = lower_simple_type(*alt); !lowered.alternatives.empty()) {
+              const ir::IRSimpleType lowered = lower_simple_type(*alt);
+              out.alternative_types.push_back(lowered);
+              if (!lowered.alternatives.empty()) {
                 out.alternatives.insert(out.alternatives.end(), lowered.alternatives.begin(), lowered.alternatives.end());
               } else {
                 out.alternatives.push_back(lowered.name);
               }
             }
             if (!out.alternatives.empty()) { out.name = out.alternatives.front(); }
+          },
+          [&](const Box<model::TypeList>& type_list) -> void {
+            out.name = "Tuple";
+            out.tuple_items.reserve(type_list->types.size());
+            for (const auto& item : type_list->types) {
+              out.tuple_items.push_back(lower_simple_type(*item));
+            }
+          },
+          [&](const Box<model::AppliedTypeNode>& applied) -> void {
+            out.name = applied->name;
+            out.type_args.reserve(applied->args.types.size());
+            for (const auto& arg : applied->args.types) {
+              out.type_args.push_back(lower_simple_type(*arg));
+            }
+          },
+          [&](const Box<model::FunctionTypeNode>& func) -> void {
+            out.name = "Function";
+            ir::IRSimpleType::FunctionSignature sig;
+            sig.param_types.reserve(func->params.types.size());
+            for (const auto& param : func->params.types) {
+              sig.param_types.push_back(lower_simple_type(*param));
+            }
+            sig.return_type = Box<ir::IRSimpleType>(lower_simple_type(*func->return_type));
+            out.function_sig = std::move(sig);
           },
           [&](const auto&) -> void { out.name = "Tuple"; }},
       type.value);
@@ -444,9 +528,10 @@ auto lower_expr(const model::Expression& expr, const std::unordered_set<std::str
 }
 }  // namespace
 
-auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
+auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult {
   ir::IRProgram ir_program;
   ir_program.span = program.span;
+  std::unordered_map<std::string, std::size_t> user_symbol_ordinals;
 
   for (const auto& stmt : program.statements) {
     auto lowered_stmt = std::visit(
@@ -460,6 +545,7 @@ auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
             },
             [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
               auto [qualifier, name] = split_id(model_let.id);
+              const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
 
               std::vector<ir::IRParam> params;
               for (const auto& [param_name, type, span] : model_let.params.params) {
@@ -479,6 +565,11 @@ auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
               }
 
               const bool is_builtin = model_let.is_builtin;
+              std::string symbol_key = public_symbol;
+              if (!is_builtin) {
+                const auto ordinal = user_symbol_ordinals[public_symbol]++;
+                symbol_key += "#" + std::to_string(ordinal);
+              }
 
               std::unordered_set<std::string> let_bound_names;
               for (const auto& p : params) { let_bound_names.insert(p.name); }
@@ -493,6 +584,8 @@ auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
               ir_program.lets.push_back(ir::IRLet{
                   .qualifier = qualifier,
                   .name = name,
+                  .symbol_key = std::move(symbol_key),
+                  .generic_params = model_let.generic_params,
                   .params = std::move(params),
                   .return_type = lower_simple_type(model_let.rtype),
                   .doc_comments = model_let.doc_comments,
@@ -518,10 +611,44 @@ auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
     if (!lowered_stmt) { return tl::unexpected(lowered_stmt.error()); }
   }
 
-  if (auto type_checked = type_check::validate_program(ir_program); !type_checked) {
-    return tl::unexpected(type_checked.error());
-  }
-
   return ir_program;
 }
+
+auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
+  auto lowered = lower_only(program);
+  if (!lowered) { return tl::unexpected(lowered.error()); }
+
+  auto analyzed = type_check::analyze_program(*lowered);
+  if (!analyzed) {
+    return tl::unexpected(LoweringError{
+        .message = analyzed.error().message,
+        .hint = analyzed.error().hint,
+        .span = analyzed.error().span,
+    });
+  }
+
+  return *analyzed;
+}
+
+}  // namespace fleaux::frontend::analysis
+
+namespace fleaux::frontend::analysis {
+
+auto Analyzer::lower_only(const model::Program& program) const -> lowering::LoweringResult {
+  return lowering::Lowerer{}.lower_only(program);
+}
+
+auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
+  auto lowered = lowering::Lowerer{}.lower_only(program);
+  if (!lowered) {
+    return tl::unexpected(type_check::AnalysisError{
+        .message = lowered.error().message,
+        .hint = lowered.error().hint,
+        .span = lowered.error().span,
+    });
+  }
+
+  return type_check::analyze_program(*lowered);
+}
+
 }  // namespace fleaux::frontend::lowering

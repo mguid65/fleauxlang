@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -20,6 +21,9 @@ struct CompileOptions {
   std::optional<std::string> source_text;
   std::optional<std::string> module_name;
   std::vector<const Module*> imported_modules;
+  bool enable_value_ref_gate{false};
+  bool enable_auto_value_ref{false};
+  std::size_t value_ref_byte_cutoff{256};
 };
 
 using CompileResult = tl::expected<Module, CompileError>;

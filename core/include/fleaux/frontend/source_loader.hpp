@@ -14,6 +14,7 @@
 
 #include "fleaux/frontend/analysis.hpp"
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/type_check.hpp"
 
 namespace fleaux::frontend::source_loader {
 
@@ -51,12 +52,30 @@ template <typename ErrorT, typename ErrorFactory>
   }
 
   constexpr analysis::Analyzer analyzer;
-  const auto analyzed = analyzer.lower(parsed.value());
+  const auto analyzed = analyzer.analyze(parsed.value());
   if (!analyzed) {
     return tl::unexpected(make_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
 
   return analyzed.value();
+}
+
+template <typename ErrorT, typename ErrorFactory>
+[[nodiscard]] auto parse_text_to_lowered_ir(const std::string& source_text, const std::string& source_name,
+                                            ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
+  constexpr parse::Parser parser;
+  const auto parsed = parser.parse_program(source_text, source_name);
+  if (!parsed) {
+    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
+  }
+
+  constexpr analysis::Analyzer analyzer;
+  const auto lowered = analyzer.lower_only(parsed.value());
+  if (!lowered) {
+    return tl::unexpected(make_error(lowered.error().message, lowered.error().hint, lowered.error().span));
+  }
+
+  return lowered.value();
 }
 
 template <typename ErrorT, typename ErrorFactory>
@@ -73,6 +92,19 @@ template <typename ErrorT, typename ErrorFactory>
 }
 
 template <typename ErrorT, typename ErrorFactory>
+[[nodiscard]] auto parse_file_to_lowered_ir(const std::filesystem::path& source_file,
+                                            ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
+  const auto source_text = read_text_file(source_file);
+  if (source_text.empty()) {
+    return tl::unexpected(
+        make_error("Failed to read source file.", std::optional<std::string>{"Check the file path and ensure it is not empty."},
+                   std::nullopt));
+  }
+
+  return parse_text_to_lowered_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
+}
+
+template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto load_ir_program(const std::filesystem::path& source_file, ErrorFactory&& make_error,
                                    const std::string_view cycle_message = "Cyclic import detected.",
                                    const std::optional<std::string>& cycle_hint = std::nullopt)
@@ -80,6 +112,11 @@ template <typename ErrorT, typename ErrorFactory>
   using IRProgram = ir::IRProgram;
   using IRExprStatement = ir::IRExprStatement;
   using IRLet = ir::IRLet;
+
+  const auto let_identity_key = [](const IRLet& let) -> std::string {
+    if (!let.symbol_key.empty()) { return let.symbol_key; }
+    return symbol_key(let.qualifier, let.name);
+  };
 
   const auto collect_program = [&](const auto& self, const std::filesystem::path& current_source,
                                    std::unordered_map<std::string, IRProgram>& cache,
@@ -92,7 +129,7 @@ template <typename ErrorT, typename ErrorFactory>
     }
 
     in_progress.insert(key);
-    auto current = parse_file_to_ir<ErrorT>(current_source, make_error);
+    auto current = parse_file_to_lowered_ir<ErrorT>(current_source, make_error);
     if (!current) {
       in_progress.erase(key);
       return tl::unexpected(current.error());
@@ -100,7 +137,7 @@ template <typename ErrorT, typename ErrorFactory>
 
     IRProgram merged = current.value();
     std::unordered_set<std::string> seen;
-    for (const auto& let : merged.lets) { seen.insert(symbol_key(let.qualifier, let.name)); }
+    for (const auto& let : merged.lets) { seen.insert(let_identity_key(let)); }
 
     std::vector<IRLet> imported_lets;
     std::vector<IRExprStatement> imported_exprs;
@@ -115,7 +152,7 @@ template <typename ErrorT, typename ErrorFactory>
       }
 
       for (const auto& imported_let : imported->lets) {
-        if (const auto sym = symbol_key(imported_let.qualifier, imported_let.name); seen.insert(sym).second) {
+        if (const auto sym = let_identity_key(imported_let); seen.insert(sym).second) {
           imported_lets.push_back(imported_let);
         }
       }
@@ -124,9 +161,15 @@ template <typename ErrorT, typename ErrorFactory>
 
     merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
     merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
-    cache[key] = merged;
+    auto analyzed = type_check::analyze_program(merged);
+    if (!analyzed) {
+      in_progress.erase(key);
+      return tl::unexpected(make_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
+    }
+
+    cache[key] = analyzed.value();
     in_progress.erase(key);
-    return merged;
+    return analyzed.value();
   };
 
   std::unordered_map<std::string, IRProgram> cache;
