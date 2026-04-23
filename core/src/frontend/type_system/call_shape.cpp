@@ -18,7 +18,7 @@ auto callable_has_fixed_arity(const Type& type, const std::size_t arity) -> bool
   if (!type.function_return.has_value()) { return true; }
   if (type.function_params.size() != arity) { return false; }
 
-  return std::ranges::all_of(type.function_params, [](const auto& param) -> bool { return param.variadic; });
+  return std::ranges::all_of(type.function_params, [](const auto& param) -> bool { return !param.variadic; });
 }
 
 auto callable_accepts_arg(const Type& callable_type, const std::size_t param_index, const Type& arg_type) -> bool {

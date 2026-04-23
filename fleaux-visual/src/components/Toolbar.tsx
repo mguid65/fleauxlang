@@ -12,7 +12,31 @@ import {
   type StdFunctionEntry,
   type StdValueEntry,
 } from '../lib/stdCatalogue';
+import {
+  formatAritySummary,
+  formatCompactFunctionLabel,
+  formatFunctionDisplayName,
+  formatFunctionDisplaySignature,
+} from '../lib/functionSignatures';
 import { NS_BORDER, NS_COLORS, NS_TEXT } from '../lib/stdTheme';
+
+function formatStdFunctionMeta(fn: StdFunctionEntry): string {
+  const tags: string[] = [];
+
+  if (fn.overloadCount > 1) {
+    tags.push(`overload ${fn.overloadIndex}/${fn.overloadCount}`);
+  }
+
+  if (fn.hasVariadicTail) {
+    tags.push(`variadic ${formatAritySummary(fn.params)}`);
+  }
+
+  if (fn.isTerminal) {
+    tags.push('terminal');
+  }
+
+  return tags.join(' | ');
+}
 
 let nodeCounter = 100;
 function uid() {
@@ -41,9 +65,18 @@ export function Toolbar() {
           kind: 'stdFunc' as const,
           qualifiedName: fn.qualifiedName,
           namespace: fn.namespace,
+          typeParams: fn.typeParams,
           params: fn.params,
           returnType: fn.returnType,
-          label: fn.qualifiedName,
+          signatureKey: fn.signatureKey,
+          displayName: fn.displayName,
+          displaySignature: fn.displaySignature,
+          hasVariadicTail: fn.hasVariadicTail,
+          minimumArity: fn.minimumArity,
+          overloadIndex: fn.overloadIndex,
+          overloadCount: fn.overloadCount,
+          isTerminal: fn.isTerminal,
+          label: fn.displayName,
         },
       } as Node<FleauxNodeData>);
     },
@@ -69,7 +102,13 @@ export function Toolbar() {
   );
 
   const addUserFunc = useCallback(
-    (funcName: string, nodeId: string, params: { name: string; type: string }[], returnType: string) => {
+    (
+      funcName: string,
+      nodeId: string,
+      typeParams: string[] | undefined,
+      params: { name: string; type: string }[],
+      returnType: string,
+    ) => {
       addNode({
         id: uid(),
         type: 'userFuncNode',
@@ -78,9 +117,10 @@ export function Toolbar() {
           kind: 'userFunc' as const,
           functionName: funcName,
           functionNodeId: nodeId,
+          typeParams,
           params,
           returnType,
-          label: funcName,
+          label: formatFunctionDisplayName(funcName, typeParams),
         },
       } as Node<FleauxNodeData>);
     },
@@ -154,11 +194,19 @@ export function Toolbar() {
           {userFunctions.map((uf) => (
             <button
               key={uf.nodeId}
-              onClick={() => addUserFunc(uf.name, uf.nodeId, uf.params, uf.returnType)}
+              onClick={() => addUserFunc(uf.name, uf.nodeId, uf.typeParams, uf.params, uf.returnType)}
               className="text-xs font-mono border border-purple-600 text-purple-300 hover:bg-purple-900 rounded px-3 py-1.5 transition-colors cursor-pointer text-left"
-              title={`${uf.name}(${uf.params.map((p) => `${p.name}: ${p.type}`).join(', ')}) → ${uf.returnType}`}
+              title={formatFunctionDisplaySignature(uf.name, {
+                params: uf.params,
+                returnType: uf.returnType,
+                typeParams: uf.typeParams,
+              })}
             >
-              + {uf.name}
+              + {formatCompactFunctionLabel(uf.name, {
+                params: uf.params,
+                returnType: uf.returnType,
+                typeParams: uf.typeParams,
+              })}
             </button>
           ))}
           <div className="border-t border-[#2d3148] my-1" />
@@ -194,18 +242,22 @@ export function Toolbar() {
             );
           })}
           {STD_FUNCTIONS.filter((fn) =>
-            fn.qualifiedName.toLowerCase().includes(lq) || fn.name.toLowerCase().includes(lq),
+            fn.qualifiedName.toLowerCase().includes(lq)
+              || fn.displaySignature.toLowerCase().includes(lq)
+              || fn.name.toLowerCase().includes(lq),
           ).map((fn) => {
             const nsColor = NS_COLORS[fn.namespace] ?? '';
             const border = nsColor.split(' ')[0] ?? 'border-slate-700';
+            const meta = formatStdFunctionMeta(fn);
             return (
               <button
-                key={fn.qualifiedName}
-                title={`(${fn.params.map((p) => `${p.name}: ${p.type}`).join(', ')}) → ${fn.returnType}`}
+                key={fn.signatureKey}
+                title={fn.displaySignature}
                 onClick={() => addStdFunc(fn)}
                 className={`text-left text-[11px] font-mono border ${border} text-slate-200 hover:bg-white/10 rounded px-2 py-1 transition-colors cursor-pointer`}
               >
-                {fn.qualifiedName}
+                <div>{fn.displaySignature}</div>
+                {meta.length > 0 && <div className="text-[9px] opacity-60">{meta}</div>}
               </button>
             );
           })}
@@ -238,12 +290,15 @@ export function Toolbar() {
                   ))}
                   {fns.map((fn) => (
                     <button
-                      key={fn.qualifiedName}
-                      title={`(${fn.params.map((p) => `${p.name}: ${p.type}`).join(', ')}) → ${fn.returnType}`}
+                      key={fn.signatureKey}
+                      title={fn.displaySignature}
                       onClick={() => addStdFunc(fn)}
                       className={`text-left text-[11px] font-mono ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/10 rounded px-2 py-0.5 transition-colors cursor-pointer`}
                     >
-                      {fn.name}
+                      <div>{formatCompactFunctionLabel(fn.name, fn)}</div>
+                      {formatStdFunctionMeta(fn).length > 0 && (
+                        <div className="text-[9px] opacity-60">{formatStdFunctionMeta(fn)}</div>
+                      )}
                     </button>
                   ))}
                 </div>
