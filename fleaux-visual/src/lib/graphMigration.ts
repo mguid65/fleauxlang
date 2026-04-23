@@ -1,5 +1,8 @@
 import type { Node } from '@xyflow/react';
+import { STD_FUNCTIONS } from './stdCatalogue';
 import type { FleauxNodeData } from './types';
+
+const stdApplyEntry = STD_FUNCTIONS.find((entry) => entry.qualifiedName === 'Std.Apply' && entry.params.length === 2);
 
 /**
  * Migrate old graph data where `std` namespace nodes existed.
@@ -25,19 +28,29 @@ export function migrateGraphNodes(
     if (data.kind === 'std' && typeof data.namespace === 'string') {
       // Convert to a stdFunc node using Std.Apply as a sensible default
       // that can work with any Std namespace
+      if (!stdApplyEntry) {
+        throw new Error('Expected Std.Apply entry in generated Std catalogue.');
+      }
+
       return {
         ...node,
         type: 'stdFuncNode',
         data: {
           kind: 'stdFunc' as const,
-          qualifiedName: 'Std.Apply',
-          namespace: 'Std',
-          params: [
-            { name: 'value', type: 'Any' },
-            { name: 'func', type: 'Any' },
-          ],
-          returnType: 'Any',
-          label: 'Std.Apply',
+          qualifiedName: stdApplyEntry.qualifiedName,
+          namespace: stdApplyEntry.namespace,
+          typeParams: stdApplyEntry.typeParams,
+          params: stdApplyEntry.params,
+          returnType: stdApplyEntry.returnType,
+          signatureKey: stdApplyEntry.signatureKey,
+          displayName: stdApplyEntry.displayName,
+          displaySignature: stdApplyEntry.displaySignature,
+          hasVariadicTail: stdApplyEntry.hasVariadicTail,
+          minimumArity: stdApplyEntry.minimumArity,
+          overloadIndex: stdApplyEntry.overloadIndex,
+          overloadCount: stdApplyEntry.overloadCount,
+          isTerminal: stdApplyEntry.isTerminal,
+          label: stdApplyEntry.displayName,
         } as FleauxNodeData,
       };
     }

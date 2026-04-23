@@ -1,6 +1,7 @@
 import type { Node } from '@xyflow/react';
 import type { FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, UserFuncData } from './types';
-import { STD_FUNCTIONS, STD_VALUES } from './stdCatalogue';
+import { formatFunctionDisplayName, matchesArity } from './functionSignatures';
+import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
 export class FleauxImportError extends Error {
   constructor(message: string) {
@@ -15,7 +16,7 @@ export interface FleauxGraphImportResult {
 }
 
 type Param = { name: string; type: string };
-type LetDef = { name: string; params: Param[]; returnType: string; body: string };
+type LetDef = { name: string; typeParams?: string[]; params: Param[]; returnType: string; body: string };
 
 type SourceRef = {
   nodeId: string;
@@ -34,7 +35,12 @@ type BuildContext = {
   letSourceRef?: { nodeId: string; paramIndexByName: Map<string, number> };
 };
 
-const stdFunctionByName = new Map(STD_FUNCTIONS.map((entry) => [entry.qualifiedName, entry]));
+const stdFunctionsByName = new Map<string, StdFunctionEntry[]>();
+for (const entry of STD_FUNCTIONS) {
+  const group = stdFunctionsByName.get(entry.qualifiedName) ?? [];
+  group.push(entry);
+  stdFunctionsByName.set(entry.qualifiedName, group);
+}
 const stdValueByName = new Map(STD_VALUES.map((entry) => [entry.qualifiedName, entry]));
 
 const OPERATOR_TO_STD_TARGET = new Map<string, string>([
@@ -53,6 +59,43 @@ const OPERATOR_TO_STD_TARGET = new Map<string, string>([
   ['&&', 'Std.And'],
   ['||', 'Std.Or'],
 ]);
+
+function selectStdFunctionOverload(
+  qualifiedName: string,
+  inferredArity?: number,
+): StdFunctionEntry | null {
+  const overloads = stdFunctionsByName.get(qualifiedName);
+  if (!overloads || overloads.length === 0) {
+    return null;
+  }
+
+  if (inferredArity === undefined) {
+    return overloads.length === 1 ? overloads[0] : null;
+  }
+
+  const matches = overloads.filter((entry) => matchesArity(entry.params, inferredArity));
+  if (matches.length === 0) {
+    return null;
+  }
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  const exactMatches = matches.filter((entry) => entry.params.length === inferredArity);
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  }
+
+  return null;
+}
+
+function formatArityErrorSuffix(inferredArity?: number): string {
+  if (inferredArity === undefined) {
+    return '';
+  }
+  return ` with ${inferredArity} argument${inferredArity === 1 ? '' : 's'}`;
+}
 
 /** Strip // line comments from source, preserving string literals. */
 function stripLineComments(source: string): string {
@@ -177,11 +220,40 @@ function parseParams(paramText: string): Param[] {
   });
 }
 
+function splitNameAndTypeParams(rawName: string): { name: string; typeParams: string[] } {
+  const trimmed = rawName.trim();
+  if (!trimmed.endsWith('>')) {
+    return { name: trimmed, typeParams: [] };
+  }
+
+  let depth = 0;
+  for (let index = trimmed.length - 1; index >= 0; index -= 1) {
+    const ch = trimmed[index];
+    if (ch === '>') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '<') {
+      depth -= 1;
+      if (depth === 0) {
+        const name = trimmed.slice(0, index).trim();
+        const typeParamsText = trimmed.slice(index + 1, -1).trim();
+        const typeParams = typeParamsText.length === 0 ? [] : splitTopLevel(typeParamsText, ',');
+        return { name, typeParams };
+      }
+    }
+  }
+
+  return { name: trimmed, typeParams: [] };
+}
+
 function parseLet(stmt: string): LetDef {
-  const letMatch = /^let\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)\s*\((.*)\)\s*:\s*(.+?)\s*(?:::|=)\s*(.+)$/s.exec(stmt);
+  const letMatch = /^let\s+(.+?)\s*\((.*)\)\s*:\s*(.+?)\s*(?:::|=)\s*(.+)$/s.exec(stmt);
   if (!letMatch) throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  const { name, typeParams } = splitNameAndTypeParams(letMatch[1]);
   return {
-    name: letMatch[1].trim(),
+    name,
+    typeParams,
     params: parseParams(letMatch[2]),
     returnType: letMatch[3].trim(),
     body: letMatch[4].trim(),
@@ -323,8 +395,8 @@ function resolveIdentifierAsSource(
   }
 
   // Std function used as a value (callback)
-  if (stdFunctionByName.has(token)) {
-    const std = stdFunctionByName.get(token)!;
+  const stdReference = selectStdFunctionOverload(token);
+  if (stdReference) {
     const nodeId = nextId('stdfuncref');
     ctx.nodes.push({
       id: nodeId,
@@ -332,15 +404,28 @@ function resolveIdentifierAsSource(
       position: { x: 380, y: 130 + ctx.nodes.length * 40 },
       data: {
         kind: 'stdFunc',
-        qualifiedName: std.qualifiedName,
-        namespace: std.namespace,
-        params: std.params,
-        returnType: std.returnType,
+        qualifiedName: stdReference.qualifiedName,
+        namespace: stdReference.namespace,
+        typeParams: stdReference.typeParams,
+        params: stdReference.params,
+        returnType: stdReference.returnType,
+        signatureKey: stdReference.signatureKey,
+        displayName: stdReference.displayName,
+        displaySignature: stdReference.displaySignature,
+        hasVariadicTail: stdReference.hasVariadicTail,
+        minimumArity: stdReference.minimumArity,
+        overloadIndex: stdReference.overloadIndex,
+        overloadCount: stdReference.overloadCount,
+        isTerminal: stdReference.isTerminal,
         isReference: true,
-        label: std.qualifiedName,
+        label: stdReference.displayName,
       },
     });
     return { nodeId };
+  }
+
+  if (stdFunctionsByName.has(token)) {
+    throw new FleauxImportError(`Ambiguous overloaded Std function reference '${token}'. Call it with arguments so the visual importer can choose an overload.`);
   }
 
   // User function used as a value (callback)
@@ -355,10 +440,11 @@ function resolveIdentifierAsSource(
         kind: 'userFunc',
         functionName: user.name,
         functionNodeId: '',
+        typeParams: user.typeParams,
         params: user.params,
         returnType: user.returnType,
         isReference: true,
-        label: user.name,
+        label: formatFunctionDisplayName(user.name, user.typeParams),
       },
     });
     return { nodeId };
@@ -442,7 +528,7 @@ function tryParseCallTarget(
 ): { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData } | null {
   const resolvedToken = OPERATOR_TO_STD_TARGET.get(targetToken) ?? targetToken;
 
-  const std = stdFunctionByName.get(resolvedToken);
+  const std = selectStdFunctionOverload(resolvedToken, inferredArity);
   if (std) {
     return {
       kind: 'stdFunc',
@@ -450,11 +536,26 @@ function tryParseCallTarget(
         kind: 'stdFunc',
         qualifiedName: std.qualifiedName,
         namespace: std.namespace,
+        typeParams: std.typeParams,
         params: std.params,
         returnType: std.returnType,
-        label: std.qualifiedName,
+        signatureKey: std.signatureKey,
+        displayName: std.displayName,
+        displaySignature: std.displaySignature,
+        hasVariadicTail: std.hasVariadicTail,
+        minimumArity: std.minimumArity,
+        overloadIndex: std.overloadIndex,
+        overloadCount: std.overloadCount,
+        isTerminal: std.isTerminal,
+        label: std.displayName,
       },
     };
+  }
+
+  if (stdFunctionsByName.has(resolvedToken)) {
+    throw new FleauxImportError(
+      `Could not resolve a unique Std overload for '${resolvedToken}'${formatArityErrorSuffix(inferredArity)}.`,
+    );
   }
 
   const user = ctx.userFunctions.get(resolvedToken);
@@ -465,9 +566,10 @@ function tryParseCallTarget(
         kind: 'userFunc',
         functionName: user.name,
         functionNodeId: '',
+        typeParams: user.typeParams,
         params: user.params,
         returnType: user.returnType,
-        label: user.name,
+        label: formatFunctionDisplayName(user.name, user.typeParams),
       },
     };
   }
@@ -625,6 +727,9 @@ function parsePipelineExpression(
       const nodeId = nextId('call');
       pushCallNode(ctx, nodeId, target, stageIndex);
       wireInputs(ctx, nodeId, target, nextId, newArgs, null);
+      if (target.kind === 'stdFunc' && target.data.isTerminal === true && stageIndex < parts.length - 1) {
+        throw new FleauxImportError(`Terminal Std function '${target.data.qualifiedName}' cannot be followed by additional pipeline stages.`);
+      }
       current = { kind: 'source', source: { nodeId } };
     } else {
       // Direct call target; if not callable, treat this stage as a value source.
@@ -638,6 +743,9 @@ function parsePipelineExpression(
           wireInputs(ctx, nodeId, target, nextId, current.args, null);
         } else {
           wireInputs(ctx, nodeId, target, nextId, null, current.source);
+        }
+        if (target.kind === 'stdFunc' && target.data.isTerminal === true && stageIndex < parts.length - 1) {
+          throw new FleauxImportError(`Terminal Std function '${target.data.qualifiedName}' cannot be followed by additional pipeline stages.`);
         }
         current = { kind: 'source', source: { nodeId } };
       } else {
@@ -710,9 +818,10 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
         data: {
           kind: 'let',
           name: letDef.name,
+          typeParams: letDef.typeParams,
           params: letDef.params,
           returnType: letDef.returnType,
-          label: `let ${letDef.name}`,
+          label: `let ${formatFunctionDisplayName(letDef.name, letDef.typeParams)}`,
         },
       });
 

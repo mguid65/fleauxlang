@@ -5,12 +5,22 @@ import { useFlowStore } from '../store/flowStore';
 export function LetNode({ data, id }: NodeProps<Node<LetData>>) {
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
+  const typeParamsText = (data.typeParams ?? []).join(', ');
+
   const updateName = (name: string) => {
     updateNodeData(id, { name, label: `let ${name || 'Unnamed'}` });
   };
 
   const updateReturnType = (returnType: string) => {
     updateNodeData(id, { returnType: returnType || 'Any' });
+  };
+
+  const updateTypeParams = (value: string) => {
+    const typeParams = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    updateNodeData(id, { typeParams });
   };
 
   const updateParam = (index: number, patch: Partial<LetData['params'][number]>) => {
@@ -41,6 +51,13 @@ export function LetNode({ data, id }: NodeProps<Node<LetData>>) {
         value={data.name}
         onChange={(evt) => updateName(evt.target.value)}
         className="w-full rounded border border-fuchsia-700 bg-fuchsia-900/50 px-2 py-1 text-sm font-bold font-mono text-fuchsia-100 outline-none focus:border-fuchsia-400"
+      />
+
+      <input
+        value={typeParamsText}
+        onChange={(evt) => updateTypeParams(evt.target.value)}
+        placeholder="type params, e.g. T, U"
+        className="mt-2 w-full rounded border border-sky-800 bg-sky-950/40 px-2 py-1 text-xs font-mono text-sky-100 outline-none focus:border-sky-400"
       />
 
       <div className="mt-2 space-y-1 text-xs text-fuchsia-300">

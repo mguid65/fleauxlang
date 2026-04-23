@@ -1,0 +1,40 @@
+import Std;
+
+let ReturnSelf(x: Float64): Float64 = x;
+let FailMap(_x: Float64): Float64 = ("map-boom") -> Std.Result.Err -> Std.Result.Unwrap;
+let FailForEach(_x: Float64): Float64 = ("foreach-boom") -> Std.Result.Err -> Std.Result.Unwrap;
+
+let MaybeFailMap(x: Float64): Float64 =
+  (((x, 2.0) -> Std.Equal), x, FailMap, ReturnSelf) -> Std.Branch
+;
+
+let MaybeFailForEach(x: Float64): Float64 =
+  (((x, 3.0) -> Std.Equal), x, FailForEach, ReturnSelf) -> Std.Branch
+;
+
+let AddOrFail(acc: Float64, x: Float64): Float64 =
+  (x,
+   (4.0, (): Float64 = ("reduce-boom") -> Std.Result.Err -> Std.Result.Unwrap),
+   (_, (): Float64 = (acc, x) -> Std.Add))
+  -> Std.Match
+;
+
+let BuildBadOptions(): Any =
+    () -> Std.Dict.Create
+    -> (_, "max_workers", 0) -> Std.Dict.Set
+;
+
+((1.0, 2.0, 3.0), MaybeFailMap) -> Std.Parallel.Map -> Std.Result.IsErr -> Std.Println;
+((1.0, 2.0, 3.0), MaybeFailMap) -> Std.Parallel.Map -> Std.Result.UnwrapErr -> Std.Println;
+
+((1.0, 2.0, 3.0), MaybeFailForEach) -> Std.Parallel.ForEach -> Std.Result.IsErr -> Std.Println;
+((1.0, 2.0, 3.0), MaybeFailForEach) -> Std.Parallel.ForEach -> Std.Result.UnwrapErr -> Std.Println;
+
+((1.0, 2.0, 3.0, 4.0), 0.0, AddOrFail) -> Std.Parallel.Reduce -> Std.Result.IsErr -> Std.Println;
+((1.0, 2.0, 3.0, 4.0), 0.0, AddOrFail) -> Std.Parallel.Reduce -> Std.Result.UnwrapErr -> Std.Println;
+
+((1.0, 2.0, 3.0), ReturnSelf, () -> BuildBadOptions) -> Std.Parallel.WithOptions -> Std.Result.IsErr -> Std.Println;
+((1.0, 2.0, 3.0), ReturnSelf, () -> BuildBadOptions) -> Std.Parallel.WithOptions -> Std.Result.UnwrapErr -> Std.Println;
+
+
+
