@@ -255,7 +255,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
 }
 
 auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected<Module, SerializationError> {
-  Module module;
+  Module deserialized;
   std::size_t offset = 0;
 
   if (std::uint32_t magic = 0; !read_pod(buffer, offset, magic) || magic != BYTECODE_MAGIC) {
@@ -266,30 +266,30 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     return tl::unexpected(SerializationError{.message = "Version mismatch"});
   }
 
-  if (!read_pod(buffer, offset, module.header.payload_checksum)) {
+  if (!read_pod(buffer, offset, deserialized.header.payload_checksum)) {
     return tl::unexpected(SerializationError{.message = "Cannot read payload checksum"});
   }
-  if (module.header.payload_checksum != checksum_bytes(buffer, kPayloadOffset)) {
+  if (deserialized.header.payload_checksum != checksum_bytes(buffer, kPayloadOffset)) {
     return tl::unexpected(SerializationError{.message = "Payload checksum mismatch"});
   }
 
-  if (!read_header(buffer, offset, module.header)) {
+  if (!read_header(buffer, offset, deserialized.header)) {
     return tl::unexpected(SerializationError{.message = "Cannot read module header"});
   }
-  module.header.payload_checksum = checksum_bytes(buffer, kPayloadOffset);
+  deserialized.header.payload_checksum = checksum_bytes(buffer, kPayloadOffset);
 
   {
     std::uint32_t count = 0;
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read dependency count"});
     }
-    module.dependencies.reserve(count);
+    deserialized.dependencies.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       ModuleDependency dependency;
       if (!read_dependency(buffer, offset, dependency)) {
         return tl::unexpected(SerializationError{.message = "Cannot read dependency"});
       }
-      module.dependencies.push_back(std::move(dependency));
+      deserialized.dependencies.push_back(std::move(dependency));
     }
   }
 
@@ -298,17 +298,17 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read export count"});
     }
-    module.exports.reserve(count);
+    deserialized.exports.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       ExportedSymbol symbol;
       if (!read_export(buffer, offset, symbol)) {
         return tl::unexpected(SerializationError{.message = "Cannot read export"});
       }
-      module.exports.push_back(std::move(symbol));
+      deserialized.exports.push_back(std::move(symbol));
     }
   }
 
-  if (!read_instruction_stream(buffer, offset, module.instructions)) {
+  if (!read_instruction_stream(buffer, offset, deserialized.instructions)) {
     return tl::unexpected(SerializationError{.message = "Cannot read instruction stream"});
   }
 
@@ -317,13 +317,13 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read constant count"});
     }
-    module.constants.reserve(count);
+    deserialized.constants.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       ConstValue cv;
       if (!read_const_value(buffer, offset, cv)) {
         return tl::unexpected(SerializationError{.message = "Cannot read constant"});
       }
-      module.constants.push_back(std::move(cv));
+      deserialized.constants.push_back(std::move(cv));
     }
   }
 
@@ -332,13 +332,13 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read builtin count"});
     }
-    module.builtin_names.reserve(count);
+    deserialized.builtin_names.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       std::string name;
       if (!read_string(buffer, offset, name)) {
         return tl::unexpected(SerializationError{.message = "Cannot read builtin name"});
       }
-      module.builtin_names.push_back(std::move(name));
+      deserialized.builtin_names.push_back(std::move(name));
     }
   }
 
@@ -347,7 +347,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read function count"});
     }
-    module.functions.reserve(count);
+    deserialized.functions.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       FunctionDef fn;
       if (!read_string(buffer, offset, fn.name) || !read_pod(buffer, offset, fn.arity) ||
@@ -355,7 +355,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           !read_instruction_stream(buffer, offset, fn.instructions)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
-      module.functions.push_back(std::move(fn));
+      deserialized.functions.push_back(std::move(fn));
     }
   }
 
@@ -364,7 +364,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     if (!read_pod(buffer, offset, count)) {
       return tl::unexpected(SerializationError{.message = "Cannot read closure count"});
     }
-    module.closures.reserve(count);
+    deserialized.closures.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       ClosureDef closure;
       if (!read_pod(buffer, offset, closure.function_index) || !read_pod(buffer, offset, closure.capture_count) ||
@@ -372,11 +372,11 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           !read_pod(buffer, offset, closure.declared_has_variadic_tail)) {
         return tl::unexpected(SerializationError{.message = "Cannot read closure"});
       }
-      module.closures.push_back(closure);
+      deserialized.closures.push_back(closure);
     }
   }
 
-  return module;
+  return deserialized;
 }
 
 }  // namespace fleaux::bytecode
