@@ -1,0 +1,27 @@
+import Std;
+
+let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;
+let MakeBiasedReducer(n: Float64): (Float64, Float64) => Float64 =
+  (acc: Float64, x: Float64): Float64 = (((acc, x) -> Std.Add), n) -> Std.Add
+;
+
+let BuildOptions(): Any =
+    () -> Std.Dict.Create
+    -> (_, "max_workers", 2) -> Std.Dict.Set
+;
+
+// Inline closure directly as a parallel callback.
+((1.0, 2.0, 3.0), (x: Float64): Float64 = (x, 10.0) -> Std.Add) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;
+
+// Captured lexical value through a closure-producing function.
+((1.0, 2.0, 3.0), (4.0) -> MakeAdder) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;
+
+// Inline closure with explicit options.
+((1.0, 2.0, 3.0), (x: Float64): Float64 = ((x, 2.0) -> Std.Multiply, 1.0) -> Std.Add, () -> BuildOptions)
+  -> Std.Parallel.WithOptions
+  -> Std.Result.Unwrap
+  -> Std.Println;
+
+// Captured lexical value through a reducer closure.
+((1.0, 2.0, 3.0), 0.0, (5.0) -> MakeBiasedReducer) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;
+

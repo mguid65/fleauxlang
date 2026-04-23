@@ -9,6 +9,7 @@ export interface UserFunctionEntry {
   nodeId: string;
   qualifiedName: string;
   name: string;
+  typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
 }
@@ -23,6 +24,7 @@ export function extractUserFunctions(nodes: Node<FleauxNodeData>[]): UserFunctio
         nodeId: node.id,
         qualifiedName: letData.name,
         name: letData.name,
+        typeParams: letData.typeParams,
         params: letData.params,
         returnType: letData.returnType,
       });

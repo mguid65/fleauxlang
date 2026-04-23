@@ -30,6 +30,7 @@ export interface LiteralData extends FleauxNodeDataBase {
 export interface LetData extends FleauxNodeDataBase {
   kind: 'let';
   name: string;
+  typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
 }
@@ -55,8 +56,17 @@ export interface StdFuncData extends FleauxNodeDataBase {
   kind: 'stdFunc';
   qualifiedName: string;
   namespace: string;
+  typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
+  signatureKey?: string;
+  displayName?: string;
+  displaySignature?: string;
+  hasVariadicTail?: boolean;
+  minimumArity?: number;
+  overloadIndex?: number;
+  overloadCount?: number;
+  isTerminal?: boolean;
   // True when node represents a function value/reference, not a call invocation.
   isReference?: boolean;
 }
@@ -65,6 +75,7 @@ export interface UserFuncData extends FleauxNodeDataBase {
   kind: 'userFunc';
   functionName: string;
   functionNodeId: string;
+  typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
   // True when node represents a function value/reference, not a call invocation.

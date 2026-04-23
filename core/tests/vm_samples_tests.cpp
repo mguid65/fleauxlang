@@ -131,7 +131,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 35> kExpectedSamples = {
+constexpr std::array<std::string_view, 38> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -167,6 +167,9 @@ constexpr std::array<std::string_view, 35> kExpectedSamples = {
     "33_exp_parallel.fleaux",
     "34_help.fleaux",
     "35_concurrency_tasks.fleaux",
+    "36_parallel_options_and_empty_inputs.fleaux",
+    "37_parallel_error_paths.fleaux",
+    "38_parallel_inline_closures.fleaux",
 };
 
 }  // namespace
@@ -282,7 +285,7 @@ TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM"
   }
 }
 
-TEST_CASE("Task and Parallel APIs keep interpreter/VM parity and registry stability",
+TEST_CASE("Task and Parallel samples keep interpreter/VM parity and registry stability",
           "[vm][samples][lifetime][concurrency]") {
   fleaux::runtime::reset_callable_registry();
   fleaux::runtime::reset_value_registry_for_tests();
@@ -293,42 +296,52 @@ TEST_CASE("Task and Parallel APIs keep interpreter/VM parity and registry stabil
   REQUIRE(fleaux::runtime::value_registry_telemetry().stale_deref_rejections == 0U);
   REQUIRE(fleaux::runtime::task_registry_size() == 0U);
 
-  const auto sample_file = std::string_view{"35_concurrency_tasks.fleaux"};
-  const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
-  REQUIRE(std::filesystem::exists(sample_path));
-  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
-
-  const auto analyzed = load_ir_program(sample_path);
-  REQUIRE(analyzed.has_value());
-
-  constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(analyzed.value());
-  REQUIRE(compiled_module.has_value());
-
   constexpr fleaux::vm::Interpreter interpreter;
 
-  for (int iter = 0; iter < 30; ++iter) {
-    const auto interp_result = interpreter.run_file(sample_path, runtime_args);
-    if (!interp_result.has_value()) { INFO("interpreter concurrency sample error: " << interp_result.error().message); }
-    REQUIRE(interp_result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-    REQUIRE(fleaux::runtime::task_registry_size() == 0U);
-    const auto interp_telemetry = fleaux::runtime::value_registry_telemetry();
-    REQUIRE(interp_telemetry.active_count == 0U);
-    REQUIRE(interp_telemetry.rejected_allocations == 0U);
-    REQUIRE(interp_telemetry.stale_deref_rejections == 0U);
+  constexpr std::array<std::string_view, 4> kConcurrencySamples = {
+      "35_concurrency_tasks.fleaux",
+      "36_parallel_options_and_empty_inputs.fleaux",
+      "37_parallel_error_paths.fleaux",
+      "38_parallel_inline_closures.fleaux",
+  };
 
-    const fleaux::vm::Runtime runtime;
-    set_runtime_process_args(sample_path, runtime_args);
-    const auto runtime_result = runtime.execute(compiled_module.value());
-    if (!runtime_result.has_value()) { INFO("vm concurrency sample error: " << runtime_result.error().message); }
-    REQUIRE(runtime_result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-    REQUIRE(fleaux::runtime::task_registry_size() == 0U);
-    const auto vm_telemetry = fleaux::runtime::value_registry_telemetry();
-    REQUIRE(vm_telemetry.active_count == 0U);
-    REQUIRE(vm_telemetry.rejected_allocations == 0U);
-    REQUIRE(vm_telemetry.stale_deref_rejections == 0U);
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+
+  for (const auto sample_file : kConcurrencySamples) {
+    const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
+    REQUIRE(std::filesystem::exists(sample_path));
+    const auto runtime_args = sample_runtime_args(sample_file, sample_path);
+
+    const auto analyzed = load_ir_program(sample_path);
+    REQUIRE(analyzed.has_value());
+
+    const auto compiled_module = compiler.compile(analyzed.value());
+    REQUIRE(compiled_module.has_value());
+
+    for (int iter = 0; iter < 30; ++iter) {
+      const auto interp_result = interpreter.run_file(sample_path, runtime_args);
+      INFO("sample file: " << sample_path);
+      if (!interp_result.has_value()) { INFO("interpreter concurrency sample error: " << interp_result.error().message); }
+      REQUIRE(interp_result.has_value());
+      REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+      REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+      const auto interp_telemetry = fleaux::runtime::value_registry_telemetry();
+      REQUIRE(interp_telemetry.active_count == 0U);
+      REQUIRE(interp_telemetry.rejected_allocations == 0U);
+      REQUIRE(interp_telemetry.stale_deref_rejections == 0U);
+
+      const fleaux::vm::Runtime runtime;
+      set_runtime_process_args(sample_path, runtime_args);
+      const auto runtime_result = runtime.execute(compiled_module.value());
+      if (!runtime_result.has_value()) { INFO("vm concurrency sample error: " << runtime_result.error().message); }
+      REQUIRE(runtime_result.has_value());
+      REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+      REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+      const auto vm_telemetry = fleaux::runtime::value_registry_telemetry();
+      REQUIRE(vm_telemetry.active_count == 0U);
+      REQUIRE(vm_telemetry.rejected_allocations == 0U);
+      REQUIRE(vm_telemetry.stale_deref_rejections == 0U);
+    }
   }
 }
 
@@ -755,6 +768,9 @@ FLEAUX_VM_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_SAMPLE_TEST("33_exp_parallel.fleaux")
 FLEAUX_VM_SAMPLE_TEST("35_concurrency_tasks.fleaux")
+FLEAUX_VM_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
+FLEAUX_VM_SAMPLE_TEST("37_parallel_error_paths.fleaux")
+FLEAUX_VM_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -790,6 +806,9 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("33_exp_parallel.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("35_concurrency_tasks.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("37_parallel_error_paths.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
 
 FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -825,6 +844,9 @@ FLEAUX_VM_PARITY_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("33_exp_parallel.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("35_concurrency_tasks.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("37_parallel_error_paths.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

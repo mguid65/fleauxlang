@@ -1,5 +1,17 @@
 import type { Node } from '@xyflow/react';
+import { STD_FUNCTIONS } from '../lib/stdCatalogue';
 import type { FleauxEdge, FleauxNodeData } from '../lib/types';
+
+function getStdFunctionOrThrow(qualifiedName: string, paramCount: number) {
+  const entry = STD_FUNCTIONS.find((fn) => fn.qualifiedName === qualifiedName && fn.params.length === paramCount);
+  if (!entry) {
+    throw new Error(`Missing Std catalogue entry for ${qualifiedName}/${paramCount}.`);
+  }
+  return entry;
+}
+
+const stdAddEntry = getStdFunctionOrThrow('Std.Add', 2);
+const stdPrintlnEntry = getStdFunctionOrThrow('Std.Println', 1);
 
 //  Demo graph: `let Add(a: Float64, b: Float64): Float64 = (a, b) -> Std.Add; ((100.0, 150.0) -> Add) -> Std.Println;`
 
@@ -31,14 +43,20 @@ export const initialNodes: Node<FleauxNodeData>[] = [
     position: { x: 560, y: 300 },
     data: {
       kind: 'stdFunc',
-      qualifiedName: 'Std.Add',
-      namespace: 'Std',
-      params: [
-        { name: 'lhs', type: 'Float64 | Int64 | UInt64' },
-        { name: 'rhs', type: 'Float64 | Int64 | UInt64' },
-      ],
-      returnType: 'Float64 | Int64 | UInt64',
-      label: 'Std.Add',
+      qualifiedName: stdAddEntry.qualifiedName,
+      namespace: stdAddEntry.namespace,
+      typeParams: stdAddEntry.typeParams,
+      params: stdAddEntry.params,
+      returnType: stdAddEntry.returnType,
+      signatureKey: stdAddEntry.signatureKey,
+      displayName: stdAddEntry.displayName,
+      displaySignature: stdAddEntry.displaySignature,
+      hasVariadicTail: stdAddEntry.hasVariadicTail,
+      minimumArity: stdAddEntry.minimumArity,
+      overloadIndex: stdAddEntry.overloadIndex,
+      overloadCount: stdAddEntry.overloadCount,
+      isTerminal: stdAddEntry.isTerminal,
+      label: stdAddEntry.displayName,
     },
   },
   {
@@ -75,11 +93,20 @@ export const initialNodes: Node<FleauxNodeData>[] = [
     position: { x: 900, y: 515 },
     data: {
       kind: 'stdFunc',
-      qualifiedName: 'Std.Println',
-      namespace: 'Std',
-      params: [{ name: 'args', type: 'Any...' }],
-      returnType: 'Tuple(Any...)',
-      label: 'Std.Println',
+      qualifiedName: stdPrintlnEntry.qualifiedName,
+      namespace: stdPrintlnEntry.namespace,
+      typeParams: stdPrintlnEntry.typeParams,
+      params: stdPrintlnEntry.params,
+      returnType: stdPrintlnEntry.returnType,
+      signatureKey: stdPrintlnEntry.signatureKey,
+      displayName: stdPrintlnEntry.displayName,
+      displaySignature: stdPrintlnEntry.displaySignature,
+      hasVariadicTail: stdPrintlnEntry.hasVariadicTail,
+      minimumArity: stdPrintlnEntry.minimumArity,
+      overloadIndex: stdPrintlnEntry.overloadIndex,
+      overloadCount: stdPrintlnEntry.overloadCount,
+      isTerminal: stdPrintlnEntry.isTerminal,
+      label: stdPrintlnEntry.displayName,
     },
   },
 ];
