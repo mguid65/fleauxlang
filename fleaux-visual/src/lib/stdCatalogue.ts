@@ -14,8 +14,17 @@ export type StdFunctionEntry = {
   qualifiedName: string;
   namespace: string;
   name: string;
+  typeParams: string[];
   params: StdParam[];
   returnType: string;
+  displayName: string;
+  displaySignature: string;
+  signatureKey: string;
+  hasVariadicTail: boolean;
+  minimumArity: number;
+  overloadIndex: number;
+  overloadCount: number;
+  isTerminal: boolean;
 };
 
 export const STD_VALUES: StdValueEntry[] = [
@@ -458,18 +467,28 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Println",
     "namespace": "Std",
     "name": "Println",
+    "typeParams": [],
     "params": [
       {
         "name": "args",
         "type": "Any..."
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Any...)",
+    "displayName": "Std.Println",
+    "displaySignature": "Std.Println(args: Any...) -> Tuple(Any...)",
+    "signatureKey": "Std.Println(args: Any...):Tuple(Any...)",
+    "hasVariadicTail": true,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Printf",
     "namespace": "Std",
     "name": "Printf",
+    "typeParams": [],
     "params": [
       {
         "name": "fmt_str",
@@ -480,103 +499,200 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any..."
       }
     ],
-    "returnType": "Tuple(String, Any...)"
+    "returnType": "Tuple(String, Any...)",
+    "displayName": "Std.Printf",
+    "displaySignature": "Std.Printf(fmt_str: String, args: Any...) -> Tuple(String, Any...)",
+    "signatureKey": "Std.Printf(fmt_str: String, args: Any...):Tuple(String, Any...)",
+    "hasVariadicTail": true,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Input",
     "namespace": "Std",
     "name": "Input",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Input",
+    "displaySignature": "Std.Input() -> String",
+    "signatureKey": "Std.Input():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Help",
     "namespace": "Std",
     "name": "Help",
+    "typeParams": [],
     "params": [
       {
         "name": "name",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Help",
+    "displaySignature": "Std.Help(name: String) -> String",
+    "signatureKey": "Std.Help(name: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Type",
     "namespace": "Std",
     "name": "Type",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Type",
+    "displaySignature": "Std.Type(value: Any) -> String",
+    "signatureKey": "Std.Type(value: Any):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.TypeOf",
     "namespace": "Std",
     "name": "TypeOf",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.TypeOf",
+    "displaySignature": "Std.TypeOf(value: Any) -> String",
+    "signatureKey": "Std.TypeOf(value: Any):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ToInt64",
     "namespace": "Std",
     "name": "ToInt64",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.ToInt64",
+    "displaySignature": "Std.ToInt64(value: Any) -> Int64",
+    "signatureKey": "Std.ToInt64(value: Any):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ToUInt64",
     "namespace": "Std",
     "name": "ToUInt64",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "UInt64"
+    "returnType": "UInt64",
+    "displayName": "Std.ToUInt64",
+    "displaySignature": "Std.ToUInt64(value: Any) -> UInt64",
+    "signatureKey": "Std.ToUInt64(value: Any):UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ToFloat64",
     "namespace": "Std",
     "name": "ToFloat64",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.ToFloat64",
+    "displaySignature": "Std.ToFloat64(value: Any) -> Float64",
+    "signatureKey": "Std.ToFloat64(value: Any):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Exit",
     "namespace": "Std",
     "name": "Exit",
+    "typeParams": [],
+    "params": [],
+    "returnType": "Never",
+    "displayName": "Std.Exit",
+    "displaySignature": "Std.Exit() -> Never",
+    "signatureKey": "Std.Exit():Never",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": true,
+    "overloadIndex": 1,
+    "overloadCount": 2
+  },
+  {
+    "qualifiedName": "Std.Exit",
+    "namespace": "Std",
+    "name": "Exit",
+    "typeParams": [],
     "params": [
       {
         "name": "code",
         "type": "Int64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Never",
+    "displayName": "Std.Exit",
+    "displaySignature": "Std.Exit(code: Int64) -> Never",
+    "signatureKey": "Std.Exit(code: Int64):Never",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": true,
+    "overloadIndex": 2,
+    "overloadCount": 2
   },
   {
     "qualifiedName": "Std.Add",
     "namespace": "Std",
     "name": "Add",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -587,12 +703,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Add",
+    "displaySignature": "Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Subtract",
     "namespace": "Std",
     "name": "Subtract",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -603,12 +728,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Subtract",
+    "displaySignature": "Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Multiply",
     "namespace": "Std",
     "name": "Multiply",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -619,12 +753,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Multiply",
+    "displaySignature": "Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Divide",
     "namespace": "Std",
     "name": "Divide",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -635,12 +778,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Divide",
+    "displaySignature": "Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Mod",
     "namespace": "Std",
     "name": "Mod",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -651,12 +803,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Mod",
+    "displaySignature": "Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Pow",
     "namespace": "Std",
     "name": "Pow",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -667,12 +828,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64"
+    "returnType": "Float64 | Int64 | UInt64",
+    "displayName": "Std.Pow",
+    "displaySignature": "Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
+    "signatureKey": "Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.And",
     "namespace": "Std.Bit",
     "name": "And",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -683,12 +853,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.And",
+    "displaySignature": "Std.Bit.And(lhs: Int64, rhs: Int64) -> Int64",
+    "signatureKey": "Std.Bit.And(lhs: Int64, rhs: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.Or",
     "namespace": "Std.Bit",
     "name": "Or",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -699,12 +878,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.Or",
+    "displaySignature": "Std.Bit.Or(lhs: Int64, rhs: Int64) -> Int64",
+    "signatureKey": "Std.Bit.Or(lhs: Int64, rhs: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.Xor",
     "namespace": "Std.Bit",
     "name": "Xor",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -715,24 +903,42 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.Xor",
+    "displaySignature": "Std.Bit.Xor(lhs: Int64, rhs: Int64) -> Int64",
+    "signatureKey": "Std.Bit.Xor(lhs: Int64, rhs: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.Not",
     "namespace": "Std.Bit",
     "name": "Not",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.Not",
+    "displaySignature": "Std.Bit.Not(value: Int64) -> Int64",
+    "signatureKey": "Std.Bit.Not(value: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.ShiftLeft",
     "namespace": "Std.Bit",
     "name": "ShiftLeft",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
@@ -743,12 +949,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.ShiftLeft",
+    "displaySignature": "Std.Bit.ShiftLeft(value: Int64, bits: Int64) -> Int64",
+    "signatureKey": "Std.Bit.ShiftLeft(value: Int64, bits: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Bit.ShiftRight",
     "namespace": "Std.Bit",
     "name": "ShiftRight",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
@@ -759,12 +974,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Bit.ShiftRight",
+    "displaySignature": "Std.Bit.ShiftRight(value: Int64, bits: Int64) -> Int64",
+    "signatureKey": "Std.Bit.ShiftRight(value: Int64, bits: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.GreaterThan",
     "namespace": "Std",
     "name": "GreaterThan",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -775,12 +999,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.GreaterThan",
+    "displaySignature": "Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
+    "signatureKey": "Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.LessThan",
     "namespace": "Std",
     "name": "LessThan",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -791,12 +1024,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.LessThan",
+    "displaySignature": "Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
+    "signatureKey": "Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.GreaterOrEqual",
     "namespace": "Std",
     "name": "GreaterOrEqual",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -807,12 +1049,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.GreaterOrEqual",
+    "displaySignature": "Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
+    "signatureKey": "Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.LessOrEqual",
     "namespace": "Std",
     "name": "LessOrEqual",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -823,56 +1074,96 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64 | Int64 | UInt64"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.LessOrEqual",
+    "displaySignature": "Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
+    "signatureKey": "Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Equal",
     "namespace": "Std",
     "name": "Equal",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Equal<T>",
+    "displaySignature": "Std.Equal<T>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.Equal<T>(lhs: T, rhs: T):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.NotEqual",
     "namespace": "Std",
     "name": "NotEqual",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.NotEqual<T>",
+    "displaySignature": "Std.NotEqual<T>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.NotEqual<T>(lhs: T, rhs: T):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Not",
     "namespace": "Std",
     "name": "Not",
+    "typeParams": [],
     "params": [
       {
         "name": "val",
         "type": "Bool"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Not",
+    "displaySignature": "Std.Not(val: Bool) -> Bool",
+    "signatureKey": "Std.Not(val: Bool):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.And",
     "namespace": "Std",
     "name": "And",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -883,12 +1174,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Bool"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.And",
+    "displaySignature": "Std.And(lhs: Bool, rhs: Bool) -> Bool",
+    "signatureKey": "Std.And(lhs: Bool, rhs: Bool):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Or",
     "namespace": "Std",
     "name": "Or",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -899,12 +1199,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Bool"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Or",
+    "displaySignature": "Std.Or(lhs: Bool, rhs: Bool) -> Bool",
+    "signatureKey": "Std.Or(lhs: Bool, rhs: Bool):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Select",
     "namespace": "Std",
     "name": "Select",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "condition",
@@ -912,19 +1223,28 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "true_val",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "false_val",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Select<T>",
+    "displaySignature": "Std.Select<T>(condition: Bool, true_val: T, false_val: T) -> T",
+    "signatureKey": "Std.Select<T>(condition: Bool, true_val: T, false_val: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Match",
     "namespace": "Std",
     "name": "Match",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
@@ -935,280 +1255,505 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any..."
       }
     ],
-    "returnType": "Any"
+    "returnType": "Any",
+    "displayName": "Std.Match",
+    "displaySignature": "Std.Match(value: Any, cases: Any...) -> Any",
+    "signatureKey": "Std.Match(value: Any, cases: Any...):Any",
+    "hasVariadicTail": true,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.Ok",
     "namespace": "Std.Result",
     "name": "Ok",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(T, Any)",
+    "displayName": "Std.Result.Ok<T>",
+    "displaySignature": "Std.Result.Ok<T>(value: T) -> Result(T, Any)",
+    "signatureKey": "Std.Result.Ok<T>(value: T):Result(T, Any)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.Err",
     "namespace": "Std.Result",
     "name": "Err",
+    "typeParams": [
+      "E"
+    ],
     "params": [
       {
         "name": "error",
-        "type": "Any"
+        "type": "E"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Any, E)",
+    "displayName": "Std.Result.Err<E>",
+    "displaySignature": "Std.Result.Err<E>(error: E) -> Result(Any, E)",
+    "signatureKey": "Std.Result.Err<E>(error: E):Result(Any, E)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.Tag",
     "namespace": "Std.Result",
     "name": "Tag",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Result.Tag<T, E>",
+    "displaySignature": "Std.Result.Tag<T, E>(result: Result(T, E)) -> Bool",
+    "signatureKey": "Std.Result.Tag<T, E>(result: Result(T, E)):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.Payload",
     "namespace": "Std.Result",
     "name": "Payload",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T | E",
+    "displayName": "Std.Result.Payload<T, E>",
+    "displaySignature": "Std.Result.Payload<T, E>(result: Result(T, E)) -> T | E",
+    "signatureKey": "Std.Result.Payload<T, E>(result: Result(T, E)):T | E",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.IsOk",
     "namespace": "Std.Result",
     "name": "IsOk",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Result.IsOk<T, E>",
+    "displaySignature": "Std.Result.IsOk<T, E>(result: Result(T, E)) -> Bool",
+    "signatureKey": "Std.Result.IsOk<T, E>(result: Result(T, E)):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.IsErr",
     "namespace": "Std.Result",
     "name": "IsErr",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Result.IsErr<T, E>",
+    "displaySignature": "Std.Result.IsErr<T, E>(result: Result(T, E)) -> Bool",
+    "signatureKey": "Std.Result.IsErr<T, E>(result: Result(T, E)):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.Unwrap",
     "namespace": "Std.Result",
     "name": "Unwrap",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Result.Unwrap<T, E>",
+    "displaySignature": "Std.Result.Unwrap<T, E>(result: Result(T, E)) -> T",
+    "signatureKey": "Std.Result.Unwrap<T, E>(result: Result(T, E)):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Result.UnwrapErr",
     "namespace": "Std.Result",
     "name": "UnwrapErr",
+    "typeParams": [
+      "T",
+      "E"
+    ],
     "params": [
       {
         "name": "result",
-        "type": "Tuple(Bool, Any)"
+        "type": "Result(T, E)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "E",
+    "displayName": "Std.Result.UnwrapErr<T, E>",
+    "displaySignature": "Std.Result.UnwrapErr<T, E>(result: Result(T, E)) -> E",
+    "signatureKey": "Std.Result.UnwrapErr<T, E>(result: Result(T, E)):E",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Try",
     "namespace": "Std",
     "name": "Try",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(U, String)",
+    "displayName": "Std.Try<T, U>",
+    "displaySignature": "Std.Try<T, U>(value: T, func: (T) => U) -> Result(U, String)",
+    "signatureKey": "Std.Try<T, U>(value: T, func: (T) => U):Result(U, String)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Parallel.Map",
     "namespace": "Std.Parallel",
     "name": "Map",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "items",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Tuple(U...), Tuple(Int64, String))",
+    "displayName": "Std.Parallel.Map<T, U>",
+    "displaySignature": "Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U) -> Result(Tuple(U...), Tuple(Int64, String))",
+    "signatureKey": "Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U):Result(Tuple(U...), Tuple(Int64, String))",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Parallel.WithOptions",
     "namespace": "Std.Parallel",
     "name": "WithOptions",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "items",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       },
       {
         "name": "options",
         "type": "Dict(String, Any)"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Tuple(U...), Tuple(Int64, String))",
+    "displayName": "Std.Parallel.WithOptions<T, U>",
+    "displaySignature": "Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)) -> Result(Tuple(U...), Tuple(Int64, String))",
+    "signatureKey": "Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)):Result(Tuple(U...), Tuple(Int64, String))",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Parallel.ForEach",
     "namespace": "Std.Parallel",
     "name": "ForEach",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "items",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Tuple(), Tuple(Int64, String))",
+    "displayName": "Std.Parallel.ForEach<T, U>",
+    "displaySignature": "Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U) -> Result(Tuple(), Tuple(Int64, String))",
+    "signatureKey": "Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U):Result(Tuple(), Tuple(Int64, String))",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Parallel.Reduce",
     "namespace": "Std.Parallel",
     "name": "Reduce",
+    "typeParams": [
+      "T",
+      "A"
+    ],
     "params": [
       {
         "name": "items",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "init",
-        "type": "Any"
+        "type": "A"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(A, T) => A"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(A, Tuple(Int64, String))",
+    "displayName": "Std.Parallel.Reduce<T, A>",
+    "displaySignature": "Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A) -> Result(A, Tuple(Int64, String))",
+    "signatureKey": "Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A):Result(A, Tuple(Int64, String))",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Task.Spawn",
     "namespace": "Std.Task",
     "name": "Spawn",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Any"
+    "returnType": "TaskHandle",
+    "displayName": "Std.Task.Spawn<T, U>",
+    "displaySignature": "Std.Task.Spawn<T, U>(func: (T) => U, value: T) -> TaskHandle",
+    "signatureKey": "Std.Task.Spawn<T, U>(func: (T) => U, value: T):TaskHandle",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Task.Await",
     "namespace": "Std.Task",
     "name": "Await",
+    "typeParams": [],
     "params": [
       {
         "name": "task",
-        "type": "Any"
+        "type": "TaskHandle"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Any, String)",
+    "displayName": "Std.Task.Await",
+    "displaySignature": "Std.Task.Await(task: TaskHandle) -> Result(Any, String)",
+    "signatureKey": "Std.Task.Await(task: TaskHandle):Result(Any, String)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Task.AwaitAll",
     "namespace": "Std.Task",
     "name": "AwaitAll",
+    "typeParams": [],
     "params": [
       {
         "name": "tasks",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(TaskHandle...)"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Tuple(Any...), Tuple(Int64, String))",
+    "displayName": "Std.Task.AwaitAll",
+    "displaySignature": "Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)) -> Result(Tuple(Any...), Tuple(Int64, String))",
+    "signatureKey": "Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)):Result(Tuple(Any...), Tuple(Int64, String))",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Task.Cancel",
     "namespace": "Std.Task",
     "name": "Cancel",
+    "typeParams": [],
     "params": [
       {
         "name": "task",
-        "type": "Any"
+        "type": "TaskHandle"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Task.Cancel",
+    "displaySignature": "Std.Task.Cancel(task: TaskHandle) -> Bool",
+    "signatureKey": "Std.Task.Cancel(task: TaskHandle):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Task.WithTimeout",
     "namespace": "Std.Task",
     "name": "WithTimeout",
+    "typeParams": [],
     "params": [
       {
         "name": "task",
-        "type": "Any"
+        "type": "TaskHandle"
       },
       {
         "name": "timeout_ms",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Bool, Any)"
+    "returnType": "Result(Any, String)",
+    "displayName": "Std.Task.WithTimeout",
+    "displaySignature": "Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64) -> Result(Any, String)",
+    "signatureKey": "Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64):Result(Any, String)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Apply",
     "namespace": "Std",
     "name": "Apply",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       }
     ],
-    "returnType": "Any"
+    "returnType": "U",
+    "displayName": "Std.Apply<T, U>",
+    "displaySignature": "Std.Apply<T, U>(value: T, func: (T) => U) -> U",
+    "signatureKey": "Std.Apply<T, U>(value: T, func: (T) => U):U",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Branch",
     "namespace": "Std",
     "name": "Branch",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "condition",
@@ -1216,199 +1761,329 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       },
       {
         "name": "true_func",
-        "type": "Any"
+        "type": "(T) => T"
       },
       {
         "name": "false_func",
-        "type": "Any"
+        "type": "(T) => T"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Branch<T>",
+    "displaySignature": "Std.Branch<T>(condition: Bool, value: T, true_func: (T) => T, false_func: (T) => T) -> T",
+    "signatureKey": "Std.Branch<T>(condition: Bool, value: T, true_func: (T) => T, false_func: (T) => T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 4,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Loop",
     "namespace": "Std",
     "name": "Loop",
+    "typeParams": [
+      "S"
+    ],
     "params": [
       {
         "name": "state",
-        "type": "Any"
+        "type": "S"
       },
       {
         "name": "continue_func",
-        "type": "Any"
+        "type": "(S) => Bool"
       },
       {
         "name": "step_func",
-        "type": "Any"
+        "type": "(S) => S"
       }
     ],
-    "returnType": "Any"
+    "returnType": "S",
+    "displayName": "Std.Loop<S>",
+    "displaySignature": "Std.Loop<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S) -> S",
+    "signatureKey": "Std.Loop<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S):S",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.LoopN",
     "namespace": "Std",
     "name": "LoopN",
+    "typeParams": [
+      "S"
+    ],
     "params": [
       {
         "name": "state",
-        "type": "Any"
+        "type": "S"
       },
       {
         "name": "continue_func",
-        "type": "Any"
+        "type": "(S) => Bool"
       },
       {
         "name": "step_func",
-        "type": "Any"
+        "type": "(S) => S"
       },
       {
         "name": "max_iters",
         "type": "Int64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "S",
+    "displayName": "Std.LoopN<S>",
+    "displaySignature": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64) -> S",
+    "signatureKey": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64):S",
+    "hasVariadicTail": false,
+    "minimumArity": 4,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.UnaryPlus",
     "namespace": "Std",
     "name": "UnaryPlus",
+    "typeParams": [],
     "params": [
       {
         "name": "val",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.UnaryPlus",
+    "displaySignature": "Std.UnaryPlus(val: Float64) -> Float64",
+    "signatureKey": "Std.UnaryPlus(val: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.UnaryMinus",
     "namespace": "Std",
     "name": "UnaryMinus",
+    "typeParams": [],
     "params": [
       {
         "name": "val",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.UnaryMinus",
+    "displaySignature": "Std.UnaryMinus(val: Float64) -> Float64",
+    "signatureKey": "Std.UnaryMinus(val: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ToString",
     "namespace": "Std",
     "name": "ToString",
+    "typeParams": [],
     "params": [
       {
         "name": "val",
         "type": "Any"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.ToString",
+    "displaySignature": "Std.ToString(val: Any) -> String",
+    "signatureKey": "Std.ToString(val: Any):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Sqrt",
     "namespace": "Std.Math",
     "name": "Sqrt",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Sqrt",
+    "displaySignature": "Std.Math.Sqrt(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Sqrt(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Sin",
     "namespace": "Std.Math",
     "name": "Sin",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Sin",
+    "displaySignature": "Std.Math.Sin(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Sin(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Cos",
     "namespace": "Std.Math",
     "name": "Cos",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Cos",
+    "displaySignature": "Std.Math.Cos(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Cos(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Tan",
     "namespace": "Std.Math",
     "name": "Tan",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Tan",
+    "displaySignature": "Std.Math.Tan(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Tan(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Floor",
     "namespace": "Std.Math",
     "name": "Floor",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Floor",
+    "displaySignature": "Std.Math.Floor(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Floor(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Ceil",
     "namespace": "Std.Math",
     "name": "Ceil",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Ceil",
+    "displaySignature": "Std.Math.Ceil(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Ceil(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Abs",
     "namespace": "Std.Math",
     "name": "Abs",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Abs",
+    "displaySignature": "Std.Math.Abs(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Abs(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Log",
     "namespace": "Std.Math",
     "name": "Log",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Log",
+    "displaySignature": "Std.Math.Log(x: Float64) -> Float64",
+    "signatureKey": "Std.Math.Log(x: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Math.Clamp",
     "namespace": "Std.Math",
     "name": "Clamp",
+    "typeParams": [],
     "params": [
       {
         "name": "x",
@@ -1423,72 +2098,126 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Float64"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.Math.Clamp",
+    "displaySignature": "Std.Math.Clamp(x: Float64, lo: Float64, hi: Float64) -> Float64",
+    "signatureKey": "Std.Math.Clamp(x: Float64, lo: Float64, hi: Float64):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Upper",
     "namespace": "Std.String",
     "name": "Upper",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Upper",
+    "displaySignature": "Std.String.Upper(s: String) -> String",
+    "signatureKey": "Std.String.Upper(s: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Lower",
     "namespace": "Std.String",
     "name": "Lower",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Lower",
+    "displaySignature": "Std.String.Lower(s: String) -> String",
+    "signatureKey": "Std.String.Lower(s: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Trim",
     "namespace": "Std.String",
     "name": "Trim",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Trim",
+    "displaySignature": "Std.String.Trim(s: String) -> String",
+    "signatureKey": "Std.String.Trim(s: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.TrimStart",
     "namespace": "Std.String",
     "name": "TrimStart",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.TrimStart",
+    "displaySignature": "Std.String.TrimStart(s: String) -> String",
+    "signatureKey": "Std.String.TrimStart(s: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.TrimEnd",
     "namespace": "Std.String",
     "name": "TrimEnd",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.TrimEnd",
+    "displaySignature": "Std.String.TrimEnd(s: String) -> String",
+    "signatureKey": "Std.String.TrimEnd(s: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Split",
     "namespace": "Std.String",
     "name": "Split",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1499,12 +2228,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.String.Split",
+    "displaySignature": "Std.String.Split(s: String, sep: String) -> Tuple(String...)",
+    "signatureKey": "Std.String.Split(s: String, sep: String):Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Join",
     "namespace": "Std.String",
     "name": "Join",
+    "typeParams": [],
     "params": [
       {
         "name": "sep",
@@ -1515,12 +2253,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Tuple(Any...)"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Join",
+    "displaySignature": "Std.String.Join(sep: String, parts: Tuple(Any...)) -> String",
+    "signatureKey": "Std.String.Join(sep: String, parts: Tuple(Any...)):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Replace",
     "namespace": "Std.String",
     "name": "Replace",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1535,12 +2282,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Replace",
+    "displaySignature": "Std.String.Replace(s: String, old: String, new: String) -> String",
+    "signatureKey": "Std.String.Replace(s: String, old: String, new: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Contains",
     "namespace": "Std.String",
     "name": "Contains",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1551,12 +2307,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.String.Contains",
+    "displaySignature": "Std.String.Contains(s: String, sub: String) -> Bool",
+    "signatureKey": "Std.String.Contains(s: String, sub: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.StartsWith",
     "namespace": "Std.String",
     "name": "StartsWith",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1567,12 +2332,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.String.StartsWith",
+    "displaySignature": "Std.String.StartsWith(s: String, prefix: String) -> Bool",
+    "signatureKey": "Std.String.StartsWith(s: String, prefix: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.EndsWith",
     "namespace": "Std.String",
     "name": "EndsWith",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1583,24 +2357,42 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.String.EndsWith",
+    "displaySignature": "Std.String.EndsWith(s: String, suffix: String) -> Bool",
+    "signatureKey": "Std.String.EndsWith(s: String, suffix: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Length",
     "namespace": "Std.String",
     "name": "Length",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
         "type": "String"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.String.Length",
+    "displaySignature": "Std.String.Length(s: String) -> Int64",
+    "signatureKey": "Std.String.Length(s: String):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.CharAt",
     "namespace": "Std.String",
     "name": "CharAt",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1611,12 +2403,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.CharAt",
+    "displaySignature": "Std.String.CharAt(s: String, index: Int64) -> String",
+    "signatureKey": "Std.String.CharAt(s: String, index: Int64):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Slice",
     "namespace": "Std.String",
     "name": "Slice",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1631,12 +2432,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Slice",
+    "displaySignature": "Std.String.Slice(s: String, start: Int64, stop: Int64) -> String",
+    "signatureKey": "Std.String.Slice(s: String, start: Int64, stop: Int64):String",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Find",
     "namespace": "Std.String",
     "name": "Find",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1651,12 +2461,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.String.Find",
+    "displaySignature": "Std.String.Find(s: String, sub: String, start: Int64) -> Int64",
+    "signatureKey": "Std.String.Find(s: String, sub: String, start: Int64):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Format",
     "namespace": "Std.String",
     "name": "Format",
+    "typeParams": [],
     "params": [
       {
         "name": "fmt_str",
@@ -1667,12 +2486,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any..."
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Format",
+    "displaySignature": "Std.String.Format(fmt_str: String, args: Any...) -> String",
+    "signatureKey": "Std.String.Format(fmt_str: String, args: Any...):String",
+    "hasVariadicTail": true,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Regex.IsMatch",
     "namespace": "Std.String.Regex",
     "name": "IsMatch",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1683,12 +2511,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.String.Regex.IsMatch",
+    "displaySignature": "Std.String.Regex.IsMatch(s: String, pattern: String) -> Bool",
+    "signatureKey": "Std.String.Regex.IsMatch(s: String, pattern: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Regex.Find",
     "namespace": "Std.String.Regex",
     "name": "Find",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1699,12 +2536,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.String.Regex.Find",
+    "displaySignature": "Std.String.Regex.Find(s: String, pattern: String) -> Int64",
+    "signatureKey": "Std.String.Regex.Find(s: String, pattern: String):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Regex.Replace",
     "namespace": "Std.String.Regex",
     "name": "Replace",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1719,12 +2565,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.String.Regex.Replace",
+    "displaySignature": "Std.String.Regex.Replace(s: String, pattern: String, repl: String) -> String",
+    "signatureKey": "Std.String.Regex.Replace(s: String, pattern: String, repl: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.String.Regex.Split",
     "namespace": "Std.String.Regex",
     "name": "Split",
+    "typeParams": [],
     "params": [
       {
         "name": "s",
@@ -1735,83 +2590,164 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.String.Regex.Split",
+    "displaySignature": "Std.String.Regex.Split(s: String, pattern: String) -> Tuple(String...)",
+    "signatureKey": "Std.String.Regex.Split(s: String, pattern: String):Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.Cwd",
     "namespace": "Std.OS",
     "name": "Cwd",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.Cwd",
+    "displaySignature": "Std.OS.Cwd() -> String",
+    "signatureKey": "Std.OS.Cwd():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.Home",
     "namespace": "Std.OS",
     "name": "Home",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.Home",
+    "displaySignature": "Std.OS.Home() -> String",
+    "signatureKey": "Std.OS.Home():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.TempDir",
     "namespace": "Std.OS",
     "name": "TempDir",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.TempDir",
+    "displaySignature": "Std.OS.TempDir() -> String",
+    "signatureKey": "Std.OS.TempDir():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.Exec",
     "namespace": "Std.OS",
     "name": "Exec",
+    "typeParams": [],
     "params": [
       {
         "name": "command",
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Int64, String)"
+    "returnType": "Tuple(Int64, String)",
+    "displayName": "Std.OS.Exec",
+    "displaySignature": "Std.OS.Exec(command: String) -> Tuple(Int64, String)",
+    "signatureKey": "Std.OS.Exec(command: String):Tuple(Int64, String)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.MakeTempFile",
     "namespace": "Std.OS",
     "name": "MakeTempFile",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.MakeTempFile",
+    "displaySignature": "Std.OS.MakeTempFile() -> String",
+    "signatureKey": "Std.OS.MakeTempFile():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.MakeTempDir",
     "namespace": "Std.OS",
     "name": "MakeTempDir",
+    "typeParams": [],
     "params": [],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.MakeTempDir",
+    "displaySignature": "Std.OS.MakeTempDir() -> String",
+    "signatureKey": "Std.OS.MakeTempDir():String",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.Env",
     "namespace": "Std.OS",
     "name": "Env",
+    "typeParams": [],
     "params": [
       {
         "name": "name",
         "type": "String"
       }
     ],
-    "returnType": "Any"
+    "returnType": "String | Null",
+    "displayName": "Std.OS.Env",
+    "displaySignature": "Std.OS.Env(name: String) -> String | Null",
+    "signatureKey": "Std.OS.Env(name: String):String | Null",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.HasEnv",
     "namespace": "Std.OS",
     "name": "HasEnv",
+    "typeParams": [],
     "params": [
       {
         "name": "name",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.OS.HasEnv",
+    "displaySignature": "Std.OS.HasEnv(name: String) -> Bool",
+    "signatureKey": "Std.OS.HasEnv(name: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.SetEnv",
     "namespace": "Std.OS",
     "name": "SetEnv",
+    "typeParams": [],
     "params": [
       {
         "name": "name",
@@ -1822,45 +2758,90 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.OS.SetEnv",
+    "displaySignature": "Std.OS.SetEnv(name: String, value: String) -> String",
+    "signatureKey": "Std.OS.SetEnv(name: String, value: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.UnsetEnv",
     "namespace": "Std.OS",
     "name": "UnsetEnv",
+    "typeParams": [],
     "params": [
       {
         "name": "name",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.OS.UnsetEnv",
+    "displaySignature": "Std.OS.UnsetEnv(name: String) -> Bool",
+    "signatureKey": "Std.OS.UnsetEnv(name: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.IsWindows",
     "namespace": "Std.OS",
     "name": "IsWindows",
+    "typeParams": [],
     "params": [],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.OS.IsWindows",
+    "displaySignature": "Std.OS.IsWindows() -> Bool",
+    "signatureKey": "Std.OS.IsWindows():Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.IsLinux",
     "namespace": "Std.OS",
     "name": "IsLinux",
+    "typeParams": [],
     "params": [],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.OS.IsLinux",
+    "displaySignature": "Std.OS.IsLinux() -> Bool",
+    "signatureKey": "Std.OS.IsLinux():Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.OS.IsMacOS",
     "namespace": "Std.OS",
     "name": "IsMacOS",
+    "typeParams": [],
     "params": [],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.OS.IsMacOS",
+    "displaySignature": "Std.OS.IsMacOS() -> Bool",
+    "signatureKey": "Std.OS.IsMacOS():Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Join",
     "namespace": "Std.Path",
     "name": "Join",
+    "typeParams": [],
     "params": [
       {
         "name": "lhs",
@@ -1871,120 +2852,210 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Join",
+    "displaySignature": "Std.Path.Join(lhs: String, rhs: String) -> String",
+    "signatureKey": "Std.Path.Join(lhs: String, rhs: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Normalize",
     "namespace": "Std.Path",
     "name": "Normalize",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Normalize",
+    "displaySignature": "Std.Path.Normalize(path: String) -> String",
+    "signatureKey": "Std.Path.Normalize(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Basename",
     "namespace": "Std.Path",
     "name": "Basename",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Basename",
+    "displaySignature": "Std.Path.Basename(path: String) -> String",
+    "signatureKey": "Std.Path.Basename(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Dirname",
     "namespace": "Std.Path",
     "name": "Dirname",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Dirname",
+    "displaySignature": "Std.Path.Dirname(path: String) -> String",
+    "signatureKey": "Std.Path.Dirname(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Exists",
     "namespace": "Std.Path",
     "name": "Exists",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Path.Exists",
+    "displaySignature": "Std.Path.Exists(path: String) -> Bool",
+    "signatureKey": "Std.Path.Exists(path: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.IsFile",
     "namespace": "Std.Path",
     "name": "IsFile",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Path.IsFile",
+    "displaySignature": "Std.Path.IsFile(path: String) -> Bool",
+    "signatureKey": "Std.Path.IsFile(path: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.IsDir",
     "namespace": "Std.Path",
     "name": "IsDir",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Path.IsDir",
+    "displaySignature": "Std.Path.IsDir(path: String) -> Bool",
+    "signatureKey": "Std.Path.IsDir(path: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Absolute",
     "namespace": "Std.Path",
     "name": "Absolute",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Absolute",
+    "displaySignature": "Std.Path.Absolute(path: String) -> String",
+    "signatureKey": "Std.Path.Absolute(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Extension",
     "namespace": "Std.Path",
     "name": "Extension",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Extension",
+    "displaySignature": "Std.Path.Extension(path: String) -> String",
+    "signatureKey": "Std.Path.Extension(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.Stem",
     "namespace": "Std.Path",
     "name": "Stem",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.Stem",
+    "displaySignature": "Std.Path.Stem(path: String) -> String",
+    "signatureKey": "Std.Path.Stem(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.WithExtension",
     "namespace": "Std.Path",
     "name": "WithExtension",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
@@ -1995,12 +3066,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.WithExtension",
+    "displaySignature": "Std.Path.WithExtension(path: String, ext: String) -> String",
+    "signatureKey": "Std.Path.WithExtension(path: String, ext: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Path.WithBasename",
     "namespace": "Std.Path",
     "name": "WithBasename",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
@@ -2011,24 +3091,42 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Path.WithBasename",
+    "displaySignature": "Std.Path.WithBasename(path: String, name: String) -> String",
+    "signatureKey": "Std.Path.WithBasename(path: String, name: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.ReadText",
     "namespace": "Std.File",
     "name": "ReadText",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.File.ReadText",
+    "displaySignature": "Std.File.ReadText(path: String) -> String",
+    "signatureKey": "Std.File.ReadText(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.WriteText",
     "namespace": "Std.File",
     "name": "WriteText",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
@@ -2039,12 +3137,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.File.WriteText",
+    "displaySignature": "Std.File.WriteText(path: String, text: String) -> String",
+    "signatureKey": "Std.File.WriteText(path: String, text: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.AppendText",
     "namespace": "Std.File",
     "name": "AppendText",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
@@ -2055,427 +3162,749 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.File.AppendText",
+    "displaySignature": "Std.File.AppendText(path: String, text: String) -> String",
+    "signatureKey": "Std.File.AppendText(path: String, text: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.ReadLines",
     "namespace": "Std.File",
     "name": "ReadLines",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.File.ReadLines",
+    "displaySignature": "Std.File.ReadLines(path: String) -> Tuple(String...)",
+    "signatureKey": "Std.File.ReadLines(path: String):Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.Delete",
     "namespace": "Std.File",
     "name": "Delete",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.File.Delete",
+    "displaySignature": "Std.File.Delete(path: String) -> Bool",
+    "signatureKey": "Std.File.Delete(path: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.Size",
     "namespace": "Std.File",
     "name": "Size",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.File.Size",
+    "displaySignature": "Std.File.Size(path: String) -> Int64",
+    "signatureKey": "Std.File.Size(path: String):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dir.Create",
     "namespace": "Std.Dir",
     "name": "Create",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "String"
+    "returnType": "String",
+    "displayName": "Std.Dir.Create",
+    "displaySignature": "Std.Dir.Create(path: String) -> String",
+    "signatureKey": "Std.Dir.Create(path: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dir.Delete",
     "namespace": "Std.Dir",
     "name": "Delete",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Dir.Delete",
+    "displaySignature": "Std.Dir.Delete(path: String) -> Bool",
+    "signatureKey": "Std.Dir.Delete(path: String):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dir.List",
     "namespace": "Std.Dir",
     "name": "List",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.Dir.List",
+    "displaySignature": "Std.Dir.List(path: String) -> Tuple(String...)",
+    "signatureKey": "Std.Dir.List(path: String):Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dir.ListFull",
     "namespace": "Std.Dir",
     "name": "ListFull",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.Dir.ListFull",
+    "displaySignature": "Std.Dir.ListFull(path: String) -> Tuple(String...)",
+    "signatureKey": "Std.Dir.ListFull(path: String):Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Append",
     "namespace": "Std.Tuple",
     "name": "Append",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "item",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Append<T>",
+    "displaySignature": "Std.Tuple.Append<T>(t: Tuple(T...), item: T) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Append<T>(t: Tuple(T...), item: T):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Prepend",
     "namespace": "Std.Tuple",
     "name": "Prepend",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "item",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Prepend<T>",
+    "displaySignature": "Std.Tuple.Prepend<T>(t: Tuple(T...), item: T) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Prepend<T>(t: Tuple(T...), item: T):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Reverse",
     "namespace": "Std.Tuple",
     "name": "Reverse",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Reverse<T>",
+    "displaySignature": "Std.Tuple.Reverse<T>(t: Tuple(T...)) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Reverse<T>(t: Tuple(T...)):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Contains",
     "namespace": "Std.Tuple",
     "name": "Contains",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "item",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Tuple.Contains<T>",
+    "displaySignature": "Std.Tuple.Contains<T>(t: Tuple(T...), item: T) -> Bool",
+    "signatureKey": "Std.Tuple.Contains<T>(t: Tuple(T...), item: T):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Zip",
     "namespace": "Std.Tuple",
     "name": "Zip",
+    "typeParams": [
+      "A",
+      "B"
+    ],
     "params": [
       {
         "name": "a",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(A...)"
       },
       {
         "name": "b",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(B...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(A, B)...)",
+    "displayName": "Std.Tuple.Zip<A, B>",
+    "displaySignature": "Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)) -> Tuple(Tuple(A, B)...)",
+    "signatureKey": "Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)):Tuple(Tuple(A, B)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Map",
     "namespace": "Std.Tuple",
     "name": "Map",
+    "typeParams": [
+      "T",
+      "U"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(T) => U"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(U...)",
+    "displayName": "Std.Tuple.Map<T, U>",
+    "displaySignature": "Std.Tuple.Map<T, U>(t: Tuple(T...), func: (T) => U) -> Tuple(U...)",
+    "signatureKey": "Std.Tuple.Map<T, U>(t: Tuple(T...), func: (T) => U):Tuple(U...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Filter",
     "namespace": "Std.Tuple",
     "name": "Filter",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "pred",
-        "type": "Any"
+        "type": "(T) => Bool"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Filter<T>",
+    "displaySignature": "Std.Tuple.Filter<T>(t: Tuple(T...), pred: (T) => Bool) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Filter<T>(t: Tuple(T...), pred: (T) => Bool):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Sort",
     "namespace": "Std.Tuple",
     "name": "Sort",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Sort<T>",
+    "displaySignature": "Std.Tuple.Sort<T>(t: Tuple(T...)) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Sort<T>(t: Tuple(T...)):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Unique",
     "namespace": "Std.Tuple",
     "name": "Unique",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Tuple.Unique<T>",
+    "displaySignature": "Std.Tuple.Unique<T>(t: Tuple(T...)) -> Tuple(T...)",
+    "signatureKey": "Std.Tuple.Unique<T>(t: Tuple(T...)):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Min",
     "namespace": "Std.Tuple",
     "name": "Min",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Tuple.Min<T>",
+    "displaySignature": "Std.Tuple.Min<T>(t: Tuple(T...)) -> T",
+    "signatureKey": "Std.Tuple.Min<T>(t: Tuple(T...)):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Max",
     "namespace": "Std.Tuple",
     "name": "Max",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Tuple.Max<T>",
+    "displaySignature": "Std.Tuple.Max<T>(t: Tuple(T...)) -> T",
+    "signatureKey": "Std.Tuple.Max<T>(t: Tuple(T...)):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Reduce",
     "namespace": "Std.Tuple",
     "name": "Reduce",
+    "typeParams": [
+      "T",
+      "A"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "initial",
-        "type": "Any"
+        "type": "A"
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(A, T) => A"
       }
     ],
-    "returnType": "Any"
+    "returnType": "A",
+    "displayName": "Std.Tuple.Reduce<T, A>",
+    "displaySignature": "Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: (A, T) => A) -> A",
+    "signatureKey": "Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: (A, T) => A):A",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.FindIndex",
     "namespace": "Std.Tuple",
     "name": "FindIndex",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "pred",
-        "type": "Any"
+        "type": "(T) => Bool"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Tuple.FindIndex<T>",
+    "displaySignature": "Std.Tuple.FindIndex<T>(t: Tuple(T...), pred: (T) => Bool) -> Int64",
+    "signatureKey": "Std.Tuple.FindIndex<T>(t: Tuple(T...), pred: (T) => Bool):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Any",
     "namespace": "Std.Tuple",
     "name": "Any",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "pred",
-        "type": "Any"
+        "type": "(T) => Bool"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Tuple.Any<T>",
+    "displaySignature": "Std.Tuple.Any<T>(t: Tuple(T...), pred: (T) => Bool) -> Bool",
+    "signatureKey": "Std.Tuple.Any<T>(t: Tuple(T...), pred: (T) => Bool):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.All",
     "namespace": "Std.Tuple",
     "name": "All",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "pred",
-        "type": "Any"
+        "type": "(T) => Bool"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Tuple.All<T>",
+    "displaySignature": "Std.Tuple.All<T>(t: Tuple(T...), pred: (T) => Bool) -> Bool",
+    "signatureKey": "Std.Tuple.All<T>(t: Tuple(T...), pred: (T) => Bool):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Tuple.Range",
     "namespace": "Std.Tuple",
     "name": "Range",
+    "typeParams": [],
     "params": [
       {
         "name": "stop",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Int64...)",
+    "displayName": "Std.Tuple.Range",
+    "displaySignature": "Std.Tuple.Range(stop: Int64) -> Tuple(Int64...)",
+    "signatureKey": "Std.Tuple.Range(stop: Int64):Tuple(Int64...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Take",
     "namespace": "Std",
     "name": "Take",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "count",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Take<T>",
+    "displaySignature": "Std.Take<T>(tuple: Tuple(T...), count: Int64) -> Tuple(T...)",
+    "signatureKey": "Std.Take<T>(tuple: Tuple(T...), count: Int64):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Drop",
     "namespace": "Std",
     "name": "Drop",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "count",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Drop<T>",
+    "displaySignature": "Std.Drop<T>(tuple: Tuple(T...), count: Int64) -> Tuple(T...)",
+    "signatureKey": "Std.Drop<T>(tuple: Tuple(T...), count: Int64):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ElementAt",
     "namespace": "Std",
     "name": "ElementAt",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "count",
         "type": "Int64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.ElementAt<T>",
+    "displaySignature": "Std.ElementAt<T>(tuple: Tuple(T...), count: Int64) -> T",
+    "signatureKey": "Std.ElementAt<T>(tuple: Tuple(T...), count: Int64):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Length",
     "namespace": "Std",
     "name": "Length",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Length<T>",
+    "displaySignature": "Std.Length<T>(tuple: Tuple(T...)) -> Int64",
+    "signatureKey": "Std.Length<T>(tuple: Tuple(T...)):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Slice",
     "namespace": "Std",
     "name": "Slice",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "stop",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Slice<T>",
+    "displaySignature": "Std.Slice<T>(tuple: Tuple(T...), stop: Int64) -> Tuple(T...)",
+    "signatureKey": "Std.Slice<T>(tuple: Tuple(T...), stop: Int64):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.ToNum",
     "namespace": "Std",
     "name": "ToNum",
+    "typeParams": [],
     "params": [
       {
         "name": "val",
         "type": "String"
       }
     ],
-    "returnType": "Float64"
+    "returnType": "Float64",
+    "displayName": "Std.ToNum",
+    "displaySignature": "Std.ToNum(val: String) -> Float64",
+    "signatureKey": "Std.ToNum(val: String):Float64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.GetArgs",
     "namespace": "Std",
     "name": "GetArgs",
+    "typeParams": [],
     "params": [],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(String...)",
+    "displayName": "Std.GetArgs",
+    "displaySignature": "Std.GetArgs() -> Tuple(String...)",
+    "signatureKey": "Std.GetArgs():Tuple(String...)",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.Open",
     "namespace": "Std.File",
     "name": "Open",
+    "typeParams": [],
     "params": [
       {
         "name": "path",
@@ -2486,80 +3915,136 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Any"
+    "returnType": "FileHandle",
+    "displayName": "Std.File.Open",
+    "displaySignature": "Std.File.Open(path: String, mode: String) -> FileHandle",
+    "signatureKey": "Std.File.Open(path: String, mode: String):FileHandle",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.ReadLine",
     "namespace": "Std.File",
     "name": "ReadLine",
+    "typeParams": [],
     "params": [
       {
         "name": "handle",
-        "type": "Any"
+        "type": "FileHandle"
       }
     ],
-    "returnType": "Tuple(Any, String, Bool)"
+    "returnType": "Tuple(FileHandle, String, Bool)",
+    "displayName": "Std.File.ReadLine",
+    "displaySignature": "Std.File.ReadLine(handle: FileHandle) -> Tuple(FileHandle, String, Bool)",
+    "signatureKey": "Std.File.ReadLine(handle: FileHandle):Tuple(FileHandle, String, Bool)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.ReadChunk",
     "namespace": "Std.File",
     "name": "ReadChunk",
+    "typeParams": [],
     "params": [
       {
         "name": "handle",
-        "type": "Any"
+        "type": "FileHandle"
       },
       {
         "name": "nbytes",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any, String, Bool)"
+    "returnType": "Tuple(FileHandle, String, Bool)",
+    "displayName": "Std.File.ReadChunk",
+    "displaySignature": "Std.File.ReadChunk(handle: FileHandle, nbytes: Int64) -> Tuple(FileHandle, String, Bool)",
+    "signatureKey": "Std.File.ReadChunk(handle: FileHandle, nbytes: Int64):Tuple(FileHandle, String, Bool)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.WriteChunk",
     "namespace": "Std.File",
     "name": "WriteChunk",
+    "typeParams": [],
     "params": [
       {
         "name": "handle",
-        "type": "Any"
+        "type": "FileHandle"
       },
       {
         "name": "data",
         "type": "String"
       }
     ],
-    "returnType": "Any"
+    "returnType": "FileHandle",
+    "displayName": "Std.File.WriteChunk",
+    "displaySignature": "Std.File.WriteChunk(handle: FileHandle, data: String) -> FileHandle",
+    "signatureKey": "Std.File.WriteChunk(handle: FileHandle, data: String):FileHandle",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.Flush",
     "namespace": "Std.File",
     "name": "Flush",
+    "typeParams": [],
     "params": [
       {
         "name": "handle",
-        "type": "Any"
+        "type": "FileHandle"
       }
     ],
-    "returnType": "Any"
+    "returnType": "FileHandle",
+    "displayName": "Std.File.Flush",
+    "displaySignature": "Std.File.Flush(handle: FileHandle) -> FileHandle",
+    "signatureKey": "Std.File.Flush(handle: FileHandle):FileHandle",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.Close",
     "namespace": "Std.File",
     "name": "Close",
+    "typeParams": [],
     "params": [
       {
         "name": "handle",
-        "type": "Any"
+        "type": "FileHandle"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.File.Close",
+    "displaySignature": "Std.File.Close(handle: FileHandle) -> Bool",
+    "signatureKey": "Std.File.Close(handle: FileHandle):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.File.WithOpen",
     "namespace": "Std.File",
     "name": "WithOpen",
+    "typeParams": [
+      "R"
+    ],
     "params": [
       {
         "name": "path",
@@ -2571,214 +4056,411 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "func",
-        "type": "Any"
+        "type": "(FileHandle) => R"
       }
     ],
-    "returnType": "Any"
+    "returnType": "R",
+    "displayName": "Std.File.WithOpen<R>",
+    "displaySignature": "Std.File.WithOpen<R>(path: String, mode: String, func: (FileHandle) => R) -> R",
+    "signatureKey": "Std.File.WithOpen<R>(path: String, mode: String, func: (FileHandle) => R):R",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Wrap",
     "namespace": "Std",
     "name": "Wrap",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "val",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any)"
+    "returnType": "Tuple(T)",
+    "displayName": "Std.Wrap<T>",
+    "displaySignature": "Std.Wrap<T>(val: T) -> Tuple(T)",
+    "signatureKey": "Std.Wrap<T>(val: T):Tuple(T)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Unwrap",
     "namespace": "Std",
     "name": "Unwrap",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any)"
+        "type": "Tuple(T)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Unwrap<T>",
+    "displaySignature": "Std.Unwrap<T>(tuple: Tuple(T)) -> T",
+    "signatureKey": "Std.Unwrap<T>(tuple: Tuple(T)):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Create",
     "namespace": "Std.Dict",
     "name": "Create",
+    "typeParams": [],
     "params": [],
-    "returnType": "Any"
+    "returnType": "Dict(Any, Any)",
+    "displayName": "Std.Dict.Create",
+    "displaySignature": "Std.Dict.Create() -> Dict(Any, Any)",
+    "signatureKey": "Std.Dict.Create():Dict(Any, Any)",
+    "hasVariadicTail": false,
+    "minimumArity": 0,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 2
+  },
+  {
+    "qualifiedName": "Std.Dict.Create",
+    "namespace": "Std.Dict",
+    "name": "Create",
+    "typeParams": [
+      "K",
+      "V"
+    ],
+    "params": [
+      {
+        "name": "dict",
+        "type": "Dict(K, V)"
+      }
+    ],
+    "returnType": "Dict(K, V)",
+    "displayName": "Std.Dict.Create<K, V>",
+    "displaySignature": "Std.Dict.Create<K, V>(dict: Dict(K, V)) -> Dict(K, V)",
+    "signatureKey": "Std.Dict.Create<K, V>(dict: Dict(K, V)):Dict(K, V)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 2,
+    "overloadCount": 2
   },
   {
     "qualifiedName": "Std.Dict.Set",
     "namespace": "Std.Dict",
     "name": "Set",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       },
       {
         "name": "key",
-        "type": "Any"
+        "type": "K"
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "V"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Dict(K, V)",
+    "displayName": "Std.Dict.Set<K, V>",
+    "displaySignature": "Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V) -> Dict(K, V)",
+    "signatureKey": "Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V):Dict(K, V)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Get",
     "namespace": "Std.Dict",
     "name": "Get",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       },
       {
         "name": "key",
-        "type": "Any"
+        "type": "K"
       }
     ],
-    "returnType": "Any"
+    "returnType": "V",
+    "displayName": "Std.Dict.Get<K, V>",
+    "displaySignature": "Std.Dict.Get<K, V>(dict: Dict(K, V), key: K) -> V",
+    "signatureKey": "Std.Dict.Get<K, V>(dict: Dict(K, V), key: K):V",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.GetDefault",
     "namespace": "Std.Dict",
     "name": "GetDefault",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       },
       {
         "name": "key",
-        "type": "Any"
+        "type": "K"
       },
       {
         "name": "default",
-        "type": "Any"
+        "type": "V"
       }
     ],
-    "returnType": "Any"
+    "returnType": "V",
+    "displayName": "Std.Dict.GetDefault<K, V>",
+    "displaySignature": "Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V) -> V",
+    "signatureKey": "Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V):V",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Contains",
     "namespace": "Std.Dict",
     "name": "Contains",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       },
       {
         "name": "key",
-        "type": "Any"
+        "type": "K"
       }
     ],
-    "returnType": "Bool"
+    "returnType": "Bool",
+    "displayName": "Std.Dict.Contains<K, V>",
+    "displaySignature": "Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K) -> Bool",
+    "signatureKey": "Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K):Bool",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Delete",
     "namespace": "Std.Dict",
     "name": "Delete",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       },
       {
         "name": "key",
-        "type": "Any"
+        "type": "K"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Dict(K, V)",
+    "displayName": "Std.Dict.Delete<K, V>",
+    "displaySignature": "Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K) -> Dict(K, V)",
+    "signatureKey": "Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K):Dict(K, V)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Keys",
     "namespace": "Std.Dict",
     "name": "Keys",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(K...)",
+    "displayName": "Std.Dict.Keys<K, V>",
+    "displaySignature": "Std.Dict.Keys<K, V>(dict: Dict(K, V)) -> Tuple(K...)",
+    "signatureKey": "Std.Dict.Keys<K, V>(dict: Dict(K, V)):Tuple(K...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Values",
     "namespace": "Std.Dict",
     "name": "Values",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(V...)",
+    "displayName": "Std.Dict.Values<K, V>",
+    "displaySignature": "Std.Dict.Values<K, V>(dict: Dict(K, V)) -> Tuple(V...)",
+    "signatureKey": "Std.Dict.Values<K, V>(dict: Dict(K, V)):Tuple(V...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Entries",
     "namespace": "Std.Dict",
     "name": "Entries",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(K, V)...)",
+    "displayName": "Std.Dict.Entries<K, V>",
+    "displaySignature": "Std.Dict.Entries<K, V>(dict: Dict(K, V)) -> Tuple(Tuple(K, V)...)",
+    "signatureKey": "Std.Dict.Entries<K, V>(dict: Dict(K, V)):Tuple(Tuple(K, V)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Clear",
     "namespace": "Std.Dict",
     "name": "Clear",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Dict(K, V)",
+    "displayName": "Std.Dict.Clear<K, V>",
+    "displaySignature": "Std.Dict.Clear<K, V>(dict: Dict(K, V)) -> Dict(K, V)",
+    "signatureKey": "Std.Dict.Clear<K, V>(dict: Dict(K, V)):Dict(K, V)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Dict.Length",
     "namespace": "Std.Dict",
     "name": "Length",
+    "typeParams": [
+      "K",
+      "V"
+    ],
     "params": [
       {
         "name": "dict",
-        "type": "Any"
+        "type": "Dict(K, V)"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Dict.Length<K, V>",
+    "displaySignature": "Std.Dict.Length<K, V>(dict: Dict(K, V)) -> Int64",
+    "signatureKey": "Std.Dict.Length<K, V>(dict: Dict(K, V)):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.GetAt",
     "namespace": "Std.Array",
     "name": "GetAt",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "index",
         "type": "Int64"
       }
     ],
-    "returnType": "Any"
+    "returnType": "T",
+    "displayName": "Std.Array.GetAt<T>",
+    "displaySignature": "Std.Array.GetAt<T>(array: Tuple(T...), index: Int64) -> T",
+    "signatureKey": "Std.Array.GetAt<T>(array: Tuple(T...), index: Int64):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.SetAt",
     "namespace": "Std.Array",
     "name": "SetAt",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "index",
@@ -2786,19 +4468,30 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.SetAt<T>",
+    "displaySignature": "Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T) -> Tuple(T...)",
+    "signatureKey": "Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.InsertAt",
     "namespace": "Std.Array",
     "name": "InsertAt",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "index",
@@ -2806,35 +4499,57 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.InsertAt<T>",
+    "displaySignature": "Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T) -> Tuple(T...)",
+    "signatureKey": "Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.RemoveAt",
     "namespace": "Std.Array",
     "name": "RemoveAt",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "index",
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.RemoveAt<T>",
+    "displaySignature": "Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64) -> Tuple(T...)",
+    "signatureKey": "Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Slice",
     "namespace": "Std.Array",
     "name": "Slice",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "start",
@@ -2845,32 +4560,54 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.Slice<T>",
+    "displaySignature": "Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64) -> Tuple(T...)",
+    "signatureKey": "Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Concat",
     "namespace": "Std.Array",
     "name": "Concat",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "rhs",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.Concat<T>",
+    "displaySignature": "Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)) -> Tuple(T...)",
+    "signatureKey": "Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.SetAt2D",
     "namespace": "Std.Array",
     "name": "SetAt2D",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Tuple(T...)...)"
       },
       {
         "name": "row",
@@ -2882,19 +4619,30 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(T...)...)",
+    "displayName": "Std.Array.SetAt2D<T>",
+    "displaySignature": "Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T) -> Tuple(Tuple(T...)...)",
+    "signatureKey": "Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T):Tuple(Tuple(T...)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 4,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Fill",
     "namespace": "Std.Array",
     "name": "Fill",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "start_index",
@@ -2906,31 +4654,53 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(T...)",
+    "displayName": "Std.Array.Fill<T>",
+    "displaySignature": "Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T) -> Tuple(T...)",
+    "signatureKey": "Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T):Tuple(T...)",
+    "hasVariadicTail": false,
+    "minimumArity": 4,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Transpose2D",
     "namespace": "Std.Array",
     "name": "Transpose2D",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Tuple(T...)...)"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(T...)...)",
+    "displayName": "Std.Array.Transpose2D<T>",
+    "displaySignature": "Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)) -> Tuple(Tuple(T...)...)",
+    "signatureKey": "Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)):Tuple(Tuple(T...)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Slice2D",
     "namespace": "Std.Array",
     "name": "Slice2D",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Tuple(T...)...)"
       },
       {
         "name": "row_start",
@@ -2949,16 +4719,27 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(T...)...)",
+    "displayName": "Std.Array.Slice2D<T>",
+    "displaySignature": "Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64) -> Tuple(Tuple(T...)...)",
+    "signatureKey": "Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64):Tuple(Tuple(T...)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 5,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Reshape",
     "namespace": "Std.Array",
     "name": "Reshape",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "flat_array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(T...)"
       },
       {
         "name": "rows",
@@ -2969,48 +4750,84 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Tuple(T...)...)",
+    "displayName": "Std.Array.Reshape<T>",
+    "displaySignature": "Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Int64, cols: Int64) -> Tuple(Tuple(T...)...)",
+    "signatureKey": "Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Int64, cols: Int64):Tuple(Tuple(T...)...)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Rank",
     "namespace": "Std.Array",
     "name": "Rank",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "Int64"
+    "returnType": "Int64",
+    "displayName": "Std.Array.Rank",
+    "displaySignature": "Std.Array.Rank(value: Any) -> Int64",
+    "signatureKey": "Std.Array.Rank(value: Any):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Shape",
     "namespace": "Std.Array",
     "name": "Shape",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Int64...)",
+    "displayName": "Std.Array.Shape",
+    "displaySignature": "Std.Array.Shape(value: Any) -> Tuple(Int64...)",
+    "signatureKey": "Std.Array.Shape(value: Any):Tuple(Int64...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.Flatten",
     "namespace": "Std.Array",
     "name": "Flatten",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
-    "returnType": "Tuple(Any...)"
+    "returnType": "Tuple(Any...)",
+    "displayName": "Std.Array.Flatten",
+    "displaySignature": "Std.Array.Flatten(value: Any) -> Tuple(Any...)",
+    "signatureKey": "Std.Array.Flatten(value: Any):Tuple(Any...)",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.GetAtND",
     "namespace": "Std.Array",
     "name": "GetAtND",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
@@ -3018,15 +4835,24 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "indices",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Int64...)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Any",
+    "displayName": "Std.Array.GetAtND",
+    "displaySignature": "Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)) -> Any",
+    "signatureKey": "Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)):Any",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.SetAtND",
     "namespace": "Std.Array",
     "name": "SetAtND",
+    "typeParams": [],
     "params": [
       {
         "name": "value",
@@ -3034,19 +4860,28 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "indices",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Int64...)"
       },
       {
         "name": "replacement",
         "type": "Any"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Any",
+    "displayName": "Std.Array.SetAtND",
+    "displaySignature": "Std.Array.SetAtND(value: Any, indices: Tuple(Int64...), replacement: Any) -> Any",
+    "signatureKey": "Std.Array.SetAtND(value: Any, indices: Tuple(Int64...), replacement: Any):Any",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   },
   {
     "qualifiedName": "Std.Array.ReshapeND",
     "namespace": "Std.Array",
     "name": "ReshapeND",
+    "typeParams": [],
     "params": [
       {
         "name": "flat_array",
@@ -3054,10 +4889,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "shape",
-        "type": "Tuple(Any...)"
+        "type": "Tuple(Int64...)"
       }
     ],
-    "returnType": "Any"
+    "returnType": "Any",
+    "displayName": "Std.Array.ReshapeND",
+    "displaySignature": "Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)) -> Any",
+    "signatureKey": "Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)):Any",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
   }
 ];
 

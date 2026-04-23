@@ -9,6 +9,7 @@ import type {
   TupleData,
   UserFuncData,
 } from './types';
+import { hasVariadicTail, minArity } from './functionSignatures';
 
 export class GraphSerializationError extends Error {
   constructor(message: string) {
@@ -33,6 +34,7 @@ type GraphContext = {
 
 type LetContext = {
   letNodeId: string;
+  typeParams?: string[];
   params: { name: string; type: string }[];
 };
 
@@ -150,6 +152,13 @@ function getIndexedInputs(
 
 function wrapTupleItems(items: string[]): string {
   return `(${items.join(', ')})`;
+}
+
+function formatTypeParams(typeParams: string[] | undefined): string {
+  if (!typeParams || typeParams.length === 0) {
+    return '';
+  }
+  return '<' + typeParams.join(', ') + '>';
 }
 
 function resolveEdgeSourceExpression(
@@ -275,6 +284,33 @@ function isFunctionReferenceNode(node: Node<StdFuncData | UserFuncData>): boolea
   return node.data.isReference === true;
 }
 
+function trySerializeTupleItems(
+  nodeId: string,
+  ctx: GraphContext,
+  letCtx: LetContext | null,
+  visiting: Set<string>,
+): string[] | null {
+  const node = ctx.nodesById.get(nodeId);
+  if (!node || node.data.kind !== 'tuple') {
+    return null;
+  }
+
+  const tupleNode = node as Node<TupleData>;
+  const indexedInputs = getIndexedInputs(tupleNode, ctx, 'tuple-in-');
+  const items: string[] = [];
+  for (let index = 0; index < tupleNode.data.arity; index += 1) {
+    const edge = indexedInputs.get(index);
+    if (!edge) {
+      throw new GraphSerializationError(
+        `Tuple node '${tupleNode.data.label}' is missing input ${index}.`,
+      );
+    }
+    items.push(resolveEdgeSourceExpression(edge, ctx, letCtx, visiting));
+  }
+
+  return items;
+}
+
 function serializeCallNode(
   node: Node<StdFuncData | UserFuncData>,
   ctx: GraphContext,
@@ -292,6 +328,8 @@ function serializeCallNode(
   }
 
   const paramCount = node.data.params.length;
+  const variadic = hasVariadicTail(node.data.params);
+  const requiredInputs = minArity(node.data.params);
   const indexedInputs = getIndexedInputs(node, ctx, handlePrefix);
   const pipelineInput = getPipelineInput(node, ctx);
 
@@ -310,13 +348,38 @@ function serializeCallNode(
         continue;
       }
 
+      if (variadic && index === paramCount - 1) {
+        continue;
+      }
+
       throw new GraphSerializationError(`Call node '${node.data.label}' is missing argument ${index}.`);
+    }
+
+    if (args.length < requiredInputs) {
+      throw new GraphSerializationError(`Call node '${node.data.label}' is missing required input arguments.`);
+    }
+
+    if (args.length === 0 && requiredInputs === 0) {
+      return `${wrapTupleItems([])} -> ${targetName}`;
     }
 
     return formatCallSource(targetName, args);
   }
 
   if (pipelineInput) {
+    if (variadic) {
+      const tupleItems = trySerializeTupleItems(pipelineInput.source, ctx, letCtx, visiting);
+      if (tupleItems) {
+        if (tupleItems.length < requiredInputs) {
+          throw new GraphSerializationError(`Call node '${node.data.label}' is missing required input arguments.`);
+        }
+        if (tupleItems.length === 0) {
+          return `${wrapTupleItems([])} -> ${targetName}`;
+        }
+        return formatCallSource(targetName, tupleItems);
+      }
+    }
+
     const lhs = resolveEdgeSourceExpression(pipelineInput, ctx, letCtx, visiting);
     if (paramCount == 1) {
       return `${wrapTupleItems([lhs])} -> ${targetName}`;
@@ -324,7 +387,7 @@ function serializeCallNode(
     return `${lhs} -> ${targetName}`;
   }
 
-  if (paramCount === 0) {
+  if (paramCount === 0 || requiredInputs === 0) {
     return `${wrapTupleItems([])} -> ${targetName}`;
   }
 
@@ -467,12 +530,13 @@ function serializeLetStatement(
   const markerEdge = getLetBodyRootEdge(node.id, ctx);
   if (!markerEdge) {
     const paramText = node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ');
-    const statement = `let ${node.data.name}(${paramText}): ${node.data.returnType} = null;`;
+    const statement = `let ${node.data.name}${formatTypeParams(node.data.typeParams)}(${paramText}): ${node.data.returnType} = null;`;
     return { statement, bodyNodeIds: new Set<string>() };
   }
 
   const letCtx: LetContext = {
     letNodeId: node.id,
+    typeParams: node.data.typeParams,
     params: node.data.params,
   };
   const bodyExpr = resolveLetBodyFromMarker(node, markerEdge, letCtx, ctx);
@@ -480,7 +544,7 @@ function serializeLetStatement(
     ? new Set<string>()
     : collectDependencyNodeIds(markerEdge.target, node.id, ctx);
   const paramText = node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ');
-  const statement = `let ${node.data.name}(${paramText}): ${node.data.returnType} = ${bodyExpr};`;
+  const statement = `let ${node.data.name}${formatTypeParams(node.data.typeParams)}(${paramText}): ${node.data.returnType} = ${bodyExpr};`;
 
   return { statement, bodyNodeIds };
 }
