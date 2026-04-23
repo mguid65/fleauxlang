@@ -20,8 +20,12 @@ OptionallyQualifiedId:
   QualifiedId | Identifier;
 
 LetStatement:
-  'let' id=OptionallyQualifiedId '(' params=ParameterDeclList ')' ':' rtype=Type
+  'let' id=OptionallyQualifiedId generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type
   DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+
+OptionalGenericParamList:
+  '<' params+=Identifier (',' params+=Identifier)* '>' |
+  ;
 
 DeclarationDefinitionSeparator:
   '::' | '=';
@@ -39,17 +43,27 @@ TypeList:
   types*=Type[','];
 
 SimpleType:
-  'Int64' | 'UInt64' | 'Float64' | 'String' | 'Bool' | 'Null' | 'Any';
+  'Int64' | 'UInt64' | 'Float64' | 'String' | 'Bool' | 'Null' | 'Any' | 'Never';
 
-// Runtime parser only accepts variadic suffix on simple type names.
 Type:
-  (base=SimpleType variadic?='...') |
-  base=TupleType |
-  base=QualifiedId |
-  base=Identifier;
+  (base=SimpleType |
+   base=TupleType |
+   base=AppliedType |
+   base=FunctionType |
+   base=QualifiedId |
+   base=Identifier)
+  variadic?='...';
 
 TupleType:
   'Tuple' '(' TypeList ')';
+
+// Named type with type arguments, e.g. Dict(String, Any) or Result(Bool, Any).
+AppliedType:
+  name=Identifier '(' TypeList ')';
+
+// Function type, e.g. (Any, String) => Bool or () => Any
+FunctionType:
+  '(' TypeList ')' '=>' return_type=Type;
 
 // Expression hierarchy in runtime parser:
 // Expression -> FlowExpression
@@ -123,6 +137,7 @@ Keyword:
   'Bool' |
   'Null' |
   'Any' |
+  'Never' |
   'Tuple';
 
 Comment:

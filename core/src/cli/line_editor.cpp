@@ -195,13 +195,13 @@ void render_with_styles(const std::string_view buffer, const StyleSpanProvider& 
   }
 
   std::size_t cursor = 0;
-  for (const auto& span : spans) {
-    if (cursor < span.start) {
-      std::cout << ansi_code_for_token_class(TokenClass::kPlain) << buffer.substr(cursor, span.start - cursor);
+  for (const auto& [start, length, token_class] : spans) {
+    if (cursor < start) {
+      std::cout << ansi_code_for_token_class(TokenClass::kPlain) << buffer.substr(cursor, start - cursor);
     }
 
-    std::cout << ansi_code_for_token_class(span.token_class) << buffer.substr(span.start, span.length);
-    cursor = span.start + span.length;
+    std::cout << ansi_code_for_token_class(token_class) << buffer.substr(start, length);
+    cursor = start + length;
   }
 
   if (cursor < buffer.size()) { std::cout << ansi_code_for_token_class(TokenClass::kPlain) << buffer.substr(cursor); }
@@ -209,12 +209,11 @@ void render_with_styles(const std::string_view buffer, const StyleSpanProvider& 
   std::cout << "\x1b[0m";
 }
 
-void render_line(std::string_view prompt, const LineEditor& editor) {
+void render_line(const std::string_view prompt, const LineEditor& editor) {
   std::cout << '\r' << prompt;
   render_with_styles(editor.buffer(), editor.config().style_span_provider);
   std::cout << "\x1b[K";
-  const auto tail_size = editor.buffer().size() - editor.cursor();
-  if (tail_size > 0) { std::cout << "\x1b[" << tail_size << 'D'; }
+  if (const auto tail_size = editor.buffer().size() - editor.cursor(); tail_size > 0) { std::cout << "\x1b[" << tail_size << 'D'; }
   std::cout.flush();
 }
 
@@ -383,8 +382,7 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
   if (!stdin_is_interactive()) { return read_fallback_line(prompt); }
 
-  const ScopedRawMode raw_mode;
-  if (!raw_mode.enabled()) { return read_fallback_line(prompt); }
+  if (const ScopedRawMode raw_mode; !raw_mode.enabled()) { return read_fallback_line(prompt); }
 
   render_line(prompt, editor);
   while (true) {

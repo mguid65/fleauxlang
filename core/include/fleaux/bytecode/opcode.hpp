@@ -50,7 +50,6 @@ enum class Opcode {
   // operand = index into Module::closures.
   kMakeClosureRef,
 
-
   // Unconditional jump:
   // Set ip to the absolute instruction index given by operand (within the
   // current instruction list — top-level or function body).
@@ -108,6 +107,14 @@ enum class Opcode {
 
   // Control
   kHalt,
+
+  // Value-reference intrinsics (appended to preserve existing opcode values
+  // for serialized modules):
+  // kMakeValueRef pops TOS and stores it in the value registry, pushing a
+  // generation-safe value-ref token.
+  kMakeValueRef,
+  // kDerefValueRef pops a value-ref token and pushes the referenced Value.
+  kDerefValueRef,
 };
 
 }  // namespace fleaux::bytecode

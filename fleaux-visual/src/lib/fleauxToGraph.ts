@@ -669,7 +669,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
 
   const statements = splitStatements(stripLineComments(sourceText));
 
-  // ── First pass: collect ALL let definitions for forward-reference support ──
+  //  First pass: collect ALL let definitions for forward-reference support
   for (const stmt of statements) {
     if (stmt.startsWith('let ')) {
       try {
@@ -682,7 +682,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
     }
   }
 
-  // ── Second pass: build nodes and edges ────────────────────────────────────
+  //  Second pass: build nodes and edges
   let importY = 60;
   let letY = 200;
 

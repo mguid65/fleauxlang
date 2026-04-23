@@ -2,15 +2,18 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <random>
 #include <set>
+#include <sstream>
 #include <string>
+#include <vector>
 
+#include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
-#include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/module.hpp"
+#include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/opcode.hpp"
 #include "fleaux/bytecode/optimizer.hpp"
 #include "fleaux/bytecode/serialization.hpp"
@@ -25,48 +28,112 @@
 
 namespace {
 
-std::filesystem::path repo_root_path() {
-  return std::filesystem::path(FLEAUX_REPO_ROOT);
-}
+auto repo_root_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_REPO_ROOT); }
 
-fleaux::frontend::ir::IRProgram lower_source_to_ir(const std::string& source_text,
-                                                   const std::string& source_name) {
-  const fleaux::frontend::parse::Parser parser;
+auto lower_source_to_ir(const std::string& source_text, const std::string& source_name)
+    -> fleaux::frontend::ir::IRProgram {
+  constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_name);
   REQUIRE(parsed.has_value());
 
-  const fleaux::frontend::lowering::Lowerer lowerer;
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   REQUIRE(lowered.has_value());
   return lowered.value();
 }
 
-std::set<std::string> parse_std_declared_names(const bool builtins_only) {
+void require_copy_vs_auto_byref_equivalent(const std::string& source_text, const std::string& source_name,
+                                           const std::size_t cutoff = 32) {
+  const auto ir_program = lower_source_to_ir(source_text, source_name);
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                            .enable_value_ref_gate = false,
+                                                            .enable_auto_value_ref = false,
+                                                        });
+  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                             .enable_value_ref_gate = true,
+                                                             .enable_auto_value_ref = true,
+                                                             .value_ref_byte_cutoff = cutoff,
+                                                         });
+
+  REQUIRE(result_copy.has_value());
+  REQUIRE(result_byref.has_value());
+
+  std::ostringstream output_copy;
+  std::ostringstream output_byref;
+  constexpr fleaux::vm::Runtime runtime;
+
+  const auto exec_copy = runtime.execute(*result_copy, output_copy);
+  const auto exec_byref = runtime.execute(*result_byref, output_byref);
+
+  REQUIRE(exec_copy.has_value());
+  REQUIRE(exec_byref.has_value());
+  REQUIRE(output_copy.str() == output_byref.str());
+}
+
+auto make_int_tuple_literal(const std::vector<int>& values) -> std::string {
+  std::ostringstream out;
+  out << "(";
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) out << ", ";
+    out << values[i];
+  }
+  out << ")";
+  return out.str();
+}
+
+auto make_task_spawn_tuple_literal(const std::vector<int>& values) -> std::string {
+  std::ostringstream out;
+  out << "(";
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) out << ", ";
+    out << "(Inc, " << values[i] << ") -> Std.Task.Spawn";
+  }
+  out << ")";
+  return out.str();
+}
+
+auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string> {
   std::ifstream in(repo_root_path() / "Std.fleaux");
   REQUIRE(in.good());
 
   std::set<std::string> names;
   std::string line;
+  // Accumulate a logical declaration that may span multiple physical lines.
+  // A declaration starts with "let Std." and ends at the first ";".
+  std::string decl;
   while (std::getline(in, line)) {
-    const auto let_pos = line.find("let Std.");
-    if (let_pos == std::string::npos) {
-      continue;
+    if (decl.empty()) {
+      if (line.find("let Std.") == std::string::npos) { continue; }
+      decl = line;
+    } else {
+      decl += ' ';
+      decl += line;
     }
 
-    const bool is_builtin = line.find(":: __builtin__;") != std::string::npos;
-    if (builtins_only != is_builtin) {
-      continue;
+    // Wait until the statement terminator is present.
+    if (decl.find(';') == std::string::npos) { continue; }
+
+    const auto let_pos = decl.find("let Std.");
+
+    if (const bool is_builtin = decl.find(":: __builtin__;") != std::string::npos; builtins_only == is_builtin) {
+      const auto open_paren = decl.find('(', let_pos);
+      REQUIRE(open_paren != std::string::npos);
+      auto name = decl.substr(let_pos + 4, open_paren - (let_pos + 4));
+      if (const auto generic_start = name.find('<'); generic_start != std::string::npos) {
+        name = name.substr(0, generic_start);
+      }
+      names.insert(std::move(name));
     }
 
-    const auto open_paren = line.find('(', let_pos);
-    REQUIRE(open_paren != std::string::npos);
-    names.insert(line.substr(let_pos + 4, open_paren - (let_pos + 4)));
+    decl.clear();
   }
 
   return names;
 }
 
-std::set<std::string> vm_catalog_builtin_names() {
+auto vm_catalog_builtin_names() -> std::set<std::string> {
   std::set<std::string> names;
 #define FLEAUX_INSERT_VM_BUILTIN(name_literal, node_type) names.insert(name_literal);
   FLEAUX_VM_BUILTINS(FLEAUX_INSERT_VM_BUILTIN)
@@ -74,7 +141,7 @@ std::set<std::string> vm_catalog_builtin_names() {
   return names;
 }
 
-std::set<std::string> vm_catalog_constant_names() {
+auto vm_catalog_constant_names() -> std::set<std::string> {
   std::set<std::string> names;
 #define FLEAUX_INSERT_VM_CONSTANT(name_literal, numeric_value) names.insert(name_literal);
   FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_VM_CONSTANT)
@@ -101,9 +168,7 @@ TEST_CASE("VM builtin catalog stays in sync with Std.fleaux", "[bytecode]") {
 //   [6] kHalt
 // ---------------------------------------------------------------------------
 TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(4, 5) -> Std.Add -> Std.Println;\n",
-      "bytecode_pipeline.fleaux");
+  const auto ir_program = lower_source_to_ir("(4, 5) -> Std.Add -> Std.Println;\n", "bytecode_pipeline.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -132,10 +197,35 @@ TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[
   REQUIRE(instr[6].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
-TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand", "[bytecode]") {
+TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overload", "[bytecode][overload]") {
   const auto ir_program = lower_source_to_ir(
-      "(4, 5) -> + -> Std.Println;\n",
-      "bytecode_native_add.fleaux");
+      "let Echo(x: Int64): Int64 = x;\n"
+      "let Echo(x: String): String = x;\n"
+      "(1) -> Echo;\n"
+      "(\"ok\") -> Echo;\n",
+      "bytecode_user_overloads.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+  REQUIRE(result->functions.size() == 2U);
+  REQUIRE(result->functions[0].name == "Echo#0");
+  REQUIRE(result->functions[1].name == "Echo#1");
+
+  std::vector<std::int64_t> called_user_indices;
+  for (const auto& instruction : result->instructions) {
+    if (instruction.opcode == fleaux::bytecode::Opcode::kCallUserFunc) {
+      called_user_indices.push_back(instruction.operand);
+    }
+  }
+
+  REQUIRE(called_user_indices.size() == 2U);
+  REQUIRE(called_user_indices[0] == 0);
+  REQUIRE(called_user_indices[1] == 1);
+}
+
+TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir("(4, 5) -> + -> Std.Println;\n", "bytecode_native_add.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -155,10 +245,508 @@ TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand",
   REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
-TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", "[bytecode]") {
+TEST_CASE("Bytecode compiler always dispatches Std.Ref and Std.Deref as builtins (no explicit gate)",
+          "[bytecode][value_ref]") {
+  // Std.Ref and Std.Deref are internal-only and are never lowered via explicit call-target
+  // dispatch. kMakeValueRef / kDerefValueRef are emitted only through the automatic by-ref
+  // heuristic path (enable_auto_value_ref). Explicit call sites always produce kCallBuiltin.
   const auto ir_program = lower_source_to_ir(
-      "(True) -> ! -> Std.Println;\n",
-      "bytecode_native_not.fleaux");
+      "let Std.Ref(value: Any): Any :: __builtin__;\n"
+      "let Std.Deref(value_ref: Any): Any :: __builtin__;\n"
+      "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+      "((1, 2, 3)) -> Std.Ref -> Std.Deref -> Std.Println;\n",
+      "bytecode_value_ref_explicit_always_builtin.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+
+  for (const bool gate_on : {false, true}) {
+    const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                         .enable_value_ref_gate = gate_on,
+                                                         .enable_auto_value_ref = false,
+                                                     });
+    REQUIRE(result.has_value());
+
+    bool saw_make_value_ref = false;
+    bool saw_deref_value_ref = false;
+    bool saw_ref_builtin = false;
+    bool saw_deref_builtin = false;
+
+    for (const auto& ins : result->instructions) {
+      if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) { saw_make_value_ref = true; }
+      if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) { saw_deref_value_ref = true; }
+      if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+        const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+        if (name == "Std.Ref") { saw_ref_builtin = true; }
+        if (name == "Std.Deref") { saw_deref_builtin = true; }
+      }
+    }
+
+    INFO("enable_value_ref_gate = " << gate_on);
+    REQUIRE_FALSE(saw_make_value_ref);
+    REQUIRE_FALSE(saw_deref_value_ref);
+    REQUIRE(saw_ref_builtin);
+    REQUIRE(saw_deref_builtin);
+  }
+}
+
+TEST_CASE("Bytecode compiler rejects auto value-ref when gate is disabled", "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Echo(x: String): String = x;\n"
+      "(\"hello\") -> Echo -> Std.Println;\n",
+      "bytecode_value_ref_invalid_option_gate.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = false,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 32,
+                                                   });
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("enable_auto_value_ref requires enable_value_ref_gate=true") !=
+          std::string::npos);
+}
+
+TEST_CASE("Bytecode compiler rejects zero value_ref_byte_cutoff when auto by-ref is enabled",
+          "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Echo(x: String): String = x;\n"
+      "(\"hello\") -> Echo -> Std.Println;\n",
+      "bytecode_value_ref_invalid_option_cutoff.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = true,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 0,
+                                                   });
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("value_ref_byte_cutoff must be > 0") != std::string::npos);
+}
+
+TEST_CASE("Bytecode compiler auto-emits value-ref ops for large safe user-function arguments",
+          "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Echo(x: String): String = x;\n"
+      "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+      " -> Echo -> Std.Println;\n",
+      "bytecode_value_ref_auto_on.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = true,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 32,
+                                                   });
+  REQUIRE(result.has_value());
+
+  bool saw_make_value_ref = false;
+  bool saw_call_user_func = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) { saw_make_value_ref = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc) { saw_call_user_func = true; }
+  }
+  REQUIRE(saw_make_value_ref);
+  REQUIRE(saw_call_user_func);
+
+  const auto echo_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                    [](const auto& fn) { return fn.name == "Echo#0"; });
+  REQUIRE(echo_it != result->functions.end());
+
+  bool saw_deref_value_ref = false;
+  for (const auto& ins : echo_it->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) {
+      saw_deref_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE(saw_deref_value_ref);
+}
+
+TEST_CASE("Bytecode compiler keeps copy semantics when auto by-ref safety/size checks fail",
+          "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Echo(x: String): String = x;\n"
+      "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+      " -> Echo -> Std.Println;\n"
+      "(\"tiny\") -> Echo -> Std.Println;\n",
+      "bytecode_value_ref_auto_fallback.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = true,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 32,
+                                                   });
+  REQUIRE(result.has_value());
+
+  bool saw_make_value_ref = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+      saw_make_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_make_value_ref);
+
+  const auto echo_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                    [](const auto& fn) { return fn.name == "Echo#0"; });
+  REQUIRE(echo_it != result->functions.end());
+
+  bool saw_deref_value_ref = false;
+  for (const auto& ins : echo_it->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) {
+      saw_deref_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_deref_value_ref);
+}
+
+TEST_CASE("Bytecode compiler keeps copy semantics when parameter flows through Std.Apply",
+          "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Echo(x: String): String = x;\n"
+      "let IndirectApply(f: Any, v: String): String = (v, f) -> Std.Apply;\n"
+      "(Echo, "
+      "\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+      " -> IndirectApply -> Std.Println;\n",
+      "bytecode_value_ref_escape_apply.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = true,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 32,
+                                                   });
+  REQUIRE(result.has_value());
+
+  bool saw_make_value_ref = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+      saw_make_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_make_value_ref);
+
+  const auto indirect_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                        [](const auto& fn) { return fn.name == "IndirectApply#0"; });
+  REQUIRE(indirect_it != result->functions.end());
+
+  bool saw_deref_value_ref = false;
+  for (const auto& ins : indirect_it->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) {
+      saw_deref_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_deref_value_ref);
+}
+
+TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task escape builtins",
+          "[bytecode][value_ref][auto][concurrency]") {
+  const fleaux::bytecode::BytecodeCompiler compiler;
+
+  const auto assert_no_value_ref_opcodes = [&](const std::string& source_text, const std::string& source_name,
+                                               const std::string& wrapper_name) {
+    INFO("source=" << source_name << ", wrapper=" << wrapper_name);
+    const auto ir_program = lower_source_to_ir(source_text, source_name);
+    const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                         .enable_value_ref_gate = true,
+                                                         .enable_auto_value_ref = true,
+                                                         .value_ref_byte_cutoff = 32,
+                                                     });
+    REQUIRE(result.has_value());
+
+    bool saw_make_value_ref = false;
+    for (const auto& ins : result->instructions) {
+      if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+        saw_make_value_ref = true;
+        break;
+      }
+    }
+    REQUIRE_FALSE(saw_make_value_ref);
+
+    const auto wrapper_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                         [&](const auto& fn) { return fn.name == wrapper_name + "#0"; });
+    REQUIRE(wrapper_it != result->functions.end());
+
+    bool saw_deref_value_ref = false;
+    for (const auto& ins : wrapper_it->instructions) {
+      if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) {
+        saw_deref_value_ref = true;
+        break;
+      }
+    }
+    REQUIRE_FALSE(saw_deref_value_ref);
+  };
+
+  SECTION("Std.Parallel.Map") {
+    assert_no_value_ref_opcodes(
+        "let Echo(x: String): String = x;\n"
+        "let EscapeViaParallelMap(v: String): Result(Any, Any) = ((v), Echo) -> Std.Parallel.Map;\n"
+        "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+        " -> EscapeViaParallelMap -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_value_ref_escape_parallel_map.fleaux", "EscapeViaParallelMap");
+  }
+
+  SECTION("Std.Parallel.WithOptions") {
+    assert_no_value_ref_opcodes(
+        "let Echo(x: String): String = x;\n"
+        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "let EscapeViaParallelWithOptions(v: String): Result(Any, Any) = ((v), Echo, () -> BuildOptions) -> "
+        "Std.Parallel.WithOptions;\n"
+        "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+        " -> EscapeViaParallelWithOptions -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_value_ref_escape_parallel_with_options.fleaux", "EscapeViaParallelWithOptions");
+  }
+
+  SECTION("Std.Parallel.ForEach") {
+    assert_no_value_ref_opcodes(
+        "let Echo(x: String): String = x;\n"
+        "let EscapeViaParallelForEach(v: String): Result(Any, Any) = ((v), Echo) -> Std.Parallel.ForEach;\n"
+        "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+        " -> EscapeViaParallelForEach -> Std.Result.IsOk -> Std.Println;\n",
+        "bytecode_value_ref_escape_parallel_foreach.fleaux", "EscapeViaParallelForEach");
+  }
+
+  SECTION("Std.Parallel.Reduce") {
+    assert_no_value_ref_opcodes(
+        "let Merge(acc: String, x: String): String = (acc, x) -> Std.Add;\n"
+        "let EscapeViaParallelReduce(v: String): Result(Any, Any) = ((v), \"\", Merge) -> Std.Parallel.Reduce;\n"
+        "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+        " -> EscapeViaParallelReduce -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_value_ref_escape_parallel_reduce.fleaux", "EscapeViaParallelReduce");
+  }
+
+  SECTION("Std.Task.Spawn") {
+    assert_no_value_ref_opcodes(
+        "let Echo(x: String): String = x;\n"
+        "let EscapeViaTaskSpawn(v: String): Any = (Echo, v) -> Std.Task.Spawn;\n"
+        "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+        " -> EscapeViaTaskSpawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_value_ref_escape_task_spawn.fleaux", "EscapeViaTaskSpawn");
+  }
+}
+
+TEST_CASE("Auto by-ref semantic equivalence: tuple passthrough same result with/without optimization",
+          "[bytecode][value_ref][semantic_equiv]") {
+  const auto source =
+      "let Echo(x: Tuple(Float64...)): Tuple(Float64...) = x;\n"
+      "((1.0, 2.0, 3.0, 4.0, 5.0)) -> Echo -> Std.Println;\n";
+
+  const auto ir_program = lower_source_to_ir(source, "bytecode_semantic_equiv_tuple.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                            .enable_value_ref_gate = false,
+                                                            .enable_auto_value_ref = false,
+                                                        });
+  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                             .enable_value_ref_gate = true,
+                                                             .enable_auto_value_ref = true,
+                                                             .value_ref_byte_cutoff = 32,
+                                                         });
+
+  REQUIRE(result_copy.has_value());
+  REQUIRE(result_byref.has_value());
+
+  std::ostringstream output_copy, output_byref;
+  const fleaux::vm::Runtime runtime;
+
+  const auto exec_copy = runtime.execute(*result_copy, output_copy);
+  const auto exec_byref = runtime.execute(*result_byref, output_byref);
+
+  REQUIRE(exec_copy.has_value());
+  REQUIRE(exec_byref.has_value());
+
+  REQUIRE(output_copy.str() == output_byref.str());
+}
+
+TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
+          "[bytecode][value_ref][semantic_equiv][concurrency]") {
+  SECTION("Parallel.Map") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "((1, 2, 3, 4), Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_parallel_map.fleaux");
+  }
+
+  SECTION("Parallel.WithOptions") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_parallel_with_options.fleaux");
+  }
+
+  SECTION("Parallel.ForEach") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "((10, 20, 30), Inc) -> Std.Parallel.ForEach -> Std.Result.IsOk -> Std.Println;\n",
+        "bytecode_semantic_equiv_parallel_foreach.fleaux");
+  }
+
+  SECTION("Parallel.Reduce") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;\n"
+        "((1, 2, 3, 4, 5), 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_parallel_reduce.fleaux");
+  }
+
+  SECTION("Task.Spawn + Task.Await") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "(Inc, 41) -> Std.Task.Spawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_task_spawn_await.fleaux");
+  }
+
+  SECTION("Task.AwaitAll") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "(((Inc, 1) -> Std.Task.Spawn, (Inc, 2) -> Std.Task.Spawn, (Inc, 3) -> Std.Task.Spawn))\n"
+        "  -> Std.Task.AwaitAll\n"
+        "  -> Std.Result.Unwrap\n"
+        "  -> Std.Println;\n",
+        "bytecode_semantic_equiv_task_await_all.fleaux");
+  }
+
+  SECTION("Task.WithTimeout non-timeout path") {
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "(Inc, 7) -> Std.Task.Spawn -> (_, 500) -> Std.Task.WithTimeout -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_task_with_timeout.fleaux");
+  }
+}
+
+TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call shapes",
+          "[bytecode][value_ref][semantic_equiv][property][concurrency]") {
+  std::mt19937 rng(1337);
+  std::uniform_int_distribution<int> size_dist(2, 7);
+  std::uniform_int_distribution<int> value_dist(-100, 100);
+
+  constexpr int runs = 10;
+  for (int run = 0; run < runs; ++run) {
+    const int n = size_dist(rng);
+    std::vector<int> values;
+    values.reserve(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) { values.push_back(value_dist(rng)); }
+
+    const std::string tuple_literal = make_int_tuple_literal(values);
+    const std::string tasks_literal = make_task_spawn_tuple_literal(values);
+    const int max_workers = 1 + (run % 3);
+
+    INFO("run=" << run << ", n=" << n);
+
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "(" +
+            tuple_literal + ", Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_property_parallel_map_" + std::to_string(run) + ".fleaux");
+
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", " +
+            std::to_string(max_workers) +
+            ") -> Std.Dict.Set;\n"
+            "(" +
+            tuple_literal +
+            ", Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_property_parallel_with_options_" + std::to_string(run) + ".fleaux");
+
+    require_copy_vs_auto_byref_equivalent(
+        "let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;\n"
+        "(" +
+            tuple_literal + ", 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_property_parallel_reduce_" + std::to_string(run) + ".fleaux");
+
+    require_copy_vs_auto_byref_equivalent(
+        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "(" +
+            tasks_literal + ") -> Std.Task.AwaitAll -> Std.Result.Unwrap -> Std.Println;\n",
+        "bytecode_semantic_equiv_property_task_await_all_" + std::to_string(run) + ".fleaux");
+  }
+}
+
+TEST_CASE("Auto by-ref benchmark: large tuple processing", "[bytecode][value_ref][benchmark]") {
+  const auto ir_program = lower_source_to_ir(
+      "let ProcessTuple(t: Tuple(Float64...)): Tuple(Float64...) = t;\n"
+      "((1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,\n"
+      "  11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0)) -> ProcessTuple -> Std.Println;\n",
+      "bytecode_benchmark_tuple.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                            .enable_value_ref_gate = false,
+                                                            .enable_auto_value_ref = false,
+                                                        });
+  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                             .enable_value_ref_gate = true,
+                                                             .enable_auto_value_ref = true,
+                                                             .value_ref_byte_cutoff = 64,
+                                                         });
+
+  REQUIRE(result_copy.has_value());
+  REQUIRE(result_byref.has_value());
+
+  const fleaux::vm::Runtime runtime;
+
+  BENCHMARK("Tuple processing with copy semantics") {
+    std::ostringstream output;
+    const auto result = runtime.execute(*result_copy, output);
+    REQUIRE(result.has_value());
+    return output.str();
+  };
+
+  BENCHMARK("Tuple processing with auto by-ref") {
+    std::ostringstream output;
+    const auto result = runtime.execute(*result_byref, output);
+    REQUIRE(result.has_value());
+    return output.str();
+  };
+}
+
+TEST_CASE("Auto by-ref benchmark: pipeline chain with strings", "[bytecode][value_ref][benchmark]") {
+  const auto source =
+      "let Upper(s: String): String = s;\n"
+      "let Repeat(s: String): String = s;\n"
+      "(\"The quick brown fox jumps over the lazy dog\") -> Upper -> Repeat -> Std.Println;\n";
+
+  const auto ir_program = lower_source_to_ir(source, "bytecode_benchmark_pipeline.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                            .enable_value_ref_gate = false,
+                                                            .enable_auto_value_ref = false,
+                                                        });
+  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                             .enable_value_ref_gate = true,
+                                                             .enable_auto_value_ref = true,
+                                                             .value_ref_byte_cutoff = 16,
+                                                         });
+
+  REQUIRE(result_copy.has_value());
+  REQUIRE(result_byref.has_value());
+
+  const fleaux::vm::Runtime runtime;
+
+  BENCHMARK("Pipeline chain with copy semantics") {
+    std::ostringstream output;
+    const auto result = runtime.execute(*result_copy, output);
+    REQUIRE(result.has_value());
+    return output.str();
+  };
+
+  BENCHMARK("Pipeline chain with auto by-ref") {
+    std::ostringstream output;
+    const auto result = runtime.execute(*result_byref, output);
+    REQUIRE(result.has_value());
+    return output.str();
+  };
+}
+
+TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir("(True) -> ! -> Std.Println;\n", "bytecode_native_not.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -176,9 +764,8 @@ TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", 
 }
 
 TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(True, 10, 20) -> Std.Select -> Std.Println;\n",
-      "bytecode_native_select.fleaux");
+  const auto ir_program =
+      lower_source_to_ir("(True, 10, 20) -> Std.Select -> Std.Println;\n", "bytecode_native_select.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -188,9 +775,7 @@ TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
   const auto& instr = result->instructions;
   bool found_select = false;
   for (const auto& ins : instr) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) {
-      found_select = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) { found_select = true; }
   }
   REQUIRE(found_select);
 }
@@ -201,7 +786,7 @@ let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
 let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 (10, Continue, Step) -> Std.Loop -> Std.Println;
 )",
-      "bytecode_native_loop.fleaux");
+                                             "bytecode_native_loop.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -210,9 +795,7 @@ let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 
   bool found_loop_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoopCall) {
-      found_loop_call = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoopCall) { found_loop_call = true; }
   }
   REQUIRE(found_loop_call);
 }
@@ -223,7 +806,7 @@ let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
 let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 (10, Continue, Step, 100) -> Std.LoopN -> Std.Println;
 )",
-      "bytecode_native_loopn.fleaux");
+                                             "bytecode_native_loopn.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -232,9 +815,7 @@ let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 
   bool found_loop_n_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoopNCall) {
-      found_loop_n_call = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoopNCall) { found_loop_n_call = true; }
   }
   REQUIRE(found_loop_n_call);
 }
@@ -245,7 +826,7 @@ let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;
 let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
 (True, 10, Inc, Dec) -> Std.Branch -> Std.Println;
 )",
-      "bytecode_native_branch_safe.fleaux");
+                                             "bytecode_native_branch_safe.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -255,14 +836,10 @@ let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
   bool found_branch_call = false;
   bool found_builtin_branch = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
-      found_branch_call = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
-      if (name == "Std.Branch") {
-        found_builtin_branch = true;
-      }
+      if (name == "Std.Branch") { found_builtin_branch = true; }
     }
   }
 
@@ -271,9 +848,8 @@ let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
 }
 
 TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value call", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(5, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
-      "bytecode_builtin_callable_apply.fleaux");
+  const auto ir_program = lower_source_to_ir("(5, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
+                                             "bytecode_builtin_callable_apply.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -292,9 +868,9 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
 }
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(True, 10, Std.UnaryMinus, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
-      "bytecode_builtin_callable_branch.fleaux");
+  const auto ir_program =
+      lower_source_to_ir("(True, 10, Std.UnaryMinus, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
+                         "bytecode_builtin_callable_branch.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -303,17 +879,15 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
   bool found_branch_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
-      found_branch_call = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
   }
   REQUIRE(found_branch_call);
 }
 
 TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
-      "bytecode_inline_closure.fleaux");
+  const auto ir_program =
+      lower_source_to_ir("(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
+                         "bytecode_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -323,9 +897,7 @@ TEST_CASE("Bytecode compiler emits closure materialization for inline closure li
 
   bool found_make_closure = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
-      found_make_closure = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) { found_make_closure = true; }
   }
   REQUIRE(found_make_closure);
 }
@@ -343,26 +915,17 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
   REQUIRE(result->functions.size() >= 2);
   REQUIRE(!result->closures.empty());
 
-  const auto make_it = std::find_if(
-      result->functions.begin(), result->functions.end(),
-      [](const fleaux::bytecode::FunctionDef& fn) {
-        return fn.name == "MakeAdder";
-      });
+  const auto make_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                    [](const fleaux::bytecode::FunctionDef& fn) { return fn.name == "MakeAdder#0"; });
   REQUIRE(make_it != result->functions.end());
   const auto& make_adder_fn = *make_it;
   bool found_capture_load = false;
   bool found_capture_tuple = false;
   bool found_make_closure = false;
   for (const auto& ins : make_adder_fn.instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoadLocal) {
-      found_capture_load = true;
-    }
-    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) {
-      found_capture_tuple = true;
-    }
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
-      found_make_closure = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoadLocal) { found_capture_load = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) { found_capture_tuple = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) { found_make_closure = true; }
   }
 
   REQUIRE(found_capture_load);
@@ -371,9 +934,9 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
 }
 
 TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(10, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
-      "bytecode_variadic_inline_closure.fleaux");
+  const auto ir_program =
+      lower_source_to_ir("(10, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
+                         "bytecode_variadic_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -386,9 +949,9 @@ TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[byt
 }
 
 TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n",
-      "bytecode_std_match.fleaux");
+  const auto ir_program =
+      lower_source_to_ir("(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n",
+                         "bytecode_std_match.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -398,9 +961,7 @@ TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
-      if (name == "Std.Match") {
-        found_match_call = true;
-      }
+      if (name == "Std.Match") { found_match_call = true; }
     }
   }
   REQUIRE(found_match_call);
@@ -414,31 +975,24 @@ let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
     ((x, 0) -> Std.GreaterThan, x, tf, ff) -> Std.Branch;
 (10, Inc, Dec) -> ChooseApply -> Std.Println;
 )",
-      "bytecode_branch_callable_locals.fleaux");
+                                             "bytecode_branch_callable_locals.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
 
   REQUIRE(result.has_value());
 
-  const auto choose_it = std::find_if(
-      result->functions.begin(), result->functions.end(),
-      [](const fleaux::bytecode::FunctionDef& fn) {
-        return fn.name == "ChooseApply";
-      });
+  const auto choose_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                      [](const fleaux::bytecode::FunctionDef& fn) { return fn.name == "ChooseApply#0"; });
   REQUIRE(choose_it != result->functions.end());
 
   bool found_branch_call = false;
   bool found_builtin_branch = false;
   for (const auto& ins : choose_it->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
-      found_branch_call = true;
-    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
-      if (name == "Std.Branch") {
-        found_builtin_branch = true;
-      }
+      if (name == "Std.Branch") { found_builtin_branch = true; }
     }
   }
 
@@ -450,9 +1004,7 @@ let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
 // Stdlib ToString now compiles successfully via kCallBuiltin.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bytecode compiler supports Std.ToString via kCallBuiltin", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(123) -> Std.ToString -> Std.Println;\n",
-      "bytecode_tostring.fleaux");
+  const auto ir_program = lower_source_to_ir("(123) -> Std.ToString -> Std.Println;\n", "bytecode_tostring.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -463,11 +1015,8 @@ TEST_CASE("Bytecode compiler supports Std.ToString via kCallBuiltin", "[bytecode
   bool found_to_string = false;
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto& name =
-          result->builtin_names.at(static_cast<std::size_t>(ins.operand));
-      if (name == "Std.ToString") {
-        found_to_string = true;
-      }
+      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      if (name == "Std.ToString") { found_to_string = true; }
     }
   }
   REQUIRE(found_to_string);
@@ -477,16 +1026,19 @@ TEST_CASE("Bytecode compiler supports Std.ToString via kCallBuiltin", "[bytecode
 // Truly unsupported call target: an unknown unqualified name that is neither a
 // stdlib builtin nor a user-defined function.
 // ---------------------------------------------------------------------------
-TEST_CASE("Bytecode compiler returns error for unknown call target", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(42) -> UnknownFunction;\n",
-      "bytecode_unknown_target.fleaux");
+TEST_CASE("Analysis rejects unknown unqualified call target before bytecode compilation", "[bytecode]") {
+  const std::string src = "(42) -> UnknownFunction;\n";
 
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "bytecode_unknown_target.fleaux");
+  REQUIRE(parsed.has_value());
 
-  REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message.find("Unsupported call target") != std::string::npos);
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Unresolved symbol") != std::string::npos);
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("UnknownFunction") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +1049,7 @@ TEST_CASE("Bytecode compiler emits user function and kCallUserFunc", "[bytecode]
 let Double(x: Float64): Float64 = (x, x) -> Std.Add;
 (7) -> Double -> Std.Println;
 )",
-      "bytecode_user_func.fleaux");
+                                             "bytecode_user_func.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -505,7 +1057,7 @@ let Double(x: Float64): Float64 = (x, x) -> Std.Add;
   REQUIRE(result.has_value());
   // One function should be compiled.
   REQUIRE(result->functions.size() == 1);
-  REQUIRE(result->functions[0].name == "Double");
+  REQUIRE(result->functions[0].name == "Double#0");
   REQUIRE(result->functions[0].arity == 1);
 
   // The top-level code should include a kCallUserFunc.
@@ -528,9 +1080,7 @@ let Double(x: Float64): Float64 = (x, x) -> Std.Add;
 // Constant pool: constants go into Module::constants.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bytecode compiler stores constants in pool", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "(\"hello\") -> Std.Println;\n",
-      "bytecode_string_const.fleaux");
+  const auto ir_program = lower_source_to_ir("(\"hello\") -> Std.Println;\n", "bytecode_string_const.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -731,10 +1281,8 @@ TEST_CASE("DeadPushEliminationPass does not remove kPop after a non-push", "[byt
 TEST_CASE("DeadPushEliminationPass handles multiple consecutive dead pairs", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPop, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1}, {fleaux::bytecode::Opcode::kPop, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -945,11 +1493,12 @@ TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", 
   const auto ir_program = lower_source_to_ir(source_text, "bytecode_roundtrip.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                        .source_path = std::filesystem::path("bytecode_roundtrip.fleaux"),
-                                                        .source_text = source_text,
-                                                        .module_name = "bytecode_roundtrip",
-                                                    });
+  const auto compiled =
+      compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                       .source_path = std::filesystem::path("bytecode_roundtrip.fleaux"),
+                                       .source_text = source_text,
+                                       .module_name = "bytecode_roundtrip",
+                                   });
   REQUIRE(compiled.has_value());
 
   const auto& original = compiled.value();
@@ -1021,10 +1570,258 @@ TEST_CASE("Bytecode module loader imports serialized dependency modules", "[byte
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(cached_load.value());
-  if (!runtime_result) {
-    INFO("vm runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader preserves exported user overload link names", "[bytecode][serialization][imports][overload]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_overloaded_imports";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "typed_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Echo(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
+           "let Echo(x: String): String = x;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Echo -> Std.Println;\n"
+           "(\"ok\") -> Echo -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(loaded.has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+
+  std::vector<std::uint8_t> dependency_bytes;
+  {
+    std::ifstream in(dependency_bytecode_path, std::ios::binary);
+    REQUIRE(in.good());
+    dependency_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(dependency_bytes);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->exports.size() == 2U);
+  REQUIRE(deserialized->exports[0].name == "Echo");
+  REQUIRE(deserialized->exports[0].link_name == "Echo#0");
+  REQUIRE(deserialized->exports[1].name == "Echo");
+  REQUIRE(deserialized->exports[1].link_name == "Echo#1");
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*loaded);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader enforces typed imported signatures during analysis",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports";
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "let Add4(x: String): Int64 = 4;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Add4 expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader revalidates typed import seeds when entry cache is stale",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_seed_refresh";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "typed_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "typed_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(entry_path));
+  REQUIRE(std::filesystem::exists(dependency_path));
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+
+  {
+    std::ofstream out(dependency_path);
+    out << "let Add4(x: String): Int64 = 4;\n";
+  }
+
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+  std::filesystem::remove(entry_bytecode_path);
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Module source and bytecode were both unavailable") == std::string::npos);
+  REQUIRE(loaded.error().message.find("Failed to resolve imported module") == std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader reports missing typed import seed declaration for exported symbol",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_missing_seed_decl";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "typed_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "typed_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  std::vector<std::uint8_t> dependency_bytes;
+  {
+    std::ifstream in(dependency_bytecode_path, std::ios::binary);
+    REQUIRE(in.good());
+    dependency_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(dependency_bytes);
+  REQUIRE(deserialized.has_value());
+  auto corrupted_dependency = deserialized.value();
+
+  corrupted_dependency.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "Ghost.Export",
+      .kind = fleaux::bytecode::ExportKind::kFunction,
+      .index = 0,
+      .builtin_name = {},
+  });
+
+  const auto serialized = fleaux::bytecode::serialize_module(corrupted_dependency);
+  REQUIRE(serialized.has_value());
+
+  {
+    std::ofstream out(dependency_bytecode_path, std::ios::binary | std::ios::trunc);
+    REQUIRE(out.good());
+    out.write(reinterpret_cast<const char*>(serialized->data()), static_cast<std::streamsize>(serialized->size()));
+    REQUIRE(out.good());
+  }
+
+  std::filesystem::remove(entry_bytecode_path);
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Missing exported declaration for typed import seed") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Ghost.Export") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Module source and bytecode were both unavailable") == std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader enforces typed signatures for qualified imported exports",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_qualified_mismatch";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep_qualified.fleaux";
+  const auto entry_path = temp_dir / "typed_entry_qualified.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "let MyMath.Add4(x: String): Int64 = 4;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep_qualified;\n"
+           "(1) -> MyMath.Add4 -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(loaded.error().message.find("expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader accepts qualified imported exports when typed signatures match",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_qualified_match";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep_qualified_ok.fleaux";
+  const auto entry_path = temp_dir / "typed_entry_qualified_ok.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let MyMath.Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep_qualified_ok;\n"
+           "(1) -> MyMath.Add4 -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(loaded.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto runtime_result = runtime.execute(loaded.value(), output);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str().find('5') != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader can start from a serialized entry module", "[bytecode][serialization][imports]") {
@@ -1057,13 +1854,11 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
 
   const auto bytecode_only_load = fleaux::bytecode::load_linked_module(entry_bytecode_path);
   REQUIRE(bytecode_only_load.has_value());
-  REQUIRE(bytecode_only_load->exports.size() == 0);
+  REQUIRE(bytecode_only_load->exports.empty());
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(bytecode_only_load.value());
-  if (!runtime_result) {
-    INFO("vm runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -1120,9 +1915,7 @@ TEST_CASE("Bytecode module loader handles diamond dependencies with serialized f
   const fleaux::vm::Runtime runtime;
   std::ostringstream output;
   const auto runtime_result = runtime.execute(cached_load.value(), output);
-  if (!runtime_result) {
-    INFO("vm runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
 
   const std::string text = output.str();
@@ -1141,14 +1934,10 @@ TEST_CASE("ConstantFoldingPass folds safe literal unary and binary sequences", "
       fleaux::bytecode::ConstValue{std::int64_t{4}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kNot, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 3},
-      {fleaux::bytecode::Opcode::kPushConst, 4},
-      {fleaux::bytecode::Opcode::kCmpGt, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kNot, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 1}, {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kAdd, 0},       {fleaux::bytecode::Opcode::kPushConst, 3},
+      {fleaux::bytecode::Opcode::kPushConst, 4}, {fleaux::bytecode::Opcode::kCmpGt, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1173,12 +1962,9 @@ TEST_CASE("ConstantFoldingPass folds kDiv and preserves floating semantics", "[b
       fleaux::bytecode::ConstValue{std::int64_t{0}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kDiv, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kDiv, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kDiv, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kDiv, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1189,11 +1975,14 @@ TEST_CASE("ConstantFoldingPass folds kDiv and preserves floating semantics", "[b
   REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
 
-  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(
+      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
   REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2.5);
 
-  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
-  REQUIRE(std::isinf(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+  REQUIRE(
+      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(
+      std::isinf(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
 }
 
 TEST_CASE("ConstantFoldingPass folds kMod and preserves NaN on mod-by-zero", "[bytecode][optimizer]") {
@@ -1204,12 +1993,9 @@ TEST_CASE("ConstantFoldingPass folds kMod and preserves NaN on mod-by-zero", "[b
       fleaux::bytecode::ConstValue{std::int64_t{0}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kMod, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kMod, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kMod, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kMod, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1220,11 +2006,14 @@ TEST_CASE("ConstantFoldingPass folds kMod and preserves NaN on mod-by-zero", "[b
   REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
 
-  REQUIRE(std::holds_alternative<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(std::holds_alternative<std::int64_t>(
+      module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
   REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2);
 
-  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
-  REQUIRE(std::isnan(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+  REQUIRE(
+      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(
+      std::isnan(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
 }
 
 TEST_CASE("ConstantFoldingPass folds kPow with integer and floating outputs", "[bytecode][optimizer]") {
@@ -1235,12 +2024,9 @@ TEST_CASE("ConstantFoldingPass folds kPow with integer and floating outputs", "[
       fleaux::bytecode::ConstValue{std::int64_t{-1}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPow, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kPow, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPow, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kPow, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1251,10 +2037,13 @@ TEST_CASE("ConstantFoldingPass folds kPow with integer and floating outputs", "[
   REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
 
-  REQUIRE(std::holds_alternative<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
-  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 256);
+  REQUIRE(std::holds_alternative<std::int64_t>(
+      module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) ==
+          256);
 
-  REQUIRE(std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
+  REQUIRE(
+      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
   REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data) == 0.5);
 }
 
@@ -1312,10 +2101,8 @@ TEST_CASE("ConstantPropagationSelectPass folds literal kSelect true branch", "[b
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kSelect, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1335,10 +2122,8 @@ TEST_CASE("ConstantPropagationSelectPass folds literal kSelect false branch", "[
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kSelect, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1359,12 +2144,9 @@ TEST_CASE("BytecodeOptimizer extended mode propagates folded kSelect condition",
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kCmpEq, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kPushConst, 3},
-      {fleaux::bytecode::Opcode::kSelect, 0},
+      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
+      {fleaux::bytecode::Opcode::kCmpEq, 0},     {fleaux::bytecode::Opcode::kPushConst, 2},
+      {fleaux::bytecode::Opcode::kPushConst, 3}, {fleaux::bytecode::Opcode::kSelect, 0},
       {fleaux::bytecode::Opcode::kHalt, 0},
   };
 
@@ -1376,6 +2158,6 @@ TEST_CASE("BytecodeOptimizer extended mode propagates folded kSelect condition",
   REQUIRE(module.instructions.size() == 2);
   REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
-  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 10);
+  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) ==
+          10);
 }
-

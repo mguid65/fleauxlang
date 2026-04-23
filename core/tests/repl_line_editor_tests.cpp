@@ -148,4 +148,3 @@ TEST_CASE("normalize_style_spans sorts by start and removes overlaps", "[repl][l
   REQUIRE(normalized[2].start == 6);
   REQUIRE(normalized[2].length == 1);
 }
-

@@ -6,7 +6,7 @@ import Std;
 let IsNotEmpty(tok: Any): Bool =
     (tok, "") -> Std.NotEqual;
 
-let TupleSlice(tokens: Tuple(Any...), start: Float64, stop: Float64): Tuple(Any...) =
+let TupleSlice(tokens: Tuple(Any...), start: Int64, stop: Int64): Tuple(Any...) =
     ((tokens, start) -> Std.Drop, (stop, start) -> Std.Subtract) -> Std.Take;
 
 let KeepLine(line: String): String =
@@ -73,10 +73,10 @@ let TokenizeOutside(seg: String): Tuple(Any...) =
     -> (_, " ") -> Std.String.Split
     -> (_, IsNotEmpty) -> Std.Tuple.Filter;
 
-let AppendAllContinue(items: Tuple(Any...), idx: Float64, out: Tuple(Any...)): Bool =
+let AppendAllContinue(items: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Bool =
     (idx, (items) -> Std.Length) -> Std.LessThan;
 
-let AppendAllStep(items: Tuple(Any...), idx: Float64, out: Tuple(Any...)): Tuple(Any, Float64, Tuple(Any...)) =
+let AppendAllStep(items: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Tuple(Any, Int64, Tuple(Any...)) =
     (items,
      (idx, 1) -> Std.Add,
      (out, (items, idx) -> Std.ElementAt) -> Std.Tuple.Append);
@@ -92,10 +92,10 @@ let AppendAll(out: Tuple(Any...), items: Tuple(Any...)): Tuple(Any...) =
 let QuoteWrap(seg: String): String =
     ("", ("\"", (seg) -> UnescapeEscapedQuote, "\"")) -> Std.String.Join;
 
-let TokenizePartsContinue(parts: Tuple(Any...), idx: Float64, out: Tuple(Any...)): Bool =
+let TokenizePartsContinue(parts: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Bool =
     (idx, (parts) -> Std.Length) -> Std.LessThan;
 
-let TokenizePartsStep(parts: Tuple(Any...), idx: Float64, out: Tuple(Any...)): Tuple(Any, Float64, Tuple(Any...)) =
+let TokenizePartsStep(parts: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Tuple(Any, Int64, Tuple(Any...)) =
     (((idx, 2) -> Std.Mod, 1) -> Std.Equal,
       (parts,
        (idx, 1) -> Std.Add,

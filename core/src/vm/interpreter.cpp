@@ -1,7 +1,7 @@
 #include "fleaux/vm/interpreter.hpp"
 
-#include <filesystem>
 #include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -11,8 +11,8 @@
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
-#include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/analysis.hpp"
+#include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
@@ -37,6 +37,15 @@ auto make_error(const std::string& message, const std::optional<std::string>& hi
 
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return frontend::source_loader::symbol_key(qualifier, name);
+}
+
+auto let_internal_key(const frontend::ir::IRLet& let) -> std::string {
+  return let.symbol_key.empty() ? let_key(let.qualifier, let.name) : let.symbol_key;
+}
+
+auto resolved_name_key(const IRNameRef& name_ref) -> std::string {
+  if (name_ref.resolved_symbol_key.has_value()) { return *name_ref.resolved_symbol_key; }
+  return let_key(name_ref.qualifier, name_ref.name);
 }
 
 auto format_ir_type(const frontend::ir::IRSimpleType& type) -> std::string {
@@ -99,8 +108,7 @@ auto preload_std_help_metadata() -> void {
   const auto std_file = find_std_file();
   if (!std_file.has_value()) { return; }
 
-  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(
-      *std_file, make_error);
+  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(*std_file, make_error);
   if (!parsed_std) { return; }
 
   for (const auto& let : parsed_std->lets) {
@@ -190,27 +198,51 @@ auto load_ir_program(const std::filesystem::path& source_file) -> tl::expected<I
 struct EvalState {
   IRProgram program;
   std::unordered_map<std::string, std::size_t> let_indices;
+  std::unordered_map<std::string, RuntimeCallable> functions_by_symbol_key;
   std::unordered_map<std::string, RuntimeCallable> functions_qualified;
   std::unordered_map<std::string, RuntimeCallable> functions_unqualified;
+  std::unordered_set<std::string> ambiguous_qualified_names;
+  std::unordered_set<std::string> ambiguous_unqualified_names;
 
   void register_let(const frontend::ir::IRLet& let, const std::shared_ptr<EvalState>& self) {
     const std::string full_name = let_key(let.qualifier, let.name);
+    const std::string internal_name = let_internal_key(let);
     register_help_for_let(let);
 
-    if (const auto idx_it = let_indices.find(full_name); idx_it != let_indices.end()) {
+    if (const auto idx_it = let_indices.find(internal_name); idx_it != let_indices.end()) {
       program.lets[idx_it->second] = let;
     } else {
       const auto idx = program.lets.size();
       program.lets.push_back(let);
-      let_indices[full_name] = idx;
+      let_indices[internal_name] = idx;
     }
 
-    const RuntimeCallable callable = [state = self, full_name](Value arg) -> Value {
-      return state->invoke_let_by_key(full_name, std::move(arg));
+    const std::weak_ptr<EvalState> weak_state = self;
+    const RuntimeCallable callable = [weak_state, internal_name](Value arg) -> Value {
+      const auto state = weak_state.lock();
+      if (!state) { throw std::runtime_error("Interpreter state expired while invoking let '" + internal_name + "'."); }
+      return state->invoke_let_by_key(internal_name, std::move(arg));
     };
 
-    functions_qualified[full_name] = callable;
-    if (!let.qualifier.has_value()) { functions_unqualified[let.name] = callable; }
+    functions_by_symbol_key[internal_name] = callable;
+
+    if (!ambiguous_qualified_names.contains(full_name)) {
+      if (functions_qualified.contains(full_name)) {
+        functions_qualified.erase(full_name);
+        ambiguous_qualified_names.insert(full_name);
+      } else {
+        functions_qualified[full_name] = callable;
+      }
+    }
+
+    if (!let.qualifier.has_value() && !ambiguous_unqualified_names.contains(let.name)) {
+      if (functions_unqualified.contains(let.name)) {
+        functions_unqualified.erase(let.name);
+        ambiguous_unqualified_names.insert(let.name);
+      } else {
+        functions_unqualified[let.name] = callable;
+      }
+    }
   }
 
   auto invoke_let_by_key(const std::string& full_name, Value arg) const -> Value {
@@ -282,23 +314,18 @@ struct EvalState {
               return Value{std::move(arr)};
             },
             [&](const frontend::ir::IRConstant& constant) -> Value {
-              return std::visit(common::overloaded{
-                                    [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
-                                    [](const bool bool_value) -> Value { return fleaux::runtime::make_bool(bool_value); },
-                                    [](const std::int64_t int_value) -> Value {
-                                      return fleaux::runtime::make_int(int_value);
-                                    },
-                                    [](const std::uint64_t uint_value) -> Value {
-                                      return fleaux::runtime::make_uint(uint_value);
-                                    },
-                                    [](const double float_value) -> Value {
-                                      return fleaux::runtime::make_float(float_value);
-                                    },
-                                    [](const std::string& string_value) -> Value {
-                                      return fleaux::runtime::make_string(string_value);
-                                    },
-                                },
-                                constant.val);
+              return std::visit(
+                  common::overloaded{
+                      [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
+                      [](const bool bool_value) -> Value { return fleaux::runtime::make_bool(bool_value); },
+                      [](const std::int64_t int_value) -> Value { return fleaux::runtime::make_int(int_value); },
+                      [](const std::uint64_t uint_value) -> Value { return fleaux::runtime::make_uint(uint_value); },
+                      [](const double float_value) -> Value { return fleaux::runtime::make_float(float_value); },
+                      [](const std::string& string_value) -> Value {
+                        return fleaux::runtime::make_string(string_value);
+                      },
+                  },
+                  constant.val);
             },
             [&](const IRNameRef& name_ref) -> Value {
               if (!name_ref.qualifier.has_value()) {
@@ -314,6 +341,10 @@ struct EvalState {
               const auto full_name = *name_ref.qualifier + "." + name_ref.name;
               if (name_ref.qualifier.value() == "Std" || name_ref.qualifier->starts_with("Std.")) {
                 return resolve_std_callable_or_throw(full_name, name_ref.span)(fleaux::runtime::make_tuple());
+              }
+              if (const auto exact_it = functions_by_symbol_key.find(resolved_name_key(name_ref));
+                  exact_it != functions_by_symbol_key.end()) {
+                return fleaux::runtime::make_callable_ref(exact_it->second);
               }
               if (const auto fn_it = functions_qualified.find(full_name); fn_it != functions_qualified.end()) {
                 return fleaux::runtime::make_callable_ref(fn_it->second);
@@ -342,6 +373,11 @@ struct EvalState {
 
   auto resolve_name_callable(const IRNameRef& name, const std::unordered_map<std::string, Value>& locals) const
       -> RuntimeCallable {
+    if (const auto exact_it = functions_by_symbol_key.find(resolved_name_key(name));
+        exact_it != functions_by_symbol_key.end()) {
+      return exact_it->second;
+    }
+
     if (name.qualifier.has_value()) {
       const std::string full_name = *name.qualifier + "." + name.name;
       if (*name.qualifier == "Std" || name.qualifier->starts_with("Std.")) {
@@ -460,6 +496,10 @@ struct EvalState {
 
 auto execute_program_in_state(const std::shared_ptr<EvalState>& state, const IRProgram& program_slice)
     -> InterpretResult {
+  fleaux::runtime::CallableRegistryScope callable_scope;
+  fleaux::runtime::ValueRegistryScope value_scope;
+  fleaux::runtime::HandleRegistryScope handle_scope;
+  fleaux::runtime::TaskRegistryScope task_scope;
   for (const auto& let : program_slice.lets) { state->register_let(let, state); }
 
   try {

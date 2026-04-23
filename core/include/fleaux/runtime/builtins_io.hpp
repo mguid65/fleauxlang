@@ -130,7 +130,8 @@ inline void set_web_env_value(std::string key, std::string value) {
 }
 
 [[noreturn]] inline void throw_web_unsupported(std::string_view builtin_name, std::string_view capability) {
-  throw std::runtime_error(std::string(builtin_name) + " is unavailable on web/WASM targets: " + std::string(capability));
+  throw std::runtime_error(std::string(builtin_name) +
+                           " is unavailable on web/WASM targets: " + std::string(capability));
 }
 #else
 [[nodiscard]] inline auto current_working_directory_path() -> std::filesystem::path {
@@ -197,7 +198,8 @@ struct PathExists {
 struct PathIsFile {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
-    return make_bool(std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
+    return make_bool(
+        std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
   }
 };
 
@@ -303,7 +305,8 @@ struct FileDelete {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
     std::error_code ec;
-    const bool removed = std::filesystem::remove(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
+    const bool removed =
+        std::filesystem::remove(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
     throw_if_filesystem_error(ec, "FileDelete");
     return make_bool(removed);
   }
@@ -312,7 +315,8 @@ struct FileDelete {
 struct FileSize {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
-    return make_int(static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
+    return make_int(static_cast<Int>(
+        std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
   }
 };
 
@@ -329,7 +333,8 @@ struct DirDelete {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
     std::error_code ec;
-    const auto removed = std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
+    const auto removed =
+        std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
     throw_if_filesystem_error(ec, "DirDelete");
     return make_bool(removed > 0);
   }
@@ -339,7 +344,8 @@ struct DirList {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
     std::vector<std::string> names;
-    for (const auto& entry : std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
+    for (const auto& entry :
+         std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
       names.push_back(entry.path().filename().string());
     }
     Array out;
@@ -353,7 +359,8 @@ struct DirListFull {
   auto operator()(Value arg) const -> Value {
     detail::ensure_runtime_filesystem_ready();
     std::vector<std::string> names;
-    for (const auto& entry : std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
+    for (const auto& entry :
+         std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
       names.push_back(entry.path().string());
     }
     Array out;
@@ -531,7 +538,9 @@ struct OSMakeTempDir {
 #endif
     for (int attempt = 0; attempt < 100; ++attempt) {
       if (const auto candidate = dir / ("fleaux_" + random_suffix());
-          std::filesystem::create_directory(candidate, ec) && !ec) { return make_string(candidate.string()); }
+          std::filesystem::create_directory(candidate, ec) && !ec) {
+        return make_string(candidate.string());
+      }
     }
     return make_null();
   }
@@ -543,7 +552,10 @@ struct OSExec {
     const std::string command = as_path_string_unary(std::move(arg));
 
 #if defined(__EMSCRIPTEN__)
-    return make_tuple(make_int(-1), make_string("Std.OS.Exec is unavailable on web/WASM targets: shell command execution is not supported in the browser"));
+    return make_tuple(
+        make_int(-1),
+        make_string(
+            "Std.OS.Exec is unavailable on web/WASM targets: shell command execution is not supported in the browser"));
 #endif
 
 #if defined(_WIN32)
@@ -553,9 +565,7 @@ struct OSExec {
     const std::string wrapped = command + " 2>&1";
     FILE* pipe = popen(wrapped.c_str(), "r");
 #endif
-    if (pipe == nullptr) {
-      throw std::runtime_error{"OSExec: failed to start command"};
-    }
+    if (pipe == nullptr) { throw std::runtime_error{"OSExec: failed to start command"}; }
 
     std::string output;
     std::array<char, 4096> buffer{};

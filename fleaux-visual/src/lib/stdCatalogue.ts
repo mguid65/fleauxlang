@@ -1050,9 +1050,9 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "returnType": "Tuple(Bool, Any)"
   },
   {
-    "qualifiedName": "Std.Exp.Parallel",
-    "namespace": "Std.Exp",
-    "name": "Parallel",
+    "qualifiedName": "Std.Parallel.Map",
+    "namespace": "Std.Parallel",
+    "name": "Map",
     "params": [
       {
         "name": "items",
@@ -1061,6 +1061,130 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       {
         "name": "func",
         "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Parallel.WithOptions",
+    "namespace": "Std.Parallel",
+    "name": "WithOptions",
+    "params": [
+      {
+        "name": "items",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "func",
+        "type": "Any"
+      },
+      {
+        "name": "options",
+        "type": "Dict(String, Any)"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Parallel.ForEach",
+    "namespace": "Std.Parallel",
+    "name": "ForEach",
+    "params": [
+      {
+        "name": "items",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "func",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Parallel.Reduce",
+    "namespace": "Std.Parallel",
+    "name": "Reduce",
+    "params": [
+      {
+        "name": "items",
+        "type": "Tuple(Any...)"
+      },
+      {
+        "name": "init",
+        "type": "Any"
+      },
+      {
+        "name": "func",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Task.Spawn",
+    "namespace": "Std.Task",
+    "name": "Spawn",
+    "params": [
+      {
+        "name": "func",
+        "type": "Any"
+      },
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Any"
+  },
+  {
+    "qualifiedName": "Std.Task.Await",
+    "namespace": "Std.Task",
+    "name": "Await",
+    "params": [
+      {
+        "name": "task",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Task.AwaitAll",
+    "namespace": "Std.Task",
+    "name": "AwaitAll",
+    "params": [
+      {
+        "name": "tasks",
+        "type": "Tuple(Any...)"
+      }
+    ],
+    "returnType": "Tuple(Bool, Any)"
+  },
+  {
+    "qualifiedName": "Std.Task.Cancel",
+    "namespace": "Std.Task",
+    "name": "Cancel",
+    "params": [
+      {
+        "name": "task",
+        "type": "Any"
+      }
+    ],
+    "returnType": "Bool"
+  },
+  {
+    "qualifiedName": "Std.Task.WithTimeout",
+    "namespace": "Std.Task",
+    "name": "WithTimeout",
+    "params": [
+      {
+        "name": "task",
+        "type": "Any"
+      },
+      {
+        "name": "timeout_ms",
+        "type": "Int64"
       }
     ],
     "returnType": "Tuple(Bool, Any)"
@@ -2961,7 +3085,8 @@ export const STD_NAMESPACES = [
   "Std",
   "Std.Bit",
   "Std.Result",
-  "Std.Exp",
+  "Std.Parallel",
+  "Std.Task",
   "Std.Math",
   "Std.String",
   "Std.String.Regex",

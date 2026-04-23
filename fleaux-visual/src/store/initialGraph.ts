@@ -1,7 +1,7 @@
 import type { Node } from '@xyflow/react';
 import type { FleauxEdge, FleauxNodeData } from '../lib/types';
 
-// ─── Demo graph: `let Add(a: Float64, b: Float64): Float64 = (a, b) -> Std.Add; ((100.0, 150.0) -> Add) -> Std.Println;` ─
+//  Demo graph: `let Add(a: Float64, b: Float64): Float64 = (a, b) -> Std.Add; ((100.0, 150.0) -> Add) -> Std.Println;`
 
 export const initialNodes: Node<FleauxNodeData>[] = [
   {
