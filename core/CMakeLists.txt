@@ -50,56 +50,81 @@ add_library(datatree INTERFACE)
 target_include_directories(datatree INTERFACE ${THIRD_PARTY}/datatree/include)
 target_link_libraries(datatree INTERFACE tl_expected)
 
+set(FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES
+        src/frontend/diagnostics.cpp
+)
+
 add_library(fleaux_frontend_diagnostics STATIC)
 target_include_directories(fleaux_frontend_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_frontend_diagnostics PRIVATE src/frontend/diagnostics.cpp)
+target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
 target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected)
+
+set(FLEAUX_FRONTEND_PARSER_SOURCES
+        src/frontend/parser.cpp
+)
 
 add_library(fleaux_frontend_parser STATIC)
 target_include_directories(fleaux_frontend_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_frontend_parser PRIVATE src/frontend/parser.cpp)
+target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
 target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected)
+
+set(FLEAUX_FRONTEND_LOWERING_SOURCES
+        src/frontend/lowering.cpp
+        src/frontend/type_check.cpp
+        src/frontend/type_system/type.cpp
+        src/frontend/type_system/function_index.cpp
+        src/frontend/type_system/call_shape.cpp
+        src/frontend/type_system/builtin_contracts.cpp
+        src/frontend/type_system/checker.cpp
+        src/frontend/type_system/check_expr.cpp
+        src/frontend/type_system/check_pipeline.cpp
+        src/frontend/type_system/check_decl.cpp
+)
 
 add_library(fleaux_frontend_lowering STATIC)
 target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_frontend_lowering PRIVATE src/frontend/lowering.cpp src/frontend/type_check.cpp)
+target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
 target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
-
-add_library(fleaux_frontend_cpp_transpiler STATIC)
-target_include_directories(fleaux_frontend_cpp_transpiler PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_frontend_cpp_transpiler PRIVATE src/frontend/cpp_transpiler.cpp)
-target_link_libraries(fleaux_frontend_cpp_transpiler PUBLIC fleaux_frontend_lowering fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
-
-add_executable(fleaux2cpp src/cli/main.cpp)
-target_link_libraries(fleaux2cpp PRIVATE fleaux_frontend_cpp_transpiler)
 
 if(BUILD_TESTING)
   find_package(Catch2 CONFIG REQUIRED)
+  include(Catch)
 
   add_executable(fleaux_core_tests
+      tests/test_main.cpp
       tests/diagnostics_tests.cpp
       tests/parser_tests.cpp
+      tests/parser_type_syntax_tests.cpp
       tests/lowering_tests.cpp
-      tests/transpiler_tests.cpp
+      tests/typecheck_tests.cpp
       tests/runtime_builtins_tests.cpp
       tests/repl_line_editor_tests.cpp
       src/cli/line_editor.cpp)
   target_compile_definitions(fleaux_core_tests PRIVATE
       FLEAUX_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
   target_link_libraries(fleaux_core_tests PRIVATE
-      Catch2::Catch2WithMain
+      Catch2::Catch2
       fleaux_frontend_diagnostics
       fleaux_frontend_parser
       fleaux_frontend_lowering
-      fleaux_frontend_cpp_transpiler
       datatree)
 
-  add_test(NAME fleaux_core_tests COMMAND fleaux_core_tests)
+  catch_discover_tests(fleaux_core_tests
+      TEST_PREFIX "fleaux_core_tests::"
+      EXTRA_ARGS --reporter compact)
 endif()
+
+set(FLEAUX_BYTECODE_SOURCES
+        src/bytecode/compiler.cpp
+        src/bytecode/escape_analyzer.cpp
+        src/bytecode/optimizer.cpp
+        src/bytecode/serialization.cpp
+        src/bytecode/module_loader.cpp
+)
 
 add_library(fleaux_bytecode STATIC)
 target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(fleaux_bytecode PRIVATE src/bytecode/compiler.cpp src/bytecode/optimizer.cpp src/bytecode/serialization.cpp src/bytecode/module_loader.cpp)
+target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected)
 
 if(FLEAUX_PCRE2_TARGET)
@@ -107,14 +132,24 @@ if(FLEAUX_PCRE2_TARGET)
   target_include_directories(fleaux_vm
       PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
       PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
-  target_sources(fleaux_vm PRIVATE src/vm/runtime.cpp)
+
+  set(FLEAUX_VM_SOURCES
+          src/vm/runtime.cpp
+  )
+
+  target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
   target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
 
   add_library(fleaux_vm_interpreter STATIC)
   target_include_directories(fleaux_vm_interpreter
       PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_sources(fleaux_vm_interpreter PRIVATE src/vm/interpreter.cpp)
+
+  set(FLEAUX_VM_INTERPRETER_SOURCES
+          src/vm/interpreter.cpp
+  )
+
+  target_sources(fleaux_vm_interpreter PRIVATE ${FLEAUX_VM_INTERPRETER_SOURCES})
   target_link_libraries(fleaux_vm_interpreter PUBLIC
       fleaux_frontend_parser
       fleaux_frontend_lowering
@@ -123,7 +158,11 @@ if(FLEAUX_PCRE2_TARGET)
       datatree
       ${FLEAUX_PCRE2_TARGET})
 
-  add_executable(fleaux src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp)
+  set(FLEAUX_MAIN_SOURCES
+          src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
+  )
+
+  add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
   target_link_libraries(fleaux PRIVATE fleaux_vm_interpreter fleaux_vm)
 elseif(EMSCRIPTEN)
   message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux targets")
@@ -133,8 +172,11 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
   set(FLEAUX_WASM_OUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/public/wasm")
   file(MAKE_DIRECTORY "${FLEAUX_WASM_OUT_DIR}")
 
-  add_executable(fleaux_wasm_coordinator
-      ${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/wasm/fleaux_wasm_coordinator.cpp)
+  set(FLEAUX_WASM_COORDINATOR_SOURCES
+          ${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/wasm/fleaux_wasm_coordinator.cpp
+  )
+
+  add_executable(fleaux_wasm_coordinator ${FLEAUX_WASM_COORDINATOR_SOURCES})
   target_include_directories(fleaux_wasm_coordinator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(fleaux_wasm_coordinator PRIVATE
       fleaux_frontend_parser
@@ -172,29 +214,24 @@ endif()
 if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
+      tests/vm_boundary_matrix_tests.cpp
       tests/vm_runtime_tests.cpp
       tests/vm_samples_tests.cpp)
   target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_vm_interpreter)
 
-  # Fast CI target: only the interpreter↔bytecode parity subset.
-  # Run with:  ctest -R fleaux_vm_parity_tests  (or cmake --build . --target test)
-  add_test(NAME fleaux_vm_parity_tests
-           COMMAND fleaux_core_tests "[vm][samples][parity]")
-
-  # Fast CI target: native jump opcode tests.
-  add_test(NAME fleaux_vm_jump_tests
-           COMMAND fleaux_core_tests "[vm][jump]")
 endif()
 
-set(FLEAUX_INSTALL_TARGETS fleaux2cpp)
+set(FLEAUX_INSTALL_TARGETS)
 
 if(TARGET fleaux)
   list(APPEND FLEAUX_INSTALL_TARGETS fleaux)
 endif()
 
-install(TARGETS ${FLEAUX_INSTALL_TARGETS}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    COMPONENT Runtime)
+if(FLEAUX_INSTALL_TARGETS)
+  install(TARGETS ${FLEAUX_INSTALL_TARGETS}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      COMPONENT Runtime)
+endif()
 
 install(FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/../Std.fleaux

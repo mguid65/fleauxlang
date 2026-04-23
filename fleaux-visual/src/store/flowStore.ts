@@ -19,7 +19,7 @@ import { importFleauxSourceToGraph } from '../lib/fleauxToGraph';
 
 export type WasmValidationStatus = 'idle' | 'running' | 'success' | 'error';
 
-// ─── State shape ─────────────────────────────────────────────────────────────
+//  State shape
 
 export interface FlowState {
   nodes: Node<FleauxNodeData>[];
@@ -42,7 +42,7 @@ export interface FlowState {
   runEditorSourceWithWasm: () => Promise<void>;
 }
 
-// ─── Store ───────────────────────────────────────────────────────────────────
+//  Store
 
 export const useFlowStore = create<FlowState>()(
   immer((set, get) => ({

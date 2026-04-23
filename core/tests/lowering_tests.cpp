@@ -44,6 +44,63 @@ TEST_CASE("Lowerer marks builtin lets and clears body", "[lowering]") {
   REQUIRE_FALSE(lowered->lets[0].body.has_value());
 }
 
+TEST_CASE("Lowerer preserves let generic parameters in lower_only", "[lowering]") {
+  const std::string src = "let Identity<T>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_lower_only.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->lets.size() == 1);
+  REQUIRE(lowered->lets[0].generic_params.size() == 1);
+  REQUIRE(lowered->lets[0].generic_params[0] == "T");
+}
+
+TEST_CASE("Lowerer accepts user-defined generic lets during analysis", "[lowering][generics]") {
+  const std::string src = "let Identity<T>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_lower_error.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+
+  REQUIRE(lowered.has_value());
+}
+
+TEST_CASE("Lowerer accepts builtin generic lets during analysis", "[lowering][generics]") {
+  const std::string src =
+      "let Std.Identity<T>(x: T): T :: __builtin__;\n"
+      "(1) -> Std.Identity;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "builtin_generic_let_lower_ok.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
+TEST_CASE("Lowerer accepts composite variadic tuple element return type", "[lowering][generics]") {
+  const std::string src =
+      "let Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)): Tuple(Tuple(A, B)...) :: __builtin__;\n"
+      "((1, 2, 3), (\"a\", \"b\", \"c\")) -> Std.Tuple.Zip;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_composite_variadic_type.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
 TEST_CASE("Lowerer resolves tuple-template placeholder flow stage", "[lowering]") {
   const std::string src =
       "let Sum3(a: Float64, b: Float64, c: Float64): Float64 =\n"
@@ -72,8 +129,7 @@ TEST_CASE("Lowerer resolves tuple-template placeholder flow stage", "[lowering]"
 }
 
 TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") {
-  const std::string src =
-      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n";
+  const std::string src = "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_lowering.fleaux");
@@ -95,8 +151,7 @@ TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") 
 }
 
 TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") {
-  const std::string src =
-      "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
+  const std::string src = "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_pipeline_desugar.fleaux");
@@ -129,8 +184,7 @@ TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") 
 }
 
 TEST_CASE("Lowerer excludes shadowed outer names from closure captures", "[lowering]") {
-  const std::string src =
-      "let Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1) -> Std.Add;\n";
+  const std::string src = "let Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1) -> Std.Add;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_shadow_capture.fleaux");
@@ -149,8 +203,7 @@ TEST_CASE("Lowerer excludes shadowed outer names from closure captures", "[lower
 }
 
 TEST_CASE("Lowerer rejects closure declarations with non-final variadic parameter", "[lowering]") {
-  const std::string src =
-      "let Bad(): Any = (rest: Any..., x: Float64): Float64 = x;\n";
+  const std::string src = "let Bad(): Any = (rest: Any..., x: Float64): Float64 = x;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_bad_variadic_param.fleaux");
@@ -164,8 +217,7 @@ TEST_CASE("Lowerer rejects closure declarations with non-final variadic paramete
 }
 
 TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
-  const std::string src =
-      "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match;\n";
+  const std::string src = "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_wildcard_lowering.fleaux");
@@ -201,8 +253,7 @@ TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
 }
 
 TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
-  const std::string src =
-      "(1, (_, (): Any = \"many\"), (1, (): Any = \"one\")) -> Std.Match;\n";
+  const std::string src = "(1, (_, (): Any = \"many\"), (1, (): Any = \"one\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_wildcard_order_lowering.fleaux");
@@ -215,55 +266,32 @@ TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
   REQUIRE(lowered.error().message.find("wildcard '_' must be the final case") != std::string::npos);
 }
 
-TEST_CASE("Lowerer rejects too few fixed args for variadic functions", "[lowering]") {
-  const std::string src =
-      "import Std;\n"
-      "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
-      "() -> HeadTail;\n";
+TEST_CASE("Lowerer rejects Std.Match with no case tuples", "[lowering]") {
+  const std::string src = "(1) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "variadic_fixed_arity_lowering.fleaux");
+  const auto parsed = parser.parse_program(src, "match_requires_case_lowering.fleaux");
   REQUIRE(parsed.has_value());
 
   constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
 
   REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(lowered.error().message.find("Std.Match expects") != std::string::npos);
 }
 
-TEST_CASE("Lowerer rejects Std.Apply callable arity mismatch", "[lowering]") {
-  const std::string src =
-      "let Std.Add(lhs: Float64, rhs: Float64): Float64 :: __builtin__;\n"
-      "let Std.Apply(value: Any, func: Any): Any :: __builtin__;\n"
-      "(10, (a: Float64, b: Float64): Float64 = (a, b) -> Std.Add) -> Std.Apply;\n";
+TEST_CASE("Lowerer rejects malformed Std.Match case tuples", "[lowering]") {
+  const std::string src = "(1, (0, (): Any = \"zero\", \"extra\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "apply_callable_arity_mismatch.fleaux");
+  const auto parsed = parser.parse_program(src, "match_case_tuple_shape_lowering.fleaux");
   REQUIRE(parsed.has_value());
 
   constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
 
   REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-}
-
-TEST_CASE("Lowerer rejects predicate builtins with non-bool callable results", "[lowering]") {
-  const std::string src =
-      "let Std.Tuple.Filter(t: Tuple(Any...), pred: Any): Tuple(Any...) :: __builtin__;\n"
-      "((1, 2, 3), (x: Float64): Float64 = x) -> Std.Tuple.Filter;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "filter_predicate_return_type_mismatch.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("return Bool") != std::string::npos);
+  REQUIRE(lowered.error().message.find("case must be a 2-item tuple") != std::string::npos);
 }
 
 TEST_CASE("Lowerer accepts transitional typed numerics alongside Float64", "[lowering]") {
@@ -298,101 +326,6 @@ TEST_CASE("Lowerer accepts UInt64 literal arguments for UInt64 parameters", "[lo
   REQUIRE(lowered.has_value());
 }
 
-TEST_CASE("Lowerer rejects Float64 for Std.Exit integer-only parameter flow", "[lowering]") {
-  const std::string src =
-      "let Std.ElementAt(tuple: Tuple(Any...), count: Float64): Any :: __builtin__;\n"
-      "let Std.Bit.And(lhs: Float64, rhs: Float64): Float64 :: __builtin__;\n"
-      "((1, 2, 3), 1.5) -> Std.ElementAt;\n"
-      "(1.25, 3) -> Std.Bit.And;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "integer_only_builtin_param_rejects_float64.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("Int64/UInt64") != std::string::npos);
-}
-
-TEST_CASE("Lowerer rejects Float64 for array/file integer-only parameters", "[lowering]") {
-  const std::string src =
-      "let Std.Array.GetAt(array: Tuple(Any...), index: Float64): Any :: __builtin__;\n"
-      "let Std.File.ReadChunk(handle: Any, nbytes: Float64): Tuple(Any, String, Bool) :: __builtin__;\n"
-      "((1, 2, 3), 1.25) -> Std.Array.GetAt;\n"
-      "((), 64.5) -> Std.File.ReadChunk;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "array_file_integer_only_params_rejects_float64.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("Int64/UInt64") != std::string::npos);
-}
-
-TEST_CASE("Lowerer rejects Float64 for Exit and n-D integer tuple parameters", "[lowering]") {
-  const std::string src =
-      "let Std.Exit(code: Float64): Any :: __builtin__;\n"
-      "let Std.Array.GetAtND(value: Any, indices: Tuple(Any...)): Any :: __builtin__;\n"
-      "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Any...)): Any :: __builtin__;\n"
-      "(0.5) -> Std.Exit;\n"
-      "(((1, 2), (3, 4)), (1, 0.25)) -> Std.Array.GetAtND;\n"
-      "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "exit_nd_integer_only_params_rejects_float64.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("Int64/UInt64") != std::string::npos);
-}
-
-TEST_CASE("Lowerer rejects Float64 for integer-only builtin parameters", "[lowering]") {
-  const std::string src =
-      "let Std.Exit(code: Float64): Any :: __builtin__;\n"
-      "let UsesFloatExit(code: Float64): Any = (code) -> Std.Exit;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "number_integer_only_param_rejected.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("Int64/UInt64") != std::string::npos);
-}
-
-TEST_CASE("Lowerer rejects Float64 for concrete numeric parameters", "[lowering]") {
-  const std::string src =
-      "let NeedsInt(x: Int64): Int64 = x;\n"
-      "let Forward(n: Float64): Int64 = (n) -> NeedsInt;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "number_to_concrete_numeric_rejected.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-}
-
 TEST_CASE("Lowerer accepts Float64 values where Float64 is expected", "[lowering]") {
   const std::string src =
       "let Std.Pi(): Float64 = 3.14159;\n"
@@ -408,25 +341,8 @@ TEST_CASE("Lowerer accepts Float64 values where Float64 is expected", "[lowering
   REQUIRE(lowered.has_value());
 }
 
-TEST_CASE("Lowerer rejects Float64 values where Int64 is expected", "[lowering]") {
-  const std::string src =
-      "let Std.Pi(): Float64 = 3.14159;\n"
-      "let NeedsInt(x: Int64): Int64 = x;\n"
-      "(Std.Pi) -> NeedsInt;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "float64_to_int64_rejected.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-}
-
 TEST_CASE("Lowerer preserves union alternatives in param and return types", "[lowering]") {
-  const std::string src =
-      "let NumOp(x: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 = x;\n";
+  const std::string src = "let NumOp(x: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "union_type_lowering.fleaux");
@@ -450,27 +366,10 @@ TEST_CASE("Lowerer preserves union alternatives in param and return types", "[lo
   REQUIRE(fn.return_type.alternatives[2] == "UInt64");
 }
 
-TEST_CASE("Lowerer rejects mixed Int64 and UInt64 arithmetic without explicit cast", "[lowering]") {
-  const std::string src =
-      "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
-      "let Bad(a: Int64, b: UInt64): Float64 | Int64 | UInt64 = (a, b) -> Std.Add;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "mixed_int_uint_add_rejected_lowering.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("does not allow mixed Int64/UInt64 operands") != std::string::npos);
-}
-
 TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[lowering]") {
   const std::string src =
-      "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
+      "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+      "__builtin__;\n"
       "let Std.ToFloat64(value: Any): Float64 :: __builtin__;\n"
       "let Good(a: Int64, b: UInt64): Float64 = (a, (b) -> Std.ToFloat64) -> Std.Add;\n";
 
@@ -481,23 +380,6 @@ TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[loweri
   constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   REQUIRE(lowered.has_value());
-}
-
-TEST_CASE("Lowerer rejects mixed Int64 and UInt64 operator form", "[lowering]") {
-  const std::string src =
-      "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
-      "let BadOp(a: Int64, b: UInt64): Float64 | Int64 | UInt64 = (a, b) -> +;\n";
-
-  constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(src, "mixed_int_uint_operator_rejected_lowering.fleaux");
-  REQUIRE(parsed.has_value());
-
-  constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
-
-  REQUIRE_FALSE(lowered.has_value());
-  REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("does not allow mixed Int64/UInt64 operands") != std::string::npos);
 }
 
 TEST_CASE("Lowerer preserves let doc comments in IR", "[lowering]") {
@@ -518,3 +400,62 @@ TEST_CASE("Lowerer preserves let doc comments in IR", "[lowering]") {
   REQUIRE(lowered->lets[0].doc_comments[0] == "@brief Increment a value");
 }
 
+TEST_CASE("Lowerer preserves applied type name and args in IRSimpleType", "[lowering][applied_type]") {
+  const std::string src = "let Lookup(key: String) : Dict(String, Any) :: __builtin__;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "applied_type_lower.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+
+  const auto& fn = lowered->lets[0];
+  REQUIRE(fn.return_type.name == "Dict");
+  REQUIRE(fn.return_type.type_args.size() == 2);
+  REQUIRE(fn.return_type.type_args[0].name == "String");
+  REQUIRE(fn.return_type.type_args[1].name == "Any");
+}
+
+TEST_CASE("Lowerer preserves function type signature in IRSimpleType", "[lowering][function_type]") {
+  const std::string src = "let Apply(value: Any, func: (Any) => Any) : Any :: __builtin__;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "function_type_lower.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+
+  const auto& fn = lowered->lets[0];
+  REQUIRE(fn.params.size() == 2);
+  const auto& func_param = fn.params[1];
+  REQUIRE(func_param.type.name == "Function");
+  REQUIRE(func_param.type.function_sig.has_value());
+  REQUIRE(func_param.type.function_sig->param_types.size() == 1);
+  REQUIRE(func_param.type.function_sig->param_types[0].name == "Any");
+  REQUIRE(func_param.type.function_sig->return_type->name == "Any");
+}
+
+TEST_CASE("Lowerer preserves multi-parameter function type signature", "[lowering][function_type]") {
+  const std::string src = "let Reduce(t: Tuple(Any...), init: Any, func: (Any, Any) => Any) : Any :: __builtin__;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "function_type_lower_multi_param.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+
+  const auto& fn = lowered->lets[0];
+  const auto& func_param = fn.params[2];
+  REQUIRE(func_param.type.name == "Function");
+  REQUIRE(func_param.type.function_sig.has_value());
+  REQUIRE(func_param.type.function_sig->param_types.size() == 2);
+  REQUIRE(func_param.type.function_sig->param_types[0].name == "Any");
+  REQUIRE(func_param.type.function_sig->param_types[1].name == "Any");
+  REQUIRE(func_param.type.function_sig->return_type->name == "Any");
+}

@@ -311,6 +311,23 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         break;
       }
 
+      case bytecode::Opcode::kMakeValueRef: {
+        auto value = pop_stack(stack, "make_value_ref");
+        if (!value) return tl::unexpected(value.error());
+        stack.push_back(fleaux::runtime::make_value_ref(std::move(*value)));
+        break;
+      }
+
+      case bytecode::Opcode::kDerefValueRef: {
+        auto token = pop_stack(stack, "deref_value_ref");
+        if (!token) return tl::unexpected(token.error());
+        auto result = run_native_op("deref_value_ref",
+                                    [&]() -> Value { return fleaux::runtime::deref_value_ref(*token); });
+        if (!result) return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
+        break;
+      }
+
       case bytecode::Opcode::kCallBuiltin: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= bytecode_module.builtin_names.size()) {
@@ -361,7 +378,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         // Safety contract: these refs remain valid for the entire duration of the
         // enclosing Runtime::execute() call. The callable is registered globally
         // but the callable-ref Value only lives on the execution stack, so it
-        // cannot outlive execute(). For async builtins (e.g. Std.Exp.Parallel),
+        // cannot outlive execute(). For async builtins (e.g. Std.Parallel.Map),
         // all futures complete via .get() before run_loop continues, so the
         // captured refs are still live during any async invocation.
         auto callable = [&bytecode_module, fn_idx, &builtins, &output](Value call_arg) -> Value {
@@ -902,7 +919,15 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     kStd_Result_Unwrap,
     kStd_Result_UnwrapErr,
     kStd_Try,
-    kStd_Exp_Parallel,
+    kStd_Parallel_Map,
+    kStd_Parallel_WithOptions,
+    kStd_Parallel_ForEach,
+    kStd_Parallel_Reduce,
+    kStd_Task_Spawn,
+    kStd_Task_Await,
+    kStd_Task_AwaitAll,
+    kStd_Task_Cancel,
+    kStd_Task_WithTimeout,
     kStd_UnaryMinus,
     kStd_UnaryPlus,
     kStd_Math_Floor,
@@ -1050,7 +1075,15 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       {"Std.Result.Unwrap", BuiltinDispatchKey::kStd_Result_Unwrap},
       {"Std.Result.UnwrapErr", BuiltinDispatchKey::kStd_Result_UnwrapErr},
       {"Std.Try", BuiltinDispatchKey::kStd_Try},
-      {"Std.Exp.Parallel", BuiltinDispatchKey::kStd_Exp_Parallel},
+      {"Std.Parallel.Map", BuiltinDispatchKey::kStd_Parallel_Map},
+      {"Std.Parallel.WithOptions", BuiltinDispatchKey::kStd_Parallel_WithOptions},
+      {"Std.Parallel.ForEach", BuiltinDispatchKey::kStd_Parallel_ForEach},
+      {"Std.Parallel.Reduce", BuiltinDispatchKey::kStd_Parallel_Reduce},
+      {"Std.Task.Spawn", BuiltinDispatchKey::kStd_Task_Spawn},
+      {"Std.Task.Await", BuiltinDispatchKey::kStd_Task_Await},
+      {"Std.Task.AwaitAll", BuiltinDispatchKey::kStd_Task_AwaitAll},
+      {"Std.Task.Cancel", BuiltinDispatchKey::kStd_Task_Cancel},
+      {"Std.Task.WithTimeout", BuiltinDispatchKey::kStd_Task_WithTimeout},
       {"Std.UnaryMinus", BuiltinDispatchKey::kStd_UnaryMinus},
       {"Std.UnaryPlus", BuiltinDispatchKey::kStd_UnaryPlus},
       {"Std.Math.Floor", BuiltinDispatchKey::kStd_Math_Floor},
@@ -1327,11 +1360,67 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Try' threw: ") + ex.what()});
         }
       }
-      case BuiltinDispatchKey::kStd_Exp_Parallel: {
+      case BuiltinDispatchKey::kStd_Parallel_Map: {
         try {
-          return std::optional<Value>{fleaux::runtime::ExpParallel{}(arg)};
+          return std::optional<Value>{fleaux::runtime::ParallelMap{}(arg)};
         } catch (const std::exception& ex) {
-          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Exp.Parallel' threw: ") + ex.what()});
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Parallel.Map' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Parallel_WithOptions: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ParallelWithOptions{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Parallel.WithOptions' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Parallel_ForEach: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ParallelForEach{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Parallel.ForEach' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Parallel_Reduce: {
+        try {
+          return std::optional<Value>{fleaux::runtime::ParallelReduce{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Parallel.Reduce' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Task_Spawn: {
+        try {
+          return std::optional<Value>{fleaux::runtime::TaskSpawn{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Task.Spawn' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Task_Await: {
+        try {
+          return std::optional<Value>{fleaux::runtime::TaskAwait{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Task.Await' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Task_AwaitAll: {
+        try {
+          return std::optional<Value>{fleaux::runtime::TaskAwaitAll{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Task.AwaitAll' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Task_Cancel: {
+        try {
+          return std::optional<Value>{fleaux::runtime::TaskCancel{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Task.Cancel' threw: ") + ex.what()});
+        }
+      }
+      case BuiltinDispatchKey::kStd_Task_WithTimeout: {
+        try {
+          return std::optional<Value>{fleaux::runtime::TaskWithTimeout{}(arg)};
+        } catch (const std::exception& ex) {
+          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Task.WithTimeout' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_UnaryMinus: {
@@ -3062,6 +3151,10 @@ auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeR
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult {
+  fleaux::runtime::CallableRegistryScope callable_scope;
+  fleaux::runtime::ValueRegistryScope value_scope;
+  fleaux::runtime::HandleRegistryScope handle_scope;
+  fleaux::runtime::TaskRegistryScope task_scope;
   const auto& builtins = vm_builtin_callables();
 
   std::vector<Value> stack;

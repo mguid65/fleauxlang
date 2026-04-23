@@ -4,7 +4,7 @@ Fleaux is a functional, pipeline-oriented language with a C++ frontend, VM runti
 
 This repository contains:
 
-- `core/`: parser, analysis/lowering, transpiler, VM compiler, VM, and CLIs
+- `core/`: parser, analysis/lowering, VM compiler, VM, and CLIs
 - `samples/`: runnable `.fleaux` examples
 - `Std.fleaux`: standard library surface (builtins and helpers)
 - `fleaux-visual/`: React + TypeScript visual editor and WASM integration
@@ -95,7 +95,6 @@ Build outputs are placed under:
 
 Main executables:
 
-- `fleaux2cpp`
 - `fleaux` (available when PCRE2 target resolves)
 - `fleaux_core_tests`
 
@@ -106,7 +105,6 @@ cd /home/matthew/CLionProjects/fleauxlang/core
 source cmake-build-debug/generators/conanrun.sh
 ./cmake-build-debug/bin/fleaux ../samples/01_hello_world.fleaux
 ./cmake-build-debug/bin/fleaux --mode interpreter ../samples/04_function_definitions.fleaux
-./cmake-build-debug/bin/fleaux2cpp ../samples/01_hello_world.fleaux
 ```
 
 Useful VM CLI options:
@@ -122,7 +120,6 @@ Show help:
 
 ```bash
 ./cmake-build-debug/bin/fleaux --help
-./cmake-build-debug/bin/fleaux2cpp --help
 ```
 
 ## Release build, install, and package

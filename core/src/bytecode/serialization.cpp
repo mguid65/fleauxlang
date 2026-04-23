@@ -1,4 +1,5 @@
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/common/overloaded.hpp"
 
 #include <cstring>
 #include <type_traits>
@@ -8,7 +9,7 @@ namespace fleaux::bytecode {
 namespace {
 
 constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
-constexpr std::uint32_t BYTECODE_VERSION = 2;
+constexpr std::uint32_t BYTECODE_VERSION = 3;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -58,27 +59,27 @@ void patch_checksum(std::vector<std::uint8_t>& buffer, const std::uint64_t check
 
 void write_const_value(std::vector<std::uint8_t>& buffer, const ConstValue& cv) {
   std::visit(
-      [&](const auto& value) {
-        using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, std::int64_t>) {
-          write_pod(buffer, static_cast<std::uint8_t>(0));
-          write_pod(buffer, value);
-        } else if constexpr (std::is_same_v<T, std::uint64_t>) {
-          write_pod(buffer, static_cast<std::uint8_t>(1));
-          write_pod(buffer, value);
-        } else if constexpr (std::is_same_v<T, double>) {
-          write_pod(buffer, static_cast<std::uint8_t>(2));
-          write_pod(buffer, value);
-        } else if constexpr (std::is_same_v<T, bool>) {
-          write_pod(buffer, static_cast<std::uint8_t>(3));
-          write_pod(buffer, value);
-        } else if constexpr (std::is_same_v<T, std::string>) {
-          write_pod(buffer, static_cast<std::uint8_t>(4));
-          write_string(buffer, value);
-        } else if constexpr (std::is_same_v<T, std::monostate>) {
-          write_pod(buffer, static_cast<std::uint8_t>(5));
-        }
-      },
+      common::overloaded{[&](const std::int64_t& value) -> void {
+                           write_pod(buffer, static_cast<std::uint8_t>(0));
+                           write_pod(buffer, value);
+                         },
+                         [&](const std::uint64_t& value) -> void {
+                           write_pod(buffer, static_cast<std::uint8_t>(1));
+                           write_pod(buffer, value);
+                         },
+                         [&](const double& value) -> void {
+                           write_pod(buffer, static_cast<std::uint8_t>(2));
+                           write_pod(buffer, value);
+                         },
+                         [&](const bool& value) -> void {
+                           write_pod(buffer, static_cast<std::uint8_t>(3));
+                           write_pod(buffer, value);
+                         },
+                         [&](const std::string& value) -> void {
+                           write_pod(buffer, static_cast<std::uint8_t>(4));
+                           write_string(buffer, value);
+                         },
+                         [&](const std::monostate&) -> void { write_pod(buffer, static_cast<std::uint8_t>(5)); }},
       cv.data);
 }
 
@@ -149,6 +150,7 @@ auto read_dependency(const std::vector<std::uint8_t>& buffer, std::size_t& offse
 
 void write_export(std::vector<std::uint8_t>& buffer, const ExportedSymbol& symbol) {
   write_string(buffer, symbol.name);
+  write_string(buffer, symbol.link_name);
   write_pod(buffer, static_cast<std::uint8_t>(symbol.kind));
   write_pod(buffer, symbol.index);
   write_string(buffer, symbol.builtin_name);
@@ -156,7 +158,8 @@ void write_export(std::vector<std::uint8_t>& buffer, const ExportedSymbol& symbo
 
 auto read_export(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ExportedSymbol& symbol) -> bool {
   std::uint8_t kind = 0;
-  if (!read_string(buffer, offset, symbol.name) || !read_pod(buffer, offset, kind) ||
+  if (!read_string(buffer, offset, symbol.name) || !read_string(buffer, offset, symbol.link_name) ||
+      !read_pod(buffer, offset, kind) ||
       !read_pod(buffer, offset, symbol.index) || !read_string(buffer, offset, symbol.builtin_name)) {
     return false;
   }
@@ -255,13 +258,11 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
   Module module;
   std::size_t offset = 0;
 
-  std::uint32_t magic = 0;
-  if (!read_pod(buffer, offset, magic) || magic != BYTECODE_MAGIC) {
+  if (std::uint32_t magic = 0; !read_pod(buffer, offset, magic) || magic != BYTECODE_MAGIC) {
     return tl::unexpected(SerializationError{.message = "Invalid magic number"});
   }
 
-  std::uint32_t version = 0;
-  if (!read_pod(buffer, offset, version) || version != BYTECODE_VERSION) {
+  if (std::uint32_t version = 0; !read_pod(buffer, offset, version) || version != BYTECODE_VERSION) {
     return tl::unexpected(SerializationError{.message = "Version mismatch"});
   }
 
@@ -371,7 +372,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           !read_pod(buffer, offset, closure.declared_has_variadic_tail)) {
         return tl::unexpected(SerializationError{.message = "Cannot read closure"});
       }
-      module.closures.push_back(std::move(closure));
+      module.closures.push_back(closure);
     }
   }
 
@@ -379,4 +380,3 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 }
 
 }  // namespace fleaux::bytecode
-

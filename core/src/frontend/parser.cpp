@@ -453,6 +453,45 @@ private:
     return false;
   }
 
+  // Lookahead to check if current position looks like a function type: (TypeList) =>
+  // We need to scan ahead to find matching ) and then check for => (either as one token or = + >).
+  [[nodiscard]] auto is_function_type_ahead() const -> bool {
+    if (!is_symbol("(")) return false;
+
+    // Quick heuristic: scan forward for ) followed by => or = >
+    std::size_t scan_pos = i_ + 1;
+    int paren_depth = 1;
+
+    while (scan_pos < tokens_.size() && paren_depth > 0) {
+      const auto& tok = tokens_[scan_pos];
+      if (tok.kind == TokenKind::kSymbol) {
+        if (tok.value == "(") {
+          ++paren_depth;
+        } else if (tok.value == ")") {
+          --paren_depth;
+          if (paren_depth == 0) {
+            // Found the matching ). Check if next token is => (single token) or = > (two tokens)
+            if (scan_pos + 1 < tokens_.size()) {
+              const auto& next_tok = tokens_[scan_pos + 1];
+              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=>") {
+                return true;
+              }
+              // Check for = followed by >
+              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=" &&
+                  scan_pos + 2 < tokens_.size()) {
+                const auto& after_eq = tokens_[scan_pos + 2];
+                return after_eq.kind == TokenKind::kSymbol && after_eq.value == ">";
+              }
+            }
+            return false;
+          }
+        }
+      }
+      ++scan_pos;
+    }
+    return false;
+  }
+
   auto eat_symbol(const std::string& symbol) -> PResult<Token> {
     if (const Token& tok = peek(); !is_symbol(symbol)) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
@@ -520,9 +559,63 @@ private:
     return out;
   }
 
+  auto generic_param_list() -> PResult<std::vector<std::string>> {
+    FLEAUX_TRYV(eat_symbol("<"));
+
+    std::vector<std::string> params;
+    if (is_symbol(">")) {
+      return tl::unexpected(err("Generic parameter list cannot be empty.", std::nullopt,
+                                "Add at least one parameter name, for example: <T>."));
+    }
+
+    while (true) {
+      FLEAUX_TRY_ASSIGN(param_name, ident());
+      params.push_back(std::move(param_name));
+      if (!match_symbol(",")) { break; }
+      if (is_symbol(">")) {
+        return tl::unexpected(err("Trailing comma in generic parameter list.", std::nullopt,
+                                  "Remove the trailing comma or add another parameter name."));
+      }
+    }
+
+    FLEAUX_TRYV(eat_symbol(">"));
+    return params;
+  }
+
   auto type() -> PResult<model::TypeNode> {
     const std::size_t start = i_;
     model::TypeNode base;
+
+    // Check for function type: (TypeList) => ReturnType
+    if (is_symbol("(") && is_function_type_ahead()) {
+      next();  // consume '('
+      model::TypeList param_types;
+      if (!is_symbol(")")) {
+        while (true) {
+          FLEAUX_TRY_ASSIGN(t, type());
+          param_types.types.emplace_back(std::move(t));
+          if (!match_symbol(",")) { break; }
+        }
+      }
+      FLEAUX_TRYV(eat_symbol(")"));
+      // Handle both => (single token) and = > (two tokens)
+      if (is_symbol("=>")) {
+        next();  // consume '=>'
+      } else {
+        FLEAUX_TRYV(eat_symbol("="));
+        FLEAUX_TRYV(eat_symbol(">"));
+      }
+      FLEAUX_TRY_ASSIGN(return_type, type());
+
+      model::FunctionTypeNode func;
+      func.params = param_types;
+      func.params.span = span_from_mark(start);
+      func.return_type = model::TypeBox(std::move(return_type));
+      func.span = span_from_mark(start);
+      base.value = std::move(func);
+      base.span = span_from_mark(start);
+      return base;
+    }
 
     if (is_ident_value("Tuple")) {
       next();
@@ -546,7 +639,25 @@ private:
     } else if (is(TokenKind::kIdent)) {
       FLEAUX_TRY_ASSIGN(qid, opt_qid());
       if (const auto* simple = std::get_if<std::string>(&qid); simple != nullptr) {
-        base.value = *simple;
+        // Check for applied type syntax: Name(TypeArg, ...) e.g. Dict(String, Any)
+        if (is_symbol("(")) {
+          next();  // consume '('
+          model::AppliedTypeNode applied;
+          applied.name = *simple;
+          if (!is_symbol(")")) {
+            while (true) {
+              FLEAUX_TRY_ASSIGN(t, type());
+              applied.args.types.emplace_back(std::move(t));
+              if (!match_symbol(",")) { break; }
+            }
+          }
+          FLEAUX_TRYV(eat_symbol(")"));
+          applied.span = span_from_mark(start);
+          applied.args.span = applied.span;
+          base.value = std::move(applied);
+        } else {
+          base.value = *simple;
+        }
       } else if (const auto* qualified = std::get_if<model::QualifiedId>(&qid); qualified != nullptr) {
         base.value = *qualified;
       }
@@ -556,11 +667,7 @@ private:
     }
 
     if (match_symbol("...")) {
-      if (const auto* base_name = std::get_if<std::string>(&base.value); base_name != nullptr) {
-        base.value = *base_name + "...";
-      } else {
-        return tl::unexpected(err("Variadic '...' only supported on simple type names"));
-      }
+      base.variadic = true;
       return base;
     }
 
@@ -905,6 +1012,11 @@ private:
     out.doc_comments = doc_comments_for_line(tokens_[start].line);
     FLEAUX_TRY_ASSIGN(let_id, opt_qid());
     out.id = std::move(let_id);
+
+    if (is_symbol("<")) {
+      FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
+      out.generic_params = std::move(generic_params);
+    }
 
     FLEAUX_TRYV(eat_symbol("("));
     std::vector<model::Parameter> params;
