@@ -76,22 +76,25 @@ For optional visual/WASM builds (`fleaux-visual/`):
 
 These steps build all native CLI targets and run tests.
 
+From the repository root:
+
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/core
+cd core
+mkdir -p build
 conan profile detect --force
-conan install . -s build_type=Debug -of=cmake-build-debug --build=missing
-source cmake-build-debug/generators/conanbuild.sh
-cmake -S . -B cmake-build-debug -G "Unix Makefiles" \
-  -DCMAKE_TOOLCHAIN_FILE=cmake-build-debug/generators/conan_toolchain.cmake \
+conan install . -s build_type=Debug -of=build --build=missing
+source build/generators/conanbuild.sh
+cmake -S . -B build -G "Unix Makefiles" \
+  -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake \
   -DCMAKE_BUILD_TYPE=Debug
-cmake --build cmake-build-debug --parallel
-ctest --test-dir cmake-build-debug --output-on-failure
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
 
 Build outputs are placed under:
 
-- `core/cmake-build-debug/bin/` (executables)
-- `core/cmake-build-debug/lib/` (libraries)
+- `core/build/bin/` (executables)
+- `core/build/lib/` (libraries)
 
 Main executables:
 
@@ -101,10 +104,10 @@ Main executables:
 ### Running the CLIs
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/core
-source cmake-build-debug/generators/conanrun.sh
-./cmake-build-debug/bin/fleaux ../samples/01_hello_world.fleaux
-./cmake-build-debug/bin/fleaux --mode interpreter ../samples/04_function_definitions.fleaux
+cd core
+source build/generators/conanrun.sh
+./build/bin/fleaux ../samples/01_hello_world.fleaux
+./build/bin/fleaux --mode interpreter ../samples/04_function_definitions.fleaux
 ```
 
 Useful VM CLI options:
@@ -119,31 +122,32 @@ Batch sample execution is handled by `run_samples.py`.
 Show help:
 
 ```bash
-./cmake-build-debug/bin/fleaux --help
+./build/bin/fleaux --help
 ```
 
 ## Release build, install, and package
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/core
-conan install . -s build_type=Release -of=cmake-build-release --build=missing
-source cmake-build-release/generators/conanbuild.sh
-cmake -S . -B cmake-build-release -G "Unix Makefiles" \
-  -DCMAKE_TOOLCHAIN_FILE=cmake-build-release/generators/conan_toolchain.cmake \
+cd core
+mkdir -p build-release
+conan install . -s build_type=Release -of=build-release --build=missing
+source build-release/generators/conanbuild.sh
+cmake -S . -B build-release -G "Unix Makefiles" \
+  -DCMAKE_TOOLCHAIN_FILE=build-release/generators/conan_toolchain.cmake \
   -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build-release --parallel
-cmake --install cmake-build-release --prefix /tmp/fleaux-install
-cpack --config cmake-build-release/CPackConfig.cmake
+cmake --build build-release --parallel
+cmake --install build-release --prefix /tmp/fleaux-install
+cpack --config build-release/CPackConfig.cmake
 ```
 
-By default, CPack produces a `.tar.gz` package in `core/cmake-build-release/packages/`.
+By default, CPack produces a `.tar.gz` package in `core/build-release/packages/`.
 
 ## Optional: build WASM coordinator and visual editor
 
 ### Build WASM coordinator used by the visual editor
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+cd fleaux-visual
 npm install
 npm run wasm:configure
 npm run wasm:build
@@ -157,35 +161,35 @@ This generates:
 Alternative script:
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang
+cd .
 bash fleaux-visual/wasm/build_wasm.sh
 ```
 
 ### Run visual editor
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+cd fleaux-visual
 npm run dev
 ```
 
 ### Deploy visual editor to GitHub Pages
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+cd fleaux-visual
 npm run deploy:gh-pages
 ```
 
 To test deployment without pushing:
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+cd fleaux-visual
 bash scripts/deploy-gh-pages.sh --dry-run
 ```
 
 To test the same base path locally before pushing:
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+cd fleaux-visual
 VITE_BASE_PATH=/fleauxlang/ npm run build:pages
 ```
 
@@ -196,12 +200,18 @@ The `samples/` directory contains numbered examples from hello world to imports,
 A quick smoke run after building:
 
 ```bash
-cd /home/matthew/CLionProjects/fleauxlang/core
-source cmake-build-debug/generators/conanrun.sh
+cd core
+source build/generators/conanrun.sh
 cd ..
 python3 run_samples.py --mode vm
 
 # Target a sample that expects argv, such as the parser sample.
 python3 run_samples.py --mode vm --sample 25_fleaux_parser.fleaux
 ```
+
+## Acknowledgements
+
+- `tl::expected` for lightweight `expected` support in the C++ implementation.
+- `PCRE2` for regex support in the runtime and tooling.
+- `Catch2` for the native test suite.
 
