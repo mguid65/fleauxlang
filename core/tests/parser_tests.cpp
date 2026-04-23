@@ -45,8 +45,7 @@ TEST_CASE("Parser reports semicolon hint on missing terminator", "[parser]") {
 }
 
 TEST_CASE("Parser accepts inline closure literal in expression position", "[parser]") {
-  const std::string src =
-      "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n";
+  const std::string src = "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "inline_closure_parser.fleaux");
@@ -56,8 +55,7 @@ TEST_CASE("Parser accepts inline closure literal in expression position", "[pars
 }
 
 TEST_CASE("Parser accepts ungrouped inline closure pipeline target", "[parser]") {
-  const std::string src =
-      "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
+  const std::string src = "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "ungrouped_closure_pipeline_parser.fleaux");
@@ -67,8 +65,7 @@ TEST_CASE("Parser accepts ungrouped inline closure pipeline target", "[parser]")
 }
 
 TEST_CASE("Parser accepts zero-arg inline closure literal", "[parser]") {
-  const std::string src =
-      "(((): Float64 = 42)) -> Std.Println;\n";
+  const std::string src = "(((): Float64 = 42)) -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "zero_arg_inline_closure_parser.fleaux");
@@ -89,8 +86,7 @@ TEST_CASE("Parser accepts nested inline closure literals", "[parser]") {
 }
 
 TEST_CASE("Parser reports malformed inline closure body diagnostics", "[parser]") {
-  const std::string src =
-      "(10) -> (x: Float64): Float64 = -> Std.Println;\n";
+  const std::string src = "(10) -> (x: Float64): Float64 = -> Std.Println;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "malformed_inline_closure_body_parser.fleaux");
@@ -114,8 +110,7 @@ TEST_CASE("Parser reports 'expected an expression' for unexpected symbol in expr
 }
 
 TEST_CASE("Parser accepts concrete numeric type names", "[parser]") {
-  const std::string src =
-      "let UsesTypedNumerics(a: Int64, b: UInt64, c: Float64): Float64 = (a, c) -> Std.Add;\n";
+  const std::string src = "let UsesTypedNumerics(a: Int64, b: UInt64, c: Float64): Float64 = (a, c) -> Std.Add;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "typed_numeric_types_parser.fleaux");
@@ -123,6 +118,39 @@ TEST_CASE("Parser accepts concrete numeric type names", "[parser]") {
   REQUIRE(parsed.has_value());
   REQUIRE(parsed->statements.size() == 1);
   REQUIRE(std::holds_alternative<fleaux::frontend::model::LetStatement>(parsed->statements[0]));
+}
+
+TEST_CASE("Parser accepts let generic parameter list", "[parser]") {
+  const std::string src = "let Identity<T>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE(let_stmt.generic_params.size() == 1);
+  REQUIRE(let_stmt.generic_params[0] == "T");
+}
+
+TEST_CASE("Parser rejects empty let generic parameter list", "[parser]") {
+  const std::string src = "let Identity<>(x: Any): Any = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_empty_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("cannot be empty") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects trailing comma in let generic parameter list", "[parser]") {
+  const std::string src = "let Identity<T,>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_trailing_comma_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Trailing comma") != std::string::npos);
 }
 
 TEST_CASE("Parser rejects malformed numeric exponent", "[parser]") {
@@ -178,8 +206,7 @@ TEST_CASE("Parser rejects fractional UInt64 literals", "[parser]") {
 }
 
 TEST_CASE("Parser accepts union types in signatures", "[parser]") {
-  const std::string src =
-      "let NumOp(x: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 = x;\n";
+  const std::string src = "let NumOp(x: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "union_types_parser.fleaux");
@@ -189,14 +216,34 @@ TEST_CASE("Parser accepts union types in signatures", "[parser]") {
 }
 
 TEST_CASE("Parser accepts tuple items that use union types", "[parser]") {
-  const std::string src =
-      "let Pack(x: Tuple(Float64 | Int64, UInt64)): Tuple(Float64 | Int64, UInt64) = x;\n";
+  const std::string src = "let Pack(x: Tuple(Float64 | Int64, UInt64)): Tuple(Float64 | Int64, UInt64) = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "tuple_union_types_parser.fleaux");
 
   REQUIRE(parsed.has_value());
   REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser accepts variadic suffix on composite tuple element types", "[parser][generics]") {
+  const std::string src =
+      "let Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)): Tuple(Tuple(A, B)...) :: __builtin__;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "parser_composite_variadic_type.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  const auto* outer_tuple =
+      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::TypeList>>(&let_stmt.rtype.value);
+  REQUIRE(outer_tuple != nullptr);
+  REQUIRE((*outer_tuple)->types.size() == 1);
+  REQUIRE((*outer_tuple)->types[0]->variadic);
+  const auto* inner_tuple =
+      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::TypeList>>(&(*outer_tuple)->types[0]->value);
+  REQUIRE(inner_tuple != nullptr);
+  REQUIRE((*inner_tuple)->types.size() == 2);
 }
 
 TEST_CASE("Parser attaches consecutive comments above let as doc comments", "[parser]") {
@@ -230,4 +277,3 @@ TEST_CASE("Parser drops doc comments if a blank line separates comments from let
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
   REQUIRE(let_stmt.doc_comments.empty());
 }
-

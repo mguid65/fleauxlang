@@ -1,6 +1,6 @@
 import type { Edge } from '@xyflow/react';
 
-// ─── Fleaux-specific node data types ─────────────────────────────────────────
+//  Fleaux-specific node data types
 
 export type FleauxNodeKind =
   | 'literal'   // A constant value: number, string, bool, null
@@ -80,7 +80,7 @@ export type FleauxNodeData =
   | StdFuncData
   | UserFuncData;
 
-// ─── Fleaux-specific edge types ──────────────────────────────────────────────
+//  Fleaux-specific edge types
 
 export type FleauxEdgeKind = 'pipeline';
 

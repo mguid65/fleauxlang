@@ -9,12 +9,13 @@
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/frontend/source_loader.hpp"
-#include "fleaux/runtime/value.hpp"
+#include "fleaux/runtime/runtime_support.hpp"
 #include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
 
@@ -26,13 +27,9 @@ namespace {
 
 using IRProgram = fleaux::frontend::ir::IRProgram;
 
-std::filesystem::path repo_root_path() {
-  return std::filesystem::path(FLEAUX_REPO_ROOT);
-}
+std::filesystem::path repo_root_path() { return std::filesystem::path(FLEAUX_REPO_ROOT); }
 
-std::filesystem::path samples_dir_path() {
-  return repo_root_path() / "samples";
-}
+std::filesystem::path samples_dir_path() { return repo_root_path() / "samples"; }
 
 auto make_load_error(const std::string& message, const std::optional<std::string>& hint,
                      const std::optional<fleaux::frontend::diag::SourceSpan>&) -> std::string {
@@ -54,8 +51,7 @@ std::vector<std::string> sample_runtime_args(const std::string_view sample_file,
   return {};
 }
 
-void set_runtime_process_args(const std::filesystem::path& sample_path,
-                              const std::vector<std::string>& runtime_args) {
+void set_runtime_process_args(const std::filesystem::path& sample_path, const std::vector<std::string>& runtime_args) {
   std::vector<std::string> args_storage;
   args_storage.reserve(runtime_args.size() + 1U);
   args_storage.push_back(sample_path.string());
@@ -63,9 +59,7 @@ void set_runtime_process_args(const std::filesystem::path& sample_path,
 
   std::vector<char*> argv_ptrs;
   argv_ptrs.reserve(args_storage.size());
-  for (auto& arg : args_storage) {
-    argv_ptrs.push_back(arg.data());
-  }
+  for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 }
 
@@ -77,9 +71,7 @@ void run_sample_in_vm_and_assert(const std::string_view sample_file) {
   constexpr fleaux::vm::Interpreter interpreter;
   const auto result = interpreter.run_file(sample_path, runtime_args);
   INFO("sample file: " << sample_path);
-  if (!result.has_value()) {
-    INFO("vm error: " << result.error().message);
-  }
+  if (!result.has_value()) { INFO("vm error: " << result.error().message); }
   REQUIRE(result.has_value());
 }
 
@@ -90,24 +82,18 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
 
   const auto analyzed = load_ir_program(sample_path);
   INFO("sample file: " << sample_path);
-  if (!analyzed) {
-    INFO("analysis error: " << analyzed.error());
-  }
+  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
   REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled_module = compiler.compile(analyzed.value());
-  if (!compiled_module) {
-    INFO("bytecode compile error: " << compiled_module.error().message);
-  }
+  if (!compiled_module) { INFO("bytecode compile error: " << compiled_module.error().message); }
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
   set_runtime_process_args(sample_path, runtime_args);
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result) {
-    INFO("vm runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -128,9 +114,7 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
       set_runtime_process_args(sample_path, runtime_args);
       const auto runtime_result = runtime.execute(compiled_module.value());
       bytecode_ok = runtime_result.has_value();
-      if (!runtime_result) {
-        bytecode_error = runtime_result.error().message;
-      }
+      if (!runtime_result) { bytecode_error = runtime_result.error().message; }
     } else {
       bytecode_error = compiled_module.error().message;
     }
@@ -141,17 +125,13 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   INFO("sample file: " << sample_path);
   INFO("interpreter success: " << interp_result.has_value());
   INFO("bytecode success: " << bytecode_ok);
-  if (!interp_result.has_value()) {
-    INFO("interpreter error: " << interp_result.error().message);
-  }
-  if (bytecode_error.has_value()) {
-    INFO("bytecode error: " << *bytecode_error);
-  }
+  if (!interp_result.has_value()) { INFO("interpreter error: " << interp_result.error().message); }
+  if (bytecode_error.has_value()) { INFO("bytecode error: " << *bytecode_error); }
 
   REQUIRE(interp_result.has_value() == bytecode_ok);
 }
 
-constexpr std::array<std::string_view, 34> kExpectedSamples = {
+constexpr std::array<std::string_view, 35> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -186,24 +166,19 @@ constexpr std::array<std::string_view, 34> kExpectedSamples = {
     "32_try_empty_tuple.fleaux",
     "33_exp_parallel.fleaux",
     "34_help.fleaux",
+    "35_concurrency_tasks.fleaux",
 };
 
 }  // namespace
 
 TEST_CASE("VM sample list stays in sync with samples directory", "[vm][samples]") {
   std::set<std::string> expected;
-  for (const auto name : kExpectedSamples) {
-    expected.insert(std::string(name));
-  }
+  for (const auto name : kExpectedSamples) { expected.insert(std::string(name)); }
 
   std::set<std::string> discovered;
   for (const auto& entry : std::filesystem::directory_iterator(samples_dir_path())) {
-    if (!entry.is_regular_file()) {
-      continue;
-    }
-    if (const auto& path = entry.path(); path.extension() == ".fleaux") {
-      discovered.insert(path.filename().string());
-    }
+    if (!entry.is_regular_file()) { continue; }
+    if (const auto& path = entry.path(); path.extension() == ".fleaux") { discovered.insert(path.filename().string()); }
   }
 
   REQUIRE(discovered == expected);
@@ -225,11 +200,206 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
   REQUIRE_FALSE(interpreter_result.has_value());
 
   const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+}
+
+TEST_CASE("Interpreter run_file reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  const auto sample_file = std::string_view{"29_inline_closures.fleaux"};
+  const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
+  REQUIRE(std::filesystem::exists(sample_path));
+  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
+
+  constexpr fleaux::vm::Interpreter interpreter;
+
+  const auto first = interpreter.run_file(sample_path, runtime_args);
+  REQUIRE(first.has_value());
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  const auto second = interpreter.run_file(sample_path, runtime_args);
+  REQUIRE(second.has_value());
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+}
+
+TEST_CASE("InterpreterSession run_snippet reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  const std::string snippet =
+      "import Std;\n"
+      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+
+  for (int iter = 0; iter < 50; ++iter) {
+    const auto result = session.run_snippet(snippet);
+    REQUIRE(result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  }
+}
+
+TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM", "[vm][samples][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_closure_dict_churn";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "closure_dict_churn.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let MakeLookup(d: Any): Any = (k: Any): Any = (d, k, 0) -> Std.Dict.GetDefault;\n"
+           "let MakeDict(): Any = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+           "() -> MakeDict -> MakeLookup -> (\"a\", _) -> Std.Apply -> "
+           "Std.Println;\n"
+           "((1, 2, 3, 4), (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  for (int iter = 0; iter < 40; ++iter) {
+    const auto interp_result = interpreter.run_file(source_path);
+    if (!interp_result.has_value()) { INFO("interpreter churn error: " << interp_result.error().message); }
+    REQUIRE(interp_result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+    const fleaux::vm::Runtime runtime;
+    const auto runtime_result = runtime.execute(compiled_module.value());
+    if (!runtime_result.has_value()) { INFO("vm churn error: " << runtime_result.error().message); }
+    REQUIRE(runtime_result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  }
+}
+
+TEST_CASE("Task and Parallel APIs keep interpreter/VM parity and registry stability",
+          "[vm][samples][lifetime][concurrency]") {
+  fleaux::runtime::reset_callable_registry();
+  fleaux::runtime::reset_value_registry_for_tests();
+  fleaux::runtime::reset_task_registry_for_tests();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  REQUIRE(fleaux::runtime::value_registry_telemetry().active_count == 0U);
+  REQUIRE(fleaux::runtime::value_registry_telemetry().rejected_allocations == 0U);
+  REQUIRE(fleaux::runtime::value_registry_telemetry().stale_deref_rejections == 0U);
+  REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+
+  const auto sample_file = std::string_view{"35_concurrency_tasks.fleaux"};
+  const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
+  REQUIRE(std::filesystem::exists(sample_path));
+  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
+
+  const auto analyzed = load_ir_program(sample_path);
   REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled_module = compiler.compile(analyzed.value());
-  REQUIRE_FALSE(compiled_module.has_value());
+  REQUIRE(compiled_module.has_value());
+
+  constexpr fleaux::vm::Interpreter interpreter;
+
+  for (int iter = 0; iter < 30; ++iter) {
+    const auto interp_result = interpreter.run_file(sample_path, runtime_args);
+    if (!interp_result.has_value()) { INFO("interpreter concurrency sample error: " << interp_result.error().message); }
+    REQUIRE(interp_result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+    REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+    const auto interp_telemetry = fleaux::runtime::value_registry_telemetry();
+    REQUIRE(interp_telemetry.active_count == 0U);
+    REQUIRE(interp_telemetry.rejected_allocations == 0U);
+    REQUIRE(interp_telemetry.stale_deref_rejections == 0U);
+
+    const fleaux::vm::Runtime runtime;
+    set_runtime_process_args(sample_path, runtime_args);
+    const auto runtime_result = runtime.execute(compiled_module.value());
+    if (!runtime_result.has_value()) { INFO("vm concurrency sample error: " << runtime_result.error().message); }
+    REQUIRE(runtime_result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+    REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+    const auto vm_telemetry = fleaux::runtime::value_registry_telemetry();
+    REQUIRE(vm_telemetry.active_count == 0U);
+    REQUIRE(vm_telemetry.rejected_allocations == 0U);
+    REQUIRE(vm_telemetry.stale_deref_rejections == 0U);
+  }
+}
+
+TEST_CASE("Interpreter session stale callable ref is rejected after scope cleanup", "[vm][samples][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  // Snippet produces a closure ref via MakeAdder and applies it in the same run.
+  const std::string snippet =
+      "import Std;\n"
+      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+
+  // First run: registry should return to zero after the scope.
+  {
+    const auto result = session.run_snippet(snippet);
+    REQUIRE(result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  }
+
+  // Manually forge a ref to slot 0 gen 0 -- these would have been valid during the first run.
+  fleaux::runtime::Array forged_ref;
+  forged_ref.Reserve(3);
+  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::String{fleaux::runtime::k_callable_tag}});
+  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::UInt{0}});
+  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::UInt{0}});
+
+  // Must be rejected: the slot was retired at scope exit.
+  REQUIRE_THROWS_WITH(
+      fleaux::runtime::invoke_callable_ref(fleaux::runtime::Value{std::move(forged_ref)}, fleaux::runtime::make_int(1)),
+      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
+
+  // Second run must still work and return registry to zero.
+  {
+    const auto result = session.run_snippet(snippet);
+    REQUIRE(result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  }
+}
+
+TEST_CASE("Interpreter session registry grows only with let-registered callables and shrinks on each run",
+          "[vm][samples][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  // Multiple distinct closures registered per snippet run.
+  const std::string snippet =
+      "import Std;\n"
+      "let Add1(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+      "let Mul2(x: Float64): Float64 = (x, 2) -> Std.Multiply;\n"
+      "let Neg(x: Float64): Float64 = (-1, x) -> Std.Multiply;\n"
+      "5 -> Add1 -> Mul2 -> Neg -> Std.Println;\n";
+
+  std::size_t baseline = 0;
+  for (int run_index = 0; run_index < 30; ++run_index) {
+    const auto result = session.run_snippet(snippet);
+    REQUIRE(result.has_value());
+    const auto size_after_run = fleaux::runtime::callable_registry_size();
+    if (run_index == 0) {
+      baseline = size_after_run;
+    } else {
+      // Registry must not grow beyond the baseline established on the first run.
+      REQUIRE(size_after_run <= baseline);
+    }
+  }
 }
 
 TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]") {
@@ -262,9 +432,7 @@ TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]"
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result.has_value()) {
-    INFO("bytecode runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result.has_value()) { INFO("bytecode runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -295,9 +463,7 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result.has_value()) {
-    INFO("bytecode runtime error: " << runtime_result.error().message);
-  }
+  if (!runtime_result.has_value()) { INFO("bytecode runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -321,6 +487,85 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
   REQUIRE_FALSE(analyzed.has_value());
 }
 
+TEST_CASE("Imported user overloads dispatch consistently in interpreter and VM", "[vm][samples][overload]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_imported_user_overloads";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "overloads.fleaux";
+  const auto entry_path = temp_dir / "entry.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Echo(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
+           "let Echo(x: String): String = x;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import overloads;\n"
+           "(1) -> Echo -> Std.Println;\n"
+           "(\"ok\") -> Echo -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(entry_path);
+  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
+  REQUIRE(interpreter_result.has_value());
+
+  const auto analyzed = load_ir_program(entry_path);
+  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled = compiler.compile(*analyzed);
+  if (!compiled) { INFO("bytecode compile error: " << compiled.error().message); }
+  REQUIRE(compiled.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled);
+  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Std.Dict.Create clone overload executes in interpreter and VM", "[vm][samples][dict]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_dict_create_clone";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "dict_create_clone.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+           "() -> MakeDict -> Std.Dict.Create -> (_, \"a\") -> Std.Dict.Get -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
+  REQUIRE(interpreter_result.has_value());
+
+  const auto analyzed = load_ir_program(source_path);
+  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled = compiler.compile(*analyzed);
+  if (!compiled) { INFO("bytecode compile error: " << compiled.error().message); }
+  REQUIRE(compiled.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled, output);
+  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "1\n");
+}
+
 TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][samples]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_integer_only_params";
   std::filesystem::create_directories(temp_dir);
@@ -329,9 +574,10 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
   {
     std::ofstream out(source_path);
     out << "let Std.Array.GetAt(array: Tuple(Any...), index: Int64): Any :: __builtin__;\n"
-           "let Std.Array.GetAtND(value: Any, indices: Tuple(Any...)): Any :: __builtin__;\n"
-           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Any...)): Any :: __builtin__;\n"
-           "let Std.Exit(code: Int64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)): Any :: __builtin__;\n"
+           "let Std.Exit(): Never :: __builtin__;\n"
+           "let Std.Exit(code: Int64): Never :: __builtin__;\n"
            "let UseFloatExit(code: Float64): Any = (code) -> Std.Exit;\n"
            "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
            "((1, 2, 3), 1.5) -> Std.Array.GetAt -> Std.Println;\n"
@@ -388,8 +634,10 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let IsEven(n: Float64): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
-           "(0, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
-           "(3, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> Std.Println;\n"
+           "(0, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> "
+           "Std.Println;\n"
+           "(3, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> "
+           "Std.Println;\n"
            "(8, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
   }
 
@@ -460,19 +708,17 @@ TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][sam
   REQUIRE_FALSE(analyzed.has_value());
 }
 
-#define FLEAUX_VM_SAMPLE_TEST(sample_file_literal)                                      \
-  TEST_CASE("VM sample: " sample_file_literal, "[vm][samples]") {                      \
-    run_sample_in_vm_and_assert(sample_file_literal);                                   \
+#define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \
+  TEST_CASE("VM sample: " sample_file_literal, "[vm][samples]") { run_sample_in_vm_and_assert(sample_file_literal); }
+
+#define FLEAUX_VM_BYTECODE_SAMPLE_TEST(sample_file_literal)                    \
+  TEST_CASE("Compiled VM sample: " sample_file_literal, "[vm][samples][vm]") { \
+    run_sample_in_bytecode_and_assert(sample_file_literal);                    \
   }
 
-#define FLEAUX_VM_BYTECODE_SAMPLE_TEST(sample_file_literal)                              \
-  TEST_CASE("Compiled VM sample: " sample_file_literal, "[vm][samples][vm]") {         \
-    run_sample_in_bytecode_and_assert(sample_file_literal);                              \
-  }
-
-#define FLEAUX_VM_PARITY_SAMPLE_TEST(sample_file_literal)                                  \
-  TEST_CASE("VM parity sample: " sample_file_literal, "[vm][samples][parity][fast]") {  \
-    run_sample_parity_and_assert(sample_file_literal);                                     \
+#define FLEAUX_VM_PARITY_SAMPLE_TEST(sample_file_literal)                              \
+  TEST_CASE("VM parity sample: " sample_file_literal, "[vm][samples][parity][fast]") { \
+    run_sample_parity_and_assert(sample_file_literal);                                 \
   }
 
 FLEAUX_VM_SAMPLE_TEST("01_hello_world.fleaux")
@@ -508,6 +754,7 @@ FLEAUX_VM_SAMPLE_TEST("30_pattern_matching.fleaux")
 FLEAUX_VM_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_SAMPLE_TEST("33_exp_parallel.fleaux")
+FLEAUX_VM_SAMPLE_TEST("35_concurrency_tasks.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -542,6 +789,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("30_pattern_matching.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("33_exp_parallel.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("35_concurrency_tasks.fleaux")
 
 FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -576,6 +824,7 @@ FLEAUX_VM_PARITY_SAMPLE_TEST("30_pattern_matching.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("31_result_ok_err.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("32_try_empty_tuple.fleaux")
 FLEAUX_VM_PARITY_SAMPLE_TEST("33_exp_parallel.fleaux")
+FLEAUX_VM_PARITY_SAMPLE_TEST("35_concurrency_tasks.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

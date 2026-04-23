@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/bytecode/escape_analyzer.hpp"
 #include "fleaux/common/overloaded.hpp"
 
 namespace fleaux::bytecode {
@@ -65,10 +66,14 @@ auto binary_operator_to_opcode(const std::string& op) -> std::optional<Opcode> {
 struct CompileState {
   // Builtin name -> index into Module::builtin_names (deduplicated).
   std::unordered_map<std::string, std::uint32_t> builtin_idx;
-  // Fully-qualified function name -> index into Module::functions.
+  // Exact internal function key -> index into Module::functions.
   std::unordered_map<std::string, std::uint32_t> function_idx;
+  std::unordered_set<std::string> ambiguous_function_names;
   // Maps a short/full name to the stdlib builtin it aliases (from is_builtin lets).
   std::unordered_map<std::string, std::string> builtin_alias;
+  bool enable_auto_value_ref{false};
+  std::unordered_map<std::uint32_t, std::unordered_set<std::uint32_t>> by_ref_param_slots;
+  std::optional<std::uint32_t> current_function_idx;
 
   auto intern_builtin(Module& bytecode_module, const std::string& name) -> std::uint32_t {
     if (const auto it = builtin_idx.find(name); it != builtin_idx.end()) return it->second;
@@ -82,6 +87,16 @@ struct CompileState {
     const auto idx = static_cast<std::uint32_t>(bytecode_module.constants.size());
     bytecode_module.constants.push_back(std::move(c));
     return idx;
+  }
+
+  auto register_public_function_name(const std::string& name, const std::uint32_t fn_idx) -> void {
+    if (ambiguous_function_names.contains(name)) { return; }
+    if (const auto existing = function_idx.find(name); existing != function_idx.end()) {
+      function_idx.erase(existing);
+      ambiguous_function_names.insert(name);
+      return;
+    }
+    function_idx[name] = fn_idx;
   }
 };
 
@@ -106,6 +121,16 @@ auto full_symbol_name(const std::optional<std::string>& qualifier, const std::st
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
+auto internal_symbol_name(const IRLet& let) -> std::string {
+  if (!let.symbol_key.empty()) { return let.symbol_key; }
+  return full_symbol_name(let.qualifier, let.name);
+}
+
+auto target_symbol_name(const IRNameRef& name_ref) -> std::string {
+  if (name_ref.resolved_symbol_key.has_value()) { return *name_ref.resolved_symbol_key; }
+  return full_symbol_name(name_ref.qualifier, name_ref.name);
+}
+
 auto is_symbolic_import(const std::string& module_name) -> bool {
   return module_name == "Std" || module_name == "StdBuiltins";
 }
@@ -125,19 +150,21 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
         continue;
       }
 
-      if (state.function_idx.contains(symbol.name)) { continue; }
+      const auto link_name = symbol.link_name.empty() ? symbol.name : symbol.link_name;
+      if (state.function_idx.contains(link_name)) { continue; }
       if (symbol.index >= imported_module->functions.size()) { continue; }
 
       const auto& imported_fn = imported_module->functions[symbol.index];
       const auto fn_idx = static_cast<std::uint32_t>(bytecode_module.functions.size());
       bytecode_module.functions.push_back(FunctionDef{
-          .name = symbol.name,
+          .name = link_name,
           .arity = imported_fn.arity,
           .has_variadic_tail = imported_fn.has_variadic_tail,
           .is_import_placeholder = true,
           .instructions = {},
       });
-      state.function_idx[symbol.name] = fn_idx;
+      state.function_idx[link_name] = fn_idx;
+      state.register_public_function_name(symbol.name, fn_idx);
     }
   }
 }
@@ -209,36 +236,46 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
 }
 
 auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
-  return std::visit(
-      common::overloaded{
-          [&](const IRNameRef& name_ref) -> bool {
-            const std::string full_name =
-                name_ref.qualifier.has_value() ? (*name_ref.qualifier + "." + name_ref.name) : name_ref.name;
-            return state.function_idx.contains(full_name);
-          },
-          [](const auto&) -> bool { return false; }},
-      expr.node);
+  return std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                                         return state.function_idx.contains(target_symbol_name(name_ref));
+                                       },
+                                       [](const auto&) -> bool { return false; }},
+                    expr.node);
 }
 
 auto expr_is_known_builtin_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return std::visit(
-      common::overloaded{
-          [&](const IRNameRef& name_ref) -> bool {
-            const std::string full_name =
-                name_ref.qualifier.has_value() ? (*name_ref.qualifier + "." + name_ref.name) : name_ref.name;
+      common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                           const std::string full_name = name_ref.qualifier.has_value()
+                                                             ? (*name_ref.qualifier + "." + name_ref.name)
+                                                             : name_ref.name;
 
-            if (name_ref.qualifier.has_value() &&
-                (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
-              return true;
-            }
-            return state.builtin_alias.contains(full_name);
-          },
-          [](const auto&) -> bool { return false; }},
+                           if (name_ref.qualifier.has_value() &&
+                               (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
+                             return true;
+                           }
+                           return state.builtin_alias.contains(full_name);
+                         },
+                         [](const auto&) -> bool { return false; }},
       expr.node);
 }
 
 auto expr_is_known_callable_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return expr_is_known_user_function_ref(expr, state) || expr_is_known_builtin_function_ref(expr, state);
+}
+
+auto user_function_index_from_target(const IRCallTarget& target, const CompileState& state)
+    -> std::optional<std::uint32_t> {
+  return std::visit(
+      common::overloaded{[&](const IRNameRef& name_ref) -> std::optional<std::uint32_t> {
+                           if (const auto it = state.function_idx.find(target_symbol_name(name_ref));
+                               it != state.function_idx.end()) {
+                             return it->second;
+                           }
+                           return std::nullopt;
+                         },
+                         [](const IROperatorRef&) -> std::optional<std::uint32_t> { return std::nullopt; }},
+      target);
 }
 
 auto can_emit_native_branch_call(const std::string& full_name, const IRTupleExpr& tuple, const CompileState& state)
@@ -276,6 +313,7 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
           [&](const IRNameRef& name_ref) -> EmitResult {
             const std::string full_name =
                 name_ref.qualifier.has_value() ? (*name_ref.qualifier + "." + name_ref.name) : name_ref.name;
+            const std::string target_name = target_symbol_name(name_ref);
 
             // Qualified Std.* builtin (e.g. Std.Add, Std.Math.Floor).
             if (name_ref.qualifier.has_value() &&
@@ -284,7 +322,7 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
             }
 
             // User-defined function (check by full name first, then short name).
-            if (const auto fn_it = state.function_idx.find(full_name); fn_it != state.function_idx.end()) {
+            if (const auto fn_it = state.function_idx.find(target_name); fn_it != state.function_idx.end()) {
               out.push_back(
                   Instruction{.opcode = Opcode::kCallUserFunc, .operand = static_cast<std::int64_t>(fn_it->second)});
               return {};
@@ -298,6 +336,47 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
             return tl::unexpected(make_err("Unsupported call target in bytecode compiler: '" + full_name + "'."));
           }},
       target);
+}
+
+auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::uint32_t function_index,
+                                                std::vector<Instruction>& out, const LocalSlots& locals,
+                                                CompileState& state, Module& bytecode_module)
+    -> tl::expected<bool, CompileError> {
+  if (!state.enable_auto_value_ref) { return false; }
+
+  const auto by_ref_it = state.by_ref_param_slots.find(function_index);
+  if (by_ref_it == state.by_ref_param_slots.end() || by_ref_it->second.empty()) { return false; }
+
+  if (function_index >= bytecode_module.functions.size()) { return false; }
+  const auto& fn_def = bytecode_module.functions[function_index];
+  if (fn_def.is_import_placeholder || fn_def.has_variadic_tail) { return false; }
+
+  if (fn_def.arity == 1) {
+    if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+    if (by_ref_it->second.contains(0)) { out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0}); }
+    return true;
+  }
+
+  const auto* tuple_expr = std::get_if<IRTupleExpr>(&lhs.node);
+  if (tuple_expr == nullptr || tuple_expr->items.size() != fn_def.arity) { return false; }
+
+  bool emitted_any = false;
+  for (std::uint32_t param_index = 0; param_index < fn_def.arity; ++param_index) {
+    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module);
+        !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+    if (by_ref_it->second.contains(param_index)) {
+      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
+      emitted_any = true;
+    }
+  }
+
+  out.push_back(
+      Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr->items.size())});
+  return emitted_any;
 }
 
 // Expression emission
@@ -323,15 +402,23 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
           [&](const IRNameRef& name_ref) -> EmitResult {
             const std::string full_name =
                 name_ref.qualifier.has_value() ? (*name_ref.qualifier + "." + name_ref.name) : name_ref.name;
+            const std::string target_name = target_symbol_name(name_ref);
 
             if (!name_ref.qualifier.has_value()) {
               if (const auto it = locals.find(name_ref.name); it != locals.end()) {
-                out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(it->second)});
+                out.push_back(
+                    Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(it->second)});
+                if (state.current_function_idx.has_value()) {
+                  if (const auto by_ref_it = state.by_ref_param_slots.find(*state.current_function_idx);
+                      by_ref_it != state.by_ref_param_slots.end() && by_ref_it->second.contains(it->second)) {
+                    out.push_back(Instruction{.opcode = Opcode::kDerefValueRef, .operand = 0});
+                  }
+                }
                 return {};
               }
             }
 
-            if (const auto fn_it = state.function_idx.find(full_name); fn_it != state.function_idx.end()) {
+            if (const auto fn_it = state.function_idx.find(target_name); fn_it != state.function_idx.end()) {
               out.push_back(
                   Instruction{.opcode = Opcode::kMakeUserFuncRef, .operand = static_cast<std::int64_t>(fn_it->second)});
               return {};
@@ -369,10 +456,15 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
             for (const auto& capture_name : closure.captures) { closure_locals[capture_name] = slot++; }
             for (const auto& param : closure.params) { closure_locals[param.name] = slot++; }
 
-            if (auto emit_result = emit_expr(*closure.body, fn_def.instructions, closure_locals, state, bytecode_module);
+            const auto previous_fn_idx = state.current_function_idx;
+            state.current_function_idx = fn_idx;
+            if (auto emit_result =
+                    emit_expr(*closure.body, fn_def.instructions, closure_locals, state, bytecode_module);
                 !emit_result) {
+              state.current_function_idx = previous_fn_idx;
               return tl::unexpected(emit_result.error());
             }
+            state.current_function_idx = previous_fn_idx;
             fn_def.instructions.push_back(Instruction{.opcode = Opcode::kReturn, .operand = 0});
             bytecode_module.functions.push_back(std::move(fn_def));
 
@@ -393,8 +485,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               out.push_back(
                   Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(local_it->second)});
             }
-            out.push_back(
-                Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(closure.captures.size())});
+            out.push_back(Instruction{.opcode = Opcode::kBuildTuple,
+                                      .operand = static_cast<std::int64_t>(closure.captures.size())});
             out.push_back(
                 Instruction{.opcode = Opcode::kMakeClosureRef, .operand = static_cast<std::int64_t>(closure_idx)});
             return {};
@@ -404,16 +496,16 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               return emit_expr(*tuple_expr.items[0], out, locals, state, bytecode_module);
             }
             if (auto emit_result = emit_tuple_items(tuple_expr); !emit_result) { return emit_result; }
-            out.push_back(
-                Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr.items.size())});
+            out.push_back(Instruction{.opcode = Opcode::kBuildTuple,
+                                      .operand = static_cast<std::int64_t>(tuple_expr.items.size())});
             return {};
           },
           [&](const IRFlowExpr& flow) -> EmitResult {
             auto handled = std::visit(
                 common::overloaded{
                     [&](const IROperatorRef& op_ref) -> tl::expected<bool, CompileError> {
-                      if (auto emit_result = emit_operator_flow_expr(*flow.lhs, op_ref, out, locals, state,
-                                                                     bytecode_module);
+                      if (auto emit_result =
+                              emit_operator_flow_expr(*flow.lhs, op_ref, out, locals, state, bytecode_module);
                           !emit_result) {
                         return tl::unexpected(emit_result.error());
                       }
@@ -435,12 +527,11 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                           return true;
                         };
 
-                        if (auto fast_path = emit_fast_path(full_name == "Std.Select" && tuple->items.size() == 3 &&
-                                                                !expr_is_known_user_function_ref(*tuple->items[1],
-                                                                                                state) &&
-                                                                !expr_is_known_user_function_ref(*tuple->items[2],
-                                                                                                state),
-                                                            Opcode::kSelect);
+                        if (auto fast_path =
+                                emit_fast_path(full_name == "Std.Select" && tuple->items.size() == 3 &&
+                                                   !expr_is_known_user_function_ref(*tuple->items[1], state) &&
+                                                   !expr_is_known_user_function_ref(*tuple->items[2], state),
+                                               Opcode::kSelect);
                             !fast_path) {
                           return tl::unexpected(fast_path.error());
                         } else if (*fast_path) {
@@ -455,8 +546,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                           return true;
                         }
 
-                        if (auto fast_path = emit_fast_path(full_name == "Std.Loop" && tuple->items.size() == 3,
-                                                            Opcode::kLoopCall);
+                        if (auto fast_path =
+                                emit_fast_path(full_name == "Std.Loop" && tuple->items.size() == 3, Opcode::kLoopCall);
                             !fast_path) {
                           return tl::unexpected(fast_path.error());
                         } else if (*fast_path) {
@@ -475,15 +566,24 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                     }},
                 flow.rhs);
 
-            if (!handled) {
-              return tl::unexpected(handled.error());
-            }
-            if (*handled) {
-              return {};
+            if (!handled) { return tl::unexpected(handled.error()); }
+            if (*handled) { return {}; }
+
+            bool emitted_lhs = false;
+            if (const auto user_fn_idx = user_function_index_from_target(flow.rhs, state); user_fn_idx.has_value()) {
+              if (auto wrapped_emit = emit_lhs_for_user_call_with_auto_value_ref(*flow.lhs, *user_fn_idx, out, locals,
+                                                                                 state, bytecode_module);
+                  !wrapped_emit) {
+                return tl::unexpected(wrapped_emit.error());
+              } else {
+                emitted_lhs = *wrapped_emit;
+              }
             }
 
-            if (auto emit_result = emit_expr(*flow.lhs, out, locals, state, bytecode_module); !emit_result) {
-              return emit_result;
+            if (!emitted_lhs) {
+              if (auto emit_result = emit_expr(*flow.lhs, out, locals, state, bytecode_module); !emit_result) {
+                return emit_result;
+              }
             }
             return emit_call_target(flow.rhs, out, locals, state, bytecode_module);
           },
@@ -498,8 +598,18 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 // BytecodeCompiler::compile
 
 auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& options) const -> CompileResult {
+  if (options.enable_auto_value_ref && !options.enable_value_ref_gate) {
+    return tl::unexpected(
+        make_err("Invalid compile options: enable_auto_value_ref requires enable_value_ref_gate=true."));
+  }
+  if (options.enable_auto_value_ref && options.value_ref_byte_cutoff == 0) {
+    return tl::unexpected(
+        make_err("Invalid compile options: value_ref_byte_cutoff must be > 0 when auto value-ref is enabled."));
+  }
+
   Module bytecode_module;
   CompileState state;
+  state.enable_auto_value_ref = options.enable_auto_value_ref;
 
   bytecode_module.header.module_name = options.module_name.value_or(
       options.source_path.has_value() ? options.source_path->stem().string() : std::string{});
@@ -521,6 +631,7 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   // is_builtin lets become aliases; user-defined lets populate the function table.
   for (const auto& let : program.lets) {
     const std::string full_name = full_symbol_name(let.qualifier, let.name);
+    const std::string link_name = internal_symbol_name(let);
 
     if (let.is_builtin) {
       // Builtins are addressable by their declared symbol only.
@@ -529,6 +640,7 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
       if (let_belongs_to_module(let, options)) {
         bytecode_module.exports.push_back(ExportedSymbol{
             .name = full_name,
+            .link_name = full_name,
             .kind = ExportKind::kBuiltinAlias,
             .index = 0,
             .builtin_name = full_name,
@@ -539,23 +651,34 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
 
     const auto fn_idx = static_cast<std::uint32_t>(bytecode_module.functions.size());
     FunctionDef fn_def;
-    fn_def.name = full_name;
+    fn_def.name = link_name;
     fn_def.arity = static_cast<std::uint32_t>(let.params.size());
     fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
     bytecode_module.functions.push_back(std::move(fn_def));
 
     // Register by full name (always).
-    state.function_idx[full_name] = fn_idx;
-    // Only unqualified declarations are addressable by short name.
-    if (!let.qualifier.has_value()) { state.function_idx[let.name] = fn_idx; }
+    state.function_idx[link_name] = fn_idx;
+    state.register_public_function_name(full_name, fn_idx);
     if (let_belongs_to_module(let, options)) {
       bytecode_module.exports.push_back(ExportedSymbol{
           .name = full_name,
+          .link_name = link_name,
           .kind = ExportKind::kFunction,
           .index = fn_idx,
           .builtin_name = {},
       });
     }
+  }
+
+  const auto by_ref_analysis = analyze_auto_value_ref_params(
+      program, AutoValueRefAnalysisOptions{.enabled = options.enable_auto_value_ref && options.enable_value_ref_gate,
+                                           .byte_cutoff = options.value_ref_byte_cutoff});
+  for (const auto& [full_name, param_slots] : by_ref_analysis) {
+    const auto fn_it = state.function_idx.find(full_name);
+    if (fn_it == state.function_idx.end()) { continue; }
+    if (fn_it->second >= bytecode_module.functions.size()) { continue; }
+    if (bytecode_module.functions[fn_it->second].is_import_placeholder) { continue; }
+    state.by_ref_param_slots.emplace(fn_it->second, param_slots);
   }
 
   // Inline closures compile to synthetic functions; reserve once so references
@@ -576,7 +699,7 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   for (const auto& let : program.lets) {
     if (let.is_builtin) continue;
 
-    const std::string full_name = full_symbol_name(let.qualifier, let.name);
+    const std::string full_name = internal_symbol_name(let);
 
     // Map parameter names to local slots.
     LocalSlots local_slots;
@@ -585,11 +708,15 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
     }
 
     const auto current_fn_idx = state.function_idx.at(full_name);
+    const auto previous_fn_idx = state.current_function_idx;
+    state.current_function_idx = current_fn_idx;
     if (auto emit_result = emit_expr(*let.body, bytecode_module.functions[current_fn_idx].instructions, local_slots,
                                      state, bytecode_module);
         !emit_result) {
+      state.current_function_idx = previous_fn_idx;
       return tl::unexpected(emit_result.error());
     }
+    state.current_function_idx = previous_fn_idx;
     bytecode_module.functions[current_fn_idx].instructions.push_back(
         Instruction{.opcode = Opcode::kReturn, .operand = 0});
     ++fn_slot;

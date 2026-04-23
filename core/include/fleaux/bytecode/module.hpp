@@ -29,6 +29,7 @@ enum class ExportKind : std::uint8_t {
 
 struct ExportedSymbol {
   std::string name;
+  std::string link_name;
   ExportKind kind = ExportKind::kFunction;
   std::uint32_t index = 0;
   std::string builtin_name;

@@ -8,6 +8,7 @@
 
 #include "fleaux/frontend/box.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/frontend/type_node.hpp"
 
 namespace fleaux::frontend::model {
 
@@ -35,8 +36,24 @@ struct UnionTypeList {
   std::optional<diag::SourceSpan> span;
 };
 
+// Named type with type arguments, e.g. Dict(String, Any) or Result(Bool, Any).
+struct AppliedTypeNode {
+  std::string name;
+  TypeList args;
+  std::optional<diag::SourceSpan> span;
+};
+
+// Function type, e.g. (Any, String) => Bool or () => Any
+struct FunctionTypeNode {
+  TypeList params;
+  TypeBox return_type;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct TypeNode {
-  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>> value;
+  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>, Box<AppliedTypeNode>, Box<FunctionTypeNode>>
+      value;
+  bool variadic = false;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -104,6 +121,7 @@ struct ImportStatement {
 
 struct LetStatement {
   std::variant<std::string, QualifiedId> id;
+  std::vector<std::string> generic_params;
   ParameterDeclList params;
   TypeNode rtype;
   std::vector<std::string> doc_comments;
@@ -136,6 +154,26 @@ struct IRSimpleType {
   // Non-empty when this is a union type (e.g. Float64 | Int64 | UInt64).
   // `name` holds the first alternative; `alternatives` holds all of them.
   std::vector<std::string> alternatives;
+  // Structured union alternatives preserved for Phase 2 migration.
+  // Compatibility note: current type checking still reads `alternatives` strings.
+  std::vector<IRSimpleType> alternative_types;
+  // Non-empty when this is a tuple type and we have preserved its element structure.
+  // Phase 2 compatibility note: current type checking still treats tuple compatibility
+  // coarsely; this field exists so later phases can stop erasing tuple shape in IR.
+  std::vector<IRSimpleType> tuple_items;
+  // Non-empty when this is an applied named type, e.g. Dict(String, Any).
+  // `name` holds the outer type name; `type_args` holds the argument types.
+  std::vector<IRSimpleType> type_args;
+  // When this is a function type, holds the parameter types and return type.
+  // A non-nullopt function_sig means this IRSimpleType represents a callable.
+  struct FunctionSignature {
+    std::vector<IRSimpleType> param_types;
+    Box<IRSimpleType> return_type;
+  };
+  std::optional<FunctionSignature> function_sig;
+  // Phase 2 bridge artifact: structured type node preserved from lowering.
+  // Kept in parallel with existing fields to avoid behavior changes during migration.
+  std::optional<types::TypeNode> bridge_type_node;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -164,6 +202,7 @@ struct IRConstant {
 struct IRNameRef {
   std::optional<std::string> qualifier;
   std::string name;
+  std::optional<std::string> resolved_symbol_key;
   std::optional<diag::SourceSpan> span;
 };
 
@@ -201,6 +240,8 @@ struct IRClosureExpr {
 struct IRLet {
   std::optional<std::string> qualifier;
   std::string name;
+  std::string symbol_key;
+  std::vector<std::string> generic_params;
   std::vector<IRParam> params;
   IRSimpleType return_type;
   std::vector<std::string> doc_comments;

@@ -18,6 +18,7 @@ using LoweringResult = tl::expected<ir::IRProgram, LoweringError>;
 
 class Lowerer {
 public:
+  [[nodiscard]] auto lower_only(const model::Program& program) const -> LoweringResult;
   [[nodiscard]] auto lower(const model::Program& program) const -> LoweringResult;
 };
 

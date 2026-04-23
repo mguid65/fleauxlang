@@ -150,6 +150,7 @@ auto make_repl_style_provider() -> StyleSpanProvider {
         continue;
       }
 
+      // TODO: For tail, when  || start, switch to a USet of chars
       if ((ch == '-' && (cursor + 1) < text.size() && text[cursor + 1] == '>') || ch == '(' || ch == ')' || ch == ',' ||
           ch == ';' || ch == ':' || ch == '=' || ch == '|' || ch == '.') {
         const std::size_t length = (ch == '-') ? 2U : 1U;
@@ -175,7 +176,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
   LineEditor line_editor(
       LineEditorConfig{.style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{}});
 
-  const auto print_help = []() {
+  const auto print_help = []() -> void {
     std::cout << "Commands:\n"
               << "  :help, :?         Show this help\n"
               << "  :quit, :q         Exit REPL\n"

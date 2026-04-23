@@ -1,14 +1,26 @@
 #pragma once
 
+#include <optional>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 #include <tl/expected.hpp>
 
-#include "fleaux/frontend/lowering.hpp"
+#include "fleaux/frontend/ast.hpp"
 
 namespace fleaux::frontend::type_check {
 
-using TypeCheckError = lowering::LoweringError;
+struct AnalysisError {
+  std::string message;
+  std::optional<std::string> hint;
+  std::optional<diag::SourceSpan> span;
+};
 
-[[nodiscard]] auto validate_program(const ir::IRProgram& program) -> tl::expected<void, TypeCheckError>;
+using AnalysisResult = tl::expected<ir::IRProgram, AnalysisError>;
+
+[[nodiscard]] auto analyze_program(const ir::IRProgram& program,
+                                   const std::unordered_set<std::string>& imported_symbols = {},
+                                   const std::vector<ir::IRLet>& imported_typed_lets = {}) -> AnalysisResult;
 
 }  // namespace fleaux::frontend::type_check
-
