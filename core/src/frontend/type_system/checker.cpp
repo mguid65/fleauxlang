@@ -11,7 +11,6 @@
 
 #include "fleaux/frontend/type_system/builtin_contracts.hpp"
 
-
 namespace fleaux::frontend::type_system::detail {
 
 auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -> void {
@@ -47,16 +46,14 @@ auto is_type_var_resolved(const std::string& type_var, const TypeBindings& bindi
   }
 
   visiting.insert(type_var);
-  const bool resolved =
-      is_type_resolved(binding_it->second, bindings, allowed_unbound, visiting, resolved_cache);
+  const bool resolved = is_type_resolved(binding_it->second, bindings, allowed_unbound, visiting, resolved_cache);
   visiting.erase(type_var);
   resolved_cache.insert_or_assign(type_var, resolved);
   return resolved;
 }
 
 auto is_type_resolved(const Type& type, const TypeBindings& bindings,
-                      const std::unordered_set<std::string>& allowed_unbound,
-                      std::unordered_set<std::string>& visiting,
+                      const std::unordered_set<std::string>& allowed_unbound, std::unordered_set<std::string>& visiting,
                       std::unordered_map<std::string, bool>& resolved_cache) -> bool {
   if (type.kind == TypeKind::kTypeVar) {
     return is_type_var_resolved(type.nominal_name, bindings, allowed_unbound, visiting, resolved_cache);
@@ -90,9 +87,7 @@ auto collect_unresolved_return_type_vars(const Type& return_type, const TypeBind
   std::unordered_set<std::string> visiting;
   std::unordered_map<std::string, bool> resolved_cache;
   for (const auto& type_var : return_type_vars) {
-    if (!is_type_var_resolved(type_var, bindings, allowed_unbound, visiting, resolved_cache)) {
-      out.insert(type_var);
-    }
+    if (!is_type_var_resolved(type_var, bindings, allowed_unbound, visiting, resolved_cache)) { out.insert(type_var); }
   }
 }
 
@@ -328,9 +323,7 @@ auto overload_candidate_list(const std::string& full_name, const FunctionOverloa
 }
 
 auto call_shape_matches(const FunctionSig& sig, const std::size_t arg_count) -> bool {
-  if (!sig.params.empty() && sig.params.back().variadic) {
-    return arg_count + 1U >= sig.params.size();
-  }
+  if (!sig.params.empty() && sig.params.back().variadic) { return arg_count + 1U >= sig.params.size(); }
   return sig.params.size() == arg_count;
 }
 
@@ -380,9 +373,7 @@ auto binding_quality(const TypeBindings& bindings) -> BindingQuality {
 
   for (const auto& [type_var, bound_type] : bindings) {
     (void)type_var;
-    if (is_type_resolved(bound_type, bindings, no_unbound, visiting, resolved_cache)) {
-      ++quality.resolved_bindings;
-    }
+    if (is_type_resolved(bound_type, bindings, no_unbound, visiting, resolved_cache)) { ++quality.resolved_bindings; }
     quality.complexity += type_complexity(bound_type);
   }
 
@@ -399,9 +390,7 @@ auto is_better_binding_quality(const TypeBindings& candidate, const TypeBindings
   if (candidate_total_bindings != incumbent_total_bindings) {
     return candidate_total_bindings > incumbent_total_bindings;
   }
-  if (candidate_complexity != incumbent_complexity) {
-    return candidate_complexity < incumbent_complexity;
-  }
+  if (candidate_complexity != incumbent_complexity) { return candidate_complexity < incumbent_complexity; }
   return false;
 }
 
@@ -414,9 +403,7 @@ auto merge_binding_types(const Type& lhs, const Type& rhs) -> Type {
   return normalize_type(std::move(merged));
 }
 
-auto union_member_requires_coverage(const Type& member) -> bool {
-  return member.kind != TypeKind::kTypeVar;
-}
+auto union_member_requires_coverage(const Type& member) -> bool { return member.kind != TypeKind::kTypeVar; }
 
 auto fixed_union_members_are_covered(const std::vector<Type>& expected_members, const std::vector<Type>& actual_members,
                                      const TypeBindings& bindings) -> bool {
@@ -506,7 +493,8 @@ auto bind_generic_type(const Type& expected, const Type& actual, TypeBindings& b
 
   if (expected.kind == TypeKind::kTuple) {
     if (actual.kind != TypeKind::kTuple) { return false; }
-    const auto variadic_it = std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
+    const auto variadic_it =
+        std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
     if (variadic_it == expected.items.end()) {
       if (expected.items.size() != actual.items.size()) { return false; }
       for (std::size_t i = 0; i < expected.items.size(); ++i) {
@@ -688,13 +676,14 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
   if (shape_matches.empty()) {
     if (overloads.size() == 1U) {
       if (auto checked = check_invocation(full_name, span, overloads.front(), args, allowed_unbound);
-          !checked.has_value()) { return tl::unexpected(checked.error()); }
+          !checked.has_value()) {
+        return tl::unexpected(checked.error());
+      }
     }
-    return tl::unexpected(make_error(
-        "Type mismatch in call target arguments.",
-        std::format("{} has no overload that accepts {} argument(s). Candidates: {}.", full_name, args.size(),
-                    overload_candidate_list(full_name, overloads)),
-        span));
+    return tl::unexpected(make_error("Type mismatch in call target arguments.",
+                                     std::format("{} has no overload that accepts {} argument(s). Candidates: {}.",
+                                                 full_name, args.size(), overload_candidate_list(full_name, overloads)),
+                                     span));
   }
 
   std::vector<Type> matched_returns;
@@ -711,7 +700,9 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
 
   std::optional<std::string> matched_symbol_key;
   for (const auto* overload : shape_matches) {
-    if (auto checked = check_invocation(full_name, span, *overload, args, allowed_unbound); !checked.has_value()) { continue; }
+    if (auto checked = check_invocation(full_name, span, *overload, args, allowed_unbound); !checked.has_value()) {
+      continue;
+    }
     if (matched_symbol_key.has_value()) {
       matched_symbol_key = std::nullopt;
       break;
@@ -727,22 +718,19 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
   }
 
   if (matched_returns.size() > 1U) {
-    return tl::unexpected(make_error(
-        "Ambiguous overloaded call target.",
-        std::format("{} has multiple matching overloads for the provided argument types. Candidates: {}.", full_name,
-                    overload_candidate_list(full_name, overloads)),
-        span));
+    return tl::unexpected(
+        make_error("Ambiguous overloaded call target.",
+                   std::format("{} has multiple matching overloads for the provided argument types. Candidates: {}.",
+                               full_name, overload_candidate_list(full_name, overloads)),
+                   span));
   }
 
   if (shape_matches.size() == 1U && first_error.has_value()) { return tl::unexpected(*first_error); }
 
-  return tl::unexpected(make_error(
-      "Type mismatch in call target arguments.",
-      std::format("No overload of {} matches the provided argument types. Candidates: {}.", full_name,
-                  overload_candidate_list(full_name, overloads)),
-      span));
+  return tl::unexpected(make_error("Type mismatch in call target arguments.",
+                                   std::format("No overload of {} matches the provided argument types. Candidates: {}.",
+                                               full_name, overload_candidate_list(full_name, overloads)),
+                                   span));
 }
 
-} // namespace fleaux::frontend::type_system::detail
-
-
+}  // namespace fleaux::frontend::type_system::detail

@@ -236,29 +236,27 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
 }
 
 auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
-  return std::visit(
-      common::overloaded{
-          [&](const IRNameRef& name_ref) -> bool {
-            return state.function_idx.contains(target_symbol_name(name_ref));
-          },
-          [](const auto&) -> bool { return false; }},
-      expr.node);
+  return std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                                         return state.function_idx.contains(target_symbol_name(name_ref));
+                                       },
+                                       [](const auto&) -> bool { return false; }},
+                    expr.node);
 }
 
 auto expr_is_known_builtin_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return std::visit(
-      common::overloaded{
-          [&](const IRNameRef& name_ref) -> bool {
-            const std::string full_name =
-                name_ref.qualifier.has_value() ? (*name_ref.qualifier + "." + name_ref.name) : name_ref.name;
+      common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                           const std::string full_name = name_ref.qualifier.has_value()
+                                                             ? (*name_ref.qualifier + "." + name_ref.name)
+                                                             : name_ref.name;
 
-            if (name_ref.qualifier.has_value() &&
-                (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
-              return true;
-            }
-            return state.builtin_alias.contains(full_name);
-          },
-          [](const auto&) -> bool { return false; }},
+                           if (name_ref.qualifier.has_value() &&
+                               (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
+                             return true;
+                           }
+                           return state.builtin_alias.contains(full_name);
+                         },
+                         [](const auto&) -> bool { return false; }},
       expr.node);
 }
 
@@ -342,7 +340,8 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
 
 auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::uint32_t function_index,
                                                 std::vector<Instruction>& out, const LocalSlots& locals,
-                                                CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+                                                CompileState& state, Module& bytecode_module)
+    -> tl::expected<bool, CompileError> {
   if (!state.enable_auto_value_ref) { return false; }
 
   const auto by_ref_it = state.by_ref_param_slots.find(function_index);
@@ -356,9 +355,7 @@ auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::ui
     if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result) {
       return tl::unexpected(emit_result.error());
     }
-    if (by_ref_it->second.contains(0)) {
-      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
-    }
+    if (by_ref_it->second.contains(0)) { out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0}); }
     return true;
   }
 
@@ -367,7 +364,8 @@ auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::ui
 
   bool emitted_any = false;
   for (std::uint32_t param_index = 0; param_index < fn_def.arity; ++param_index) {
-    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module); !emit_result) {
+    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module);
+        !emit_result) {
       return tl::unexpected(emit_result.error());
     }
     if (by_ref_it->second.contains(param_index)) {
@@ -376,7 +374,8 @@ auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::ui
     }
   }
 
-  out.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr->items.size())});
+  out.push_back(
+      Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr->items.size())});
   return emitted_any;
 }
 
@@ -407,7 +406,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 
             if (!name_ref.qualifier.has_value()) {
               if (const auto it = locals.find(name_ref.name); it != locals.end()) {
-                out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(it->second)});
+                out.push_back(
+                    Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(it->second)});
                 if (state.current_function_idx.has_value()) {
                   if (const auto by_ref_it = state.by_ref_param_slots.find(*state.current_function_idx);
                       by_ref_it != state.by_ref_param_slots.end() && by_ref_it->second.contains(it->second)) {
@@ -458,7 +458,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 
             const auto previous_fn_idx = state.current_function_idx;
             state.current_function_idx = fn_idx;
-            if (auto emit_result = emit_expr(*closure.body, fn_def.instructions, closure_locals, state, bytecode_module);
+            if (auto emit_result =
+                    emit_expr(*closure.body, fn_def.instructions, closure_locals, state, bytecode_module);
                 !emit_result) {
               state.current_function_idx = previous_fn_idx;
               return tl::unexpected(emit_result.error());
@@ -484,8 +485,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               out.push_back(
                   Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(local_it->second)});
             }
-            out.push_back(
-                Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(closure.captures.size())});
+            out.push_back(Instruction{.opcode = Opcode::kBuildTuple,
+                                      .operand = static_cast<std::int64_t>(closure.captures.size())});
             out.push_back(
                 Instruction{.opcode = Opcode::kMakeClosureRef, .operand = static_cast<std::int64_t>(closure_idx)});
             return {};
@@ -495,16 +496,16 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               return emit_expr(*tuple_expr.items[0], out, locals, state, bytecode_module);
             }
             if (auto emit_result = emit_tuple_items(tuple_expr); !emit_result) { return emit_result; }
-            out.push_back(
-                Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr.items.size())});
+            out.push_back(Instruction{.opcode = Opcode::kBuildTuple,
+                                      .operand = static_cast<std::int64_t>(tuple_expr.items.size())});
             return {};
           },
           [&](const IRFlowExpr& flow) -> EmitResult {
             auto handled = std::visit(
                 common::overloaded{
                     [&](const IROperatorRef& op_ref) -> tl::expected<bool, CompileError> {
-                      if (auto emit_result = emit_operator_flow_expr(*flow.lhs, op_ref, out, locals, state,
-                                                                     bytecode_module);
+                      if (auto emit_result =
+                              emit_operator_flow_expr(*flow.lhs, op_ref, out, locals, state, bytecode_module);
                           !emit_result) {
                         return tl::unexpected(emit_result.error());
                       }
@@ -526,12 +527,11 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                           return true;
                         };
 
-                        if (auto fast_path = emit_fast_path(full_name == "Std.Select" && tuple->items.size() == 3 &&
-                                                                !expr_is_known_user_function_ref(*tuple->items[1],
-                                                                                                state) &&
-                                                                !expr_is_known_user_function_ref(*tuple->items[2],
-                                                                                                state),
-                                                            Opcode::kSelect);
+                        if (auto fast_path =
+                                emit_fast_path(full_name == "Std.Select" && tuple->items.size() == 3 &&
+                                                   !expr_is_known_user_function_ref(*tuple->items[1], state) &&
+                                                   !expr_is_known_user_function_ref(*tuple->items[2], state),
+                                               Opcode::kSelect);
                             !fast_path) {
                           return tl::unexpected(fast_path.error());
                         } else if (*fast_path) {
@@ -546,8 +546,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                           return true;
                         }
 
-                        if (auto fast_path = emit_fast_path(full_name == "Std.Loop" && tuple->items.size() == 3,
-                                                            Opcode::kLoopCall);
+                        if (auto fast_path =
+                                emit_fast_path(full_name == "Std.Loop" && tuple->items.size() == 3, Opcode::kLoopCall);
                             !fast_path) {
                           return tl::unexpected(fast_path.error());
                         } else if (*fast_path) {
@@ -566,17 +566,13 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
                     }},
                 flow.rhs);
 
-            if (!handled) {
-              return tl::unexpected(handled.error());
-            }
-            if (*handled) {
-              return {};
-            }
+            if (!handled) { return tl::unexpected(handled.error()); }
+            if (*handled) { return {}; }
 
             bool emitted_lhs = false;
             if (const auto user_fn_idx = user_function_index_from_target(flow.rhs, state); user_fn_idx.has_value()) {
-              if (auto wrapped_emit =
-                      emit_lhs_for_user_call_with_auto_value_ref(*flow.lhs, *user_fn_idx, out, locals, state, bytecode_module);
+              if (auto wrapped_emit = emit_lhs_for_user_call_with_auto_value_ref(*flow.lhs, *user_fn_idx, out, locals,
+                                                                                 state, bytecode_module);
                   !wrapped_emit) {
                 return tl::unexpected(wrapped_emit.error());
               } else {
@@ -675,9 +671,8 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   }
 
   const auto by_ref_analysis = analyze_auto_value_ref_params(
-      program,
-      AutoValueRefAnalysisOptions{.enabled = options.enable_auto_value_ref && options.enable_value_ref_gate,
-                                  .byte_cutoff = options.value_ref_byte_cutoff});
+      program, AutoValueRefAnalysisOptions{.enabled = options.enable_auto_value_ref && options.enable_value_ref_gate,
+                                           .byte_cutoff = options.value_ref_byte_cutoff});
   for (const auto& [full_name, param_slots] : by_ref_analysis) {
     const auto fn_it = state.function_idx.find(full_name);
     if (fn_it == state.function_idx.end()) { continue; }

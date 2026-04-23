@@ -53,56 +53,49 @@ auto target_identity_key(const IRNameRef& name_ref) -> std::string {
 }
 
 auto saturating_add(const std::size_t lhs, const std::size_t rhs) -> std::size_t {
-  if (lhs > std::numeric_limits<std::size_t>::max() - rhs) {
-    return std::numeric_limits<std::size_t>::max();
-  }
+  if (lhs > std::numeric_limits<std::size_t>::max() - rhs) { return std::numeric_limits<std::size_t>::max(); }
   return lhs + rhs;
 }
 
 auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> {
   return std::visit(
-      common::overloaded{
-          [](const IRConstant& c) -> std::optional<std::size_t> {
-            return std::visit(common::overloaded{[](std::int64_t) -> std::size_t { return 8; },
-                                                 [](std::uint64_t) -> std::size_t { return 8; },
-                                                 [](double) -> std::size_t { return 8; },
-                                                 [](bool) -> std::size_t { return 1; },
-                                                 [](const std::string& s) -> std::size_t { return s.size(); },
-                                                 [](std::monostate) -> std::size_t { return 0; }},
-                              c.val);
-          },
-          [](const IRTupleExpr& tuple) -> std::optional<std::size_t> {
-            if (tuple.items.size() == 1) { return estimate_expr_size_bytes(*tuple.items.front()); }
-            std::size_t total = 16;
-            for (const auto& item : tuple.items) {
-              const auto item_size = estimate_expr_size_bytes(*item);
-              if (!item_size.has_value()) { return std::nullopt; }
-              total = saturating_add(total, *item_size);
-            }
-            return total;
-          },
-          [](const auto&) -> std::optional<std::size_t> { return std::nullopt; }},
+      common::overloaded{[](const IRConstant& c) -> std::optional<std::size_t> {
+                           return std::visit(
+                               common::overloaded{[](std::int64_t) -> std::size_t { return 8; },
+                                                  [](std::uint64_t) -> std::size_t { return 8; },
+                                                  [](double) -> std::size_t { return 8; },
+                                                  [](bool) -> std::size_t { return 1; },
+                                                  [](const std::string& s) -> std::size_t { return s.size(); },
+                                                  [](std::monostate) -> std::size_t { return 0; }},
+                               c.val);
+                         },
+                         [](const IRTupleExpr& tuple) -> std::optional<std::size_t> {
+                           if (tuple.items.size() == 1) { return estimate_expr_size_bytes(*tuple.items.front()); }
+                           std::size_t total = 16;
+                           for (const auto& item : tuple.items) {
+                             const auto item_size = estimate_expr_size_bytes(*item);
+                             if (!item_size.has_value()) { return std::nullopt; }
+                             total = saturating_add(total, *item_size);
+                           }
+                           return total;
+                         },
+                         [](const auto&) -> std::optional<std::size_t> { return std::nullopt; }},
       expr.node);
 }
 
 auto expr_contains_unqualified_name_ref(const IRExpr& expr, const std::string& name) -> bool {
   return std::visit(
-      common::overloaded{[&](const IRNameRef& name_ref) -> bool {
-                           return !name_ref.qualifier.has_value() && name_ref.name == name;
-                         },
-                         [&](const IRFlowExpr& flow) -> bool {
-                           return expr_contains_unqualified_name_ref(*flow.lhs, name);
-                         },
-                         [&](const IRTupleExpr& tuple) -> bool {
-                           for (const auto& item : tuple.items) {
-                             if (expr_contains_unqualified_name_ref(*item, name)) { return true; }
-                           }
-                           return false;
-                         },
-                         [&](const IRClosureExprBox& closure_ptr) -> bool {
-                           return expr_contains_unqualified_name_ref(*closure_ptr->body, name);
-                         },
-                         [](const auto&) -> bool { return false; }},
+      common::overloaded{
+          [&](const IRNameRef& name_ref) -> bool { return !name_ref.qualifier.has_value() && name_ref.name == name; },
+          [&](const IRFlowExpr& flow) -> bool { return expr_contains_unqualified_name_ref(*flow.lhs, name); },
+          [&](const IRTupleExpr& tuple) -> bool {
+            return std::ranges::any_of(
+                tuple.items, [&](const auto& item) -> bool { return expr_contains_unqualified_name_ref(*item, name); });
+          },
+          [&](const IRClosureExprBox& closure_ptr) -> bool {
+            return expr_contains_unqualified_name_ref(*closure_ptr->body, name);
+          },
+          [](const auto&) -> bool { return false; }},
       expr.node);
 }
 
@@ -110,21 +103,20 @@ auto param_reaches_escape_builtin_call(const IRExpr& expr, const std::string& pa
   return std::visit(
       common::overloaded{[&](const IRFlowExpr& flow) -> bool {
                            const bool lhs_contains_param = expr_contains_unqualified_name_ref(*flow.lhs, param_name);
-                           const bool calls_escape_builtin = std::visit(
-                               common::overloaded{[&](const IRNameRef& name_ref) -> bool {
-                                                    return escape_builtins().contains(
-                                                        full_symbol_name(name_ref.qualifier, name_ref.name));
-                                                  },
-                                                  [](const IROperatorRef&) -> bool { return false; }},
-                               flow.rhs);
+                           const bool calls_escape_builtin =
+                               std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                                                               return escape_builtins().contains(
+                                                                   full_symbol_name(name_ref.qualifier, name_ref.name));
+                                                             },
+                                                             [](const IROperatorRef&) -> bool { return false; }},
+                                          flow.rhs);
                            if (lhs_contains_param && calls_escape_builtin) { return true; }
                            return param_reaches_escape_builtin_call(*flow.lhs, param_name);
                          },
                          [&](const IRTupleExpr& tuple) -> bool {
-                           for (const auto& item : tuple.items) {
-                             if (param_reaches_escape_builtin_call(*item, param_name)) { return true; }
-                           }
-                           return false;
+                           return std::ranges::any_of(tuple.items, [&](const auto& item) -> bool {
+                             return param_reaches_escape_builtin_call(*item, param_name);
+                           });
                          },
                          [&](const IRClosureExprBox& closure_ptr) -> bool {
                            return param_reaches_escape_builtin_call(*closure_ptr->body, param_name);
@@ -134,23 +126,22 @@ auto param_reaches_escape_builtin_call(const IRExpr& expr, const std::string& pa
 }
 
 void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
-  std::visit(
-      common::overloaded{
-          [&](const IRFlowExpr& flow) {
-            collect_call_sites(*flow.lhs, out);
-            std::visit(common::overloaded{[&](const IRNameRef& name_ref) {
-                                            out.push_back(CallSite{.target_name = target_identity_key(name_ref),
-                                                                   .lhs = &*flow.lhs});
-                                          },
-                                          [](const IROperatorRef&) {}},
-                       flow.rhs);
-          },
-          [&](const IRTupleExpr& tuple) {
-            for (const auto& item : tuple.items) { collect_call_sites(*item, out); }
-          },
-          [&](const IRClosureExprBox& closure_ptr) { collect_call_sites(*closure_ptr->body, out); },
-          [](const auto&) {}},
-      expr.node);
+  std::visit(common::overloaded{
+                 [&](const IRFlowExpr& flow) -> void {
+                   collect_call_sites(*flow.lhs, out);
+                   std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
+                                                   out.push_back(CallSite{.target_name = target_identity_key(name_ref),
+                                                                          .lhs = &*flow.lhs});
+                                                 },
+                                                 [](const IROperatorRef&) -> void {}},
+                              flow.rhs);
+                 },
+                 [&](const IRTupleExpr& tuple) -> void {
+                   for (const auto& item : tuple.items) { collect_call_sites(*item, out); }
+                 },
+                 [&](const IRClosureExprBox& closure_ptr) -> void { collect_call_sites(*closure_ptr->body, out); },
+                 [](const auto&) -> auto {}},
+             expr.node);
 }
 
 void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>& out) {
@@ -158,28 +149,23 @@ void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>&
     if (let.is_builtin || !let.body.has_value()) { continue; }
     collect_call_sites(*let.body, out);
   }
-  for (const auto& expr_stmt : program.expressions) { collect_call_sites(expr_stmt.expr, out); }
+  for (const auto& [expr, span] : program.expressions) { collect_call_sites(expr, out); }
 }
 
 auto param_is_captured_by_nested_closure(const IRExpr& expr, const std::string& param_name) -> bool {
   return std::visit(
-      common::overloaded{[&](const IRClosureExprBox& closure_ptr) -> bool {
-                           if (std::find(closure_ptr->captures.begin(), closure_ptr->captures.end(), param_name) !=
-                               closure_ptr->captures.end()) {
-                             return true;
-                           }
-                           return param_is_captured_by_nested_closure(*closure_ptr->body, param_name);
-                         },
-                         [&](const IRTupleExpr& tuple) -> bool {
-                           for (const auto& item : tuple.items) {
-                             if (param_is_captured_by_nested_closure(*item, param_name)) { return true; }
-                           }
-                           return false;
-                         },
-                         [&](const IRFlowExpr& flow) -> bool {
-                           return param_is_captured_by_nested_closure(*flow.lhs, param_name);
-                         },
-                         [](const auto&) -> bool { return false; }},
+      common::overloaded{
+          [&](const IRClosureExprBox& closure_ptr) -> bool {
+            if (std::ranges::find(closure_ptr->captures, param_name) != closure_ptr->captures.end()) { return true; }
+            return param_is_captured_by_nested_closure(*closure_ptr->body, param_name);
+          },
+          [&](const IRTupleExpr& tuple) -> bool {
+            return std::ranges::any_of(tuple.items, [&](const auto& item) -> bool {
+              return param_is_captured_by_nested_closure(*item, param_name);
+            });
+          },
+          [&](const IRFlowExpr& flow) -> bool { return param_is_captured_by_nested_closure(*flow.lhs, param_name); },
+          [](const auto&) -> bool { return false; }},
       expr.node);
 }
 
@@ -228,8 +214,7 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
   for (const auto& call_site : call_sites) {
     auto resolved_name = call_site.target_name;
     if (!lets_by_name.contains(resolved_name)) {
-      const auto short_it = short_to_full_name.find(call_site.target_name);
-      if (short_it != short_to_full_name.end()) {
+      if (const auto short_it = short_to_full_name.find(call_site.target_name); short_it != short_to_full_name.end()) {
         resolved_name = short_it->second;
       } else {
         continue;
@@ -265,8 +250,8 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
           break;
         }
 
-        const auto estimate = estimate_expr_size_bytes(*arg_expr);
-        if (!estimate.has_value() || *estimate < options.byte_cutoff) {
+        if (const auto estimate = estimate_expr_size_bytes(*arg_expr);
+            !estimate.has_value() || *estimate < options.byte_cutoff) {
           all_calls_large = false;
           break;
         }
@@ -283,5 +268,3 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
 }
 
 }  // namespace fleaux::bytecode
-
-

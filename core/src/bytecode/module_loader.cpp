@@ -41,9 +41,7 @@ struct MergeMaps {
   std::vector<std::uint32_t> closures;
 };
 
-auto make_error(const std::string& message) -> ModuleLoadError {
-  return ModuleLoadError{.message = message};
-}
+auto make_error(const std::string& message) -> ModuleLoadError { return ModuleLoadError{.message = message}; }
 
 auto hash_text(const std::string& text) -> std::uint64_t {
   std::uint64_t hash = kFnvOffsetBasis;
@@ -54,9 +52,7 @@ auto hash_text(const std::string& text) -> std::uint64_t {
   return hash;
 }
 
-auto path_exists(const std::filesystem::path& path) -> bool {
-  return !path.empty() && std::filesystem::exists(path);
-}
+auto path_exists(const std::filesystem::path& path) -> bool { return !path.empty() && std::filesystem::exists(path); }
 
 auto canonical_if_exists(const std::filesystem::path& path) -> std::optional<std::filesystem::path> {
   if (!path_exists(path)) { return std::nullopt; }
@@ -138,7 +134,8 @@ auto resolve_import_paths(const std::filesystem::path& current_module_dir, const
   return paths;
 }
 
-auto read_binary_file(const std::filesystem::path& file_path) -> tl::expected<std::vector<std::uint8_t>, ModuleLoadError> {
+auto read_binary_file(const std::filesystem::path& file_path)
+    -> tl::expected<std::vector<std::uint8_t>, ModuleLoadError> {
   std::ifstream in(file_path, std::ios::binary);
   if (!in) { return tl::unexpected(make_error("Failed to read bytecode file: " + file_path.string())); }
   return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -262,9 +259,7 @@ auto merge_module_into(Module& target, const Module& source,
   if (keep_exports) {
     for (const auto& exported_symbol : source.exports) {
       ExportedSymbol remapped = exported_symbol;
-      if (remapped.kind == ExportKind::kFunction) {
-        remapped.index = maps.functions[remapped.index];
-      }
+      if (remapped.kind == ExportKind::kFunction) { remapped.index = maps.functions[remapped.index]; }
       target.exports.push_back(std::move(remapped));
     }
   }
@@ -296,9 +291,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
   if (paths.bytecode.has_value()) {
     if (const auto serialized = read_binary_file(*paths.bytecode)) {
       if (const auto deserialized = deserialize_module(*serialized)) {
-        if (!paths.source.has_value()) {
-          return finish(deserialized.value());
-        }
+        if (!paths.source.has_value()) { return finish(deserialized.value()); }
         if (const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
             !source_text.empty() && deserialized->header.source_hash == hash_text(source_text) &&
             deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
@@ -364,17 +357,18 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
       const auto& import_paths = imported_module_paths[i];
       if (!import_paths.source.has_value()) { continue; }
 
-      const auto make_import_parse_error = [](const std::string& message, const std::optional<std::string>& hint,
-                                              const std::optional<fleaux::frontend::diag::SourceSpan>&) -> ModuleLoadError {
+      const auto make_import_parse_error =
+          [](const std::string& message, const std::optional<std::string>& hint,
+             const std::optional<fleaux::frontend::diag::SourceSpan>&) -> ModuleLoadError {
         return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
       };
 
       const auto imported_ir = fleaux::frontend::source_loader::parse_file_to_lowered_ir<ModuleLoadError>(
           *import_paths.source, make_import_parse_error);
       if (!imported_ir) {
-        return finish(tl::unexpected(make_error("Failed to seed typed imports from source: " +
-                                               import_paths.source->string() + " (" + imported_ir.error().message +
-                                               ")")));
+        return finish(
+            tl::unexpected(make_error("Failed to seed typed imports from source: " + import_paths.source->string() +
+                                      " (" + imported_ir.error().message + ")")));
       }
 
       std::unordered_set<std::string> exported_names;
@@ -396,15 +390,15 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
 
       for (const auto& exported_key : exported_keys) {
         if (seeded_export_names.contains(exported_key)) { continue; }
-        return finish(tl::unexpected(make_error("Failed to seed typed imports from source: " +
-                                               import_paths.source->string() +
-                                               " (Missing exported declaration for typed import seed: '" +
-                                               exported_key + "'.)")));
+        return finish(tl::unexpected(
+            make_error("Failed to seed typed imports from source: " + import_paths.source->string() +
+                       " (Missing exported declaration for typed import seed: '" + exported_key + "'.)")));
       }
     }
   }
 
-  const auto analyzed = fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets);
+  const auto analyzed =
+      fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets);
   if (!analyzed) {
     return finish(tl::unexpected(make_error(analyzed.error().hint.has_value()
                                                 ? analyzed.error().message + " (" + *analyzed.error().hint + ")"
@@ -413,27 +407,25 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
 
   constexpr BytecodeCompiler compiler;
   auto compiled = compiler.compile(*analyzed, CompileOptions{
-                                                    .source_path = *paths.source,
-                                                    .source_text = source_text,
-                                                    .module_name = paths.source->stem().string(),
-                                                    .imported_modules = imported_module_ptrs,
-                                                });
+                                                  .source_path = *paths.source,
+                                                  .source_text = source_text,
+                                                  .module_name = paths.source->stem().string(),
+                                                  .imported_modules = imported_module_ptrs,
+                                              });
   if (!compiled) { return finish(tl::unexpected(make_error(compiled.error().message))); }
 
-  Module module = std::move(compiled.value());
-  module.header.optimization_mode = static_cast<std::uint8_t>(options.mode);
+  Module mod = std::move(compiled.value());
+  mod.header.optimization_mode = static_cast<std::uint8_t>(options.mode);
   constexpr BytecodeOptimizer optimizer;
-  if (const auto optimized = optimizer.optimize(module, OptimizerConfig{.mode = options.mode}); !optimized) {
+  if (const auto optimized = optimizer.optimize(mod, OptimizerConfig{.mode = options.mode}); !optimized) {
     return finish(tl::unexpected(make_error(optimized.error().message)));
   }
 
   if (options.write_bytecode_cache && paths.bytecode.has_value()) {
-    if (const auto serialized = serialize_module(module); serialized) {
-      write_binary_file(*paths.bytecode, *serialized);
-    }
+    if (const auto serialized = serialize_module(mod); serialized) { write_binary_file(*paths.bytecode, *serialized); }
   }
 
-  return finish(module);
+  return finish(mod);
 }
 
 auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state,
@@ -507,8 +499,3 @@ auto load_linked_module(const std::filesystem::path& entry_path, const ModuleLoa
 }
 
 }  // namespace fleaux::bytecode
-
-
-
-
-

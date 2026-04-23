@@ -21,7 +21,7 @@ namespace fleaux::vm {
   using namespace fleaux::runtime;
 
   static const std::unordered_map<std::string, RuntimeCallable> map =
-      [] () -> std::unordered_map<std::string, RuntimeCallable> {
+      []() -> std::unordered_map<std::string, RuntimeCallable> {
     std::unordered_map<std::string, RuntimeCallable> out;
 
 #define FLEAUX_INSERT_BUILTIN(name_literal, node_type) \

@@ -28,18 +28,18 @@ auto match_handler_return_type(const Type& handler_type, const Type& subject_typ
   if (is_deferred_callable_type(handler_type)) { return Type{.kind = TypeKind::kAny}; }
 
   if (handler_type.kind != TypeKind::kFunction || !handler_type.function_return.has_value()) {
-    return tl::unexpected(make_error(
-        "Invalid Std.Match handler.",
-        std::optional<std::string>{"Handler must be callable as '() => R' or '(S) => R'."}, span));
+    return tl::unexpected(make_error("Invalid Std.Match handler.",
+                                     std::optional<std::string>{"Handler must be callable as '() => R' or '(S) => R'."},
+                                     span));
   }
 
   const bool accepts_zero = callable_has_fixed_arity(handler_type, 0U);
-  const bool accepts_one = callable_has_fixed_arity(handler_type, 1U) &&
-                           callable_accepts_arg(handler_type, 0U, subject_type);
+  const bool accepts_one =
+      callable_has_fixed_arity(handler_type, 1U) && callable_accepts_arg(handler_type, 0U, subject_type);
   if (!accepts_zero && !accepts_one) {
-    return tl::unexpected(make_error(
-        "Invalid Std.Match handler.",
-        std::optional<std::string>{"Handler must be callable as '() => R' or '(S) => R'."}, span));
+    return tl::unexpected(make_error("Invalid Std.Match handler.",
+                                     std::optional<std::string>{"Handler must be callable as '() => R' or '(S) => R'."},
+                                     span));
   }
 
   return **handler_type.function_return;
@@ -51,13 +51,12 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
   if (is_deferred_callable_type(pattern_type)) { return {}; }
 
   if (pattern_type.kind == TypeKind::kFunction) {
-    const bool accepts_subject = callable_has_fixed_arity(pattern_type, 1U) &&
-                                 callable_accepts_arg(pattern_type, 0U, subject_type);
+    const bool accepts_subject =
+        callable_has_fixed_arity(pattern_type, 1U) && callable_accepts_arg(pattern_type, 0U, subject_type);
     if (!accepts_subject || !callable_returns_type(pattern_type, Type{.kind = TypeKind::kBool})) {
       return tl::unexpected(make_error(
           "Invalid Std.Match predicate pattern.",
-          std::optional<std::string>{"Predicate patterns must be callable as '(S) => Bool' and return Bool."},
-          span));
+          std::optional<std::string>{"Predicate patterns must be callable as '(S) => Bool' and return Bool."}, span));
     }
     return {};
   }
@@ -76,9 +75,9 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
     -> tl::expected<Type, type_check::AnalysisError> {
   auto* match_args = std::get_if<ir::IRTupleExpr>(&flow.lhs->node);
   if (match_args == nullptr || match_args->items.size() < 2U) {
-    return tl::unexpected(make_error("Invalid Std.Match invocation.",
-                                     std::optional<std::string>{"Std.Match expects '(value, (pattern, handler), ... )'."},
-                                     flow.span));
+    return tl::unexpected(
+        make_error("Invalid Std.Match invocation.",
+                   std::optional<std::string>{"Std.Match expects '(value, (pattern, handler), ... )'."}, flow.span));
   }
 
   auto subject_type = infer_expr(*match_args->items[0], index, locals, generic_params);
@@ -89,9 +88,9 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   for (std::size_t idx = 1; idx < match_args->items.size(); ++idx) {
     auto* case_tuple = std::get_if<ir::IRTupleExpr>(&match_args->items[idx]->node);
     if (case_tuple == nullptr || case_tuple->items.size() != 2U) {
-      return tl::unexpected(make_error(
-          "Invalid Std.Match case.", std::optional<std::string>{"Each case must be a '(pattern, handler)' tuple."},
-          match_args->items[idx]->span));
+      return tl::unexpected(make_error("Invalid Std.Match case.",
+                                       std::optional<std::string>{"Each case must be a '(pattern, handler)' tuple."},
+                                       match_args->items[idx]->span));
     }
 
     auto& pattern_expr = *case_tuple->items[0];
@@ -120,10 +119,10 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 
     const auto merged = merge_match_result_types(*result_type, *handler_return);
     if (!merged.has_value()) {
-      return tl::unexpected(make_error(
-          "Type mismatch in Std.Match handlers.",
-          std::optional<std::string>{"All Std.Match handlers must return mutually compatible types."},
-          handler_expr.span));
+      return tl::unexpected(
+          make_error("Type mismatch in Std.Match handlers.",
+                     std::optional<std::string>{"All Std.Match handlers must return mutually compatible types."},
+                     handler_expr.span));
     }
     result_type = *merged;
   }
@@ -174,5 +173,3 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Loc
 }
 
 }  // namespace fleaux::frontend::type_system::detail
-
-

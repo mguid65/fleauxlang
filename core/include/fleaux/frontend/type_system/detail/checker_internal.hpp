@@ -44,8 +44,7 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
 
 auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -> void;
 auto is_type_resolved(const Type& type, const TypeBindings& bindings,
-                      const std::unordered_set<std::string>& allowed_unbound,
-                      std::unordered_set<std::string>& visiting,
+                      const std::unordered_set<std::string>& allowed_unbound, std::unordered_set<std::string>& visiting,
                       std::unordered_map<std::string, bool>& resolved_cache) -> bool;
 auto is_type_var_resolved(const std::string& type_var, const TypeBindings& bindings,
                           const std::unordered_set<std::string>& allowed_unbound,
@@ -109,9 +108,6 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Loc
                      const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& locals,
-                const std::unordered_set<std::string>& generic_params)
-    -> tl::expected<Type, type_check::AnalysisError>;
+                const std::unordered_set<std::string>& generic_params) -> tl::expected<Type, type_check::AnalysisError>;
 
 }  // namespace fleaux::frontend::type_system::detail
-
-

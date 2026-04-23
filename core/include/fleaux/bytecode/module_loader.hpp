@@ -24,4 +24,3 @@ struct ModuleLoadOptions {
     -> tl::expected<Module, ModuleLoadError>;
 
 }  // namespace fleaux::bytecode
-

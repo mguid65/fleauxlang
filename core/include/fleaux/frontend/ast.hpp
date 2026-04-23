@@ -51,7 +51,8 @@ struct FunctionTypeNode {
 };
 
 struct TypeNode {
-  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>, Box<AppliedTypeNode>, Box<FunctionTypeNode>> value;
+  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>, Box<AppliedTypeNode>, Box<FunctionTypeNode>>
+      value;
   bool variadic = false;
   std::optional<diag::SourceSpan> span;
 };

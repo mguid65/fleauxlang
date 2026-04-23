@@ -42,19 +42,11 @@ auto check_integer_tuple_arg(const std::vector<Type>& args, const std::size_t in
 
 auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args, std::string& error_message)
     -> bool {
-  if (full_name == "Std.Array.GetAt") {
-    return check_integer_index_arg(args, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Array.GetAtND") {
-    return check_integer_tuple_arg(args, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Array.ReshapeND") {
-    return check_integer_tuple_arg(args, 1U, error_message, full_name);
-  }
+  if (full_name == "Std.Array.GetAt") { return check_integer_index_arg(args, 1U, error_message, full_name); }
+  if (full_name == "Std.Array.GetAtND") { return check_integer_tuple_arg(args, 1U, error_message, full_name); }
+  if (full_name == "Std.Array.ReshapeND") { return check_integer_tuple_arg(args, 1U, error_message, full_name); }
 
   return true;
 }
 
 }  // namespace fleaux::frontend::type_system
-
-

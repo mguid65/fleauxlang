@@ -172,9 +172,7 @@ public:
   ~ScopedRegistryCheckpoint() {
     std::scoped_lock lock(*mutex_);
     const auto log_size = registry_->registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) {
-      registry_->retire(registry_->registration_log[i]);
-    }
+    for (std::size_t i = checkpoint_; i < log_size; ++i) { registry_->retire(registry_->registration_log[i]); }
     registry_->registration_log.resize(checkpoint_);
   }
 
@@ -196,8 +194,7 @@ class PinnedRegistryRef {
 public:
   PinnedRegistryRef() = default;
 
-  PinnedRegistryRef(ScopedRegistry<T>& registry, std::mutex& mutex, T val)
-      : registry_(&registry), mutex_(&mutex) {
+  PinnedRegistryRef(ScopedRegistry<T>& registry, std::mutex& mutex, T val) : registry_(&registry), mutex_(&mutex) {
     std::scoped_lock lock(*mutex_);
     id_ = registry_->insert(std::move(val), /*logged=*/false);
     valid_ = true;
@@ -223,9 +220,16 @@ public:
     return *this;
   }
 
-  ~PinnedRegistryRef() { if (valid_) { do_release(); } }
+  ~PinnedRegistryRef() {
+    if (valid_) { do_release(); }
+  }
 
-  void release() { if (valid_) { do_release(); valid_ = false; } }
+  void release() {
+    if (valid_) {
+      do_release();
+      valid_ = false;
+    }
+  }
   [[nodiscard]] auto id() const -> const RegistryId& { return id_; }
   [[nodiscard]] auto is_valid() const -> bool { return valid_; }
 
@@ -335,9 +339,7 @@ public:
     std::scoped_lock lock(callable_registry_mutex());
     auto& call_reg = callable_registry();
     const auto log_size = call_reg.registration_log.size();
-    for (std::size_t i = checkpoint_log_size_; i < log_size; ++i) {
-      call_reg.retire(call_reg.registration_log[i]);
-    }
+    for (std::size_t i = checkpoint_log_size_; i < log_size; ++i) { call_reg.retire(call_reg.registration_log[i]); }
     call_reg.registration_log.resize(checkpoint_log_size_);
   }
 
@@ -578,7 +580,9 @@ inline void reset_value_registry_for_tests() {
   if (!tag || *tag != k_value_ref_tag) { return std::nullopt; }
   const auto as_uint = [](const Number& n) -> std::optional<UInt> {
     return n.Visit(
-        [](const Int i) -> std::optional<UInt> { return i >= 0 ? std::optional<UInt>(static_cast<UInt>(i)) : std::nullopt; },
+        [](const Int i) -> std::optional<UInt> {
+          return i >= 0 ? std::optional<UInt>(static_cast<UInt>(i)) : std::nullopt;
+        },
         [](const UInt u) -> std::optional<UInt> { return u; },
         [](const Float f) -> std::optional<UInt> {
           return f >= 0 && std::floor(f) == f ? std::optional<UInt>(static_cast<UInt>(f)) : std::nullopt;
@@ -681,13 +685,20 @@ public:
     return *this;
   }
 
-  ~PinnedValueRef() { if (valid_) { do_release(); } }
+  ~PinnedValueRef() {
+    if (valid_) { do_release(); }
+  }
 
   [[nodiscard]] auto token() const -> const Value& { return token_; }
   [[nodiscard]] auto id() const -> const RegistryId& { return id_; }
   [[nodiscard]] auto is_valid() const -> bool { return valid_; }
 
-  void release() { if (valid_) { do_release(); valid_ = false; } }
+  void release() {
+    if (valid_) {
+      do_release();
+      valid_ = false;
+    }
+  }
 
   // Returns a copy of the stored value.
   [[nodiscard]] auto get() const -> Value {
@@ -1013,9 +1024,7 @@ auto make_tuple(Values&&... vals) -> Value {
 // Convert any numeric Value to double.
 [[nodiscard]] inline auto to_double(const Value& val) -> double {
   return as_number(val).Visit([](const Int signed_value) -> double { return static_cast<double>(signed_value); },
-                              [](const UInt unsigned_value) -> double {
-                                return static_cast<double>(unsigned_value);
-                              },
+                              [](const UInt unsigned_value) -> double { return static_cast<double>(unsigned_value); },
                               [](const Float float_value) -> double { return float_value; });
 }
 
@@ -1066,12 +1075,12 @@ auto make_tuple(Values&&... vals) -> Value {
   }
 
   if (is_int_number(lhs) && is_int_number(rhs)) {
-    const Int lhs_value = as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                                               [](const UInt) -> Int { return 0; },
-                                               [](const Float) -> Int { return 0; });
-    const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                                               [](const UInt) -> Int { return 0; },
-                                               [](const Float) -> Int { return 0; });
+    const Int lhs_value =
+        as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
+    const Int rhs_value =
+        as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
     return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
   }
 
@@ -1086,9 +1095,9 @@ auto make_tuple(Values&&... vals) -> Value {
   }
 
   if (is_int_number(lhs) && is_uint_number(rhs)) {
-    const Int lhs_value = as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                                               [](const UInt) -> Int { return 0; },
-                                               [](const Float) -> Int { return 0; });
+    const Int lhs_value =
+        as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
+                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
     const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
                                                 [](const UInt unsigned_value) -> UInt { return unsigned_value; },
                                                 [](const Float) -> UInt { return 0; });
@@ -1101,8 +1110,7 @@ auto make_tuple(Values&&... vals) -> Value {
                                               [](const UInt unsigned_value) -> UInt { return unsigned_value; },
                                               [](const Float) -> UInt { return 0; });
   const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                                             [](const UInt) -> Int { return 0; },
-                                             [](const Float) -> Int { return 0; });
+                                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
   if (rhs_value < 0) { return 1; }
   const UInt rhs_as_uint = static_cast<UInt>(rhs_value);
   return (lhs_value < rhs_as_uint) ? -1 : ((lhs_value > rhs_as_uint) ? 1 : 0);
@@ -1123,24 +1131,23 @@ auto make_tuple(Values&&... vals) -> Value {
 }
 
 [[nodiscard]] inline auto as_int_value_strict(const Value& val, const std::string_view name) -> Int {
-  return as_number(val).Visit(
-      [&](const Int signed_value) -> Int { return signed_value; },
-      [&](const UInt unsigned_value) -> Int {
-        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
-        }
-        return static_cast<Int>(unsigned_value);
-      },
-      [&](const Float float_value) -> Int {
-        if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
-          throw std::invalid_argument(std::format("{} expects an integer value", name));
-        }
-        if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
-            float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
-        }
-        return static_cast<Int>(float_value);
-      });
+  return as_number(val).Visit([&](const Int signed_value) -> Int { return signed_value; },
+                              [&](const UInt unsigned_value) -> Int {
+                                if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
+                                  throw std::out_of_range(std::format("{} out of Int64 range", name));
+                                }
+                                return static_cast<Int>(unsigned_value);
+                              },
+                              [&](const Float float_value) -> Int {
+                                if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
+                                  throw std::invalid_argument(std::format("{} expects an integer value", name));
+                                }
+                                if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
+                                    float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
+                                  throw std::out_of_range(std::format("{} out of Int64 range", name));
+                                }
+                                return static_cast<Int>(float_value);
+                              });
 }
 
 [[nodiscard]] inline auto as_index_strict(const Value& val, const std::string_view name) -> std::size_t {
@@ -1162,12 +1169,8 @@ auto make_tuple(Values&&... vals) -> Value {
 
 [[nodiscard]] inline auto format_number(const Number& number_value) -> std::string {
   return number_value.Visit([](const Int signed_value) -> std::string { return std::format("{}", signed_value); },
-                            [](const UInt unsigned_value) -> std::string {
-                              return std::format("{}", unsigned_value);
-                            },
-                            [](const Float float_value) -> std::string {
-                              return std::format("{}", float_value);
-                            });
+                            [](const UInt unsigned_value) -> std::string { return std::format("{}", unsigned_value); },
+                            [](const Float float_value) -> std::string { return std::format("{}", float_value); });
 }
 
 // Print a Value as a scalar/tuple repr for the C++ runtime.
@@ -1248,19 +1251,17 @@ inline auto to_string(const Value& value) -> std::string {
   if (handle_id_from_value(value).has_value()) { return "Handle"; }
 
   return value.Visit(
-      [](const Array&) -> std::string { return "Tuple"; },
-      [](const Generic&) -> std::string { return "Generic"; },
+      [](const Array&) -> std::string { return "Tuple"; }, [](const Generic&) -> std::string { return "Generic"; },
       [](const Object&) -> std::string { return "Dict"; },
       [](const ValueNode& vn) -> std::string {
-        return vn.Visit(
-            [](const Null&) -> std::string { return "Null"; },
-            [](const Bool&) -> std::string { return "Bool"; },
-            [](const Number& number_value) -> std::string {
-              return number_value.Visit([](const Int) -> std::string { return "Int64"; },
-                                        [](const UInt) -> std::string { return "UInt64"; },
-                                        [](const Float) -> std::string { return "Float64"; });
-            },
-            [](const String&) -> std::string { return "String"; });
+        return vn.Visit([](const Null&) -> std::string { return "Null"; },
+                        [](const Bool&) -> std::string { return "Bool"; },
+                        [](const Number& number_value) -> std::string {
+                          return number_value.Visit([](const Int) -> std::string { return "Int64"; },
+                                                    [](const UInt) -> std::string { return "UInt64"; },
+                                                    [](const Float) -> std::string { return "Float64"; });
+                        },
+                        [](const String&) -> std::string { return "String"; });
       });
 }
 
@@ -1276,14 +1277,14 @@ enum class SortTag {
 
 [[nodiscard]] inline auto sort_tag_of(const Value& value) -> SortTag {
   const auto tag = value.Visit([](const Array&) -> SortTag { return SortTag::Array; },
-                           [](const Generic&) -> SortTag { return SortTag::Generic; },
-                           [](const Object&) -> SortTag { return SortTag::Object; },
-                           [](const ValueNode& vn) -> SortTag {
-                             return vn.Visit([](const Null&) -> SortTag { return SortTag::Null; },
-                                             [](const Bool&) -> SortTag { return SortTag::Bool; },
-                                             [](const Number&) -> SortTag { return SortTag::Number; },
-                                             [](const String&) -> SortTag { return SortTag::String; });
-                           });
+                               [](const Generic&) -> SortTag { return SortTag::Generic; },
+                               [](const Object&) -> SortTag { return SortTag::Object; },
+                               [](const ValueNode& vn) -> SortTag {
+                                 return vn.Visit([](const Null&) -> SortTag { return SortTag::Null; },
+                                                 [](const Bool&) -> SortTag { return SortTag::Bool; },
+                                                 [](const Number&) -> SortTag { return SortTag::Number; },
+                                                 [](const String&) -> SortTag { return SortTag::String; });
+                               });
   return tag;
 }
 
@@ -1351,9 +1352,7 @@ enum class SortTag {
   std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
   std::string out;
   out.reserve(size);
-  for (std::size_t char_index = 0; char_index < size; ++char_index) {
-    out.push_back(alphabet[dist(rng)]);
-  }
+  for (std::size_t char_index = 0; char_index < size; ++char_index) { out.push_back(alphabet[dist(rng)]); }
   return out;
 }
 
@@ -1362,8 +1361,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 }
 
 [[nodiscard]] inline auto trim_left(std::string text) -> std::string {
-  const auto it =
-      std::ranges::find_if_not(text, [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
+  const auto it = std::ranges::find_if_not(text, [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
   text.erase(text.begin(), it);
   return text;
 }
@@ -1379,19 +1377,13 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 #if FLEAUX_HAS_STD_FORMAT
   if (const auto num = value.TryGetNumber()) {
     return num->Visit(
-        [&](const Int signed_value) -> std::string {
-          return std::vformat("{}", std::make_format_args(signed_value));
-        },
+        [&](const Int signed_value) -> std::string { return std::vformat("{}", std::make_format_args(signed_value)); },
         [&](const UInt unsigned_value) -> std::string {
           return std::vformat("{}", std::make_format_args(unsigned_value));
         },
-        [&](const Float float_value) -> std::string {
-          return std::vformat("{}", std::make_format_args(float_value));
-        });
+        [&](const Float float_value) -> std::string { return std::vformat("{}", std::make_format_args(float_value)); });
   }
-  if (const auto bool_value = value.TryGetBool()) {
-    return std::vformat("{}", std::make_format_args(*bool_value));
-  }
+  if (const auto bool_value = value.TryGetBool()) { return std::vformat("{}", std::make_format_args(*bool_value)); }
   if (const auto string_value = value.TryGetString()) {
     return std::vformat("{}", std::make_format_args(*string_value));
   }

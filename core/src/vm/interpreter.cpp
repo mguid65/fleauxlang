@@ -1,7 +1,7 @@
 #include "fleaux/vm/interpreter.hpp"
 
-#include <filesystem>
 #include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -11,8 +11,8 @@
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
-#include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/analysis.hpp"
+#include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
@@ -108,8 +108,7 @@ auto preload_std_help_metadata() -> void {
   const auto std_file = find_std_file();
   if (!std_file.has_value()) { return; }
 
-  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(
-      *std_file, make_error);
+  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(*std_file, make_error);
   if (!parsed_std) { return; }
 
   for (const auto& let : parsed_std->lets) {
@@ -221,9 +220,7 @@ struct EvalState {
     const std::weak_ptr<EvalState> weak_state = self;
     const RuntimeCallable callable = [weak_state, internal_name](Value arg) -> Value {
       const auto state = weak_state.lock();
-      if (!state) {
-        throw std::runtime_error("Interpreter state expired while invoking let '" + internal_name + "'.");
-      }
+      if (!state) { throw std::runtime_error("Interpreter state expired while invoking let '" + internal_name + "'."); }
       return state->invoke_let_by_key(internal_name, std::move(arg));
     };
 
@@ -317,23 +314,18 @@ struct EvalState {
               return Value{std::move(arr)};
             },
             [&](const frontend::ir::IRConstant& constant) -> Value {
-              return std::visit(common::overloaded{
-                                    [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
-                                    [](const bool bool_value) -> Value { return fleaux::runtime::make_bool(bool_value); },
-                                    [](const std::int64_t int_value) -> Value {
-                                      return fleaux::runtime::make_int(int_value);
-                                    },
-                                    [](const std::uint64_t uint_value) -> Value {
-                                      return fleaux::runtime::make_uint(uint_value);
-                                    },
-                                    [](const double float_value) -> Value {
-                                      return fleaux::runtime::make_float(float_value);
-                                    },
-                                    [](const std::string& string_value) -> Value {
-                                      return fleaux::runtime::make_string(string_value);
-                                    },
-                                },
-                                constant.val);
+              return std::visit(
+                  common::overloaded{
+                      [](std::monostate) -> Value { return fleaux::runtime::make_null(); },
+                      [](const bool bool_value) -> Value { return fleaux::runtime::make_bool(bool_value); },
+                      [](const std::int64_t int_value) -> Value { return fleaux::runtime::make_int(int_value); },
+                      [](const std::uint64_t uint_value) -> Value { return fleaux::runtime::make_uint(uint_value); },
+                      [](const double float_value) -> Value { return fleaux::runtime::make_float(float_value); },
+                      [](const std::string& string_value) -> Value {
+                        return fleaux::runtime::make_string(string_value);
+                      },
+                  },
+                  constant.val);
             },
             [&](const IRNameRef& name_ref) -> Value {
               if (!name_ref.qualifier.has_value()) {
@@ -381,7 +373,8 @@ struct EvalState {
 
   auto resolve_name_callable(const IRNameRef& name, const std::unordered_map<std::string, Value>& locals) const
       -> RuntimeCallable {
-    if (const auto exact_it = functions_by_symbol_key.find(resolved_name_key(name)); exact_it != functions_by_symbol_key.end()) {
+    if (const auto exact_it = functions_by_symbol_key.find(resolved_name_key(name));
+        exact_it != functions_by_symbol_key.end()) {
       return exact_it->second;
     }
 

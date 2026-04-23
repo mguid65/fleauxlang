@@ -99,9 +99,7 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
     auto emit_line = [&](const int line_number) -> void {
       if (line_number < 1 || line_number > line_count) { return; }
       out << "\n"
-          << pad_left(std::to_string(line_number), gw)
-          << " | "
-          << lines[static_cast<std::size_t>(line_number - 1)];
+          << pad_left(std::to_string(line_number), gw) << " | " << lines[static_cast<std::size_t>(line_number - 1)];
     };
 
     out << "\n" << blank_gutter << " |";
@@ -115,8 +113,8 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
     // Caret annotation
     const int caret_col = std::max(span->col - 1, 0);
     const int caret_len = span->caret_width();
-    out << "\n" << blank_gutter << " | "
-        << std::string(static_cast<std::size_t>(caret_col), ' ') << "^"
+    out << "\n"
+        << blank_gutter << " | " << std::string(static_cast<std::size_t>(caret_col), ' ') << "^"
         << std::string(static_cast<std::size_t>(std::max(caret_len - 1, 0)), '~');
 
     // One context line after the error

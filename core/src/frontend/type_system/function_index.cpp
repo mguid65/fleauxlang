@@ -15,18 +15,10 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
     return out;
   }
 
-  for (auto& item : out.items) {
-    item = rewrite_generic_type(item, generic_params);
-  }
-  for (auto& member : out.union_members) {
-    member = rewrite_generic_type(member, generic_params);
-  }
-  for (auto& arg : out.applied_args) {
-    arg = rewrite_generic_type(arg, generic_params);
-  }
-  for (auto& param : out.function_params) {
-    param = rewrite_generic_type(param, generic_params);
-  }
+  for (auto& item : out.items) { item = rewrite_generic_type(item, generic_params); }
+  for (auto& member : out.union_members) { member = rewrite_generic_type(member, generic_params); }
+  for (auto& arg : out.applied_args) { arg = rewrite_generic_type(arg, generic_params); }
+  for (auto& param : out.function_params) { param = rewrite_generic_type(param, generic_params); }
   if (out.function_return.has_value()) {
     out.function_return = make_box<Type>(rewrite_generic_type(**out.function_return, generic_params));
   }
@@ -58,9 +50,7 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
 
     std::unordered_set<std::string> generic_param_set;
     generic_param_set.reserve(let.generic_params.size());
-    for (const auto& generic_param : let.generic_params) {
-      generic_param_set.insert(generic_param);
-    }
+    for (const auto& generic_param : let.generic_params) { generic_param_set.insert(generic_param); }
 
     sig.return_type = rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
     sig.params.reserve(let.params.size());
@@ -73,9 +63,7 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     }
 
     symbols_[symbol_key(let.qualifier, let.name)].push_back(sig);
-    if (!let.qualifier.has_value()) {
-      unqualified_symbols_.insert(let.name);
-    }
+    if (!let.qualifier.has_value()) { unqualified_symbols_.insert(let.name); }
   };
 
   for (const auto& imported_typed_let : imported_typed_lets) {
@@ -83,9 +71,7 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     index_signature(imported_typed_let);
   }
 
-  for (const auto& let : program.lets) {
-    index_signature(let);
-  }
+  for (const auto& let : program.lets) { index_signature(let); }
 }
 
 auto FunctionIndex::resolve_name(const std::optional<std::string>& qualifier, const std::string& name) const
@@ -106,4 +92,3 @@ auto FunctionIndex::has_qualified_symbol(const std::optional<std::string>& quali
 }
 
 }  // namespace fleaux::frontend::type_system
-

@@ -159,8 +159,8 @@ void write_export(std::vector<std::uint8_t>& buffer, const ExportedSymbol& symbo
 auto read_export(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ExportedSymbol& symbol) -> bool {
   std::uint8_t kind = 0;
   if (!read_string(buffer, offset, symbol.name) || !read_string(buffer, offset, symbol.link_name) ||
-      !read_pod(buffer, offset, kind) ||
-      !read_pod(buffer, offset, symbol.index) || !read_string(buffer, offset, symbol.builtin_name)) {
+      !read_pod(buffer, offset, kind) || !read_pod(buffer, offset, symbol.index) ||
+      !read_string(buffer, offset, symbol.builtin_name)) {
     return false;
   }
   symbol.kind = static_cast<ExportKind>(kind);
