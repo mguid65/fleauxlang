@@ -12,8 +12,8 @@ enum class TypeNodeKind {
   kNamed,
   kTuple,
   kUnion,
-  kApplied,  // Named type with type arguments, e.g. Dict(String, Any)
-  kFunction, // Function type, e.g. (Any, String) => Bool
+  kApplied,   // Named type with type arguments, e.g. Dict(String, Any)
+  kFunction,  // Function type, e.g. (Any, String) => Bool
 };
 
 struct TypeNode {
@@ -25,4 +25,3 @@ struct TypeNode {
 };
 
 }  // namespace fleaux::frontend::types
-

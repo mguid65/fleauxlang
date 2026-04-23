@@ -31,8 +31,8 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
     auto inferred_body = detail::infer_expr(*let.body, index, locals, generic_param_set);
     if (!inferred_body) { return tl::unexpected(inferred_body.error()); }
 
-    const Type declared_return = detail::rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
-    if (!is_consistent(declared_return, *inferred_body)) {
+    if (const Type declared_return = detail::rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
+        !is_consistent(declared_return, *inferred_body)) {
       return tl::unexpected(detail::make_error(
           "Type mismatch in function return.",
           std::format("{} declares return type that does not match inferred body type.", let.name), let.span));
@@ -52,6 +52,3 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
 }
 
 }  // namespace fleaux::frontend::type_system
-
-
-

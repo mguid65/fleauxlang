@@ -17,8 +17,6 @@ struct AutoValueRefAnalysisOptions {
 using AutoValueRefParamSlots = std::unordered_map<std::string, std::unordered_set<std::uint32_t>>;
 
 [[nodiscard]] auto analyze_auto_value_ref_params(const frontend::ir::IRProgram& program,
-                                                  const AutoValueRefAnalysisOptions& options)
-    -> AutoValueRefParamSlots;
+                                                 const AutoValueRefAnalysisOptions& options) -> AutoValueRefParamSlots;
 
 }  // namespace fleaux::bytecode
-

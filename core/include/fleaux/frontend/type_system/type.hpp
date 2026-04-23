@@ -48,5 +48,3 @@ struct Type {
 [[nodiscard]] auto is_consistent(const Type& expected, const Type& actual) -> bool;
 
 }  // namespace fleaux::frontend::type_system
-
-

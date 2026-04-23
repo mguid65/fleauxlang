@@ -13,9 +13,9 @@ namespace fleaux::frontend::type_system {
 
 [[nodiscard]] auto callable_has_fixed_arity(const Type& type, std::size_t arity) -> bool;
 
-[[nodiscard]] auto callable_accepts_arg(const Type& callable_type, std::size_t param_index, const Type& arg_type) -> bool;
+[[nodiscard]] auto callable_accepts_arg(const Type& callable_type, std::size_t param_index, const Type& arg_type)
+    -> bool;
 
 [[nodiscard]] auto callable_returns_type(const Type& callable_type, const Type& expected_return) -> bool;
 
 }  // namespace fleaux::frontend::type_system
-

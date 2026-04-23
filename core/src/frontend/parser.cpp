@@ -1,10 +1,10 @@
 #include "fleaux/frontend/parser.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <format>
 #include <limits>
-#include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -20,14 +20,14 @@ namespace {
 template <typename T>
 using PResult = tl::expected<T, ParseError>;
 
-#define FLEAUX_TRY_ASSIGN(name, expr)                  \
-  auto name##_result = (expr);                         \
+#define FLEAUX_TRY_ASSIGN(name, expr)                               \
+  auto name##_result = (expr);                                      \
   if (!name##_result) return tl::unexpected(name##_result.error()); \
   auto name = std::move(*name##_result)
 
-#define FLEAUX_TRYV(expr)                              \
-  do {                                                 \
-    auto _fleaux_result = (expr);                      \
+#define FLEAUX_TRYV(expr)                                               \
+  do {                                                                  \
+    auto _fleaux_result = (expr);                                       \
     if (!_fleaux_result) return tl::unexpected(_fleaux_result.error()); \
   } while (false)
 
@@ -51,9 +51,8 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",     "import",  "Int64", "UInt64",
-                                                   "Float64", "String",  "Bool",   "Null",   "Any",
-                                                   "Tuple",   "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",  "import", "Int64", "UInt64", "Float64",    "String",
+                                                   "Bool", "Null",   "Any",   "Tuple",  "__builtin__"};
 
 const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "__builtin__"};
 
@@ -61,8 +60,7 @@ const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
 
-const std::unordered_set<std::string> kSimpleTypes = {"Int64", "UInt64", "Float64", "String", "Bool",
-                                                      "Null",   "Any"};
+const std::unordered_set<std::string> kSimpleTypes = {"Int64", "UInt64", "Float64", "String", "Bool", "Null", "Any"};
 
 auto is_ident_start(const char c) -> bool { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
@@ -200,8 +198,8 @@ auto lex(const std::string& source, const std::string& source_name) -> PResult<s
         token.line = start_line;
         token.col = start_col;
         token.text = "\"";
-        return tl::unexpected(make_error("Unterminated string literal", std::nullopt,
-                                         span_from_token(token, source_name, source)));
+        return tl::unexpected(
+            make_error("Unterminated string literal", std::nullopt, span_from_token(token, source_name, source)));
       }
 
       const auto text = source.substr(cursor, str_end - cursor);
@@ -356,9 +354,9 @@ private:
       source_line_is_blank_.push_back(trimmed.empty());
       if (trimmed.starts_with("//")) {
         std::string comment_text = trim_copy(std::string_view(trimmed).substr(2));
-        source_line_comment_.push_back(std::move(comment_text));
+        source_line_comment_.emplace_back(std::move(comment_text));
       } else {
-        source_line_comment_.push_back(std::nullopt);
+        source_line_comment_.emplace_back(std::nullopt);
       }
 
       if (newline == std::string::npos) { break; }
@@ -375,7 +373,7 @@ private:
 
     std::vector<std::string> comments;
     while (cursor >= 1) {
-      const std::size_t idx = static_cast<std::size_t>(cursor);
+      const auto idx = static_cast<std::size_t>(cursor);
       if (source_line_comment_[idx].has_value()) {
         comments.push_back(*source_line_comment_[idx]);
         --cursor;
@@ -388,13 +386,13 @@ private:
       break;
     }
 
-    std::reverse(comments.begin(), comments.end());
+    std::ranges::reverse(comments);
     return comments;
   }
 
   [[nodiscard]] auto peek() const -> const Token& { return tokens_[i_]; }
 
-  [[nodiscard]] auto peek_ahead(std::size_t offset) const -> const Token* {
+  [[nodiscard]] auto peek_ahead(const std::size_t offset) const -> const Token* {
     const std::size_t index = i_ + offset;
     if (index >= tokens_.size()) { return nullptr; }
     return &tokens_[index];
@@ -473,12 +471,9 @@ private:
             // Found the matching ). Check if next token is => (single token) or = > (two tokens)
             if (scan_pos + 1 < tokens_.size()) {
               const auto& next_tok = tokens_[scan_pos + 1];
-              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=>") {
-                return true;
-              }
+              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=>") { return true; }
               // Check for = followed by >
-              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=" &&
-                  scan_pos + 2 < tokens_.size()) {
+              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=" && scan_pos + 2 < tokens_.size()) {
                 const auto& after_eq = tokens_[scan_pos + 2];
                 return after_eq.kind == TokenKind::kSymbol && after_eq.value == ">";
               }
@@ -495,7 +490,8 @@ private:
   auto eat_symbol(const std::string& symbol) -> PResult<Token> {
     if (const Token& tok = peek(); !is_symbol(symbol)) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
-      return tl::unexpected(err(std::format("Expected '{}', got {}", symbol, got), tok, hint_for_expected_token(symbol, tok)));
+      return tl::unexpected(
+          err(std::format("Expected '{}', got {}", symbol, got), tok, hint_for_expected_token(symbol, tok)));
     }
     return next();
   }
@@ -503,7 +499,8 @@ private:
   auto eat_ident_token() -> PResult<Token> {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
-      return tl::unexpected(err(std::format("Expected 'IDENT', got {}", got), tok, hint_for_expected_token("IDENT", tok)));
+      return tl::unexpected(
+          err(std::format("Expected 'IDENT', got {}", got), tok, hint_for_expected_token("IDENT", tok)));
     }
     return next();
   }
@@ -511,8 +508,8 @@ private:
   auto eat_ident_value(const std::string& ident) -> PResult<Token> {
     if (const Token& tok = peek(); tok.kind != TokenKind::kIdent || tok.value != ident) {
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
-      return tl::unexpected(
-          err(std::format("Expected '{}', got {}", ident, got), tok, "Check keyword spelling and statement structure."));
+      return tl::unexpected(err(std::format("Expected '{}', got {}", ident, got), tok,
+                                "Check keyword spelling and statement structure."));
     }
     return next();
   }
@@ -842,8 +839,8 @@ private:
       try {
         if (is_u64) {
           if (negate) {
-            return tl::unexpected(err("UInt64 literal cannot be negative", num,
-                                      "Remove the unary '-' or use an Int64/Float64 literal."));
+            return tl::unexpected(
+                err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
           }
           if (digits.find_first_of(".eE") != std::string::npos) {
             return tl::unexpected(
@@ -964,7 +961,8 @@ private:
     if (!is(TokenKind::kIdent)) {
       const Token& tok = peek();
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
-      return tl::unexpected(err(std::format("expected an expression, got {}", got), tok, hint_for_expected_expression(tok)));
+      return tl::unexpected(
+          err(std::format("expected an expression, got {}", got), tok, hint_for_expected_expression(tok)));
     }
 
     FLEAUX_TRY_ASSIGN(q, opt_qid());
@@ -1000,8 +998,8 @@ private:
       return name;
     }
 
-    return tl::unexpected(
-        err("Expected import module name", tok, "Use a module name like 'Std' or a digit-leading name like '20_export'."));
+    return tl::unexpected(err("Expected import module name", tok,
+                              "Use a module name like 'Std' or a digit-leading name like '20_export'."));
   }
 
   auto let_stmt() -> PResult<model::LetStatement> {
@@ -1046,9 +1044,9 @@ private:
     out.rtype = std::move(rtype);
 
     if (!(match_symbol("::") || match_symbol("="))) {
-      return tl::unexpected(err(
-          "Expected '::' or '='", std::nullopt,
-          "After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions."));
+      return tl::unexpected(
+          err("Expected '::' or '='", std::nullopt,
+              "After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions."));
     }
 
     if (is_ident_value("__builtin__")) {
@@ -1098,11 +1096,15 @@ private:
         }
         return "The left-hand side of '->' is missing. Add an expression before the pipeline operator.";
       }
-      if (tok.value == ")") { return "Unexpected ')'. Check for an extra closing parenthesis or a missing expression."; }
+      if (tok.value == ")") {
+        return "Unexpected ')'. Check for an extra closing parenthesis or a missing expression.";
+      }
       if (tok.value == ",") { return "Unexpected ','. A tuple element is missing before this comma."; }
       if (tok.value == ";") { return "Unexpected ';'. Remove the extra semicolon or add an expression."; }
       if (tok.value == ":") { return "Unexpected ':'. Type annotations must be inside parameter or let definitions."; }
-      if (tok.value == "=") { return "Unexpected '='. Assignment is not an expression; use '::' or '=' in a let definition."; }
+      if (tok.value == "=") {
+        return "Unexpected '='. Assignment is not an expression; use '::' or '=' in a let definition.";
+      }
     }
     return "Valid expressions start with a literal, an identifier, a tuple '( )', or an operator.";
   }

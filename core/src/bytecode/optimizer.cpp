@@ -21,7 +21,7 @@ void for_each_stream(Module& module, Fn&& fn) {
 // NoOpEliminationPass helpers
 
 void erase_noops(std::vector<Instruction>& instrs) {
-  std::erase_if(instrs, [](const Instruction& i) { return i.opcode == Opcode::kNoOp; });
+  std::erase_if(instrs, [](const Instruction& i) -> bool { return i.opcode == Opcode::kNoOp; });
 }
 
 // ConstantPoolDeduplicationPass helpers
@@ -29,9 +29,7 @@ void erase_noops(std::vector<Instruction>& instrs) {
 // Equality comparison for ConstValue. std::variant operator== compares the
 // active alternative first, then the held value, which is correct here for all
 // pool types (int64, uint64, double, bool, string, monostate).
-auto const_values_equal(const ConstValue& a, const ConstValue& b) -> bool {
-  return a.data == b.data;
-}
+auto const_values_equal(const ConstValue& a, const ConstValue& b) -> bool { return a.data == b.data; }
 
 // Build a remap table: for each index in the original pool, find the lowest
 // equivalent index (the canonical entry). Returns a vector where remap[i] is
@@ -55,8 +53,7 @@ auto build_const_remap(const std::vector<ConstValue>& pool) -> std::vector<std::
 // Rebuild the deduplicated pool and produce a second remap from old index to
 // new (compacted) index. The first remap already points every entry to its
 // canonical old-index; now we compact out the duplicates.
-auto compact_pool(const std::vector<ConstValue>& pool,
-                  const std::vector<std::uint32_t>& canonical_remap)
+auto compact_pool(const std::vector<ConstValue>& pool, const std::vector<std::uint32_t>& canonical_remap)
     -> std::pair<std::vector<ConstValue>, std::vector<std::uint32_t>> {
   // new_index_of[old_canonical] = new compacted index; only set for entries
   // that are their own canonical (i.e. canonical_remap[i] == i).
@@ -76,11 +73,10 @@ auto compact_pool(const std::vector<ConstValue>& pool,
   return {std::move(new_pool), std::move(final_remap)};
 }
 
-void rewrite_push_const_operands(std::vector<Instruction>& instrs,
-                                 const std::vector<std::uint32_t>& final_remap) {
-  for (auto& instr : instrs) {
-    if (instr.opcode == Opcode::kPushConst) {
-      instr.operand = static_cast<std::int64_t>(final_remap[static_cast<std::uint32_t>(instr.operand)]);
+void rewrite_push_const_operands(std::vector<Instruction>& instrs, const std::vector<std::uint32_t>& final_remap) {
+  for (auto& [opcode, operand] : instrs) {
+    if (opcode == Opcode::kPushConst) {
+      operand = static_cast<std::int64_t>(final_remap[static_cast<std::uint32_t>(operand)]);
     }
   }
 }
@@ -115,9 +111,7 @@ void eliminate_dead_pushes(std::vector<Instruction>& instrs) {
 
 auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::optional<ConstValue> {
   if (opcode == Opcode::kNot) {
-    if (const auto* value = std::get_if<bool>(&input.data); value != nullptr) {
-      return ConstValue{.data = !*value};
-    }
+    if (const auto* value = std::get_if<bool>(&input.data); value != nullptr) { return ConstValue{.data = !*value}; }
     return std::nullopt;
   }
 
@@ -129,9 +123,7 @@ auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::option
       }
       return ConstValue{.data = static_cast<std::int64_t>(-*value)};
     }
-    if (const auto* value = std::get_if<double>(&input.data); value != nullptr) {
-      return ConstValue{.data = -*value};
-    }
+    if (const auto* value = std::get_if<double>(&input.data); value != nullptr) { return ConstValue{.data = -*value}; }
     return std::nullopt;
   }
 
@@ -143,12 +135,8 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
   const auto is_uint = [](const ConstValue& value) -> bool {
     return std::holds_alternative<std::uint64_t>(value.data);
   };
-  const auto is_int = [](const ConstValue& value) -> bool {
-    return std::holds_alternative<std::int64_t>(value.data);
-  };
-  const auto is_float = [](const ConstValue& value) -> bool {
-    return std::holds_alternative<double>(value.data);
-  };
+  const auto is_int = [](const ConstValue& value) -> bool { return std::holds_alternative<std::int64_t>(value.data); };
+  const auto is_float = [](const ConstValue& value) -> bool { return std::holds_alternative<double>(value.data); };
   const auto is_numeric = [&](const ConstValue& value) -> bool {
     return is_int(value) || is_uint(value) || is_float(value);
   };
@@ -159,35 +147,27 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
     if (const auto* unsigned_value = std::get_if<std::uint64_t>(&value.data); unsigned_value != nullptr) {
       return static_cast<double>(*unsigned_value);
     }
-    if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) {
-      return *float_value;
-    }
+    if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) { return *float_value; }
     return std::nullopt;
   };
   const auto num_result = [](const double value, const bool prefer_unsigned = false) -> ConstValue {
     if (value == std::floor(value) && std::isfinite(value)) {
-      if (prefer_unsigned && value >= 0.0 &&
-          value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+      if (prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
         return ConstValue{.data = static_cast<std::uint64_t>(value)};
       }
       if (value >= static_cast<double>(std::numeric_limits<std::int64_t>::min()) &&
           value <= static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
         return ConstValue{.data = static_cast<std::int64_t>(value)};
       }
-      if (!prefer_unsigned && value >= 0.0 &&
-          value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+      if (!prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
         return ConstValue{.data = static_cast<std::uint64_t>(value)};
       }
     }
     return ConstValue{.data = value};
   };
 
-  if (opcode == Opcode::kCmpEq) {
-    return ConstValue{.data = (left.data == right.data)};
-  }
-  if (opcode == Opcode::kCmpNe) {
-    return ConstValue{.data = (left.data != right.data)};
-  }
+  if (opcode == Opcode::kCmpEq) { return ConstValue{.data = (left.data == right.data)}; }
+  if (opcode == Opcode::kCmpNe) { return ConstValue{.data = (left.data != right.data)}; }
 
   if (opcode == Opcode::kAnd || opcode == Opcode::kOr) {
     const auto* lhs = std::get_if<bool>(&left.data);
@@ -261,8 +241,7 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
   }
 
   const auto* lhs_double = std::get_if<double>(&left.data);
-  const auto* rhs_double = std::get_if<double>(&right.data);
-  if (lhs_double != nullptr && rhs_double != nullptr) {
+  if (const auto* rhs_double = std::get_if<double>(&right.data); lhs_double != nullptr && rhs_double != nullptr) {
     switch (opcode) {
       case Opcode::kAdd:
         return ConstValue{.data = (*lhs_double + *rhs_double)};
@@ -292,11 +271,11 @@ void fold_constants_in_stream(std::vector<Instruction>& instrs, std::vector<Cons
 
   for (std::size_t index = 0; index < instrs.size();) {
     if (index + 1 < instrs.size() && instrs[index].opcode == Opcode::kPushConst) {
-      const auto unary_fold = try_fold_unary(instrs[index + 1].opcode,
-                                             constants[static_cast<std::size_t>(instrs[index].operand)]);
+      const auto unary_fold =
+          try_fold_unary(instrs[index + 1].opcode, constants[static_cast<std::size_t>(instrs[index].operand)]);
       if (unary_fold.has_value()) {
         const auto const_index = static_cast<std::uint32_t>(constants.size());
-        constants.push_back(std::move(*unary_fold));
+        constants.push_back(*unary_fold);
         folded.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(const_index)});
         index += 2;
         continue;
@@ -310,7 +289,7 @@ void fold_constants_in_stream(std::vector<Instruction>& instrs, std::vector<Cons
                           constants[static_cast<std::size_t>(instrs[index + 1].operand)]);
       if (binary_fold.has_value()) {
         const auto const_index = static_cast<std::uint32_t>(constants.size());
-        constants.push_back(std::move(*binary_fold));
+        constants.push_back(*binary_fold);
         folded.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(const_index)});
         index += 3;
         continue;
@@ -352,9 +331,7 @@ void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, cons
 
 // Pass implementations
 
-void NoOpEliminationPass::run(Module& module) const {
-  for_each_stream(module, erase_noops);
-}
+void NoOpEliminationPass::run(Module& module) const { for_each_stream(module, erase_noops); }
 
 void ConstantPoolDeduplicationPass::run(Module& module) const {
   if (module.constants.size() <= 1) { return; }
@@ -364,29 +341,28 @@ void ConstantPoolDeduplicationPass::run(Module& module) const {
   // Check if anything is actually duplicated before doing extra work.
   bool any_duplicate = false;
   for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(canonical_remap.size()); ++i) {
-    if (canonical_remap[i] != i) { any_duplicate = true; break; }
+    if (canonical_remap[i] != i) {
+      any_duplicate = true;
+      break;
+    }
   }
   if (!any_duplicate) { return; }
 
   auto [new_pool, final_remap] = compact_pool(module.constants, canonical_remap);
   module.constants = std::move(new_pool);
-  for_each_stream(module, [&](std::vector<Instruction>& instrs) {
-    rewrite_push_const_operands(instrs, final_remap);
-  });
+  for_each_stream(module,
+                  [&](std::vector<Instruction>& instrs) -> void { rewrite_push_const_operands(instrs, final_remap); });
 }
 
-void DeadPushEliminationPass::run(Module& module) const {
-  for_each_stream(module, eliminate_dead_pushes);
-}
+void DeadPushEliminationPass::run(Module& module) const { for_each_stream(module, eliminate_dead_pushes); }
 
 void ConstantFoldingPass::run(Module& module) const {
-  for_each_stream(module, [&](std::vector<Instruction>& instrs) {
-    fold_constants_in_stream(instrs, module.constants);
-  });
+  for_each_stream(
+      module, [&](std::vector<Instruction>& instrs) -> void { fold_constants_in_stream(instrs, module.constants); });
 }
 
 void ConstantPropagationSelectPass::run(Module& module) const {
-  for_each_stream(module, [&](std::vector<Instruction>& instrs) {
+  for_each_stream(module, [&](std::vector<Instruction>& instrs) -> void {
     propagate_select_constants_in_stream(instrs, module.constants);
   });
 }
@@ -420,4 +396,3 @@ auto BytecodeOptimizer::optimize(Module& module, const OptimizerConfig& config) 
 }
 
 }  // namespace fleaux::bytecode
-

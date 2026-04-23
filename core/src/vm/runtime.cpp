@@ -122,9 +122,7 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for '" + fn_name + "'"}); }
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-      locals.push_back(*arr.TryGet(arg_index));
-    }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) { locals.push_back(*arr.TryGet(arg_index)); }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
@@ -173,9 +171,7 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
   try {
     const auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) { return tl::unexpected(RuntimeError{"too few arguments for inline closure"}); }
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-      out.push_back(*arr.TryGet(arg_index));
-    }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) { out.push_back(*arr.TryGet(arg_index)); }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
@@ -321,8 +317,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kDerefValueRef: {
         auto token = pop_stack(stack, "deref_value_ref");
         if (!token) return tl::unexpected(token.error());
-        auto result = run_native_op("deref_value_ref",
-                                    [&]() -> Value { return fleaux::runtime::deref_value_ref(*token); });
+        auto result =
+            run_native_op("deref_value_ref", [&]() -> Value { return fleaux::runtime::deref_value_ref(*token); });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
         break;
@@ -508,8 +504,9 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
             return fleaux::runtime::make_string(fleaux::runtime::as_string(*lhs) + fleaux::runtime::as_string(*rhs));
           }
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "add");
-          return fleaux::runtime::num_result(fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs),
-                                             fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+          return fleaux::runtime::num_result(
+              fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs),
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -886,8 +883,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
   };
 
   auto trim_right_copy = [](std::string str_val) -> std::string {
-    const auto rit =
-        std::ranges::find_if(std::views::reverse(str_val), [](const unsigned char ch) -> bool { return !std::isspace(ch); });
+    const auto rit = std::ranges::find_if(std::views::reverse(str_val),
+                                          [](const unsigned char ch) -> bool { return !std::isspace(ch); });
     str_val.erase(rit.base(), str_val.end());
     return str_val;
   };
@@ -1371,7 +1368,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         try {
           return std::optional<Value>{fleaux::runtime::ParallelWithOptions{}(arg)};
         } catch (const std::exception& ex) {
-          return tl::unexpected(RuntimeError{std::string("native builtin 'Std.Parallel.WithOptions' threw: ") + ex.what()});
+          return tl::unexpected(
+              RuntimeError{std::string("native builtin 'Std.Parallel.WithOptions' threw: ") + ex.what()});
         }
       }
       case BuiltinDispatchKey::kStd_Parallel_ForEach: {
@@ -1483,9 +1481,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           return tl::unexpected(RuntimeError{"native builtin 'Std.Math.Clamp' argument unpack failed"});
         }
         try {
-          return std::optional<Value>{fleaux::runtime::num_result(std::clamp(fleaux::runtime::to_double(*value_to_clamp),
-                                                                              fleaux::runtime::to_double(*lower_bound),
-                                                                              fleaux::runtime::to_double(*upper_bound)))};
+          return std::optional<Value>{fleaux::runtime::num_result(
+              std::clamp(fleaux::runtime::to_double(*value_to_clamp), fleaux::runtime::to_double(*lower_bound),
+                         fleaux::runtime::to_double(*upper_bound)))};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -2603,7 +2601,9 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         if (!args) return tl::unexpected(args.error());
         const auto first_elem = (*args)->TryGet(0);
         const auto second_elem = (*args)->TryGet(1);
-        if (!first_elem || !second_elem) { return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Zip' argument unpack failed"}); }
+        if (!first_elem || !second_elem) {
+          return tl::unexpected(RuntimeError{"native builtin 'Std.Tuple.Zip' argument unpack failed"});
+        }
         try {
           const auto& left = fleaux::runtime::as_array(*first_elem);
           const auto& right = fleaux::runtime::as_array(*second_elem);
@@ -2930,9 +2930,8 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           const auto& src = fleaux::runtime::as_array(*seq);
           Value accumulator = *initial;
           for (std::size_t index = 0; index < src.Size(); ++index) {
-            accumulator = fleaux::runtime::invoke_callable_ref(*function_ref,
-                                                               fleaux::runtime::make_tuple(std::move(accumulator),
-                                                                                           *src.TryGet(index)));
+            accumulator = fleaux::runtime::invoke_callable_ref(
+                *function_ref, fleaux::runtime::make_tuple(std::move(accumulator), *src.TryGet(index)));
           }
           return std::optional<Value>{std::move(accumulator)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
@@ -3170,7 +3169,5 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
   }
   return ExecutionResult{0};
 }
-
-
 
 }  // namespace fleaux::vm

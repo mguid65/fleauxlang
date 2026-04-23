@@ -61,8 +61,8 @@ struct ConstantPropagationSelectPass {
 
 class BytecodeOptimizer {
 public:
-  [[nodiscard]] auto optimize(Module& module,
-                              const OptimizerConfig& config = OptimizerConfig{}) const -> OptimizeResult;
+  [[nodiscard]] auto optimize(Module& module, const OptimizerConfig& config = OptimizerConfig{}) const
+      -> OptimizeResult;
 
 private:
   // Always-on passes: low-risk, correctness/simplification only.
@@ -72,4 +72,3 @@ private:
 };
 
 }  // namespace fleaux::bytecode
-

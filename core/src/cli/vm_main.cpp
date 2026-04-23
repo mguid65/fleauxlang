@@ -90,16 +90,14 @@ auto make_cli_error(const std::string& message, const std::optional<std::string>
   return CliError{.message = message, .hint = hint, .span = span};
 }
 
-auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args,
-            const bool optimize, const bool emit_bytecode)
-    -> tl::expected<void, CliError> {
+auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
+            const bool emit_bytecode) -> tl::expected<void, CliError> {
   auto module_result = fleaux::bytecode::load_linked_module(
-      source_file,
-      fleaux::bytecode::ModuleLoadOptions{
-          .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
-                           : fleaux::bytecode::OptimizationMode::kBaseline,
-          .write_bytecode_cache = emit_bytecode,
-      });
+      source_file, fleaux::bytecode::ModuleLoadOptions{
+                       .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
+                                        : fleaux::bytecode::OptimizationMode::kBaseline,
+                       .write_bytecode_cache = emit_bytecode,
+                   });
   if (!module_result) {
     return tl::unexpected(CliError{
         .message = module_result.error().message,
@@ -108,7 +106,6 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
     });
   }
   auto module = std::move(module_result.value());
-
 
   std::vector<std::string> args_storage;
   args_storage.reserve(process_args.size() + 1U);
@@ -160,9 +157,7 @@ void print_module_summary(const fleaux::bytecode::Module& module) {
 
 auto run_inspect(const std::filesystem::path& source_or_bytecode) -> tl::expected<void, CliError> {
   std::filesystem::path bytecode_path = source_or_bytecode;
-  if (bytecode_path.extension() != ".bc") {
-    bytecode_path += ".bc";
-  }
+  if (bytecode_path.extension() != ".bc") { bytecode_path += ".bc"; }
 
   std::ifstream in(bytecode_path, std::ios::binary);
   if (!in) {
@@ -309,8 +304,8 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 }
 
 auto run_engine_for_source(const VmEngine engine, const std::filesystem::path& source,
-                           const std::vector<std::string>& process_args, const bool optimize,
-                           const bool emit_bytecode) -> int {
+                           const std::vector<std::string>& process_args, const bool optimize, const bool emit_bytecode)
+    -> int {
   if (engine == VmEngine::kInterpreter) {
     return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
   }
@@ -358,8 +353,8 @@ auto main(int argc, char** argv) -> int {
       std::cout << "[interpreter] skipped run (--no-run): <repl>\n";
       return 0;
     }
-    const fleaux::cli::ReplDriver repl_driver;
-      return repl_driver.run(process_args, !no_color);
+    constexpr fleaux::cli::ReplDriver repl_driver;
+    return repl_driver.run(process_args, !no_color);
   }
 
   if (no_run) {
@@ -370,4 +365,3 @@ auto main(int argc, char** argv) -> int {
 
   return run_engine_for_source(engine, *source_path, process_args, optimize, emit_bytecode);
 }
-

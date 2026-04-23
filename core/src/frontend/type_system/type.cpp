@@ -125,9 +125,8 @@ auto normalize_type(Type type) -> Type {
   std::vector<Type> normalized_members;
   for (auto& member : type.union_members) { push_union_member(normalized_members, normalize_type(std::move(member))); }
 
-  std::ranges::sort(normalized_members, [](const Type& lhs, const Type& rhs) {
-    return type_sort_key(lhs) < type_sort_key(rhs);
-  });
+  std::ranges::sort(normalized_members,
+                    [](const Type& lhs, const Type& rhs) -> bool { return type_sort_key(lhs) < type_sort_key(rhs); });
 
   std::vector<Type> deduped;
   std::string previous_key;
@@ -150,16 +149,12 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
 
     if (!type.alternative_types.empty()) {
       out.union_members.reserve(type.alternative_types.size());
-      for (const auto& alt : type.alternative_types) {
-        out.union_members.push_back(from_ir_type(alt));
-      }
+      for (const auto& alt : type.alternative_types) { out.union_members.push_back(from_ir_type(alt)); }
       return normalize_type(std::move(out));
     }
 
     out.union_members.reserve(type.alternatives.size());
-    for (const auto& alt_name : type.alternatives) {
-      out.union_members.push_back(from_name(alt_name));
-    }
+    for (const auto& alt_name : type.alternatives) { out.union_members.push_back(from_name(alt_name)); }
     return normalize_type(std::move(out));
   }
 
@@ -168,9 +163,7 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
     out.kind = TypeKind::kTuple;
     out.variadic = type.variadic;
     out.items.reserve(type.tuple_items.size());
-    for (const auto& item : type.tuple_items) {
-      out.items.push_back(from_ir_type(item));
-    }
+    for (const auto& item : type.tuple_items) { out.items.push_back(from_ir_type(item)); }
     return normalize_type(std::move(out));
   }
 
@@ -190,9 +183,7 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
     out.kind = TypeKind::kApplied;
     out.applied_name = type.name;
     out.applied_args.reserve(type.type_args.size());
-    for (const auto& arg : type.type_args) {
-      out.applied_args.push_back(from_ir_type(arg));
-    }
+    for (const auto& arg : type.type_args) { out.applied_args.push_back(from_ir_type(arg)); }
     return normalize_type(std::move(out));
   }
 
@@ -219,28 +210,29 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (expected.kind == TypeKind::kUnion && actual.kind == TypeKind::kUnion) {
     if (expected.union_members.empty() || actual.union_members.empty()) { return false; }
     return std::ranges::all_of(actual.union_members, [&](const Type& actual_member) -> bool {
-      return std::ranges::any_of(expected.union_members,
-                         [&](const Type& expected_member) -> bool { return is_consistent(expected_member, actual_member); });
+      return std::ranges::any_of(expected.union_members, [&](const Type& expected_member) -> bool {
+        return is_consistent(expected_member, actual_member);
+      });
     });
   }
 
   if (expected.kind == TypeKind::kUnion) {
     if (expected.union_members.empty()) { return false; }
     return std::ranges::any_of(expected.union_members,
-                       [&](const Type& member) -> bool { return is_consistent(member, actual); });
+                               [&](const Type& member) -> bool { return is_consistent(member, actual); });
   }
 
   if (actual.kind == TypeKind::kUnion) {
     if (actual.union_members.empty()) { return false; }
     return std::ranges::all_of(actual.union_members,
-                       [&](const Type& member) -> bool { return is_consistent(expected, member); });
+                               [&](const Type& member) -> bool { return is_consistent(expected, member); });
   }
 
   if (expected.kind == TypeKind::kTuple) {
     if (actual.kind != TypeKind::kTuple) { return false; }
 
-    const auto variadic_it = std::ranges::find_if(expected.items,
-                                          [](const Type& item) -> bool { return item.variadic; });
+    const auto variadic_it =
+        std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
     if (variadic_it != expected.items.end()) {
       const auto variadic_index = static_cast<std::size_t>(std::distance(expected.items.begin(), variadic_it));
       if (variadic_index + 1U != expected.items.size()) { return false; }
@@ -285,9 +277,7 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (expected.kind == TypeKind::kFunction) {
     if (actual.kind != TypeKind::kFunction) { return false; }
 
-    if (!expected.function_return.has_value() || !actual.function_return.has_value()) {
-      return true;
-    }
+    if (!expected.function_return.has_value() || !actual.function_return.has_value()) { return true; }
 
     if (expected.function_params.size() != actual.function_params.size()) { return false; }
 
@@ -307,5 +297,3 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
 }
 
 }  // namespace fleaux::frontend::type_system
-
-

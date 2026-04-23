@@ -34,7 +34,7 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
             }
             return out;
           },
-          [&](ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
+          [&](const ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
             if (!name_ref.qualifier.has_value()) {
               if (const auto it = locals.find(name_ref.name); it != locals.end()) { return it->second; }
             }
@@ -42,11 +42,12 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
             if (const auto* overloads = index.resolve_name(name_ref.qualifier, name_ref.name); overloads != nullptr) {
               const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
               if (overloads->size() > 1U) {
-                return tl::unexpected(make_error(
-                    "Ambiguous overloaded function reference.",
-                    std::format("{} has multiple overloads. Use it in direct call position or wrap the desired overload in an explicit closure. Candidates: {}.",
-                                full_name, overload_candidate_list(full_name, *overloads)),
-                    name_ref.span));
+                return tl::unexpected(
+                    make_error("Ambiguous overloaded function reference.",
+                               std::format("{} has multiple overloads. Use it in direct call position or wrap the "
+                                           "desired overload in an explicit closure. Candidates: {}.",
+                                           full_name, overload_candidate_list(full_name, *overloads)),
+                               name_ref.span));
               }
 
               const auto& sig = overloads->front();
@@ -56,9 +57,11 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
 
             if (name_ref.qualifier.has_value()) {
               if (is_symbolic_qualifier(name_ref.qualifier)) { return Type{.kind = TypeKind::kAny}; }
-              if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) { return Type{.kind = TypeKind::kAny}; }
-              return tl::unexpected(
-                  make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
+              if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) {
+                return Type{.kind = TypeKind::kAny};
+              }
+              return tl::unexpected(make_unresolved_symbol_error(
+                  qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
             }
             if (index.has_unqualified_symbol(name_ref.name)) { return Type{.kind = TypeKind::kAny}; }
             return tl::unexpected(make_unresolved_symbol_error(name_ref.name, name_ref.span));
@@ -97,6 +100,3 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
 }
 
 }  // namespace fleaux::frontend::type_system::detail
-
-
-

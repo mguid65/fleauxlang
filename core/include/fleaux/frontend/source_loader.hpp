@@ -47,9 +47,7 @@ template <typename ErrorT, typename ErrorFactory>
                                     ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
   constexpr parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_name);
-  if (!parsed) {
-    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
-  }
+  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
 
   constexpr analysis::Analyzer analyzer;
   const auto analyzed = analyzer.analyze(parsed.value());
@@ -65,9 +63,7 @@ template <typename ErrorT, typename ErrorFactory>
                                             ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
   constexpr parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_name);
-  if (!parsed) {
-    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
-  }
+  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
 
   constexpr analysis::Analyzer analyzer;
   const auto lowered = analyzer.lower_only(parsed.value());
@@ -79,26 +75,26 @@ template <typename ErrorT, typename ErrorFactory>
 }
 
 template <typename ErrorT, typename ErrorFactory>
-[[nodiscard]] auto parse_file_to_ir(const std::filesystem::path& source_file,
-                                    ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
+[[nodiscard]] auto parse_file_to_ir(const std::filesystem::path& source_file, ErrorFactory&& make_error)
+    -> tl::expected<ir::IRProgram, ErrorT> {
   const auto source_text = read_text_file(source_file);
   if (source_text.empty()) {
-    return tl::unexpected(
-        make_error("Failed to read source file.", std::optional<std::string>{"Check the file path and ensure it is not empty."},
-                   std::nullopt));
+    return tl::unexpected(make_error("Failed to read source file.",
+                                     std::optional<std::string>{"Check the file path and ensure it is not empty."},
+                                     std::nullopt));
   }
 
   return parse_text_to_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
 }
 
 template <typename ErrorT, typename ErrorFactory>
-[[nodiscard]] auto parse_file_to_lowered_ir(const std::filesystem::path& source_file,
-                                            ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
+[[nodiscard]] auto parse_file_to_lowered_ir(const std::filesystem::path& source_file, ErrorFactory&& make_error)
+    -> tl::expected<ir::IRProgram, ErrorT> {
   const auto source_text = read_text_file(source_file);
   if (source_text.empty()) {
-    return tl::unexpected(
-        make_error("Failed to read source file.", std::optional<std::string>{"Check the file path and ensure it is not empty."},
-                   std::nullopt));
+    return tl::unexpected(make_error("Failed to read source file.",
+                                     std::optional<std::string>{"Check the file path and ensure it is not empty."},
+                                     std::nullopt));
   }
 
   return parse_text_to_lowered_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
@@ -125,7 +121,8 @@ template <typename ErrorT, typename ErrorFactory>
     if (cache.contains(key)) { return cache.at(key); }
 
     if (in_progress.contains(key)) {
-      return tl::unexpected(make_error(std::string{cycle_message}, cycle_hint, std::optional<diag::SourceSpan>{std::nullopt}));
+      return tl::unexpected(
+          make_error(std::string{cycle_message}, cycle_hint, std::optional<diag::SourceSpan>{std::nullopt}));
     }
 
     in_progress.insert(key);
@@ -178,5 +175,3 @@ template <typename ErrorT, typename ErrorFactory>
 }
 
 }  // namespace fleaux::frontend::source_loader
-
-

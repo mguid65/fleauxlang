@@ -50,7 +50,6 @@ enum class Opcode {
   // operand = index into Module::closures.
   kMakeClosureRef,
 
-
   // Unconditional jump:
   // Set ip to the absolute instruction index given by operand (within the
   // current instruction list — top-level or function body).

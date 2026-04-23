@@ -14,4 +14,3 @@ namespace fleaux::frontend::type_system {
                                              std::string& error_message) -> bool;
 
 }  // namespace fleaux::frontend::type_system
-
