@@ -44,6 +44,19 @@ inline auto normalize_runtime_error_message(std::string message) -> std::string 
   return message;
 }
 
+class RuntimePayloadError final : public std::exception {
+public:
+  RuntimePayloadError(Value payload, std::string message) : payload_(std::move(payload)), message_(std::move(message)) {}
+
+  [[nodiscard]] auto payload() const -> const Value& { return payload_; }
+
+  [[nodiscard]] auto what() const noexcept -> const char* override { return message_.c_str(); }
+
+private:
+  Value payload_;
+  std::string message_;
+};
+
 struct Wrap {
   // arg = any Value  ->  [arg]
   auto operator()(Value value) const -> Value { return make_tuple(std::move(value)); }
@@ -756,6 +769,8 @@ private:
       Value result;
       try {
         result = ResultOk{}(make_tuple(job.callable(std::move(job.arg))));
+      } catch (const RuntimePayloadError& ex) {
+        result = ResultErr{}(ex.payload());
       } catch (const std::exception& ex) {
         result = ResultErr{}(make_tuple(make_string(normalize_runtime_error_message(ex.what()))));
       }
@@ -1028,7 +1043,8 @@ struct ParallelWithOptions {
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 3, "Parallel.WithOptions");
     if (!args.TryGet(2)->HasObject()) {
-      return ResultErr{}(make_tuple(make_string("Parallel.WithOptions: options must be a Dict")));
+      return ResultErr{}(
+          make_tuple(make_int(static_cast<Int>(0)), make_string("Parallel.WithOptions: options must be a Dict")));
     }
 
     const auto& items = as_array(*args.TryGet(0));
@@ -1044,7 +1060,8 @@ struct ParallelWithOptions {
 
       return run_parallel_map_pooled(items, function_ref, max_in_flight);
     } catch (const std::exception& ex) {
-      return ResultErr{}(make_tuple(make_string(normalize_runtime_error_message(ex.what()))));
+      return ResultErr{}(
+          make_tuple(make_int(static_cast<Int>(0)), make_string(normalize_runtime_error_message(ex.what()))));
     }
   }
 };
@@ -1183,24 +1200,13 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
           std::size_t idx = base_idx;
           for (std::size_t i = 0; i < items_arr.Size(); ++i, ++idx) {
             Value step_arg = make_tuple(local_acc, *items_arr.TryGet(i));
-            Value step_result = fn(std::move(step_arg));
-            if (const auto& res_arr = step_result.TryGetArray(); res_arr && res_arr->Size() >= 1) {
-              if (const auto& ok_tag = res_arr->TryGet(0)->TryGetBool(); ok_tag && *ok_tag) {
-                local_acc = res_arr->Size() >= 2 ? *res_arr->TryGet(1) : Value{Array{}};
-                if (local_acc.HasArray() && as_array(local_acc).Size() == 1) {
-                  local_acc = *as_array(local_acc).TryGet(0);
-                }
-                continue;
-              }
-              // Propagate error by throwing so the worker stores a Result.Err.
-              const auto payload = res_arr->Size() >= 2 ? *res_arr->TryGet(1) : make_string("unknown error");
-              const auto msg = payload.HasArray() && as_array(payload).Size() == 1
-                                   ? to_string(*as_array(payload).TryGet(0))
-                                   : to_string(payload);
-              throw std::runtime_error{msg};
+            try {
+              local_acc = fn(std::move(step_arg));
+            } catch (const std::exception& ex) {
+              const auto message = normalize_runtime_error_message(ex.what());
+              throw RuntimePayloadError{
+                  make_tuple(make_int(static_cast<Int>(idx)), make_string(message)), std::move(message)};
             }
-            // fn returned a plain value - treat as the new accumulator.
-            local_acc = std::move(step_result);
           }
           // Return plain local_acc; the worker wraps it in ResultOk.
           return local_acc;

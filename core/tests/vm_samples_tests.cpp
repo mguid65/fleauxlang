@@ -1193,6 +1193,84 @@ TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][sam
   REQUIRE_FALSE(analyzed.has_value());
 }
 
+TEST_CASE("Std.Parallel.WithOptions preflight errors stay typed in interpreter and VM", "[vm][samples][parallel]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_with_options_error";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "parallel_with_options_error.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let Identity(x: Float64): Float64 = x;\n"
+           "let BuildBadOptions(): Any =\n"
+           "    () -> Std.Dict.Create\n"
+           "    -> (_, \"max_workers\", 0) -> Std.Dict.Set\n"
+           ";\n"
+           "((1.0, 2.0), Identity, () -> BuildBadOptions) -> Std.Parallel.WithOptions -> Std.Result.UnwrapErr -> "
+           "Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  StdoutCapture interpreter_capture;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+  REQUIRE(interpreter_capture.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(source_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
+}
+
+TEST_CASE("Std.Parallel.Reduce step failures stay typed in interpreter and VM", "[vm][samples][parallel]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_reduce_error";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "parallel_reduce_error.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let AddOrFail(acc: Float64, x: Float64): Float64 =\n"
+           "  (x,\n"
+           "   (4.0, (): Float64 = (\"reduce-boom\") -> Std.Result.Err -> Std.Result.Unwrap),\n"
+           "   (_, (): Float64 = (acc, x) -> Std.Add))\n"
+           "  -> Std.Match\n"
+           ";\n"
+           "((1.0, 2.0, 3.0, 4.0), 0.0, AddOrFail) -> Std.Parallel.Reduce -> Std.Result.UnwrapErr -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  StdoutCapture interpreter_capture;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+  REQUIRE(interpreter_capture.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(source_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
+}
+
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \
   TEST_CASE("VM sample: " sample_file_literal, "[vm][samples]") { run_sample_in_vm_and_assert(sample_file_literal); }
 
