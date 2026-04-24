@@ -12,6 +12,7 @@ This repository contains:
 ## Documentation
 
 - Developer feature routing map: `docs/developer_feature_map.md`
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
 
 ## Basic language usage
 
@@ -218,4 +219,3 @@ python3 run_samples.py --mode vm --sample 25_fleaux_parser.fleaux
 - `tl::expected` for lightweight `expected` support in the C++ implementation.
 - `PCRE2` for regex support in the runtime and tooling.
 - `Catch2` for the native test suite.
-
