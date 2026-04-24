@@ -1177,7 +1177,6 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       {"Std.Printf", BuiltinDispatchKey::kStd_Printf},
       {"Std.GetArgs", BuiltinDispatchKey::kStd_GetArgs},
       {"Std.Type", BuiltinDispatchKey::kStd_Type},
-      {"Std.TypeOf", BuiltinDispatchKey::kStd_Type},
       {"Std.Input", BuiltinDispatchKey::kStd_Input},
       {"Std.Exit", BuiltinDispatchKey::kStd_Exit},
       {"Std.Tuple.Map", BuiltinDispatchKey::kStd_Tuple_Map},

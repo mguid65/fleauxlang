@@ -26,6 +26,23 @@ TEST_CASE("Type checker infers builtin generic return type at call sites", "[typ
   REQUIRE(lowered.has_value());
 }
 
+TEST_CASE("Type checker rejects removed Std.TypeOf alias", "[typecheck][builtins]") {
+  const std::string src =
+      "import Std;\n"
+      "(\"hi\") -> Std.TypeOf;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_removed_std_typeof.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Unresolved symbol") != std::string::npos);
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("Std.TypeOf") != std::string::npos);
+}
+
 TEST_CASE("Type checker infers user generic return type at call sites", "[typecheck][generics][stage_g3a]") {
   const std::string src =
       "let Identity<T>(x: T): T = x;\n"
