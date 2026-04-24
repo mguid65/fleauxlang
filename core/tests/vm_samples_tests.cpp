@@ -14,6 +14,7 @@
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 #include "fleaux/vm/interpreter.hpp"
@@ -206,6 +207,58 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
   REQUIRE_FALSE(analyzed.has_value());
 }
 
+TEST_CASE("Import unresolved diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_unresolved_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import missing_dep;\n"
+           "let Main(x: Float64): Float64 = x;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message.find("import-unresolved:") != std::string::npos);
+  REQUIRE(interpreter_result.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(source_path);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("import-unresolved:") != std::string::npos);
+  REQUIRE(vm_load_result.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
+}
+
+TEST_CASE("Import cycle diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_cycle_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto module_a = temp_dir / "a.fleaux";
+  const auto module_b = temp_dir / "b.fleaux";
+  {
+    std::ofstream out(module_a);
+    out << "import b;\n"
+           "let A(x: Float64): Float64 = x;\n";
+  }
+  {
+    std::ofstream out(module_b);
+    out << "import a;\n"
+           "let B(x: Float64): Float64 = x;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(module_a);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message.find("import-cycle:") != std::string::npos);
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(module_a);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("import-cycle:") != std::string::npos);
+}
+
 TEST_CASE("Interpreter run_file reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
   fleaux::runtime::reset_callable_registry();
   REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
@@ -243,6 +296,49 @@ TEST_CASE("InterpreterSession run_snippet reclaims transient callable refs acros
     REQUIRE(result.has_value());
     REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
   }
+}
+
+TEST_CASE("InterpreterSession preserves typed lets across snippets", "[vm][samples][repl][type]") {
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  const auto define_result =
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n");
+  REQUIRE(define_result.has_value());
+
+  const auto use_result = session.run_snippet("import Std;\n2 -> AddOne -> Std.Println;\n");
+  if (!use_result.has_value()) { INFO("repl typed let lookup error: " << use_result.error().message); }
+  REQUIRE(use_result.has_value());
+}
+
+TEST_CASE("InterpreterSession type-checks later snippets against prior lets", "[vm][samples][repl][type]") {
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  const auto define_result =
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n");
+  REQUIRE(define_result.has_value());
+
+  const auto mismatch_result = session.run_snippet("\"oops\" -> AddOne;\n");
+  REQUIRE_FALSE(mismatch_result.has_value());
+  REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
+  REQUIRE(mismatch_result.error().hint.has_value());
+  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
+}
+
+TEST_CASE("InterpreterSession typed let redefinition replaces prior signature", "[vm][samples][repl][type]") {
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto session = interpreter.create_session({});
+
+  REQUIRE(session.run_snippet("import Std;\nlet Convert(x: Float64): Float64 = (x, 1) -> Std.Add;\n").has_value());
+  REQUIRE(session.run_snippet("let Convert(x: String): String = x;\n").has_value());
+
+  const auto string_ok = session.run_snippet("\"text\" -> Convert;\n");
+  REQUIRE(string_ok.has_value());
+
+  const auto stale_signature = session.run_snippet("1 -> Convert;\n");
+  REQUIRE_FALSE(stale_signature.has_value());
+  REQUIRE(stale_signature.error().message == "Type mismatch in call target arguments.");
 }
 
 TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM", "[vm][samples][lifetime]") {

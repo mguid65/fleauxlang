@@ -8,12 +8,13 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
-#include "fleaux/frontend/analysis.hpp"
 #include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/source_loader.hpp"
+#include "fleaux/frontend/type_check.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
 #include "builtin_map.hpp"
@@ -34,6 +35,7 @@ using fleaux::runtime::Value;
 
 auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
                 const std::optional<SourceSpan>& span = std::nullopt) -> InterpretError;
+auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError>;
 
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return frontend::source_loader::symbol_key(qualifier, name);
@@ -175,9 +177,32 @@ auto resolve_std_callable_or_throw(const std::string& key, const std::optional<S
   return it->second;
 }
 
-auto parse_and_analyze_text(const std::string& source_text, const std::string& source_name)
+auto parse_and_analyze_repl_text(const std::string& source_text, const std::string& source_name,
+                                 const std::vector<frontend::ir::IRLet>& prior_session_lets)
     -> tl::expected<IRProgram, InterpretError> {
-  return frontend::source_loader::parse_text_to_ir<InterpretError>(source_text, source_name, make_error);
+  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<InterpretError>(source_text, source_name, make_error);
+  if (!lowered) { return tl::unexpected(lowered.error()); }
+
+  if (auto imports_ok = ensure_repl_imports_supported(*lowered); !imports_ok) {
+    return tl::unexpected(imports_ok.error());
+  }
+
+  std::unordered_set<std::string> replaced_keys;
+  replaced_keys.reserve(lowered->lets.size());
+  for (const auto& let : lowered->lets) { replaced_keys.insert(let_internal_key(let)); }
+
+  std::vector<frontend::ir::IRLet> imported_typed_lets;
+  imported_typed_lets.reserve(prior_session_lets.size());
+  for (const auto& prior_let : prior_session_lets) {
+    if (replaced_keys.contains(let_internal_key(prior_let))) { continue; }
+    imported_typed_lets.push_back(prior_let);
+  }
+
+  const std::unordered_set<std::string> imported_symbols;
+  const auto analyzed = frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
+  if (!analyzed) { return tl::unexpected(make_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span)); }
+
+  return analyzed.value();
 }
 
 auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError> {
@@ -191,7 +216,7 @@ auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<voi
 
 auto load_ir_program(const std::filesystem::path& source_file) -> tl::expected<IRProgram, InterpretError> {
   return frontend::source_loader::load_ir_program<InterpretError>(
-      source_file, make_error, "Cyclic import detected while executing in VM mode.",
+      source_file, make_error, "import-cycle: Import cycle detected.",
       "Break the cycle by moving shared definitions into a third module.");
 }
 
@@ -539,12 +564,9 @@ InterpreterSession::InterpreterSession(const std::vector<std::string>& process_a
     : impl_(std::make_shared<Impl>(process_args)) {}
 
 auto InterpreterSession::run_snippet(const std::string& snippet_text) const -> InterpretResult {
-  auto analyzed = parse_and_analyze_text(snippet_text, "<repl>");
+  auto analyzed = parse_and_analyze_repl_text(snippet_text, "<repl>", impl_->state->program.lets);
   if (!analyzed) { return tl::unexpected(analyzed.error()); }
 
-  if (auto imports_ok = ensure_repl_imports_supported(analyzed.value()); !imports_ok) {
-    return tl::unexpected(imports_ok.error());
-  }
 
   return execute_program_in_state(impl_->state, analyzed.value());
 }

@@ -18,6 +18,9 @@ enum class InputKey {
   kArrowRight,
   kArrowUp,
   kArrowDown,
+  kTokenLeft,
+  kTokenRight,
+  kTokenBackspace,
   kHome,
   kEnd,
   kCtrlC,
@@ -103,5 +106,9 @@ struct InteractiveReadResult {
 
 [[nodiscard]] auto stdin_is_interactive() -> bool;
 auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> InteractiveReadResult;
+
+namespace detail {
+[[nodiscard]] auto decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent;
+}  // namespace detail
 
 }  // namespace fleaux::cli

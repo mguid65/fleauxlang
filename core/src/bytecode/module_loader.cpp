@@ -7,6 +7,7 @@
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
@@ -16,10 +17,7 @@ namespace {
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
-struct ResolvedModulePaths {
-  std::optional<std::filesystem::path> source;
-  std::optional<std::filesystem::path> bytecode;
-};
+using ResolvedModulePaths = fleaux::frontend::import_resolution::ResolvedModulePaths;
 
 struct LoaderState {
   std::unordered_map<std::string, Module> unlinked_cache;
@@ -52,37 +50,6 @@ auto hash_text(const std::string& text) -> std::uint64_t {
   return hash;
 }
 
-auto path_exists(const std::filesystem::path& path) -> bool { return !path.empty() && std::filesystem::exists(path); }
-
-auto canonical_if_exists(const std::filesystem::path& path) -> std::optional<std::filesystem::path> {
-  if (!path_exists(path)) { return std::nullopt; }
-  return std::filesystem::weakly_canonical(path);
-}
-
-auto normalized_path(const std::filesystem::path& path) -> std::filesystem::path {
-  return std::filesystem::absolute(path).lexically_normal();
-}
-
-auto is_symbolic_import(const std::string& module_name) -> bool {
-  return module_name == "Std" || module_name == "StdBuiltins";
-}
-
-auto bytecode_path_for_source(const std::filesystem::path& source_path) -> std::filesystem::path {
-  auto bytecode_path = source_path;
-  bytecode_path += ".bc";
-  return bytecode_path;
-}
-
-auto source_path_for_bytecode(const std::filesystem::path& bytecode_path) -> std::filesystem::path {
-  return bytecode_path.parent_path() / bytecode_path.stem();
-}
-
-auto module_key_for(const ResolvedModulePaths& paths) -> std::string {
-  if (paths.source.has_value()) { return paths.source->string(); }
-  if (paths.bytecode.has_value()) { return paths.bytecode->string(); }
-  return {};
-}
-
 auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
@@ -97,41 +64,12 @@ auto export_identity_key(const ExportedSymbol& symbol) -> std::string {
 }
 
 auto resolve_entry_paths(const std::filesystem::path& entry_path) -> ResolvedModulePaths {
-  ResolvedModulePaths paths;
-  if (entry_path.extension() == ".bc") {
-    paths.bytecode = canonical_if_exists(entry_path);
-    const auto source_candidate = source_path_for_bytecode(entry_path);
-    paths.source = canonical_if_exists(source_candidate);
-    if (!paths.bytecode.has_value() && path_exists(entry_path)) {
-      paths.bytecode = std::filesystem::weakly_canonical(entry_path);
-    }
-    return paths;
-  }
-
-  paths.source = canonical_if_exists(entry_path);
-  const auto bytecode_candidate = bytecode_path_for_source(entry_path);
-  if (paths.source.has_value()) {
-    paths.bytecode = canonical_if_exists(bytecode_candidate).value_or(normalized_path(bytecode_candidate));
-  } else {
-    paths.bytecode = canonical_if_exists(bytecode_candidate);
-  }
-  return paths;
+  return fleaux::frontend::import_resolution::resolve_entry_paths(entry_path);
 }
 
 auto resolve_import_paths(const std::filesystem::path& current_module_dir, const std::string& module_name)
     -> ResolvedModulePaths {
-  ResolvedModulePaths paths;
-  if (is_symbolic_import(module_name)) { return paths; }
-
-  const auto source_candidate = current_module_dir / (module_name + ".fleaux");
-  const auto bytecode_candidate = current_module_dir / (module_name + ".fleaux.bc");
-  paths.source = canonical_if_exists(source_candidate);
-  if (paths.source.has_value()) {
-    paths.bytecode = canonical_if_exists(bytecode_candidate).value_or(normalized_path(bytecode_candidate));
-  } else {
-    paths.bytecode = canonical_if_exists(bytecode_candidate);
-  }
-  return paths;
+  return fleaux::frontend::import_resolution::resolve_import_paths(current_module_dir, module_name);
 }
 
 auto read_binary_file(const std::filesystem::path& file_path)
@@ -275,11 +213,11 @@ auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions&
 
 auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state)
     -> tl::expected<Module, ModuleLoadError> {
-  const std::string key = module_key_for(paths);
+  const std::string key = fleaux::frontend::import_resolution::module_key_for(paths);
   if (key.empty()) { return tl::unexpected(make_error("Unable to resolve module path.")); }
   if (const auto it = state.unlinked_cache.find(key); it != state.unlinked_cache.end()) { return it->second; }
   if (!state.unlinked_in_progress.insert(key).second) {
-    return tl::unexpected(make_error("Cyclic bytecode import detected."));
+    return tl::unexpected(make_error("import-cycle: Import cycle detected involving '" + key + "'"));
   }
 
   const auto finish = [&](tl::expected<Module, ModuleLoadError> result) -> tl::expected<Module, ModuleLoadError> {
@@ -327,10 +265,12 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
   imported_modules.reserve(ir_program->imports.size());
   imported_module_paths.reserve(ir_program->imports.size());
   for (const auto& [module_name, _span] : ir_program->imports) {
-    if (is_symbolic_import(module_name)) { continue; }
+    if (fleaux::frontend::import_resolution::is_symbolic_import(module_name)) { continue; }
     const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name);
     if (!import_paths.source.has_value() && !import_paths.bytecode.has_value()) {
-      return finish(tl::unexpected(make_error("Failed to resolve imported module: " + module_name)));
+      return finish(tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
+                                             "'. Checked relative to '" + paths.source->string() +
+                                             "'. Verify module name and file location.")));
     }
     auto imported_module = load_unlinked_module(import_paths, options, state);
     if (!imported_module) { return finish(tl::unexpected(imported_module.error())); }
@@ -430,11 +370,11 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
 
 auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state,
                       LinkContext& context) -> tl::expected<void, ModuleLoadError> {
-  const std::string key = module_key_for(paths);
+  const std::string key = fleaux::frontend::import_resolution::module_key_for(paths);
   if (key.empty()) { return tl::unexpected(make_error("Unable to resolve module path.")); }
   if (context.merged_module_keys.contains(key)) { return {}; }
   if (!context.in_progress.insert(key).second) {
-    return tl::unexpected(make_error("Cyclic bytecode import detected during linking."));
+    return tl::unexpected(make_error("import-cycle: Import cycle detected involving '" + key + "'"));
   }
 
   const auto finish = [&](tl::expected<void, ModuleLoadError> result) -> tl::expected<void, ModuleLoadError> {
@@ -451,7 +391,9 @@ auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions&
     if (is_symbolic) { continue; }
     const auto dependency_paths = resolve_import_paths(current_dir, module_name);
     if (!dependency_paths.source.has_value() && !dependency_paths.bytecode.has_value()) {
-      return finish(tl::unexpected(make_error("Failed to resolve dependency during linking: " + module_name)));
+      return finish(tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
+                                             "'. Checked relative to '" + current_dir.string() +
+                                             "'. Verify module name and file location.")));
     }
 
     if (auto result = link_module_into(dependency_paths, options, state, context); !result) {
@@ -487,7 +429,7 @@ auto load_linked_module(const std::filesystem::path& entry_path, const ModuleLoa
   if (!entry_unlinked) { return tl::unexpected(entry_unlinked.error()); }
 
   LinkContext context;
-  context.entry_key = module_key_for(paths);
+  context.entry_key = fleaux::frontend::import_resolution::module_key_for(paths);
   if (auto result = link_module_into(paths, options, state, context); !result) {
     return tl::unexpected(result.error());
   }
