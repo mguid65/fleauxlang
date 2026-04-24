@@ -390,11 +390,13 @@ TEST_CASE("Type checker rejects Std.Tuple.Map callable with mismatched input typ
 }
 
 TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations", "[typecheck][stage3e][generics]") {
-  SECTION("Std.Parallel.Map infers Result(Tuple(U...), Any) output") {
+  SECTION("Std.Parallel.Map infers Result(Tuple(U...), Tuple(Int64, String)) output") {
     const std::string src =
-        "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U): Result(Tuple(U...), Any) :: __builtin__;\n"
+        "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U): Result(Tuple(U...), Tuple(Int64, String)) "
+        ":: __builtin__;\n"
         "let ToInt(x: Float64): Int64 = 1;\n"
-        "let NeedsMapped(r: Result(Tuple(Int64...), Any)): Result(Tuple(Int64...), Any) = r;\n"
+        "let NeedsMapped(r: Result(Tuple(Int64...), Tuple(Int64, String))): Result(Tuple(Int64...), Tuple(Int64, "
+        "String)) = r;\n"
         "((1.0, 2.0), ToInt) -> Std.Parallel.Map -> NeedsMapped;\n";
 
     const fleaux::frontend::parse::Parser parser;
@@ -408,7 +410,8 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
 
   SECTION("Std.Parallel.Map rejects callable input mismatch") {
     const std::string src =
-        "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U): Result(Tuple(U...), Any) :: __builtin__;\n"
+        "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U): Result(Tuple(U...), Tuple(Int64, String)) "
+        ":: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
         "((1.0, 2.0), NeedsInt) -> Std.Parallel.Map;\n";
 
@@ -424,14 +427,15 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
-  SECTION("Std.Parallel.WithOptions infers Result(Tuple(U...), Any) output") {
+  SECTION("Std.Parallel.WithOptions infers Result(Tuple(U...), Tuple(Int64, String)) output") {
     const std::string src =
         "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
         "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
-        "Result(Tuple(U...), Any) :: __builtin__;\n"
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
         "let ToInt(x: Float64): Int64 = 1;\n"
-        "let NeedsMapped(r: Result(Tuple(Int64...), Any)): Result(Tuple(Int64...), Any) = r;\n"
+        "let NeedsMapped(r: Result(Tuple(Int64...), Tuple(Int64, String))): Result(Tuple(Int64...), Tuple(Int64, "
+        "String)) = r;\n"
         "let BuildOptions(): Dict(String, Any) = (() -> Std.Dict.Create, \"max_workers\", 2) -> Std.Dict.Set;\n"
         "((1.0, 2.0), ToInt, () -> BuildOptions) -> Std.Parallel.WithOptions -> NeedsMapped;\n";
 
@@ -449,7 +453,7 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
         "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
         "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
-        "Result(Tuple(U...), Any) :: __builtin__;\n"
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
         "let BuildOptions(): Dict(String, Any) = (() -> Std.Dict.Create, \"max_workers\", 2) -> Std.Dict.Set;\n"
         "((1.0, 2.0), NeedsInt, () -> BuildOptions) -> Std.Parallel.WithOptions;\n";
@@ -1893,6 +1897,40 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
     REQUIRE(lowered.has_value());
   }
 
+  SECTION("Std.Task.WithTimeout propagates Result(Any, String)") {
+    const std::string src =
+        "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64): Result(Any, String) :: __builtin__;\n"
+        "let MakeTask(): TaskHandle :: __builtin__;\n"
+        "let NeedsTimeoutResult(r: Result(Any, String)): Result(Any, String) = r;\n"
+        "(() -> MakeTask, 50) -> Std.Task.WithTimeout -> NeedsTimeoutResult;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3r_task_timeout_result_shape.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Task.AwaitAll propagates Result(Tuple(Any...), Tuple(Int64, String))") {
+    const std::string src =
+        "let Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)): Result(Tuple(Any...), Tuple(Int64, String)) :: "
+        "__builtin__;\n"
+        "let MakeTasks(): Tuple(TaskHandle...) :: __builtin__;\n"
+        "let NeedsTasks(r: Result(Tuple(Any...), Tuple(Int64, String))): Result(Tuple(Any...), Tuple(Int64, "
+        "String)) = r;\n"
+        "() -> MakeTasks -> Std.Task.AwaitAll -> NeedsTasks;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3r_task_awaitall_result_shape.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
   SECTION("Std.Task.AwaitAll rejects downstream error-shape mismatch") {
     const std::string src =
         "let Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)): Result(Tuple(Any...), Tuple(Int64, String)) :: "
@@ -2991,8 +3029,8 @@ TEST_CASE("Type checker matrix: Stage-2c typed generic reduce and try checks", "
 
   SECTION("Std.Parallel.Reduce rejects reducer item-type mismatch") {
     const std::string src =
-        "let Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A): Result(A, Any) :: "
-        "__builtin__;\n"
+        "let Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A): Result(A, Tuple(Int64, "
+        "String)) :: __builtin__;\n"
         "let Bad(acc: Float64, item: Int64): Float64 = acc;\n"
         "((\"a\", \"b\"), 0.0, Bad) -> Std.Parallel.Reduce;\n";
     const fleaux::frontend::parse::Parser parser;

@@ -18,6 +18,8 @@
 #include "fleaux/runtime/runtime_support.hpp"
 
 #include "builtin_map.hpp"
+#include "repl_support.hpp"
+#include "std_help_metadata.hpp"
 
 namespace fleaux::vm {
 namespace {
@@ -35,15 +37,10 @@ using fleaux::runtime::Value;
 
 auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
                 const std::optional<SourceSpan>& span = std::nullopt) -> InterpretError;
-auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError>;
 auto ensure_file_entry_supported(const std::filesystem::path& source_file) -> tl::expected<void, InterpretError>;
 
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return frontend::source_loader::symbol_key(qualifier, name);
-}
-
-auto let_internal_key(const frontend::ir::IRLet& let) -> std::string {
-  return let.symbol_key.empty() ? let_key(let.qualifier, let.name) : let.symbol_key;
 }
 
 auto resolved_name_key(const IRNameRef& name_ref) -> std::string {
@@ -51,74 +48,8 @@ auto resolved_name_key(const IRNameRef& name_ref) -> std::string {
   return let_key(name_ref.qualifier, name_ref.name);
 }
 
-auto format_ir_type(const frontend::ir::IRSimpleType& type) -> std::string {
-  const auto append_variadic = [](std::string base, const bool variadic) {
-    if (variadic) { base += "..."; }
-    return base;
-  };
-
-  if (!type.alternatives.empty()) {
-    std::ostringstream out;
-    for (std::size_t idx = 0; idx < type.alternatives.size(); ++idx) {
-      if (idx > 0) { out << " | "; }
-      out << type.alternatives[idx];
-    }
-    return append_variadic(out.str(), type.variadic);
-  }
-
-  return append_variadic(type.name, type.variadic);
-}
-
-auto format_let_signature(const frontend::ir::IRLet& let) -> std::string {
-  std::ostringstream out;
-  out << "let " << let_key(let.qualifier, let.name) << "(";
-  for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
-    if (idx > 0) { out << ", "; }
-    out << let.params[idx].name << ": " << format_ir_type(let.params[idx].type);
-  }
-  out << "): " << format_ir_type(let.return_type);
-  if (let.is_builtin) { out << " :: __builtin__"; }
-  return out.str();
-}
-
-auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
-  fleaux::runtime::register_help_metadata(fleaux::runtime::HelpMetadata{
-      .name = let_key(let.qualifier, let.name),
-      .signature = format_let_signature(let),
-      .doc_lines = let.doc_comments,
-      .is_builtin = let.is_builtin,
-  });
-}
-
-auto find_std_file() -> std::optional<std::filesystem::path> {
-  if (const char* env_path = std::getenv("FLEAUX_STD_PATH"); env_path != nullptr && *env_path != '\0') {
-    const std::filesystem::path candidate(env_path);
-    if (std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
-  }
-
-  std::filesystem::path cursor = std::filesystem::current_path();
-  while (true) {
-    const auto candidate = cursor / "Std.fleaux";
-    if (std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
-    if (cursor == cursor.root_path()) { break; }
-    cursor = cursor.parent_path();
-  }
-
-  return std::nullopt;
-}
-
-auto preload_std_help_metadata() -> void {
-  const auto std_file = find_std_file();
-  if (!std_file.has_value()) { return; }
-
-  auto parsed_std = frontend::source_loader::parse_file_to_ir<InterpretError>(*std_file, make_error);
-  if (!parsed_std) { return; }
-
-  for (const auto& let : parsed_std->lets) {
-    if (!let.qualifier.has_value()) { continue; }
-    if (!(let.qualifier.value() == "Std" || let.qualifier->starts_with("Std."))) { continue; }
-    register_help_for_let(let);
-  }
+auto make_error(const detail::ReplSessionError& error) -> InterpretError {
+  return make_error(error.message, error.hint, error.span);
 }
 
 enum class OperatorDispatchKey {
@@ -178,43 +109,6 @@ auto resolve_std_callable_or_throw(const std::string& key, const std::optional<S
   return it->second;
 }
 
-auto parse_and_analyze_repl_text(const std::string& source_text, const std::string& source_name,
-                                 const std::vector<frontend::ir::IRLet>& prior_session_lets)
-    -> tl::expected<IRProgram, InterpretError> {
-  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<InterpretError>(source_text, source_name, make_error);
-  if (!lowered) { return tl::unexpected(lowered.error()); }
-
-  if (auto imports_ok = ensure_repl_imports_supported(*lowered); !imports_ok) {
-    return tl::unexpected(imports_ok.error());
-  }
-
-  std::unordered_set<std::string> replaced_keys;
-  replaced_keys.reserve(lowered->lets.size());
-  for (const auto& let : lowered->lets) { replaced_keys.insert(let_internal_key(let)); }
-
-  std::vector<frontend::ir::IRLet> imported_typed_lets;
-  imported_typed_lets.reserve(prior_session_lets.size());
-  for (const auto& prior_let : prior_session_lets) {
-    if (replaced_keys.contains(let_internal_key(prior_let))) { continue; }
-    imported_typed_lets.push_back(prior_let);
-  }
-
-  const std::unordered_set<std::string> imported_symbols;
-  const auto analyzed = frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
-  if (!analyzed) { return tl::unexpected(make_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span)); }
-
-  return analyzed.value();
-}
-
-auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError> {
-  for (const auto& [module_name, span] : program.imports) {
-    if (module_name == "Std" || module_name == "StdBuiltins") { continue; }
-    return tl::unexpected(make_error("REPL only supports symbolic imports: Std, StdBuiltins.",
-                                     "Define helper lets inline, or run a file for module imports.", span));
-  }
-  return {};
-}
-
 auto ensure_file_entry_supported(const std::filesystem::path& source_file) -> tl::expected<void, InterpretError> {
   if (source_file.extension() != ".bc") { return {}; }
   return tl::unexpected(make_error(
@@ -224,7 +118,10 @@ auto ensure_file_entry_supported(const std::filesystem::path& source_file) -> tl
 
 auto load_ir_program(const std::filesystem::path& source_file) -> tl::expected<IRProgram, InterpretError> {
   return frontend::source_loader::load_ir_program<InterpretError>(
-      source_file, make_error, "import-cycle: Import cycle detected.",
+      source_file,
+      [](const std::string& message, const std::optional<std::string>& hint,
+         const std::optional<SourceSpan>& span) -> InterpretError { return make_error(message, hint, span); },
+      "import-cycle: Import cycle detected.",
       "Break the cycle by moving shared definitions into a third module.");
 }
 
@@ -239,8 +136,8 @@ struct EvalState {
 
   void register_let(const frontend::ir::IRLet& let, const std::shared_ptr<EvalState>& self) {
     const std::string full_name = let_key(let.qualifier, let.name);
-    const std::string internal_name = let_internal_key(let);
-    register_help_for_let(let);
+    const std::string internal_name = detail::repl_let_internal_key(let);
+    detail::register_help_for_let(let);
 
     if (const auto idx_it = let_indices.find(internal_name); idx_it != let_indices.end()) {
       program.lets[idx_it->second] = let;
@@ -550,10 +447,7 @@ auto execute_program_in_state(const std::shared_ptr<EvalState>& state, const IRP
 }  // namespace
 
 struct InterpreterSession::Impl {
-  explicit Impl(const std::vector<std::string>& process_args) : state(std::make_shared<EvalState>()) {
-    fleaux::runtime::clear_help_metadata_registry();
-    preload_std_help_metadata();
-
+  explicit Impl(const std::vector<std::string>& process_args) : help_scope(), state(std::make_shared<EvalState>()) {
     std::vector<std::string> args_storage;
     args_storage.reserve(process_args.size() + 1U);
     args_storage.emplace_back("<repl>");
@@ -565,6 +459,7 @@ struct InterpreterSession::Impl {
     fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   }
 
+  detail::StdHelpMetadataScope help_scope;
   std::shared_ptr<EvalState> state;
 };
 
@@ -572,8 +467,8 @@ InterpreterSession::InterpreterSession(const std::vector<std::string>& process_a
     : impl_(std::make_shared<Impl>(process_args)) {}
 
 auto InterpreterSession::run_snippet(const std::string& snippet_text) const -> InterpretResult {
-  auto analyzed = parse_and_analyze_repl_text(snippet_text, "<repl>", impl_->state->program.lets);
-  if (!analyzed) { return tl::unexpected(analyzed.error()); }
+  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, "<repl>", impl_->state->program.lets);
+  if (!analyzed) { return tl::unexpected(make_error(analyzed.error())); }
 
 
   return execute_program_in_state(impl_->state, analyzed.value());
@@ -592,8 +487,7 @@ auto Interpreter::run_file(const std::filesystem::path& source_file, const std::
   auto merged_result = load_ir_program(source_file);
   if (!merged_result) { return tl::unexpected(merged_result.error()); }
 
-  fleaux::runtime::clear_help_metadata_registry();
-  preload_std_help_metadata();
+  detail::StdHelpMetadataScope help_scope;
 
   std::vector<std::string> args_storage;
   args_storage.reserve(process_args.size() + 1U);

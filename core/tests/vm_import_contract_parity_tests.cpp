@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -249,6 +250,27 @@ TEST_CASE("InterpreterSession keeps REPL imports symbolic-only", "[vm][imports][
   REQUIRE(std_builtins_result.has_value());
 
   const auto nonsymbolic_result = session.run_snippet("import custom_module;\nlet Local(x: Float64): Float64 = x;\n");
+  REQUIRE_FALSE(nonsymbolic_result.has_value());
+  REQUIRE(nonsymbolic_result.error().message == "REPL only supports symbolic imports: Std, StdBuiltins.");
+  REQUIRE(nonsymbolic_result.error().hint.has_value());
+  REQUIRE(nonsymbolic_result.error().hint->find("run a file for module imports") != std::string::npos);
+}
+
+TEST_CASE("RuntimeSession keeps REPL imports symbolic-only", "[vm][imports][contract][repl]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto std_result = session.run_snippet("import Std;\nlet Id(x: Float64): Float64 = x;\n", output);
+  if (!std_result) { INFO("Std import error: " << std_result.error().message); }
+  REQUIRE(std_result.has_value());
+
+  const auto std_builtins_result =
+      session.run_snippet("import StdBuiltins;\nlet Keep(x: Float64): Float64 = x;\n", output);
+  if (!std_builtins_result) { INFO("StdBuiltins import error: " << std_builtins_result.error().message); }
+  REQUIRE(std_builtins_result.has_value());
+
+  const auto nonsymbolic_result = session.run_snippet("import custom_module;\nlet Local(x: Float64): Float64 = x;\n", output);
   REQUIRE_FALSE(nonsymbolic_result.has_value());
   REQUIRE(nonsymbolic_result.error().message == "REPL only supports symbolic imports: Std, StdBuiltins.");
   REQUIRE(nonsymbolic_result.error().hint.has_value());

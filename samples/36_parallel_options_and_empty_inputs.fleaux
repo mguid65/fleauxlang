@@ -3,7 +3,7 @@ import Std;
 let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
 let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;
 
-let BuildOptions(): Any =
+let BuildOptions(): Dict(String, Any) =
     () -> Std.Dict.Create
     -> (_, "max_workers", 2) -> Std.Dict.Set
 ;
