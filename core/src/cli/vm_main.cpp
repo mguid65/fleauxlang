@@ -28,7 +28,7 @@ struct CliOptions {
   std::vector<std::string> process_args;
   bool no_run = false;
   bool optimize = false;
-  bool emit_bytecode = false;
+  bool write_bytecode_cache = true;
   bool inspect = false;
   bool no_color = false;
   bool repl = false;
@@ -70,7 +70,7 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [--inspect] [--emit-bytecode] "
+  return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [--inspect] [--no-emit-bytecode] "
          "[--no-color] [file.fleaux|file.fleaux.bc] [-- "
          "<arg1> <arg2> ...]";
 }
@@ -85,12 +85,15 @@ void print_help() {
             << "  --repl                 Start interactive interpreter REPL\n"
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
-            << "  --emit-bytecode        Write/refresh .fleaux.bc cache files while loading modules\n"
+            << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
             << "  --inspect              Print header/dependency/export info for a .fleaux.bc module and exit\n"
             << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n"
             << "\n"
             << "Notes:\n"
             << "  - Default mode is vm\n"
+            << "  - VM mode writes/refreshes .fleaux.bc cache files by default\n"
+            << "  - Interpreter file mode requires a .fleaux source entry\n"
+            << "  - .fleaux.bc entry modules are supported in vm mode and --inspect\n"
             << "  - REPL forces interpreter mode\n"
             << "  - REPL imports are symbolic-only: Std, StdBuiltins\n"
             << "  - In REPL, use :help (or :?) to list REPL commands\n"
@@ -101,12 +104,12 @@ void print_help() {
 
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
-            const bool emit_bytecode) -> tl::expected<void, CliError> {
+            const bool write_bytecode_cache) -> tl::expected<void, CliError> {
   auto module_result = fleaux::bytecode::load_linked_module(
       source_file, fleaux::bytecode::ModuleLoadOptions{
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
                                         : fleaux::bytecode::OptimizationMode::kBaseline,
-                       .write_bytecode_cache = emit_bytecode,
+                       .write_bytecode_cache = write_bytecode_cache,
                    });
   if (!module_result) {
     return tl::unexpected(CliError{
@@ -265,8 +268,8 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
       continue;
     }
 
-    if (token == "--emit-bytecode") {
-      options.emit_bytecode = true;
+    if (token == "--no-emit-bytecode") {
+      options.write_bytecode_cache = false;
       continue;
     }
 
@@ -314,13 +317,14 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 }
 
 auto run_engine_for_source(const VmEngine engine, const std::filesystem::path& source,
-                           const std::vector<std::string>& process_args, const bool optimize, const bool emit_bytecode)
+                           const std::vector<std::string>& process_args, const bool optimize,
+                           const bool write_bytecode_cache)
     -> int {
   if (engine == VmEngine::kInterpreter) {
     return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
   }
 
-  if (const auto result = run_vm(source, process_args, optimize, emit_bytecode); !result) {
+  if (const auto result = run_vm(source, process_args, optimize, write_bytecode_cache); !result) {
     return print_diag_and_return("vm-run-vm", result.error());
   }
   return 0;
@@ -337,7 +341,8 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [engine, source_path, process_args, no_run, optimize, emit_bytecode, inspect, no_color, repl, show_help] =
+  const auto& [engine, source_path, process_args, no_run, optimize, write_bytecode_cache, inspect, no_color, repl,
+               show_help] =
       *parsed;
   if (show_help) {
     print_help();
@@ -373,5 +378,5 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  return run_engine_for_source(engine, *source_path, process_args, optimize, emit_bytecode);
+  return run_engine_for_source(engine, *source_path, process_args, optimize, write_bytecode_cache);
 }

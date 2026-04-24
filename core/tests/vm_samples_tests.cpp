@@ -1,9 +1,11 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +30,37 @@ namespace {
 
 using IRProgram = fleaux::frontend::ir::IRProgram;
 
+enum class SampleOutcomeClass {
+  kSuccess,
+  kImportUnresolved,
+  kImportCycle,
+  kTypeMismatch,
+  kUnresolvedSymbol,
+  kOther,
+};
+
+struct SampleExecutionObservation {
+  bool success = false;
+  std::string output;
+  std::optional<std::string> error_text;
+};
+
+class StdoutCapture {
+public:
+  StdoutCapture() : old_buffer_(std::cout.rdbuf(buffer_.rdbuf())) {}
+
+  StdoutCapture(const StdoutCapture&) = delete;
+  auto operator=(const StdoutCapture&) -> StdoutCapture& = delete;
+
+  ~StdoutCapture() { std::cout.rdbuf(old_buffer_); }
+
+  [[nodiscard]] auto str() const -> std::string { return buffer_.str(); }
+
+private:
+  std::ostringstream buffer_;
+  std::streambuf* old_buffer_;
+};
+
 std::filesystem::path repo_root_path() { return std::filesystem::path(FLEAUX_REPO_ROOT); }
 
 std::filesystem::path samples_dir_path() { return repo_root_path() / "samples"; }
@@ -35,6 +68,21 @@ std::filesystem::path samples_dir_path() { return repo_root_path() / "samples"; 
 auto make_load_error(const std::string& message, const std::optional<std::string>& hint,
                      const std::optional<fleaux::frontend::diag::SourceSpan>&) -> std::string {
   return hint.has_value() ? message + " (" + *hint + ")" : message;
+}
+
+auto classify_sample_message(const std::string& text) -> SampleOutcomeClass {
+  if (text.find("import-unresolved:") != std::string::npos) { return SampleOutcomeClass::kImportUnresolved; }
+  if (text.find("import-cycle:") != std::string::npos) { return SampleOutcomeClass::kImportCycle; }
+  if (text.find("Type mismatch in call target arguments") != std::string::npos) {
+    return SampleOutcomeClass::kTypeMismatch;
+  }
+  if (text.find("Unresolved symbol") != std::string::npos) { return SampleOutcomeClass::kUnresolvedSymbol; }
+  return SampleOutcomeClass::kOther;
+}
+
+auto interpret_error_text(const fleaux::vm::InterpretError& error) -> std::string {
+  if (error.hint.has_value()) { return error.message + " (" + *error.hint + ")"; }
+  return error.message;
 }
 
 tl::expected<IRProgram, std::string> load_ir_program(const std::filesystem::path& source_file) {
@@ -104,32 +152,51 @@ void run_sample_parity_and_assert(const std::string_view sample_file) {
   const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
   constexpr fleaux::vm::Interpreter interpreter;
-  const auto interp_result = interpreter.run_file(sample_path, runtime_args);
+  SampleExecutionObservation interpreter_observation;
+  {
+    StdoutCapture capture;
+    const auto interp_result = interpreter.run_file(sample_path, runtime_args);
+    interpreter_observation.success = interp_result.has_value();
+    interpreter_observation.output = capture.str();
+    if (!interp_result.has_value()) { interpreter_observation.error_text = interpret_error_text(interp_result.error()); }
+  }
 
-  std::optional<std::string> bytecode_error;
-  bool bytecode_ok = false;
+  SampleExecutionObservation bytecode_observation;
   if (const auto analyzed = load_ir_program(sample_path); analyzed) {
     constexpr fleaux::bytecode::BytecodeCompiler compiler;
     if (const auto compiled_module = compiler.compile(analyzed.value()); compiled_module) {
+      std::ostringstream output;
       const fleaux::vm::Runtime runtime;
       set_runtime_process_args(sample_path, runtime_args);
-      const auto runtime_result = runtime.execute(compiled_module.value());
-      bytecode_ok = runtime_result.has_value();
-      if (!runtime_result) { bytecode_error = runtime_result.error().message; }
+      const auto runtime_result = runtime.execute(compiled_module.value(), output);
+      bytecode_observation.success = runtime_result.has_value();
+      bytecode_observation.output = output.str();
+      if (!runtime_result) { bytecode_observation.error_text = runtime_result.error().message; }
     } else {
-      bytecode_error = compiled_module.error().message;
+      bytecode_observation.error_text = compiled_module.error().message;
     }
   } else {
-    bytecode_error = analyzed.error();
+    bytecode_observation.error_text = analyzed.error();
   }
 
   INFO("sample file: " << sample_path);
-  INFO("interpreter success: " << interp_result.has_value());
-  INFO("bytecode success: " << bytecode_ok);
-  if (!interp_result.has_value()) { INFO("interpreter error: " << interp_result.error().message); }
-  if (bytecode_error.has_value()) { INFO("bytecode error: " << *bytecode_error); }
+  INFO("interpreter success: " << interpreter_observation.success);
+  INFO("bytecode success: " << bytecode_observation.success);
+  INFO("interpreter output: " << interpreter_observation.output);
+  INFO("bytecode output: " << bytecode_observation.output);
+  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
+  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
 
-  REQUIRE(interp_result.has_value() == bytecode_ok);
+  REQUIRE(interpreter_observation.success == bytecode_observation.success);
+  if (interpreter_observation.success) {
+    REQUIRE(interpreter_observation.output == bytecode_observation.output);
+    return;
+  }
+
+  REQUIRE(interpreter_observation.error_text.has_value());
+  REQUIRE(bytecode_observation.error_text.has_value());
+  REQUIRE(classify_sample_message(*interpreter_observation.error_text) ==
+          classify_sample_message(*bytecode_observation.error_text));
 }
 
 constexpr std::array<std::string_view, 38> kExpectedSamples = {
@@ -205,6 +272,44 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
+}
+
+TEST_CASE("Interpreter file mode rejects bytecode entry files with explicit guidance",
+          "[vm][imports][contract][entry]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_interpreter_entry_policy_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  const auto bytecode_path = temp_dir / "entry.fleaux.bc";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(1, 2) -> Std.Add -> Std.Println;\n";
+  }
+
+  const auto vm_load_from_source = fleaux::bytecode::load_linked_module(source_path);
+  REQUIRE(vm_load_from_source.has_value());
+  REQUIRE(std::filesystem::exists(bytecode_path));
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(bytecode_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message == "Interpreter file mode only accepts .fleaux source entry files.");
+  REQUIRE(interpreter_result.error().hint.has_value());
+  REQUIRE_THAT(*interpreter_result.error().hint,
+               Catch::Matchers::ContainsSubstring("--mode vm for .fleaux.bc modules"));
+
+  const auto vm_load_from_bytecode = fleaux::bytecode::load_linked_module(bytecode_path);
+  if (!vm_load_from_bytecode) { INFO("vm load error: " << vm_load_from_bytecode.error().message); }
+  REQUIRE(vm_load_from_bytecode.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*vm_load_from_bytecode, output);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "3\n");
 }
 
 TEST_CASE("Import unresolved diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {

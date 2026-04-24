@@ -1539,6 +1539,101 @@ TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", 
   }
 }
 
+TEST_CASE("Bytecode module loader reports unresolved import category and diagnostic shape",
+          "[bytecode][serialization][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_import_unresolved_shape";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "entry_unresolved.fleaux";
+  {
+    std::ofstream out(entry_path);
+    out << "import missing_dep;\n"
+           "(1) -> MissingCall;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.starts_with("import-unresolved:"));
+  REQUIRE(loaded.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Verify module name and file location") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader reports import cycle category and diagnostic shape",
+          "[bytecode][serialization][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_import_cycle_shape";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto cycle_a_path = temp_dir / "cycle_a.fleaux";
+  const auto cycle_b_path = temp_dir / "cycle_b.fleaux";
+
+  {
+    std::ofstream out(cycle_a_path);
+    out << "import cycle_b;\n"
+           "let A(x: Float64): Float64 = x;\n";
+  }
+
+  {
+    std::ofstream out(cycle_b_path);
+    out << "import cycle_a;\n"
+           "let B(x: Float64): Float64 = x;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(cycle_a_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.starts_with("import-cycle:"));
+  REQUIRE(loaded.error().message.find("Import cycle detected involving") != std::string::npos);
+  REQUIRE(loaded.error().message.find("cycle_a.fleaux") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader falls back to source when dependency bytecode is invalid",
+          "[bytecode][serialization][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_invalid_dependency_cache_fallback";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "typed_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "typed_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+
+  {
+    std::ofstream out(dependency_bytecode_path, std::ios::binary | std::ios::trunc);
+    REQUIRE(out.good());
+    out << "not-a-valid-bytecode-payload";
+    REQUIRE(out.good());
+  }
+
+  const auto fallback_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(fallback_load.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto runtime_result = runtime.execute(*fallback_load, output);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str().find('5') != std::string::npos);
+}
+
 TEST_CASE("Bytecode module loader imports serialized dependency modules", "[bytecode][serialization][imports]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_serialized_imports";
   std::filesystem::create_directories(temp_dir);
@@ -1723,8 +1818,8 @@ TEST_CASE("Bytecode module loader reports missing typed import seed declaration 
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE(initial_load.has_value());
-  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
   REQUIRE(std::filesystem::exists(entry_bytecode_path));
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
 
   std::vector<std::uint8_t> dependency_bytes;
   {
@@ -1830,6 +1925,8 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
 
   const auto dependency_path = temp_dir / "20_export.fleaux";
   const auto entry_path = temp_dir / "21_import.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "20_export.fleaux.bc";
+  const auto entry_bytecode_path = temp_dir / "21_import.fleaux.bc";
 
   {
     std::ofstream out(dependency_path);
@@ -1845,9 +1942,8 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE(initial_load.has_value());
-
-  const auto entry_bytecode_path = temp_dir / "21_import.fleaux.bc";
   REQUIRE(std::filesystem::exists(entry_bytecode_path));
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
 
   std::filesystem::remove(entry_path);
   std::filesystem::remove(dependency_path);

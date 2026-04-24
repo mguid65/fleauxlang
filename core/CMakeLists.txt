@@ -214,10 +214,15 @@ endif()
 if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
+      tests/vm_cli_tests.cpp
+      tests/vm_import_contract_parity_tests.cpp
       tests/vm_boundary_matrix_tests.cpp
       tests/vm_runtime_tests.cpp
       tests/vm_samples_tests.cpp)
   target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_vm_interpreter)
+  target_compile_definitions(fleaux_core_tests PRIVATE
+      FLEAUX_CORE_BIN_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+  add_dependencies(fleaux_core_tests fleaux)
 
 endif()
 

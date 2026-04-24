@@ -120,6 +120,7 @@ Useful VM CLI options:
 - `--mode vm|interpreter`
 - `--repl`
 - `--no-run`
+- `--no-emit-bytecode` to disable default `.fleaux.bc` cache writes in VM mode
 - `--` to forward runtime args to the program
 
 Batch sample execution is handled by `run_samples.py`.
