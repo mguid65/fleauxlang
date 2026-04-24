@@ -117,6 +117,7 @@ TEST_CASE("LineEditor stores non-empty submissions in deduplicated adjacent hist
   REQUIRE(editor.history().front() == "repeat");
 }
 
+
 TEST_CASE("normalize_style_spans clamps out-of-bounds ranges and drops zero-length spans", "[repl][line-editor]") {
   const std::vector<fleaux::cli::StyleSpan> spans = {
       {.start = 0, .length = 0, .token_class = fleaux::cli::TokenClass::kKeyword},

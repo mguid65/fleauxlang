@@ -13,6 +13,7 @@
 #include <tl/expected.hpp>
 
 #include "fleaux/frontend/analysis.hpp"
+#include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
@@ -28,13 +29,9 @@ namespace fleaux::frontend::source_loader {
 
 [[nodiscard]] inline auto resolve_import_source(const std::filesystem::path& current_source,
                                                 const std::string& module_name) -> std::filesystem::path {
-  if (module_name == "Std" || module_name == "StdBuiltins") { return {}; }
-
-  if (const auto local = current_source.parent_path() / (module_name + ".fleaux"); std::filesystem::exists(local)) {
-    return std::filesystem::weakly_canonical(local);
-  }
-
-  return {};
+  if (import_resolution::is_symbolic_import(module_name)) { return {}; }
+  const auto paths = import_resolution::resolve_import_paths(current_source.parent_path(), module_name);
+  return paths.source.value_or(std::filesystem::path{});
 }
 
 [[nodiscard]] inline auto symbol_key(const std::optional<std::string>& qualifier, const std::string& name)
@@ -138,9 +135,18 @@ template <typename ErrorT, typename ErrorFactory>
 
     std::vector<IRLet> imported_lets;
     std::vector<IRExprStatement> imported_exprs;
-    for (const auto& [module_name, _span] : current->imports) {
+    for (const auto& [module_name, span] : current->imports) {
+      if (import_resolution::is_symbolic_import(module_name)) { continue; }
       const auto import_source = resolve_import_source(current_source, module_name);
-      if (import_source.empty()) { continue; }
+      if (import_source.empty()) {
+        in_progress.erase(key);
+        return tl::unexpected(make_error(
+            "import-unresolved: Import not found: '" + module_name + "'",
+            std::optional<std::string>{"Checked relative to '" +
+                                       std::filesystem::weakly_canonical(current_source).string() +
+                                       "'. Verify module name and file location."},
+            span));
+      }
 
       auto imported = self(self, import_source, cache, in_progress);
       if (!imported) {

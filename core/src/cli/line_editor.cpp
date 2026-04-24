@@ -19,6 +19,8 @@
 namespace fleaux::cli {
 namespace {
 
+constexpr int kEscapeSequenceTimeoutMs = 40;
+
 class ScopedRawMode {
 public:
   ScopedRawMode() {
@@ -78,12 +80,57 @@ auto read_byte_with_timeout(const int timeout_ms) -> std::optional<unsigned char
   }
 }
 
+auto is_token_word_char(const char ch) -> bool {
+  const auto uch = static_cast<unsigned char>(ch);
+  return std::isalnum(uch) != 0 || ch == '_';
+}
+
+auto is_token_space_char(const char ch) -> bool {
+  return std::isspace(static_cast<unsigned char>(ch)) != 0;
+}
+
+auto token_class_for_char(const char ch) -> int {
+  if (is_token_space_char(ch)) { return 0; }
+  return is_token_word_char(ch) ? 1 : 2;
+}
+
+auto decode_csi_with_params(const std::string& params, const char final_char) -> InputEvent {
+  if (final_char == '~') {
+    if (params == "1" || params == "7") { return {.key = InputKey::kHome}; }
+    if (params == "3") { return {.key = InputKey::kDelete}; }
+    if (params == "4" || params == "8") { return {.key = InputKey::kEnd}; }
+    return {};
+  }
+
+  if (final_char == 'D') {
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
+      return {.key = InputKey::kTokenLeft};
+    }
+    return {.key = InputKey::kArrowLeft};
+  }
+  if (final_char == 'C') {
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
+      return {.key = InputKey::kTokenRight};
+    }
+    return {.key = InputKey::kArrowRight};
+  }
+  if (final_char == 'A') { return {.key = InputKey::kArrowUp}; }
+  if (final_char == 'B') { return {.key = InputKey::kArrowDown}; }
+  if (final_char == 'H') { return {.key = InputKey::kHome}; }
+  if (final_char == 'F') { return {.key = InputKey::kEnd}; }
+
+  return {};
+}
+
 auto decode_escape_sequence() -> InputEvent {
-  const auto first = read_byte_with_timeout(20);
+  const auto first = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
   if (!first.has_value()) { return {}; }
 
+  // Alt-modified keys are commonly encoded as an extra ESC prefix.
+  if (*first == 27) { return decode_escape_sequence(); }
+
   if (*first == '[') {
-    const auto second = read_byte_with_timeout(20);
+    const auto second = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
     if (!second.has_value()) { return {}; }
 
     switch (*second) {
@@ -104,19 +151,15 @@ auto decode_escape_sequence() -> InputEvent {
     }
 
     if (*second >= '0' && *second <= '9') {
-      std::string digits(1, static_cast<char>(*second));
+      std::string params(1, static_cast<char>(*second));
       while (true) {
-        const auto next = read_byte_with_timeout(20);
+        const auto next = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
         if (!next.has_value()) { return {}; }
-        if (*next >= '0' && *next <= '9') {
-          digits.push_back(static_cast<char>(*next));
+        if ((*next >= '0' && *next <= '9') || *next == ';') {
+          params.push_back(static_cast<char>(*next));
           continue;
         }
-        if (*next != '~') { return {}; }
-        if (digits == "1" || digits == "7") { return {.key = InputKey::kHome}; }
-        if (digits == "3") { return {.key = InputKey::kDelete}; }
-        if (digits == "4" || digits == "8") { return {.key = InputKey::kEnd}; }
-        return {};
+        return decode_csi_with_params(params, static_cast<char>(*next));
       }
     }
 
@@ -124,11 +167,19 @@ auto decode_escape_sequence() -> InputEvent {
   }
 
   if (*first == 'O') {
-    const auto second = read_byte_with_timeout(20);
+    const auto second = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
     if (!second.has_value()) { return {}; }
+    if (*second == 'A') { return {.key = InputKey::kArrowUp}; }
+    if (*second == 'B') { return {.key = InputKey::kArrowDown}; }
+    if (*second == 'C') { return {.key = InputKey::kArrowRight}; }
+    if (*second == 'D') { return {.key = InputKey::kArrowLeft}; }
     if (*second == 'H') { return {.key = InputKey::kHome}; }
     if (*second == 'F') { return {.key = InputKey::kEnd}; }
   }
+
+  if (*first == 'b' || *first == 'B') { return {.key = InputKey::kTokenLeft}; }
+  if (*first == 'f' || *first == 'F') { return {.key = InputKey::kTokenRight}; }
+  if (*first == 127 || *first == 8) { return {.key = InputKey::kTokenBackspace}; }
 
   return {};
 }
@@ -145,6 +196,8 @@ auto read_input_event() -> std::optional<InputEvent> {
       return InputEvent{.key = InputKey::kCtrlC};
     case 4:
       return InputEvent{.key = InputKey::kCtrlD};
+    case 23:
+      return InputEvent{.key = InputKey::kTokenBackspace};
     case 8:
     case 127:
       return InputEvent{.key = InputKey::kBackspace};
@@ -259,6 +312,57 @@ auto normalize_style_spans(const std::size_t buffer_size, const std::vector<Styl
 LineEditor::LineEditor(LineEditorConfig config) : config_(std::move(config)) {}
 
 auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
+  const auto move_token_left = [this]() -> bool {
+    if (cursor_ == 0) { return false; }
+
+    std::size_t idx = cursor_;
+    while (idx > 0 && is_token_space_char(buffer_[idx - 1])) { --idx; }
+    if (idx == 0) {
+      cursor_ = 0;
+      return true;
+    }
+
+    const auto cls = token_class_for_char(buffer_[idx - 1]);
+    while (idx > 0 && token_class_for_char(buffer_[idx - 1]) == cls) { --idx; }
+    if (idx == cursor_) { return false; }
+    cursor_ = idx;
+    return true;
+  };
+
+  const auto move_token_right = [this]() -> bool {
+    if (cursor_ >= buffer_.size()) { return false; }
+
+    std::size_t idx = cursor_;
+    while (idx < buffer_.size() && is_token_space_char(buffer_[idx])) { ++idx; }
+    if (idx >= buffer_.size()) {
+      cursor_ = buffer_.size();
+      return true;
+    }
+
+    const auto cls = token_class_for_char(buffer_[idx]);
+    while (idx < buffer_.size() && token_class_for_char(buffer_[idx]) == cls) { ++idx; }
+    if (idx == cursor_) { return false; }
+    cursor_ = idx;
+    return true;
+  };
+
+  const auto delete_token_left = [this]() -> bool {
+    if (cursor_ == 0) { return false; }
+
+    std::size_t start = cursor_;
+    while (start > 0 && is_token_space_char(buffer_[start - 1])) { --start; }
+    if (start > 0) {
+      const auto cls = token_class_for_char(buffer_[start - 1]);
+      while (start > 0 && token_class_for_char(buffer_[start - 1]) == cls) { --start; }
+    }
+
+    if (start == cursor_) { return false; }
+    buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(start),
+                  buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
+    cursor_ = start;
+    return true;
+  };
+
   switch (event.key) {
     case InputKey::kCharacter:
       buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), event.ch);
@@ -306,6 +410,16 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       buffer_ = history_edit_buffer_;
       cursor_ = buffer_.size();
       return {.needs_redraw = true};
+
+    case InputKey::kTokenLeft:
+      return {.needs_redraw = move_token_left()};
+
+    case InputKey::kTokenRight:
+      return {.needs_redraw = move_token_right()};
+
+    case InputKey::kTokenBackspace:
+      return {.needs_redraw = delete_token_left()};
+
 
     case InputKey::kHome:
       if (cursor_ == 0) { return {}; }
@@ -382,7 +496,8 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
   if (!stdin_is_interactive()) { return read_fallback_line(prompt); }
 
-  if (const ScopedRawMode raw_mode; !raw_mode.enabled()) { return read_fallback_line(prompt); }
+  const ScopedRawMode raw_mode;
+  if (!raw_mode.enabled()) { return read_fallback_line(prompt); }
 
   render_line(prompt, editor);
   while (true) {
@@ -400,9 +515,8 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
     if (action == LineEditorAction::kSubmit) {
       const auto submitted_line = submitted_line_opt.value_or(std::string{});
-      std::cout << '\r' << prompt;
-      render_with_styles(submitted_line, editor.config().style_span_provider);
-      std::cout << "\x1b[K\r\n";
+      (void)submitted_line;
+      std::cout << "\r\n";
       std::cout.flush();
       return {.action = action, .line = submitted_line};
     }
@@ -421,4 +535,81 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
   }
 }
 
+auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent {
+  std::size_t cursor = 0;
+  const auto parse = [&](const auto& self) -> InputEvent {
+    if (cursor >= bytes.size()) { return {}; }
+
+    const auto first = static_cast<unsigned char>(bytes[cursor++]);
+
+    if (first == 27U) { return self(self); }
+
+    if (first == static_cast<unsigned char>('[')) {
+      if (cursor >= bytes.size()) { return {}; }
+      const auto second = static_cast<unsigned char>(bytes[cursor++]);
+
+      switch (second) {
+        case 'A':
+          return {.key = InputKey::kArrowUp};
+        case 'B':
+          return {.key = InputKey::kArrowDown};
+        case 'C':
+          return {.key = InputKey::kArrowRight};
+        case 'D':
+          return {.key = InputKey::kArrowLeft};
+        case 'H':
+          return {.key = InputKey::kHome};
+        case 'F':
+          return {.key = InputKey::kEnd};
+        default:
+          break;
+      }
+
+      if (second >= '0' && second <= '9') {
+        std::string params(1, static_cast<char>(second));
+        while (cursor < bytes.size()) {
+          const auto next = static_cast<unsigned char>(bytes[cursor]);
+          if ((next >= '0' && next <= '9') || next == ';') {
+            params.push_back(static_cast<char>(next));
+            ++cursor;
+            continue;
+          }
+          ++cursor;
+          return decode_csi_with_params(params, static_cast<char>(next));
+        }
+      }
+
+      return {};
+    }
+
+    if (first == static_cast<unsigned char>('O')) {
+      if (cursor >= bytes.size()) { return {}; }
+      const auto second = static_cast<unsigned char>(bytes[cursor++]);
+      if (second == 'A') { return {.key = InputKey::kArrowUp}; }
+      if (second == 'B') { return {.key = InputKey::kArrowDown}; }
+      if (second == 'C') { return {.key = InputKey::kArrowRight}; }
+      if (second == 'D') { return {.key = InputKey::kArrowLeft}; }
+      if (second == 'H') { return {.key = InputKey::kHome}; }
+      if (second == 'F') { return {.key = InputKey::kEnd}; }
+      return {};
+    }
+
+    if (first == static_cast<unsigned char>('b') || first == static_cast<unsigned char>('B')) {
+      return {.key = InputKey::kTokenLeft};
+    }
+    if (first == static_cast<unsigned char>('f') || first == static_cast<unsigned char>('F')) {
+      return {.key = InputKey::kTokenRight};
+    }
+    if (first == 127U || first == 8U) { return {.key = InputKey::kTokenBackspace}; }
+
+    return {};
+  };
+
+  return parse(parse);
+}
+
 }  // namespace fleaux::cli
+
+auto fleaux::cli::detail::decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent {
+  return decode_escape_bytes_for_testing_impl(bytes);
+}
