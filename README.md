@@ -9,6 +9,10 @@ This repository contains:
 - `Std.fleaux`: standard library surface (builtins and helpers)
 - `fleaux-visual/`: React + TypeScript visual editor and WASM integration
 
+## Documentation
+
+- Developer feature routing map: `docs/developer_feature_map.md`
+
 ## Basic language usage
 
 Fleaux programs are expression-based and commonly use the pipeline operator `->`.

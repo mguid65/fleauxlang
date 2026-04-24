@@ -259,6 +259,148 @@ TEST_CASE("Import cycle diagnostics are aligned between interpreter and VM loade
   REQUIRE(vm_load_result.error().message.find("import-cycle:") != std::string::npos);
 }
 
+TEST_CASE("Imported type mismatch diagnostics are aligned between interpreter and VM loader",
+          "[vm][imports][contract][types]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_type_mismatch_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep.fleaux";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+  {
+    std::ofstream out(dependency_path);
+    out << "let Add4(x: String): Int64 = 4;\n";
+  }
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(entry_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message == "Type mismatch in call target arguments.");
+  REQUIRE(interpreter_result.error().hint.has_value());
+  REQUIRE(interpreter_result.error().hint->find("Add4 expects argument 0") != std::string::npos);
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(vm_load_result.error().message.find("Add4 expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Direct import visibility is aligned between interpreter and VM loader",
+          "[vm][imports][contract][types]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_direct_visibility_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto module_c = temp_dir / "c.fleaux";
+  const auto module_b = temp_dir / "b.fleaux";
+  const auto module_a = temp_dir / "a.fleaux";
+
+  {
+    std::ofstream out(module_c);
+    out << "import Std;\n"
+           "let CFn(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+  }
+  {
+    std::ofstream out(module_b);
+    out << "import c;\n"
+           "let BFn(x: Float64): Float64 = (x) -> CFn;\n";
+  }
+  {
+    std::ofstream out(module_a);
+    out << "import Std;\n"
+           "import b;\n"
+           "(1) -> CFn -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(module_a);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
+  REQUIRE(interpreter_result.error().hint.has_value());
+  REQUIRE(interpreter_result.error().hint->find("CFn") != std::string::npos);
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(module_a);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("Unresolved symbol") != std::string::npos);
+  REQUIRE(vm_load_result.error().message.find("CFn") != std::string::npos);
+}
+
+TEST_CASE("Qualified export unresolved diagnostics are aligned between interpreter and VM loader",
+          "[vm][imports][contract][types]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_qualified_unresolved_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep_qualified.fleaux";
+  const auto entry_path = temp_dir / "typed_entry_qualified.fleaux";
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let MyMath.Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+  }
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep_qualified;\n"
+           "(1) -> WrongMath.Add4 -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(entry_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
+  REQUIRE(interpreter_result.error().hint.has_value());
+  REQUIRE(interpreter_result.error().hint->find("WrongMath.Add4") != std::string::npos);
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("Unresolved symbol") != std::string::npos);
+  REQUIRE(vm_load_result.error().message.find("WrongMath.Add4") != std::string::npos);
+}
+
+TEST_CASE("Qualified exported overload symbol-key behavior is aligned between interpreter and VM loader",
+          "[vm][imports][contract][types]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_qualified_symbol_key_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "typed_dep_overloads.fleaux";
+  const auto entry_path = temp_dir / "typed_entry_overloads.fleaux";
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let MyMath.Echo(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
+           "let MyMath.Echo(x: String): String = x;\n";
+  }
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep_overloads;\n"
+           "(1) -> MyMath.Echo -> Std.Println;\n"
+           "(\"ok\") -> MyMath.Echo -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(entry_path);
+  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
+  REQUIRE(interpreter_result.has_value());
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
+  if (!vm_load_result) { INFO("vm load error: " << vm_load_result.error().message); }
+  REQUIRE(vm_load_result.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*vm_load_result);
+  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+}
+
 TEST_CASE("Interpreter run_file reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
   fleaux::runtime::reset_callable_registry();
   REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
