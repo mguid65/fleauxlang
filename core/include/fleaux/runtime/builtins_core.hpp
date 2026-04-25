@@ -390,36 +390,32 @@ struct Type {
 };
 
 
-struct ToInt64 {
-  auto operator()(Value arg) const -> Value {
-    return make_int(as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "ToInt64"));
-  }
-};
+[[nodiscard]] inline auto ToInt64(Value arg) -> Value {
+  return make_int(as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "ToInt64"));
+}
 
-struct ToUInt64 {
-  auto operator()(Value arg) const -> Value {
-    const Value value = unwrap_singleton_arg(std::move(arg));
-    return as_number(value).Visit(
-        [](const Int signed_value) -> Value {
-          if (signed_value < 0) { throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"}; }
-          return make_uint(static_cast<UInt>(signed_value));
-        },
-        [](const UInt unsigned_value) -> Value { return make_uint(unsigned_value); },
-        [](const Float float_value) -> Value {
-          if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0) {
-            throw std::invalid_argument{"ToUInt64: cannot cast Float64 value to UInt64"};
-          }
-          if (float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
-            throw std::out_of_range{"ToUInt64: Float64 value out of UInt64 range"};
-          }
-          return make_uint(static_cast<UInt>(float_value));
-        });
-  }
-};
+[[nodiscard]] inline auto ToUInt64(Value arg) -> Value {
+  const Value value = unwrap_singleton_arg(std::move(arg));
+  return as_number(value).Visit(
+      [](const Int signed_value) -> Value {
+        if (signed_value < 0) { throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"}; }
+        return make_uint(static_cast<UInt>(signed_value));
+      },
+      [](const UInt unsigned_value) -> Value { return make_uint(unsigned_value); },
+      [](const Float float_value) -> Value {
+        if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0) {
+          throw std::invalid_argument{"ToUInt64: cannot cast Float64 value to UInt64"};
+        }
+        if (float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
+          throw std::out_of_range{"ToUInt64: Float64 value out of UInt64 range"};
+        }
+        return make_uint(static_cast<UInt>(float_value));
+      });
+}
 
-struct ToFloat64 {
-  auto operator()(Value arg) const -> Value { return make_float(to_double(unwrap_singleton_arg(std::move(arg)))); }
-};
+[[nodiscard]] inline auto ToFloat64(Value arg) -> Value {
+  return make_float(to_double(unwrap_singleton_arg(std::move(arg))));
+}
 
 struct Exit {
   auto operator()(Value arg) const -> Value {

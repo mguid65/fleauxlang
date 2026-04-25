@@ -955,28 +955,6 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     kStd_Take,
     kStd_Drop,
     kStd_Slice,
-    kStd_ToNum,
-    kStd_ToString,
-    kStd_String_Upper,
-    kStd_String_Lower,
-    kStd_String_Trim,
-    kStd_String_TrimStart,
-    kStd_String_TrimEnd,
-    kStd_String_Split,
-    kStd_String_Join,
-    kStd_String_Replace,
-    kStd_String_Contains,
-    kStd_String_StartsWith,
-    kStd_String_EndsWith,
-    kStd_String_Length,
-    kStd_String_CharAt,
-    kStd_String_Slice,
-    kStd_String_Find,
-    kStd_String_Format,
-    kStd_String_Regex_IsMatch,
-    kStd_String_Regex_Find,
-    kStd_String_Regex_Replace,
-    kStd_String_Regex_Split,
     kStd_OS_Cwd,
     kStd_OS_Home,
     kStd_OS_TempDir,
@@ -1049,6 +1027,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     kStd_Tuple_Range,
     kStd_Dict_Contains,
     kStd_Dict_Delete,
+    kStd_Dict_Merge,
     kStd_Dict_Entries,
     kStd_Dict_Clear,
     kStd_Branch,
@@ -1111,28 +1090,6 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       {"Std.Take", BuiltinDispatchKey::kStd_Take},
       {"Std.Drop", BuiltinDispatchKey::kStd_Drop},
       {"Std.Slice", BuiltinDispatchKey::kStd_Slice},
-      {"Std.ToNum", BuiltinDispatchKey::kStd_ToNum},
-      {"Std.ToString", BuiltinDispatchKey::kStd_ToString},
-      {"Std.String.Upper", BuiltinDispatchKey::kStd_String_Upper},
-      {"Std.String.Lower", BuiltinDispatchKey::kStd_String_Lower},
-      {"Std.String.Trim", BuiltinDispatchKey::kStd_String_Trim},
-      {"Std.String.TrimStart", BuiltinDispatchKey::kStd_String_TrimStart},
-      {"Std.String.TrimEnd", BuiltinDispatchKey::kStd_String_TrimEnd},
-      {"Std.String.Split", BuiltinDispatchKey::kStd_String_Split},
-      {"Std.String.Join", BuiltinDispatchKey::kStd_String_Join},
-      {"Std.String.Replace", BuiltinDispatchKey::kStd_String_Replace},
-      {"Std.String.Contains", BuiltinDispatchKey::kStd_String_Contains},
-      {"Std.String.StartsWith", BuiltinDispatchKey::kStd_String_StartsWith},
-      {"Std.String.EndsWith", BuiltinDispatchKey::kStd_String_EndsWith},
-      {"Std.String.Length", BuiltinDispatchKey::kStd_String_Length},
-      {"Std.String.CharAt", BuiltinDispatchKey::kStd_String_CharAt},
-      {"Std.String.Slice", BuiltinDispatchKey::kStd_String_Slice},
-      {"Std.String.Find", BuiltinDispatchKey::kStd_String_Find},
-      {"Std.String.Format", BuiltinDispatchKey::kStd_String_Format},
-      {"Std.String.Regex.IsMatch", BuiltinDispatchKey::kStd_String_Regex_IsMatch},
-      {"Std.String.Regex.Find", BuiltinDispatchKey::kStd_String_Regex_Find},
-      {"Std.String.Regex.Replace", BuiltinDispatchKey::kStd_String_Regex_Replace},
-      {"Std.String.Regex.Split", BuiltinDispatchKey::kStd_String_Regex_Split},
       {"Std.OS.Cwd", BuiltinDispatchKey::kStd_OS_Cwd},
       {"Std.OS.Home", BuiltinDispatchKey::kStd_OS_Home},
       {"Std.OS.TempDir", BuiltinDispatchKey::kStd_OS_TempDir},
@@ -1186,6 +1143,7 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
       {"Std.Dict.Keys", BuiltinDispatchKey::kStd_Dict_Keys},
       {"Std.Dict.Values", BuiltinDispatchKey::kStd_Dict_Values},
       {"Std.Dict.Length", BuiltinDispatchKey::kStd_Dict_Length},
+      {"Std.Dict.Merge", BuiltinDispatchKey::kStd_Dict_Merge},
       {"Std.Println", BuiltinDispatchKey::kStd_Println},
       {"Std.Printf", BuiltinDispatchKey::kStd_Printf},
       {"Std.GetArgs", BuiltinDispatchKey::kStd_GetArgs},
@@ -1647,312 +1605,6 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
           Array out;
           for (std::size_t index = real_start; index < real_stop; ++index) { out.PushBack(*arr.TryGet(index)); }
           return std::optional<Value>{Value{std::move(out)}};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_ToNum: {
-        auto val = expect_unary("Std.ToNum");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          const std::string& str = fleaux::runtime::as_string(*val.value());
-          std::size_t consumed = 0;
-          const double parsed_number = std::stod(str, &consumed);
-          if (consumed != str.size()) {
-            return tl::unexpected(
-                RuntimeError{"native builtin 'Std.ToNum' threw: ToNum: trailing characters in input"});
-          }
-          return std::optional<Value>{fleaux::runtime::num_result(parsed_number)};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_ToString: {
-        auto val = expect_unary("Std.ToString");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::to_string(*val.value()))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Upper: {
-        auto val = expect_unary("Std.String.Upper");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          std::string str = fleaux::runtime::to_string(*val.value());
-          std::ranges::transform(str, str.begin(),
-                                 [](const unsigned char ch) -> char { return static_cast<char>(std::toupper(ch)); });
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Lower: {
-        auto val = expect_unary("Std.String.Lower");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          std::string str = fleaux::runtime::to_string(*val.value());
-          std::ranges::transform(str, str.begin(),
-                                 [](const unsigned char ch) -> char { return static_cast<char>(std::tolower(ch)); });
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Trim: {
-        auto val = expect_unary("Std.String.Trim");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          auto str = fleaux::runtime::to_string(*val.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(trim_left_copy(std::move(str))))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_TrimStart: {
-        auto val = expect_unary("Std.String.TrimStart");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          auto str = fleaux::runtime::to_string(*val.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_left_copy(std::move(str)))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_TrimEnd: {
-        auto val = expect_unary("Std.String.TrimEnd");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          auto str = fleaux::runtime::to_string(*val.value());
-          return std::optional<Value>{fleaux::runtime::make_string(trim_right_copy(std::move(str)))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Split: {
-        auto args = expect_n("Std.String.Split", 2);
-        if (!args) return tl::unexpected(args.error());
-        const auto input = (*args)->TryGet(0);
-        const auto sep = (*args)->TryGet(1);
-        if (!input || !sep) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.Split' argument unpack failed"});
-        }
-        try {
-          const std::string str = fleaux::runtime::to_string(*input);
-          const std::string delim = fleaux::runtime::to_string(*sep);
-          if (delim.empty()) {
-            return tl::unexpected(
-                RuntimeError{"native builtin 'Std.String.Split' threw: StringSplit separator cannot be empty"});
-          }
-          Array out;
-          std::size_t pos = 0;
-          while (true) {
-            const std::size_t found = str.find(delim, pos);
-            if (found == std::string::npos) {
-              out.PushBack(fleaux::runtime::make_string(str.substr(pos)));
-              break;
-            }
-            out.PushBack(fleaux::runtime::make_string(str.substr(pos, found - pos)));
-            pos = found + delim.size();
-          }
-          return std::optional<Value>{Value{std::move(out)}};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Join: {
-        auto args = expect_n("Std.String.Join", 2);
-        if (!args) return tl::unexpected(args.error());
-        const auto sep = (*args)->TryGet(0);
-        const auto parts = (*args)->TryGet(1);
-        if (!sep || !parts) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.Join' argument unpack failed"});
-        }
-        try {
-          const std::string delim = fleaux::runtime::to_string(*sep);
-          std::ostringstream oss;
-          if (parts->HasArray()) {
-            const auto& arr = fleaux::runtime::as_array(*parts);
-            for (std::size_t part_index = 0; part_index < arr.Size(); ++part_index) {
-              if (part_index > 0) oss << delim;
-              oss << fleaux::runtime::to_string(*arr.TryGet(part_index));
-            }
-          } else {
-            const std::string str = fleaux::runtime::to_string(*parts);
-            for (std::size_t char_index = 0; char_index < str.size(); ++char_index) {
-              if (char_index > 0) oss << delim;
-              oss << str[char_index];
-            }
-          }
-          return std::optional<Value>{fleaux::runtime::make_string(oss.str())};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Replace: {
-        auto args = expect_n("Std.String.Replace", 3);
-        if (!args) return tl::unexpected(args.error());
-        const auto input = (*args)->TryGet(0);
-        const auto old_sub = (*args)->TryGet(1);
-        const auto new_sub = (*args)->TryGet(2);
-        if (!input || !old_sub || !new_sub) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.Replace' argument unpack failed"});
-        }
-        try {
-          std::string str = fleaux::runtime::to_string(*input);
-          const std::string old_s = fleaux::runtime::to_string(*old_sub);
-          const std::string new_s = fleaux::runtime::to_string(*new_sub);
-          if (!old_s.empty()) {
-            std::size_t pos = 0;
-            while ((pos = str.find(old_s, pos)) != std::string::npos) {
-              str.replace(pos, old_s.size(), new_s);
-              pos += new_s.size();
-            }
-          }
-          return std::optional<Value>{fleaux::runtime::make_string(std::move(str))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Contains: {
-        auto args = expect_n("Std.String.Contains", 2);
-        if (!args) return tl::unexpected(args.error());
-        const auto input = (*args)->TryGet(0);
-        const auto sub = (*args)->TryGet(1);
-        if (!input || !sub) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.Contains' argument unpack failed"});
-        }
-        try {
-          const std::string str = fleaux::runtime::to_string(*input);
-          const std::string needle = fleaux::runtime::to_string(*sub);
-          return std::optional<Value>{fleaux::runtime::make_bool(str.find(needle) != std::string::npos)};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_StartsWith: {
-        auto args = expect_n("Std.String.StartsWith", 2);
-        if (!args) return tl::unexpected(args.error());
-        const auto input = (*args)->TryGet(0);
-        const auto prefix = (*args)->TryGet(1);
-        if (!input || !prefix) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.StartsWith' argument unpack failed"});
-        }
-        try {
-          const std::string str = fleaux::runtime::to_string(*input);
-          const std::string prefix_str = fleaux::runtime::to_string(*prefix);
-          return std::optional<Value>{fleaux::runtime::make_bool(str.starts_with(prefix_str))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_EndsWith: {
-        auto args = expect_n("Std.String.EndsWith", 2);
-        if (!args) return tl::unexpected(args.error());
-        const auto input = (*args)->TryGet(0);
-        const auto suffix = (*args)->TryGet(1);
-        if (!input || !suffix) {
-          return tl::unexpected(RuntimeError{"native builtin 'Std.String.EndsWith' argument unpack failed"});
-        }
-        try {
-          const std::string str = fleaux::runtime::to_string(*input);
-          const std::string suffix_str = fleaux::runtime::to_string(*suffix);
-          if (suffix_str.size() > str.size()) { return std::optional<Value>{fleaux::runtime::make_bool(false)}; }
-          return std::optional<Value>{fleaux::runtime::make_bool(str.ends_with(suffix_str))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Length: {
-        auto val = expect_unary("Std.String.Length");
-        if (!val) return tl::unexpected(val.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::make_int(
-              static_cast<fleaux::runtime::Int>(fleaux::runtime::to_string(*val.value()).size()))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_CharAt: {
-        auto args = expect_n("Std.String.CharAt", 2);
-        if (!args) return tl::unexpected(args.error());
-        try {
-          const std::string str = fleaux::runtime::to_string(*(*args)->TryGet(0));
-          const std::size_t idx = fleaux::runtime::as_index_strict(*(*args)->TryGet(1), "StringCharAt index");
-          if (idx >= str.size()) { return std::optional<Value>{fleaux::runtime::make_string("")}; }
-          return std::optional<Value>{fleaux::runtime::make_string(str.substr(idx, 1))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Slice: {
-        try {
-          const auto& args = fleaux::runtime::as_array(arg);
-          if (args.Size() != 2 && args.Size() != 3) {
-            return tl::unexpected(
-                RuntimeError{"native builtin 'Std.String.Slice' threw: StringSlice expects 2 or 3 arguments"});
-          }
-          const std::string str = fleaux::runtime::to_string(*args.TryGet(0));
-          std::size_t start = 0;
-          std::size_t stop = 0;
-          if (args.Size() == 2) {
-            stop = fleaux::runtime::as_index_strict(*args.TryGet(1), "StringSlice stop");
-          } else {
-            start = fleaux::runtime::as_index_strict(*args.TryGet(1), "StringSlice start");
-            stop = fleaux::runtime::as_index_strict(*args.TryGet(2), "StringSlice stop");
-          }
-          if (start > str.size()) start = str.size();
-          if (stop > str.size()) stop = str.size();
-          if (stop < start) stop = start;
-          return std::optional<Value>{fleaux::runtime::make_string(str.substr(start, stop - start))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Find: {
-        try {
-          const auto& args = fleaux::runtime::as_array(arg);
-          if (args.Size() != 2 && args.Size() != 3) {
-            return tl::unexpected(
-                RuntimeError{"native builtin 'Std.String.Find' threw: StringFind expects 2 or 3 arguments"});
-          }
-          const std::string str = fleaux::runtime::to_string(*args.TryGet(0));
-          const std::string needle = fleaux::runtime::to_string(*args.TryGet(1));
-          std::size_t start = 0;
-          if (args.Size() == 3) { start = fleaux::runtime::as_index_strict(*args.TryGet(2), "StringFind start"); }
-          if (start > str.size()) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
-          const auto pos = str.find(needle, start);
-          if (pos == std::string::npos) { return std::optional<Value>{fleaux::runtime::make_int(-1)}; }
-          return std::optional<Value>{fleaux::runtime::make_int(static_cast<fleaux::runtime::Int>(pos))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Format: {
-        try {
-          const auto& args = fleaux::runtime::as_array(arg);
-          if (args.Size() < 1) {
-            return tl::unexpected(
-                RuntimeError{"native builtin 'Std.String.Format' threw: String.Format expects at least 1 argument"});
-          }
-          const std::string fmt = fleaux::runtime::to_string(*args.TryGet(0));
-          std::vector<Value> values;
-          values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-          for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
-            values.push_back(*args.TryGet(arg_index));
-          }
-          return std::optional<Value>{fleaux::runtime::make_string(fleaux::runtime::format_values(fmt, values))};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Regex_IsMatch: {
-        if (auto args = expect_n("Std.String.Regex.IsMatch", 2); !args) return tl::unexpected(args.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::StringRegexIsMatch{}(arg)};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Regex_Find: {
-        if (auto args = expect_n("Std.String.Regex.Find", 2); !args) return tl::unexpected(args.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::StringRegexFind{}(arg)};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Regex_Replace: {
-        if (auto args = expect_n("Std.String.Regex.Replace", 3); !args) return tl::unexpected(args.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::StringRegexReplace{}(arg)};
-        } catch (const std::exception& ex) { return native_error(name, ex); }
-        break;
-      }
-      case BuiltinDispatchKey::kStd_String_Regex_Split: {
-        if (auto args = expect_n("Std.String.Regex.Split", 2); !args) return tl::unexpected(args.error());
-        try {
-          return std::optional<Value>{fleaux::runtime::StringRegexSplit{}(arg)};
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
@@ -3072,6 +2724,19 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
         } catch (const std::exception& ex) { return native_error(name, ex); }
         break;
       }
+      case BuiltinDispatchKey::kStd_Dict_Merge: {
+        auto args = expect_n("Std.Dict.Merge", 2);
+        if (!args) return tl::unexpected(args.error());
+        const auto base_dict = (*args)->TryGet(0);
+        const auto overlay_dict = (*args)->TryGet(1);
+        if (!base_dict || !overlay_dict) {
+          return tl::unexpected(RuntimeError{"native builtin 'Std.Dict.Merge' argument unpack failed"});
+        }
+        try {
+          return std::optional<Value>{fleaux::runtime::merge_dict_values(*base_dict, *overlay_dict)};
+        } catch (const std::exception& ex) { return native_error(name, ex); }
+        break;
+      }
       case BuiltinDispatchKey::kStd_Dict_Entries: {
         auto val = expect_unary("Std.Dict.Entries");
         if (!val) return tl::unexpected(val.error());
@@ -3190,7 +2855,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   if (!compiled) {
     return tl::unexpected(make_runtime_error(
         compiled.error().message,
-        "This REPL snippet is not yet supported by the VM compiler. Try --mode interpreter for that workflow."));
+        "This REPL snippet is not yet supported by the VM compiler."));
   }
 
   impl_->lets = std::move(merged_lets);

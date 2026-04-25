@@ -13,17 +13,10 @@
 #include "fleaux/cli/repl_driver.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/runtime/value.hpp"
-#include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
 
 namespace {
-enum class VmEngine {
-  kVm,
-  kInterpreter,
-};
-
 struct CliOptions {
-  VmEngine engine = VmEngine::kVm;
   std::optional<std::filesystem::path> source;
   std::vector<std::string> process_args;
   bool no_run = false;
@@ -41,20 +34,10 @@ struct CliError {
   std::optional<fleaux::frontend::diag::SourceSpan> span;
 };
 
-auto parse_engine(const std::string_view text) -> std::optional<VmEngine> {
-  if (text == "vm") { return VmEngine::kVm; }
-  if (text == "interpreter") { return VmEngine::kInterpreter; }
-  return std::nullopt;
-}
-
-auto engine_name(const VmEngine engine) -> std::string_view {
-  return engine == VmEngine::kVm ? "vm" : "interpreter";
-}
-
 auto vm_runtime_hint_for(const std::string& runtime_message) -> std::optional<std::string> {
   if (constexpr std::string_view kNativeBuiltinGapPrefix = "builtin not implemented natively in VM:";
       runtime_message.starts_with(kNativeBuiltinGapPrefix)) {
-    return "This run is strict VM-only. Try --mode interpreter for runtime fallback.";
+    return "This run is strict VM-only. Implement the missing builtin in the VM runtime, then retry.";
   }
   return std::nullopt;
 }
@@ -70,12 +53,11 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
       load_message.find("Unresolved symbol") != std::string::npos) {
     return "Imported module API typing must match consuming usage across module boundaries.";
   }
-  return "Switch to --mode interpreter only for runtime VM coverage gaps; import/type contract failures apply in both modes.";
+  return "Resolve the VM load or typing failure, then retry.";
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [--inspect] [--no-emit-bytecode] "
-         "[--no-color] [file.fleaux|file.fleaux.bc] [-- "
+  return "usage: fleaux [--repl] [--no-run] [--inspect] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] [-- "
          "<arg1> <arg2> ...]";
 }
 
@@ -84,9 +66,7 @@ void print_help() {
             << "\n"
             << "Options:\n"
             << "  -h, --help             Show this help message\n"
-            << "  --mode <mode>          Execution mode (vm, interpreter)\n"
-            << "  --engine <mode>        Alias for --mode\n"
-            << "  --repl                 Start interactive REPL in the selected mode\n"
+            << "  --repl                 Start the interactive REPL\n"
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
@@ -94,11 +74,8 @@ void print_help() {
             << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n"
             << "\n"
             << "Notes:\n"
-            << "  - Default mode is vm\n"
             << "  - VM mode writes/refreshes .fleaux.bc cache files by default\n"
-            << "  - Interpreter file mode requires a .fleaux source entry\n"
-            << "  - .fleaux.bc entry modules are supported in vm mode and --inspect\n"
-            << "  - REPL runs in the selected mode; default REPL mode is vm\n"
+            << "  - .fleaux.bc entry modules are supported for execution and --inspect\n"
             << "  - REPL imports are symbolic-only: Std, StdBuiltins\n"
             << "  - In REPL, use :help (or :?) to list REPL commands\n"
             << "  - If no source is provided, defaults to test.fleaux\n"
@@ -204,19 +181,6 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
   return 2;
 }
 
-auto run_interpreter_and_report(const std::filesystem::path& source, const std::vector<std::string>& process_args,
-                                const std::string& stage) -> int {
-  constexpr fleaux::vm::Interpreter interpreter;
-  if (const auto result = interpreter.run_file(source, process_args); !result) {
-    return print_diag_and_return(stage, CliError{
-                                            .message = result.error().message,
-                                            .hint = result.error().hint,
-                                            .span = result.error().span,
-                                        });
-  }
-  return 0;
-}
-
 auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
@@ -239,25 +203,6 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 
     if (token == "-h" || token == "--help") {
       options.show_help = true;
-      continue;
-    }
-
-    if (token == "--engine" || token == "--mode") {
-      if (arg_index + 1 >= argc) {
-        return tl::unexpected(CliError{.message = std::string("missing value for ") + std::string(token),
-                                       .hint = std::nullopt,
-                                       .span = std::nullopt});
-      }
-      const std::string_view mode_token = argv[++arg_index];
-      const auto parsed_engine = parse_engine(mode_token);
-      if (!parsed_engine.has_value()) {
-        return tl::unexpected(CliError{
-            .message = std::string("unknown mode value: ") + std::string(mode_token),
-            .hint = "expected vm|interpreter",
-            .span = std::nullopt,
-        });
-      }
-      options.engine = parsed_engine.value();
       continue;
     }
 
@@ -317,20 +262,6 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 
   return options;
 }
-
-auto run_engine_for_source(const VmEngine engine, const std::filesystem::path& source,
-                           const std::vector<std::string>& process_args, const bool optimize,
-                           const bool write_bytecode_cache)
-    -> int {
-  if (engine == VmEngine::kInterpreter) {
-    return run_interpreter_and_report(source, process_args, "vm-run-interpreter");
-  }
-
-  if (const auto result = run_vm(source, process_args, optimize, write_bytecode_cache); !result) {
-    return print_diag_and_return("vm-run-vm", result.error());
-  }
-  return 0;
-}
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -343,8 +274,7 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [engine, source_path, process_args, no_run, optimize, write_bytecode_cache, inspect, no_color, repl,
-               show_help] =
+  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, inspect, no_color, repl, show_help] =
       *parsed;
   if (show_help) {
     print_help();
@@ -367,20 +297,20 @@ auto main(int argc, char** argv) -> int {
 
   if (repl) {
     if (no_run) {
-      std::cout << '[' << engine_name(engine) << "] skipped run (--no-run): <repl>\n";
+      std::cout << "[vm] skipped run (--no-run): <repl>\n";
       return 0;
     }
     constexpr fleaux::cli::ReplDriver repl_driver;
-    return repl_driver.run(process_args,
-                           engine == VmEngine::kVm ? fleaux::cli::ReplBackend::kVm
-                                                   : fleaux::cli::ReplBackend::kInterpreter,
-                           !no_color);
+    return repl_driver.run(process_args, !no_color);
   }
 
   if (no_run) {
-    std::cout << '[' << engine_name(engine) << "] skipped run (--no-run): " << *source_path << '\n';
+    std::cout << "[vm] skipped run (--no-run): " << *source_path << '\n';
     return 0;
   }
 
-  return run_engine_for_source(engine, *source_path, process_args, optimize, write_bytecode_cache);
+  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache); !result) {
+    return print_diag_and_return("vm-run", result.error());
+  }
+  return 0;
 }

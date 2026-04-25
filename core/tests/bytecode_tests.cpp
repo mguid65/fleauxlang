@@ -138,6 +138,9 @@ auto vm_catalog_builtin_names() -> std::set<std::string> {
 #define FLEAUX_INSERT_VM_BUILTIN(name_literal, node_type) names.insert(name_literal);
   FLEAUX_VM_BUILTINS(FLEAUX_INSERT_VM_BUILTIN)
 #undef FLEAUX_INSERT_VM_BUILTIN
+#define FLEAUX_INSERT_VM_FUNCTION_BUILTIN(name_literal, builtin_function) names.insert(name_literal);
+  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_INSERT_VM_FUNCTION_BUILTIN)
+#undef FLEAUX_INSERT_VM_FUNCTION_BUILTIN
   return names;
 }
 

@@ -89,6 +89,9 @@ auto make_builtin_names() -> std::vector<std::string_view> {
 #define FLEAUX_BUILTIN_NAME_COLLECTOR(name_literal, node_type) names.push_back(std::string_view{name_literal});
   FLEAUX_VM_BUILTINS(FLEAUX_BUILTIN_NAME_COLLECTOR)
 #undef FLEAUX_BUILTIN_NAME_COLLECTOR
+#define FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR(name_literal, builtin_function) names.push_back(std::string_view{name_literal});
+  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR)
+#undef FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR
   return names;
 }
 

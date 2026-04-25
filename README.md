@@ -112,15 +112,14 @@ Main executables:
 cd core
 source build/generators/conanrun.sh
 ./build/bin/fleaux ../samples/01_hello_world.fleaux
-./build/bin/fleaux --mode interpreter ../samples/04_function_definitions.fleaux
+./build/bin/fleaux --repl
 ```
 
 Useful VM CLI options:
 
-- `--mode vm|interpreter`
 - `--repl`
 - `--no-run`
-- `--no-emit-bytecode` to disable default `.fleaux.bc` cache writes in VM mode
+- `--no-emit-bytecode` to disable default `.fleaux.bc` cache writes
 - `--` to forward runtime args to the program
 
 Batch sample execution is handled by `run_samples.py`.
