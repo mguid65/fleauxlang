@@ -1,12 +1,16 @@
 #include <array>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/bytecode/module.hpp"
+#include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/opcode.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
@@ -120,6 +124,21 @@ auto make_builtin_boundary_module(const std::vector<std::string_view>& names, co
   return bytecode_module;
 }
 
+struct ImportBoundaryCase {
+  std::string case_name;
+  std::string entry_file;
+  std::vector<std::pair<std::string, std::string>> files;
+  std::string expected_token;
+  std::string expected_detail;
+};
+
+void write_module_file(const std::filesystem::path& path, const std::string& text) {
+  std::ofstream out(path);
+  REQUIRE(out.good());
+  out << text;
+  REQUIRE(out.good());
+}
+
 }  // namespace
 
 TEST_CASE("VM opcode boundary matrix", "[vm][boundary][opcode]") {
@@ -176,5 +195,78 @@ TEST_CASE("VM builtin boundary matrix", "[vm][boundary][builtin]") {
     const bool mentions_builtin_name = error.find(needle) != std::string::npos;
     const bool mentions_builtin_dispatch = error.find("builtin '") != std::string::npos;
     REQUIRE((mentions_builtin_name || mentions_builtin_dispatch));
+  }
+}
+
+TEST_CASE("VM import boundary matrix", "[vm][boundary][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_boundary_import_matrix";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto cases = std::to_array<ImportBoundaryCase>({
+      ImportBoundaryCase{
+          .case_name = "import_unresolved",
+          .entry_file = "entry_unresolved.fleaux",
+          .files = {{
+              "entry_unresolved.fleaux",
+              "import missing_dep;\n"
+              "(1) -> MissingCall;\n",
+          }},
+          .expected_token = "import-unresolved:",
+          .expected_detail = "Import not found: 'missing_dep'",
+      },
+      ImportBoundaryCase{
+          .case_name = "import_cycle",
+          .entry_file = "cycle_a.fleaux",
+          .files = {
+              {
+                  "cycle_a.fleaux",
+                  "import cycle_b;\n"
+                  "let A(x: Float64): Float64 = x;\n",
+              },
+              {
+                  "cycle_b.fleaux",
+                  "import cycle_a;\n"
+                  "let B(x: Float64): Float64 = x;\n",
+              },
+          },
+          .expected_token = "import-cycle:",
+          .expected_detail = "cycle_a.fleaux",
+      },
+      ImportBoundaryCase{
+          .case_name = "import_type_mismatch",
+          .entry_file = "typed_entry.fleaux",
+          .files = {
+              {
+                  "typed_dep.fleaux",
+                  "let Add4(x: String): Int64 = 4;\n",
+              },
+              {
+                  "typed_entry.fleaux",
+                  "import Std;\n"
+                  "import typed_dep;\n"
+                  "(1) -> Add4 -> Std.Println;\n",
+              },
+          },
+          .expected_token = "Type mismatch in call target arguments",
+          .expected_detail = "Add4 expects argument 0",
+      },
+  });
+
+  for (const auto& boundary_case : cases) {
+    const auto case_dir = temp_dir / boundary_case.case_name;
+    std::filesystem::remove_all(case_dir);
+    std::filesystem::create_directories(case_dir);
+
+    for (const auto& [file_name, source] : boundary_case.files) {
+      write_module_file(case_dir / file_name, source);
+    }
+
+    const auto loaded = fleaux::bytecode::load_linked_module(case_dir / boundary_case.entry_file);
+    INFO("import boundary case: " << boundary_case.case_name);
+    REQUIRE_FALSE(loaded.has_value());
+    INFO("import boundary error: " << loaded.error().message);
+    REQUIRE(loaded.error().message.find(boundary_case.expected_token) != std::string::npos);
+    REQUIRE(loaded.error().message.find(boundary_case.expected_detail) != std::string::npos);
   }
 }

@@ -334,7 +334,7 @@ struct Printf {
       returned_args.PushBack(value);
     }
 
-    std::cout << format_values(fmt, values) << '\n';
+    std::cout << format_values(fmt, values);
     return make_tuple(make_string(fmt), Value{std::move(returned_args)});
   }
 };

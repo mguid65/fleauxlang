@@ -36,6 +36,7 @@ using fleaux::runtime::Value;
 auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
                 const std::optional<SourceSpan>& span = std::nullopt) -> InterpretError;
 auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<void, InterpretError>;
+auto ensure_file_entry_supported(const std::filesystem::path& source_file) -> tl::expected<void, InterpretError>;
 
 auto let_key(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return frontend::source_loader::symbol_key(qualifier, name);
@@ -212,6 +213,13 @@ auto ensure_repl_imports_supported(const IRProgram& program) -> tl::expected<voi
                                      "Define helper lets inline, or run a file for module imports.", span));
   }
   return {};
+}
+
+auto ensure_file_entry_supported(const std::filesystem::path& source_file) -> tl::expected<void, InterpretError> {
+  if (source_file.extension() != ".bc") { return {}; }
+  return tl::unexpected(make_error(
+      "Interpreter file mode only accepts .fleaux source entry files.",
+      "Use a .fleaux entry file, or switch to --mode vm for .fleaux.bc modules."));
 }
 
 auto load_ir_program(const std::filesystem::path& source_file) -> tl::expected<IRProgram, InterpretError> {
@@ -575,6 +583,10 @@ auto Interpreter::run_file(const std::filesystem::path& source_file, const std::
     -> InterpretResult {
   if (!std::filesystem::exists(source_file)) {
     return tl::unexpected(make_error("Input file does not exist.", std::nullopt));
+  }
+
+  if (auto entry_ok = ensure_file_entry_supported(source_file); !entry_ok) {
+    return tl::unexpected(entry_ok.error());
   }
 
   auto merged_result = load_ir_program(source_file);

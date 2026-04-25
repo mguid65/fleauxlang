@@ -142,6 +142,7 @@ Touch:
 
 Tests:
 - `core/tests/repl_line_editor_tests.cpp`
+- `core/tests/vm_cli_tests.cpp`
 - Targeted session coverage in `core/tests/vm_samples_tests.cpp`
 
 ### 9) Diagnostics formatting and source spans

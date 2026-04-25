@@ -57,6 +57,34 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
   REQUIRE(output.str() == "10\n");
 }
 
+TEST_CASE("VM Std.Printf does not append trailing newline", "[vm][printf]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto kPrintfBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
+  bytecode_module.builtin_names.emplace_back("Std.Printf");
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"{} + {} = {}"}});
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintfBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1 + 2 = 3");
+}
+
 TEST_CASE("VM executes value-ref opcodes round-trip", "[vm][lifetime][value_ref]") {
   fleaux::bytecode::Module bytecode_module;
   const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
