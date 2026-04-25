@@ -85,6 +85,54 @@ TEST_CASE("VM Std.Printf does not append trailing newline", "[vm][printf]") {
   REQUIRE(output.str() == "1 + 2 = 3");
 }
 
+TEST_CASE("RuntimeSession preserves typed lets across snippets", "[vm][repl][type]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto define_result =
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output);
+  REQUIRE(define_result.has_value());
+
+  const auto use_result = session.run_snippet("import Std;\n2 -> AddOne -> Std.Println;\n", output);
+  if (!use_result.has_value()) { INFO("vm repl typed let lookup error: " << use_result.error().message); }
+  REQUIRE(use_result.has_value());
+  REQUIRE(output.str() == "3\n");
+}
+
+TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][repl][type]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto define_result =
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output);
+  REQUIRE(define_result.has_value());
+
+  const auto mismatch_result = session.run_snippet("\"oops\" -> AddOne;\n", output);
+  REQUIRE_FALSE(mismatch_result.has_value());
+  REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
+  REQUIRE(mismatch_result.error().hint.has_value());
+  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
+}
+
+TEST_CASE("RuntimeSession typed let redefinition replaces prior signature", "[vm][repl][type]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  REQUIRE(session.run_snippet("import Std;\nlet Convert(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output)
+              .has_value());
+  REQUIRE(session.run_snippet("let Convert(x: String): String = x;\n", output).has_value());
+
+  const auto string_ok = session.run_snippet("\"text\" -> Convert;\n", output);
+  REQUIRE(string_ok.has_value());
+
+  const auto stale_signature = session.run_snippet("1 -> Convert;\n", output);
+  REQUIRE_FALSE(stale_signature.has_value());
+  REQUIRE(stale_signature.error().message == "Type mismatch in call target arguments.");
+}
+
 TEST_CASE("VM executes value-ref opcodes round-trip", "[vm][lifetime][value_ref]") {
   fleaux::bytecode::Module bytecode_module;
   const auto kPrintBuiltin = static_cast<std::int64_t>(bytecode_module.builtin_names.size());
@@ -132,6 +180,26 @@ TEST_CASE("VM execute reclaims transient callable refs", "[vm][lifetime]") {
   const auto second = runtime.execute(bytecode_module, output);
   REQUIRE(second.has_value());
   REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+}
+
+TEST_CASE("RuntimeSession run_snippet reclaims transient callable refs across runs", "[vm][repl][lifetime]") {
+  fleaux::runtime::reset_callable_registry();
+  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+
+  const std::string snippet =
+      "import Std;\n"
+      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+
+  for (int iter = 0; iter < 25; ++iter) {
+    std::ostringstream output;
+    const auto result = session.run_snippet(snippet, output);
+    REQUIRE(result.has_value());
+    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  }
 }
 
 TEST_CASE("VM execute invalidates escaped transient callable refs", "[vm][lifetime]") {

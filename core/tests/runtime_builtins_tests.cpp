@@ -419,6 +419,16 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
     REQUIRE(as_string(array_at(err, 1)) == "boom-two");
   }
 
+  SECTION("Task.AwaitAll returns Err(index, message) for non-tuple input") {
+    const Value all = make_tuple(make_int(7)) | TaskAwaitAll{};
+
+    REQUIRE(as_bool(all | ResultIsErr{}));
+    const Value err = all | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 0.0);
+    REQUIRE(as_string(array_at(err, 1)) == "Task.AwaitAll: tasks must be a Tuple");
+  }
+
   SECTION("Task.Cancel can cancel a queued task before execution") {
     using namespace std::chrono_literals;
 
@@ -465,6 +475,21 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
     const Value awaited = make_tuple(task) | TaskAwait{};
     REQUIRE(as_bool(awaited | ResultIsOk{}));
     REQUIRE(to_double(awaited | ResultUnwrap{}) == 7.0);
+  }
+
+  SECTION("Task.WithTimeout returns Err(String) for negative timeout") {
+    const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
+    const Value task = make_tuple(identity, make_int(7)) | TaskSpawn{};
+
+    const Value result = make_tuple(task, make_int(-1)) | TaskWithTimeout{};
+    REQUIRE(as_bool(result | ResultIsErr{}));
+    REQUIRE(as_string(result | ResultUnwrapErr{}) == "Task.WithTimeout: timeout_ms must be non-negative");
+  }
+
+  SECTION("Task.WithTimeout returns Err(String) for invalid task handle") {
+    const Value result = make_tuple(make_int(7), make_int(1)) | TaskWithTimeout{};
+    REQUIRE(as_bool(result | ResultIsErr{}));
+    REQUIRE(as_string(result | ResultUnwrapErr{}) == "Task.WithTimeout: invalid task handle");
   }
 }
 

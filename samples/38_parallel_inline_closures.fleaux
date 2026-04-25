@@ -5,7 +5,7 @@ let MakeBiasedReducer(n: Float64): (Float64, Float64) => Float64 =
   (acc: Float64, x: Float64): Float64 = (((acc, x) -> Std.Add), n) -> Std.Add
 ;
 
-let BuildOptions(): Any =
+let BuildOptions(): Dict(String, Any) =
     () -> Std.Dict.Create
     -> (_, "max_workers", 2) -> Std.Dict.Set
 ;

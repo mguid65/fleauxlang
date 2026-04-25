@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -18,7 +19,10 @@
 #include "fleaux/runtime/runtime_support.hpp"
 // builtin_map.hpp must be included after runtime_support.hpp
 #include "builtin_map.hpp"
+#include "repl_support.hpp"
+#include "std_help_metadata.hpp"
 
+#include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
@@ -29,6 +33,15 @@ namespace {
 using fleaux::runtime::Array;
 using fleaux::runtime::RuntimeCallable;
 using fleaux::runtime::Value;
+
+auto make_runtime_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
+                        const std::optional<frontend::diag::SourceSpan>& span = std::nullopt) -> RuntimeError {
+  return RuntimeError{
+      .message = message,
+      .hint = hint,
+      .span = span,
+  };
+}
 
 // Value helpers
 
@@ -3142,7 +3155,55 @@ auto dispatch_builtin(const std::string& name, Value arg,
 
 }  // namespace
 
+struct RuntimeSession::Impl {
+  explicit Impl(const std::vector<std::string>& process_args) {
+    std::vector<std::string> args_storage;
+    args_storage.reserve(process_args.size() + 1U);
+    args_storage.emplace_back("<repl>");
+    args_storage.insert(args_storage.end(), process_args.begin(), process_args.end());
+
+    std::vector<char*> argv_ptrs;
+    argv_ptrs.reserve(args_storage.size());
+    for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
+    fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+  }
+
+  std::vector<frontend::ir::IRLet> lets;
+};
+
+RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args) : impl_(std::make_shared<Impl>(process_args)) {}
+
+auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
+  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, "<repl>", impl_->lets);
+  if (!analyzed) {
+    return tl::unexpected(make_runtime_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
+  }
+
+  auto merged_lets = detail::merge_repl_session_lets(impl_->lets, analyzed->lets);
+  auto program_to_execute = analyzed.value();
+  program_to_execute.lets = merged_lets;
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  auto compiled = compiler.compile(program_to_execute, fleaux::bytecode::CompileOptions{
+                                                          .module_name = std::string{"repl"},
+                                                      });
+  if (!compiled) {
+    return tl::unexpected(make_runtime_error(
+        compiled.error().message,
+        "This REPL snippet is not yet supported by the VM compiler. Try --mode interpreter for that workflow."));
+  }
+
+  impl_->lets = std::move(merged_lets);
+
+  const Runtime runtime;
+  return runtime.execute(*compiled, output);
+}
+
 // Runtime::execute
+
+auto Runtime::create_session(const std::vector<std::string>& process_args) const -> RuntimeSession {
+  return RuntimeSession(process_args);
+}
 
 auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {
   return execute(bytecode_module, std::cout);
@@ -3153,6 +3214,7 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
   fleaux::runtime::ValueRegistryScope value_scope;
   fleaux::runtime::HandleRegistryScope handle_scope;
   fleaux::runtime::TaskRegistryScope task_scope;
+  detail::StdHelpMetadataScope help_scope;
   const auto& builtins = vm_builtin_callables();
 
   std::vector<Value> stack;

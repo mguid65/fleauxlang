@@ -312,6 +312,32 @@ TEST_CASE("Interpreter file mode rejects bytecode entry files with explicit guid
   REQUIRE(output.str() == "3\n");
 }
 
+TEST_CASE("Std.Help loads canonical Std metadata in VM mode without interpreter preloading", "[vm][help][contract]") {
+  const auto sample_path = samples_dir_path() / "34_help.fleaux";
+  REQUIRE(std::filesystem::exists(sample_path));
+
+  const auto analyzed = load_ir_program(sample_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  fleaux::runtime::clear_help_metadata_registry();
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(sample_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring(
+                                 "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): "
+                                 "Float64 | Int64 | UInt64 :: __builtin__"));
+}
+
 TEST_CASE("Import unresolved diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_unresolved_contract";
   std::filesystem::remove_all(temp_dir);
@@ -1203,7 +1229,7 @@ TEST_CASE("Std.Parallel.WithOptions preflight errors stay typed in interpreter a
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Identity(x: Float64): Float64 = x;\n"
-           "let BuildBadOptions(): Any =\n"
+           "let BuildBadOptions(): Dict(String, Any) =\n"
            "    () -> Std.Dict.Create\n"
            "    -> (_, \"max_workers\", 0) -> Std.Dict.Set\n"
            ";\n"
@@ -1269,6 +1295,83 @@ TEST_CASE("Std.Parallel.Reduce step failures stay typed in interpreter and VM", 
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
+}
+
+TEST_CASE("Std.Task.AwaitAll failures stay typed in interpreter and VM", "[vm][samples][task]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_awaitall_error";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "task_awaitall_error.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let ReturnSelf(x: Float64): Float64 = x;\n"
+           "let MaybeFail(x: Float64): Float64 =\n"
+           "  (x,\n"
+           "   (2.0, (): Float64 = (\"boom-two\") -> Std.Result.Err -> Std.Result.Unwrap),\n"
+           "   (_, (): Float64 = x))\n"
+           "  -> Std.Match\n"
+           ";\n"
+           "(((ReturnSelf, 1.0) -> Std.Task.Spawn, (MaybeFail, 2.0) -> Std.Task.Spawn))\n"
+           "  -> Std.Task.AwaitAll\n"
+           "  -> Std.Result.UnwrapErr\n"
+           "  -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  StdoutCapture interpreter_capture;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+  REQUIRE(interpreter_capture.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(source_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
+}
+
+TEST_CASE("Std.Task.WithTimeout negative timeout stays typed in interpreter and VM", "[vm][samples][task]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_timeout_preflight";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "task_timeout_preflight.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let Identity(x: Float64): Float64 = x;\n"
+           "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout -> Std.Result.UnwrapErr -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  StdoutCapture interpreter_capture;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE(interpreter_result.has_value());
+  REQUIRE(interpreter_capture.str() == "Task.WithTimeout: timeout_ms must be non-negative\n");
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(source_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "Task.WithTimeout: timeout_ms must be non-negative\n");
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \

@@ -19,7 +19,7 @@ let AddOrFail(acc: Float64, x: Float64): Float64 =
   -> Std.Match
 ;
 
-let BuildBadOptions(): Any =
+let BuildBadOptions(): Dict(String, Any) =
     () -> Std.Dict.Create
     -> (_, "max_workers", 0) -> Std.Dict.Set
 ;

@@ -35,12 +35,21 @@ struct CommandResult {
   std::string stderr_text;
 };
 
-CommandResult run_cli(const std::string& arguments, const std::filesystem::path& working_dir) {
+CommandResult run_cli(const std::string& arguments, const std::filesystem::path& working_dir,
+                      const std::string_view stdin_text = {}) {
+  const auto input_path = working_dir / "stdin.txt";
   const auto output_path = working_dir / "stdout.txt";
   const auto error_path = working_dir / "stderr.txt";
-  const std::string command =
+  if (!stdin_text.empty()) {
+    std::ofstream in(input_path);
+    in.write(stdin_text.data(), static_cast<std::streamsize>(stdin_text.size()));
+  }
+
+  std::string command =
       "cd " + shell_quote(working_dir.string()) + " && " + shell_quote(fleaux_binary_path().string()) + " " +
-      arguments + " >" + shell_quote(output_path.string()) + " 2>" + shell_quote(error_path.string());
+      arguments;
+  if (!stdin_text.empty()) { command += " <" + shell_quote(input_path.string()); }
+  command += " >" + shell_quote(output_path.string()) + " 2>" + shell_quote(error_path.string());
 
   const int exit_code = std::system(command.c_str());
 
@@ -81,7 +90,27 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   REQUIRE(exit_code == 0);
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("[--no-emit-bytecode]"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("VM mode writes/refreshes .fleaux.bc cache files by default"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("REPL runs in the selected mode; default REPL mode is vm"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--no-emit-bytecode"));
+}
+
+TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_vm";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--mode vm --repl", temp_dir,
+                              "import Std;\n"
+                              "let AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+                              "2 -> AddOne -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Fleaux vm REPL"));
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("3"));
+  REQUIRE(result.stderr_text.empty());
 }
 
 TEST_CASE("CLI vm mode writes bytecode cache by default", "[vm][cli]") {

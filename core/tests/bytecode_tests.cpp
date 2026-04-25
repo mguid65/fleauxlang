@@ -484,7 +484,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Map") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelMap(v: String): Result(Any, Any) = ((v), Echo) -> Std.Parallel.Map;\n"
+        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v), Echo) -> "
+        "Std.Parallel.Map;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelMap -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_value_ref_escape_parallel_map.fleaux", "EscapeViaParallelMap");
@@ -493,9 +494,9 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.WithOptions") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
-        "let EscapeViaParallelWithOptions(v: String): Result(Any, Any) = ((v), Echo, () -> BuildOptions) -> "
-        "Std.Parallel.WithOptions;\n"
+        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v), Echo, "
+        "() -> BuildOptions) -> Std.Parallel.WithOptions;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelWithOptions -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_value_ref_escape_parallel_with_options.fleaux", "EscapeViaParallelWithOptions");
@@ -504,7 +505,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.ForEach") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelForEach(v: String): Result(Any, Any) = ((v), Echo) -> Std.Parallel.ForEach;\n"
+        "let EscapeViaParallelForEach(v: String): Result(Tuple(), Tuple(Int64, String)) = ((v), Echo) -> "
+        "Std.Parallel.ForEach;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelForEach -> Std.Result.IsOk -> Std.Println;\n",
         "bytecode_value_ref_escape_parallel_foreach.fleaux", "EscapeViaParallelForEach");
@@ -513,7 +515,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Reduce") {
     assert_no_value_ref_opcodes(
         "let Merge(acc: String, x: String): String = (acc, x) -> Std.Add;\n"
-        "let EscapeViaParallelReduce(v: String): Result(Any, Any) = ((v), \"\", Merge) -> Std.Parallel.Reduce;\n"
+        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v), \"\", Merge) -> "
+        "Std.Parallel.Reduce;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelReduce -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_value_ref_escape_parallel_reduce.fleaux", "EscapeViaParallelReduce");
@@ -522,7 +525,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Task.Spawn") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaTaskSpawn(v: String): Any = (Echo, v) -> Std.Task.Spawn;\n"
+        "let EscapeViaTaskSpawn(v: String): TaskHandle = (Echo, v) -> Std.Task.Spawn;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaTaskSpawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_value_ref_escape_task_spawn.fleaux", "EscapeViaTaskSpawn");
@@ -575,7 +578,7 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
   SECTION("Parallel.WithOptions") {
     require_copy_vs_auto_byref_equivalent(
         "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
-        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
         "((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_with_options.fleaux");
   }
@@ -646,7 +649,7 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
 
     require_copy_vs_auto_byref_equivalent(
         "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
-        "let BuildOptions(): Any = () -> Std.Dict.Create -> (_, \"max_workers\", " +
+        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", " +
             std::to_string(max_workers) +
             ") -> Std.Dict.Set;\n"
             "(" +

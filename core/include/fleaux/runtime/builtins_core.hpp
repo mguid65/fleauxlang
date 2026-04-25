@@ -976,6 +976,10 @@ struct TaskAwaitAll {
   // arg = [tasks_tuple] | tasks_tuple
   auto operator()(Value arg) const -> Value {
     const Value tasks_arg = unwrap_singleton_arg(std::move(arg));
+    if (!tasks_arg.HasArray()) {
+      return ResultErr{}(
+          make_tuple(make_int(static_cast<Int>(0)), make_string("Task.AwaitAll: tasks must be a Tuple")));
+    }
     const auto& tasks = as_array(tasks_arg);
 
     Array out;
@@ -1016,7 +1020,9 @@ struct TaskWithTimeout {
   auto operator()(Value arg) const -> Value {
     const auto& args = require_args(arg, 2, "Task.WithTimeout");
     const Int timeout_ms = as_int_value_strict(*args.TryGet(1), "Task.WithTimeout timeout_ms");
-    if (timeout_ms < 0) { throw std::invalid_argument{"Task.WithTimeout: timeout_ms must be non-negative"}; }
+    if (timeout_ms < 0) {
+      return ResultErr{}(make_tuple(make_string("Task.WithTimeout: timeout_ms must be non-negative")));
+    }
     const TaskControlPtr task = task_control_from_handle(*args.TryGet(0));
     if (!task) { return ResultErr{}(make_tuple(make_string("Task.WithTimeout: invalid task handle"))); }
     const auto result = wait_task_result_for(task, std::chrono::milliseconds{timeout_ms});

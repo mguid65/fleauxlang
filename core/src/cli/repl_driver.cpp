@@ -3,6 +3,7 @@
 #include <array>
 #include <cctype>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <ranges>
 #include <string>
@@ -12,6 +13,7 @@
 #include "fleaux/cli/line_editor.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/vm/interpreter.hpp"
+#include "fleaux/vm/runtime.hpp"
 #include <algorithm>
 
 namespace fleaux::cli {
@@ -62,6 +64,10 @@ auto buffer_has_complete_statement(const std::string& buffer) -> bool {
   if (!requested) { return false; }
   const char* no_color = std::getenv("NO_COLOR");
   return no_color == nullptr || *no_color == '\0';
+}
+
+auto repl_backend_name(const ReplBackend backend) -> std::string_view {
+  return backend == ReplBackend::kVm ? "vm" : "interpreter";
 }
 
 auto make_repl_style_provider() -> StyleSpanProvider {
@@ -168,13 +174,36 @@ auto make_repl_style_provider() -> StyleSpanProvider {
 
 }  // namespace
 
-auto ReplDriver::run(const std::vector<std::string>& process_args, const bool color_enabled) const -> int {
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session(process_args);
+auto ReplDriver::run(const std::vector<std::string>& process_args, const ReplBackend backend,
+                     const bool color_enabled) const -> int {
   const bool interactive_stdin = stdin_is_interactive();
   const bool use_color = repl_color_enabled(color_enabled);
   LineEditor line_editor(
       LineEditorConfig{.style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{}});
+  const auto backend_name = repl_backend_name(backend);
+
+  std::function<std::optional<fleaux::vm::RuntimeError>(const std::string&)> run_snippet;
+  if (backend == ReplBackend::kVm) {
+    const fleaux::vm::Runtime runtime;
+    const auto session = runtime.create_session(process_args);
+    run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
+      if (const auto result = session.run_snippet(snippet, std::cout); !result) { return result.error(); }
+      return std::nullopt;
+    };
+  } else {
+    constexpr fleaux::vm::Interpreter interpreter;
+    const auto session = interpreter.create_session(process_args);
+    run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
+      if (const auto result = session.run_snippet(snippet); !result) {
+        return fleaux::vm::RuntimeError{
+            .message = result.error().message,
+            .hint = result.error().hint,
+            .span = result.error().span,
+        };
+      }
+      return std::nullopt;
+    };
+  }
 
   const auto print_help = []() -> void {
     std::cout << "Commands:\n"
@@ -188,7 +217,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
               << "  - REPL imports are symbolic only: Std, StdBuiltins\n";
   };
 
-  std::cout << "Fleaux interpreter REPL\n"
+  std::cout << "Fleaux " << backend_name << " REPL\n"
             << "Type :help (or :?) for commands, :quit to exit.\n";
 
   std::string buffer;
@@ -236,9 +265,8 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
 
     if (!buffer_has_complete_statement(buffer)) { continue; }
 
-    if (const auto result = session.run_snippet(buffer); !result) {
-      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", result.error().message, result.error().span,
-                                                             result.error().hint)
+    if (const auto error = run_snippet(buffer); error.has_value()) {
+      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", error->message, error->span, error->hint)
                 << '\n';
     }
     buffer.clear();
