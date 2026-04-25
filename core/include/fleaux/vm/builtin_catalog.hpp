@@ -1,266 +1,652 @@
 #pragma once
 
-// Shared builtin catalog consumed by the VM runtime and transpiler.
-// FLEAUX_VM_BUILTINS contains struct-backed callable types.
-// FLEAUX_VM_FUNCTION_BUILTINS contains direct runtime function symbols.
-#define FLEAUX_VM_BUILTINS(X)                        \
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string_view>
 
+namespace fleaux::vm {
 
-#define FLEAUX_VM_FUNCTION_BUILTINS(X)      \
-  X("Std.UnaryPlus", UnaryPlus)            \
-  X("Std.UnaryMinus", UnaryMinus)          \
-  X("Std.Add", Add)                        \
-  X("Std.Subtract", Subtract)              \
-  X("Std.Multiply", Multiply)              \
-  X("Std.Divide", Divide)                  \
-  X("Std.Mod", Mod)                        \
-  X("Std.Pow", Pow)                        \
-  X("Std.Bit.And", BitAnd)                 \
-  X("Std.Bit.Or", BitOr)                   \
-  X("Std.Bit.Xor", BitXor)                 \
-  X("Std.Bit.Not", BitNot)                 \
-  X("Std.Bit.ShiftLeft", BitShiftLeft)     \
-  X("Std.Bit.ShiftRight", BitShiftRight)   \
-  X("Std.Equal", Equal)                    \
-  X("Std.NotEqual", NotEqual)              \
-  X("Std.LessThan", LessThan)              \
-  X("Std.GreaterThan", GreaterThan)        \
-  X("Std.GreaterOrEqual", GreaterOrEqual)  \
-  X("Std.LessOrEqual", LessOrEqual)        \
-  X("Std.Not", Not)                        \
-  X("Std.And", And)                        \
-  X("Std.Or", Or)                          \
-  X("Std.Select", Select)                  \
-  X("Std.Match", Match)                    \
-  X("Std.Apply", Apply)                    \
-  X("Std.Branch", Branch)                  \
-  X("Std.Loop", Loop)                      \
-  X("Std.LoopN", LoopN)                    \
-  X("Std.Printf", Printf)                  \
-  X("Std.Println", Println)                \
-  X("Std.GetArgs", GetArgs)                \
-  X("Std.Type", Type)                      \
-  X("Std.Input", Input)                    \
-  X("Std.Help", Help)                      \
-  X("Std.Exit", Exit)                      \
-  X("Std.OS.Cwd", Cwd)                     \
-  X("Std.OS.Env", OSEnv)                   \
-  X("Std.OS.HasEnv", OSHasEnv)             \
-  X("Std.OS.SetEnv", OSSetEnv)             \
-  X("Std.OS.UnsetEnv", OSUnsetEnv)         \
-  X("Std.OS.IsWindows", OSIsWindows)       \
-  X("Std.OS.IsLinux", OSIsLinux)           \
-  X("Std.OS.IsMacOS", OSIsMacOS)           \
-  X("Std.OS.Home", OSHome)                 \
-  X("Std.OS.TempDir", OSTempDir)           \
-  X("Std.OS.Exec", OSExec)                 \
-  X("Std.OS.MakeTempFile", OSMakeTempFile) \
-  X("Std.OS.MakeTempDir", OSMakeTempDir)   \
-  X("Std.Path.Join", PathJoin)             \
-  X("Std.Path.Normalize", PathNormalize)   \
-  X("Std.Path.Basename", PathBasename)     \
-  X("Std.Path.Dirname", PathDirname)       \
-  X("Std.Path.Exists", PathExists)         \
-  X("Std.Path.IsFile", PathIsFile)         \
-  X("Std.Path.IsDir", PathIsDir)           \
-  X("Std.Path.Absolute", PathAbsolute)     \
-  X("Std.Path.Extension", PathExtension)   \
-  X("Std.Path.Stem", PathStem)             \
-  X("Std.Path.WithExtension", PathWithExtension) \
-  X("Std.Path.WithBasename", PathWithBasename)   \
-  X("Std.File.ReadText", FileReadText)     \
-  X("Std.File.WriteText", FileWriteText)   \
-  X("Std.File.AppendText", FileAppendText) \
-  X("Std.File.ReadLines", FileReadLines)   \
-  X("Std.File.Delete", FileDelete)         \
-  X("Std.File.Size", FileSize)             \
-  X("Std.File.Open", FileOpen)             \
-  X("Std.File.ReadLine", FileReadLine)     \
-  X("Std.File.ReadChunk", FileReadChunk)   \
-  X("Std.File.WriteChunk", FileWriteChunk) \
-  X("Std.File.Flush", FileFlush)           \
-  X("Std.File.Close", FileClose)           \
-  X("Std.File.WithOpen", FileWithOpen)     \
-  X("Std.Dir.Create", DirCreate)           \
-  X("Std.Dir.Delete", DirDelete)           \
-  X("Std.Dir.List", DirList)               \
-  X("Std.Dir.ListFull", DirListFull)       \
-  X("Std.Tuple.Append", TupleAppend)       \
-  X("Std.Tuple.Prepend", TuplePrepend)     \
-  X("Std.Tuple.Reverse", TupleReverse)     \
-  X("Std.Tuple.Contains", TupleContains)   \
-  X("Std.Tuple.Zip", TupleZip)             \
-  X("Std.Tuple.Map", TupleMap)             \
-  X("Std.Tuple.Filter", TupleFilter)       \
-  X("Std.Tuple.Sort", TupleSort)           \
-  X("Std.Tuple.Unique", TupleUnique)       \
-  X("Std.Tuple.Min", TupleMin)             \
-  X("Std.Tuple.Max", TupleMax)             \
-  X("Std.Tuple.Reduce", TupleReduce)       \
-  X("Std.Tuple.FindIndex", TupleFindIndex) \
-  X("Std.Tuple.Any", TupleAny)             \
-  X("Std.Tuple.All", TupleAll)             \
-  X("Std.Tuple.Range", TupleRange)         \
-  X("Std.Array.GetAt", ArrayGetAt)         \
-  X("Std.Array.SetAt", ArraySetAt)         \
-  X("Std.Array.InsertAt", ArrayInsertAt)   \
-  X("Std.Array.RemoveAt", ArrayRemoveAt)   \
-  X("Std.Array.Slice", ArraySlice)         \
-  X("Std.Array.Concat", ArrayConcat)       \
-  X("Std.Array.SetAt2D", ArraySetAt2D)     \
-  X("Std.Array.Fill", ArrayFill)           \
-  X("Std.Array.Transpose2D", ArrayTranspose2D) \
-  X("Std.Array.Slice2D", ArraySlice2D)     \
-  X("Std.Array.Reshape", ArrayReshape)     \
-  X("Std.Array.Rank", ArrayRank)           \
-  X("Std.Array.Shape", ArrayShape)         \
-  X("Std.Array.Flatten", ArrayFlatten)     \
-  X("Std.Array.GetAtND", ArrayGetAtND)     \
-  X("Std.Array.SetAtND", ArraySetAtND)     \
-  X("Std.Array.ReshapeND", ArrayReshapeND) \
-  X("Std.Dict.Create", DictCreate)         \
-  X("Std.Dict.Set", DictSet)               \
-  X("Std.Dict.Get", DictGet)               \
-  X("Std.Dict.GetDefault", DictGetDefault) \
-  X("Std.Dict.Contains", DictContains)     \
-  X("Std.Dict.Delete", DictDelete)         \
-  X("Std.Dict.Merge", DictMerge)           \
-  X("Std.Dict.Keys", DictKeys)             \
-  X("Std.Dict.Values", DictValues)         \
-  X("Std.Dict.Entries", DictEntries)       \
-  X("Std.Dict.Clear", DictClear)           \
-  X("Std.Dict.Length", DictLength)         \
-  X("Std.ToInt64", ToInt64)                \
-  X("Std.ToUInt64", ToUInt64)              \
-  X("Std.ToFloat64", ToFloat64)            \
-  X("Std.Math.Floor", MathFloor)           \
-  X("Std.Math.Ceil", MathCeil)             \
-  X("Std.Math.Abs", MathAbs)               \
-  X("Std.Math.Log", MathLog)               \
-  X("Std.Math.Clamp", MathClamp)           \
-  X("Std.Math.Sqrt", Sqrt)                 \
-  X("Std.Math.Sin", Sin)                   \
-  X("Std.Math.Cos", Cos)                   \
-  X("Std.Math.Tan", Tan)                   \
-  X("Std.Result.Ok", ResultOk)             \
-  X("Std.Result.Err", ResultErr)           \
-  X("Std.Result.Tag", ResultTag)           \
-  X("Std.Result.Payload", ResultPayload)   \
-  X("Std.Result.IsOk", ResultIsOk)         \
-  X("Std.Result.IsErr", ResultIsErr)       \
-  X("Std.Result.Unwrap", ResultUnwrap)     \
-  X("Std.Result.UnwrapErr", ResultUnwrapErr) \
-  X("Std.Try", Try)                        \
-  X("Std.Parallel.Map", ParallelMap)       \
-  X("Std.Parallel.WithOptions", ParallelWithOptions) \
-  X("Std.Parallel.ForEach", ParallelForEach) \
-  X("Std.Parallel.Reduce", ParallelReduce) \
-  X("Std.Task.Spawn", TaskSpawn)           \
-  X("Std.Task.Await", TaskAwait)           \
-  X("Std.Task.AwaitAll", TaskAwaitAll)     \
-  X("Std.Task.Cancel", TaskCancel)         \
-  X("Std.Task.WithTimeout", TaskWithTimeout) \
-  X("Std.Wrap", Wrap)                      \
-  X("Std.Unwrap", Unwrap)                  \
-  X("Std.ElementAt", ElementAt)            \
-  X("Std.Length", Length)                  \
-  X("Std.Take", Take)                      \
-  X("Std.Drop", Drop)                      \
-  X("Std.Slice", Slice)                    \
-  X("Std.ToString", ToString)              \
-  X("Std.ToNum", ToNum)                    \
-  X("Std.String.Upper", StringUpper)       \
-  X("Std.String.Lower", StringLower)       \
-  X("Std.String.Trim", StringTrim)         \
-  X("Std.String.TrimStart", StringTrimStart) \
-  X("Std.String.TrimEnd", StringTrimEnd)   \
-  X("Std.String.Split", StringSplit)       \
-  X("Std.String.Join", StringJoin)         \
-  X("Std.String.Replace", StringReplace)   \
-  X("Std.String.Contains", StringContains) \
-  X("Std.String.StartsWith", StringStartsWith) \
-  X("Std.String.EndsWith", StringEndsWith) \
-  X("Std.String.Length", StringLength)     \
-  X("Std.String.CharAt", StringCharAt)     \
-  X("Std.String.Slice", StringSlice)       \
-  X("Std.String.Find", StringFind)         \
-  X("Std.String.Format", StringFormat)     \
-  X("Std.String.Regex.IsMatch", StringRegexIsMatch) \
-  X("Std.String.Regex.Find", StringRegexFind) \
-  X("Std.String.Regex.Replace", StringRegexReplace) \
-  X("Std.String.Regex.Split", StringRegexSplit)
+enum class BuiltinId : std::uint16_t {
+  UnaryPlus,
+  UnaryMinus,
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Mod,
+  Pow,
+  BitAnd,
+  BitOr,
+  BitXor,
+  BitNot,
+  BitShiftLeft,
+  BitShiftRight,
+  Equal,
+  NotEqual,
+  LessThan,
+  GreaterThan,
+  GreaterOrEqual,
+  LessOrEqual,
+  Not,
+  And,
+  Or,
+  Select,
+  Match,
+  Apply,
+  Branch,
+  Loop,
+  LoopN,
+  Printf,
+  Println,
+  GetArgs,
+  Type,
+  Input,
+  Help,
+  Exit,
+  Cwd,
+  OSEnv,
+  OSHasEnv,
+  OSSetEnv,
+  OSUnsetEnv,
+  OSIsWindows,
+  OSIsLinux,
+  OSIsMacOS,
+  OSHome,
+  OSTempDir,
+  OSExec,
+  OSMakeTempFile,
+  OSMakeTempDir,
+  PathJoin,
+  PathNormalize,
+  PathBasename,
+  PathDirname,
+  PathExists,
+  PathIsFile,
+  PathIsDir,
+  PathAbsolute,
+  PathExtension,
+  PathStem,
+  PathWithExtension,
+  PathWithBasename,
+  FileReadText,
+  FileWriteText,
+  FileAppendText,
+  FileReadLines,
+  FileDelete,
+  FileSize,
+  FileOpen,
+  FileReadLine,
+  FileReadChunk,
+  FileWriteChunk,
+  FileFlush,
+  FileClose,
+  FileWithOpen,
+  DirCreate,
+  DirDelete,
+  DirList,
+  DirListFull,
+  TupleAppend,
+  TuplePrepend,
+  TupleReverse,
+  TupleContains,
+  TupleZip,
+  TupleMap,
+  TupleFilter,
+  TupleSort,
+  TupleUnique,
+  TupleMin,
+  TupleMax,
+  TupleReduce,
+  TupleFindIndex,
+  TupleAny,
+  TupleAll,
+  TupleRange,
+  ArrayGetAt,
+  ArraySetAt,
+  ArrayInsertAt,
+  ArrayRemoveAt,
+  ArraySlice,
+  ArrayConcat,
+  ArraySetAt2D,
+  ArrayFill,
+  ArrayTranspose2D,
+  ArraySlice2D,
+  ArrayReshape,
+  ArrayRank,
+  ArrayShape,
+  ArrayFlatten,
+  ArrayGetAtND,
+  ArraySetAtND,
+  ArrayReshapeND,
+  DictCreate,
+  DictSet,
+  DictGet,
+  DictGetDefault,
+  DictContains,
+  DictDelete,
+  DictMerge,
+  DictKeys,
+  DictValues,
+  DictEntries,
+  DictClear,
+  DictLength,
+  ToInt64,
+  ToUInt64,
+  ToFloat64,
+  MathFloor,
+  MathCeil,
+  MathAbs,
+  MathLog,
+  MathClamp,
+  Sqrt,
+  Sin,
+  Cos,
+  Tan,
+  ResultOk,
+  ResultErr,
+  ResultTag,
+  ResultPayload,
+  ResultIsOk,
+  ResultIsErr,
+  ResultUnwrap,
+  ResultUnwrapErr,
+  Try,
+  ParallelMap,
+  ParallelWithOptions,
+  ParallelForEach,
+  ParallelReduce,
+  TaskSpawn,
+  TaskAwait,
+  TaskAwaitAll,
+  TaskCancel,
+  TaskWithTimeout,
+  Wrap,
+  Unwrap,
+  ElementAt,
+  Length,
+  Take,
+  Drop,
+  Slice,
+  ToString,
+  ToNum,
+  StringUpper,
+  StringLower,
+  StringTrim,
+  StringTrimStart,
+  StringTrimEnd,
+  StringSplit,
+  StringJoin,
+  StringReplace,
+  StringContains,
+  StringStartsWith,
+  StringEndsWith,
+  StringLength,
+  StringCharAt,
+  StringSlice,
+  StringFind,
+  StringFormat,
+  StringRegexIsMatch,
+  StringRegexFind,
+  StringRegexReplace,
+  StringRegexSplit,
+  Half,
+  Third,
+  TwoThirds,
+  Sixth,
+  ThreeQuarters,
+  RootTwo,
+  RootThree,
+  HalfRootTwo,
+  LnTwo,
+  LnLnTwo,
+  RootLnFour,
+  OneDivRootTwo,
+  Pi,
+  HalfPi,
+  ThirdPi,
+  SixthPi,
+  TwoPi,
+  Tau,
+  TwoThirdsPi,
+  ThreeQuartersPi,
+  FourThirdsPi,
+  OneDivTwoPi,
+  OneDivRootTwoPi,
+  RootPi,
+  RootHalfPi,
+  RootTwoPi,
+  LogRootTwoPi,
+  OneDivRootPi,
+  RootOneDivPi,
+  PiMinusThree,
+  FourMinusPi,
+  PiPowE,
+  PiSqr,
+  PiSqrDivSix,
+  PiCubed,
+  CbrtPi,
+  OneDivCbrtPi,
+  Log2E,
+  E,
+  ExpMinusHalf,
+  ExpMinusOne,
+  EPowPi,
+  RootE,
+  Log10E,
+  OneDivLog10E,
+  LnTen,
+  Degree,
+  Radian,
+  SinOne,
+  CosOne,
+  SinhOne,
+  CoshOne,
+  Phi,
+  LnPhi,
+  OneDivLnPhi,
+  Euler,
+  OneDivEuler,
+  EulerSqr,
+  ZetaTwo,
+  ZetaThree,
+  Catalan,
+  Glaisher,
+  Khinchin,
+  ExtremeValueSkewness,
+  RayleighSkewness,
+  RayleighKurtosis,
+  RayleighKurtosisExcess,
+  TwoDivPi,
+  RootTwoDivPi,
+  QuarterPi,
+  InvPi,
+  TwoDivRootPi,
+  kCount,
+};
 
-// Each entry is: (fully_qualified_name, numeric_value)
-#define FLEAUX_VM_CONSTANT_BUILTINS(X)                                        \
-  X("Std.Half", 0.5000000000000000000000000000000000000e-01)                  \
-  X("Std.Third", 3.333333333333333333333333333333333333e-01)                  \
-  X("Std.TwoThirds", 6.666666666666666666666666666666666666e-01)              \
-  X("Std.Sixth", 1.666666666666666666666666666666666666e-01)                  \
-  X("Std.ThreeQuarters", 7.500000000000000000000000000000000000e-01)          \
-  X("Std.RootTwo", 1.414213562373095048801688724209698078e+00)                \
-  X("Std.RootThree", 1.732050807568877293527446341505872366e+00)              \
-  X("Std.HalfRootTwo", 7.071067811865475244008443621048490392e-01)            \
-  X("Std.LnTwo", 6.931471805599453094172321214581765680e-01)                  \
-  X("Std.LnLnTwo", -3.665129205816643270124391582326694694e-01)               \
-  X("Std.RootLnFour", 1.177410022515474691011569326459699637e+00)             \
-  X("Std.OneDivRootTwo", 7.071067811865475244008443621048490392e-01)          \
-  X("Std.Pi", 3.141592653589793238462643383279502884e+00)                     \
-  X("Std.HalfPi", 1.570796326794896619231321691639751442e+00)                 \
-  X("Std.ThirdPi", 1.047197551196597746154214461093167628e+00)                \
-  X("Std.SixthPi", 5.235987755982988730771072305465838140e-01)                \
-  X("Std.TwoPi", 6.283185307179586476925286766559005768e+00)                  \
-  X("Std.Tau", 6.283185307179586476925286766559005768e+00)                    \
-  X("Std.TwoThirdsPi", 2.094395102393195492308428922186335256e+00)            \
-  X("Std.ThreeQuartersPi", 2.356194490192344928846982537459627163e+00)        \
-  X("Std.FourThirdsPi", 4.188790204786390984616857844372670512e+00)           \
-  X("Std.OneDivTwoPi", 1.591549430918953357688837633725143620e-01)            \
-  X("Std.OneDivRootTwoPi", 3.989422804014326779399460599343818684e-01)        \
-  X("Std.RootPi", 1.772453850905516027298167483341145182e+00)                 \
-  X("Std.RootHalfPi", 1.253314137315500251207882642405522626e+00)             \
-  X("Std.RootTwoPi", 2.506628274631000502415765284811045253e+00)              \
-  X("Std.LogRootTwoPi", 9.189385332046727417803297364056176398e-01)           \
-  X("Std.OneDivRootPi", 5.641895835477562869480794515607725858e-01)           \
-  X("Std.RootOneDivPi", 5.641895835477562869480794515607725858e-01)           \
-  X("Std.PiMinusThree", 1.415926535897932384626433832795028841e-01)           \
-  X("Std.FourMinusPi", 8.584073464102067615373566167204971158e-01)            \
-  X("Std.PiPowE", 2.245915771836104547342715220454373502e+01)                 \
-  X("Std.PiSqr", 9.869604401089358618834490999876151135e+00)                  \
-  X("Std.PiSqrDivSix", 1.644934066848226436472415166646025189e+00)            \
-  X("Std.PiCubed", 3.100627668029982017547631506710139520e+01)                \
-  X("Std.CbrtPi", 1.464591887561523263020142527263790391e+00)                 \
-  X("Std.OneDivCbrtPi", 6.827840632552956814670208331581645981e-01)           \
-  X("Std.Log2E", 1.44269504088896340735992468100189213742664595415298)        \
-  X("Std.E", 2.718281828459045235360287471352662497e+00)                      \
-  X("Std.ExpMinusHalf", 6.065306597126334236037995349911804534e-01)           \
-  X("Std.ExpMinusOne", 3.678794411714423215955237701614608674e-01)            \
-  X("Std.EPowPi", 2.314069263277926900572908636794854738e+01)                 \
-  X("Std.RootE", 1.648721270700128146848650787814163571e+00)                  \
-  X("Std.Log10E", 4.342944819032518276511289189166050822e-01)                 \
-  X("Std.OneDivLog10E", 2.302585092994045684017991454684364207e+00)           \
-  X("Std.LnTen", 2.302585092994045684017991454684364207e+00)                  \
-  X("Std.Degree", 1.745329251994329576923690768488612713e-02)                 \
-  X("Std.Radian", 5.729577951308232087679815481410517033e+01)                 \
-  X("Std.SinOne", 8.414709848078965066525023216302989996e-01)                 \
-  X("Std.CosOne", 5.403023058681397174009366074429766037e-01)                 \
-  X("Std.SinhOne", 1.175201193643801456882381850595600815e+00)                \
-  X("Std.CoshOne", 1.543080634815243778477905620757061682e+00)                \
-  X("Std.Phi", 1.618033988749894848204586834365638117e+00)                    \
-  X("Std.LnPhi", 4.812118250596034474977589134243684231e-01)                  \
-  X("Std.OneDivLnPhi", 2.078086921235027537601322606117795767e+00)            \
-  X("Std.Euler", 5.772156649015328606065120900824024310e-01)                  \
-  X("Std.OneDivEuler", 1.732454714600633473583025315860829681e+00)            \
-  X("Std.EulerSqr", 3.331779238077186743183761363552442266e-01)               \
-  X("Std.ZetaTwo", 1.644934066848226436472415166646025189e+00)                \
-  X("Std.ZetaThree", 1.202056903159594285399738161511449990e+00)              \
-  X("Std.Catalan", 9.159655941772190150546035149323841107e-01)                \
-  X("Std.Glaisher", 1.282427129100622636875342568869791727e+00)               \
-  X("Std.Khinchin", 2.685452001065306445309714835481795693e+00)               \
-  X("Std.ExtremeValueSkewness", 1.139547099404648657492793019389846112e+00)   \
-  X("Std.RayleighSkewness", 6.311106578189371381918993515442277798e-01)       \
-  X("Std.RayleighKurtosis", 3.245089300687638062848660410619754415e+00)       \
-  X("Std.RayleighKurtosisExcess", 2.450893006876380628486604106197544154e-01) \
-  X("Std.TwoDivPi", 6.366197723675813430755350534900574481e-01)               \
-  X("Std.RootTwoDivPi", 7.978845608028653558798921198687637369e-01)           \
-  X("Std.QuarterPi", 0.785398163397448309615660845819875721049292)            \
-  X("Std.InvPi", 0.3183098861837906715377675267450287240689192)               \
-  X("Std.TwoDivRootPi", 1.12837916709551257389615890312154517168810125)
+struct BuiltinSpec {
+  BuiltinId id;
+  std::string_view name;
+};
+
+struct ConstantBuiltinSpec {
+  BuiltinId id;
+  std::string_view name;
+  double value;
+};
+
+inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
+    BuiltinSpec{BuiltinId::UnaryPlus, "Std.UnaryPlus"},
+    BuiltinSpec{BuiltinId::UnaryMinus, "Std.UnaryMinus"},
+    BuiltinSpec{BuiltinId::Add, "Std.Add"},
+    BuiltinSpec{BuiltinId::Subtract, "Std.Subtract"},
+    BuiltinSpec{BuiltinId::Multiply, "Std.Multiply"},
+    BuiltinSpec{BuiltinId::Divide, "Std.Divide"},
+    BuiltinSpec{BuiltinId::Mod, "Std.Mod"},
+    BuiltinSpec{BuiltinId::Pow, "Std.Pow"},
+    BuiltinSpec{BuiltinId::BitAnd, "Std.Bit.And"},
+    BuiltinSpec{BuiltinId::BitOr, "Std.Bit.Or"},
+    BuiltinSpec{BuiltinId::BitXor, "Std.Bit.Xor"},
+    BuiltinSpec{BuiltinId::BitNot, "Std.Bit.Not"},
+    BuiltinSpec{BuiltinId::BitShiftLeft, "Std.Bit.ShiftLeft"},
+    BuiltinSpec{BuiltinId::BitShiftRight, "Std.Bit.ShiftRight"},
+    BuiltinSpec{BuiltinId::Equal, "Std.Equal"},
+    BuiltinSpec{BuiltinId::NotEqual, "Std.NotEqual"},
+    BuiltinSpec{BuiltinId::LessThan, "Std.LessThan"},
+    BuiltinSpec{BuiltinId::GreaterThan, "Std.GreaterThan"},
+    BuiltinSpec{BuiltinId::GreaterOrEqual, "Std.GreaterOrEqual"},
+    BuiltinSpec{BuiltinId::LessOrEqual, "Std.LessOrEqual"},
+    BuiltinSpec{BuiltinId::Not, "Std.Not"},
+    BuiltinSpec{BuiltinId::And, "Std.And"},
+    BuiltinSpec{BuiltinId::Or, "Std.Or"},
+    BuiltinSpec{BuiltinId::Select, "Std.Select"},
+    BuiltinSpec{BuiltinId::Match, "Std.Match"},
+    BuiltinSpec{BuiltinId::Apply, "Std.Apply"},
+    BuiltinSpec{BuiltinId::Branch, "Std.Branch"},
+    BuiltinSpec{BuiltinId::Loop, "Std.Loop"},
+    BuiltinSpec{BuiltinId::LoopN, "Std.LoopN"},
+    BuiltinSpec{BuiltinId::Printf, "Std.Printf"},
+    BuiltinSpec{BuiltinId::Println, "Std.Println"},
+    BuiltinSpec{BuiltinId::GetArgs, "Std.GetArgs"},
+    BuiltinSpec{BuiltinId::Type, "Std.Type"},
+    BuiltinSpec{BuiltinId::Input, "Std.Input"},
+    BuiltinSpec{BuiltinId::Help, "Std.Help"},
+    BuiltinSpec{BuiltinId::Exit, "Std.Exit"},
+    BuiltinSpec{BuiltinId::Cwd, "Std.OS.Cwd"},
+    BuiltinSpec{BuiltinId::OSEnv, "Std.OS.Env"},
+    BuiltinSpec{BuiltinId::OSHasEnv, "Std.OS.HasEnv"},
+    BuiltinSpec{BuiltinId::OSSetEnv, "Std.OS.SetEnv"},
+    BuiltinSpec{BuiltinId::OSUnsetEnv, "Std.OS.UnsetEnv"},
+    BuiltinSpec{BuiltinId::OSIsWindows, "Std.OS.IsWindows"},
+    BuiltinSpec{BuiltinId::OSIsLinux, "Std.OS.IsLinux"},
+    BuiltinSpec{BuiltinId::OSIsMacOS, "Std.OS.IsMacOS"},
+    BuiltinSpec{BuiltinId::OSHome, "Std.OS.Home"},
+    BuiltinSpec{BuiltinId::OSTempDir, "Std.OS.TempDir"},
+    BuiltinSpec{BuiltinId::OSExec, "Std.OS.Exec"},
+    BuiltinSpec{BuiltinId::OSMakeTempFile, "Std.OS.MakeTempFile"},
+    BuiltinSpec{BuiltinId::OSMakeTempDir, "Std.OS.MakeTempDir"},
+    BuiltinSpec{BuiltinId::PathJoin, "Std.Path.Join"},
+    BuiltinSpec{BuiltinId::PathNormalize, "Std.Path.Normalize"},
+    BuiltinSpec{BuiltinId::PathBasename, "Std.Path.Basename"},
+    BuiltinSpec{BuiltinId::PathDirname, "Std.Path.Dirname"},
+    BuiltinSpec{BuiltinId::PathExists, "Std.Path.Exists"},
+    BuiltinSpec{BuiltinId::PathIsFile, "Std.Path.IsFile"},
+    BuiltinSpec{BuiltinId::PathIsDir, "Std.Path.IsDir"},
+    BuiltinSpec{BuiltinId::PathAbsolute, "Std.Path.Absolute"},
+    BuiltinSpec{BuiltinId::PathExtension, "Std.Path.Extension"},
+    BuiltinSpec{BuiltinId::PathStem, "Std.Path.Stem"},
+    BuiltinSpec{BuiltinId::PathWithExtension, "Std.Path.WithExtension"},
+    BuiltinSpec{BuiltinId::PathWithBasename, "Std.Path.WithBasename"},
+    BuiltinSpec{BuiltinId::FileReadText, "Std.File.ReadText"},
+    BuiltinSpec{BuiltinId::FileWriteText, "Std.File.WriteText"},
+    BuiltinSpec{BuiltinId::FileAppendText, "Std.File.AppendText"},
+    BuiltinSpec{BuiltinId::FileReadLines, "Std.File.ReadLines"},
+    BuiltinSpec{BuiltinId::FileDelete, "Std.File.Delete"},
+    BuiltinSpec{BuiltinId::FileSize, "Std.File.Size"},
+    BuiltinSpec{BuiltinId::FileOpen, "Std.File.Open"},
+    BuiltinSpec{BuiltinId::FileReadLine, "Std.File.ReadLine"},
+    BuiltinSpec{BuiltinId::FileReadChunk, "Std.File.ReadChunk"},
+    BuiltinSpec{BuiltinId::FileWriteChunk, "Std.File.WriteChunk"},
+    BuiltinSpec{BuiltinId::FileFlush, "Std.File.Flush"},
+    BuiltinSpec{BuiltinId::FileClose, "Std.File.Close"},
+    BuiltinSpec{BuiltinId::FileWithOpen, "Std.File.WithOpen"},
+    BuiltinSpec{BuiltinId::DirCreate, "Std.Dir.Create"},
+    BuiltinSpec{BuiltinId::DirDelete, "Std.Dir.Delete"},
+    BuiltinSpec{BuiltinId::DirList, "Std.Dir.List"},
+    BuiltinSpec{BuiltinId::DirListFull, "Std.Dir.ListFull"},
+    BuiltinSpec{BuiltinId::TupleAppend, "Std.Tuple.Append"},
+    BuiltinSpec{BuiltinId::TuplePrepend, "Std.Tuple.Prepend"},
+    BuiltinSpec{BuiltinId::TupleReverse, "Std.Tuple.Reverse"},
+    BuiltinSpec{BuiltinId::TupleContains, "Std.Tuple.Contains"},
+    BuiltinSpec{BuiltinId::TupleZip, "Std.Tuple.Zip"},
+    BuiltinSpec{BuiltinId::TupleMap, "Std.Tuple.Map"},
+    BuiltinSpec{BuiltinId::TupleFilter, "Std.Tuple.Filter"},
+    BuiltinSpec{BuiltinId::TupleSort, "Std.Tuple.Sort"},
+    BuiltinSpec{BuiltinId::TupleUnique, "Std.Tuple.Unique"},
+    BuiltinSpec{BuiltinId::TupleMin, "Std.Tuple.Min"},
+    BuiltinSpec{BuiltinId::TupleMax, "Std.Tuple.Max"},
+    BuiltinSpec{BuiltinId::TupleReduce, "Std.Tuple.Reduce"},
+    BuiltinSpec{BuiltinId::TupleFindIndex, "Std.Tuple.FindIndex"},
+    BuiltinSpec{BuiltinId::TupleAny, "Std.Tuple.Any"},
+    BuiltinSpec{BuiltinId::TupleAll, "Std.Tuple.All"},
+    BuiltinSpec{BuiltinId::TupleRange, "Std.Tuple.Range"},
+    BuiltinSpec{BuiltinId::ArrayGetAt, "Std.Array.GetAt"},
+    BuiltinSpec{BuiltinId::ArraySetAt, "Std.Array.SetAt"},
+    BuiltinSpec{BuiltinId::ArrayInsertAt, "Std.Array.InsertAt"},
+    BuiltinSpec{BuiltinId::ArrayRemoveAt, "Std.Array.RemoveAt"},
+    BuiltinSpec{BuiltinId::ArraySlice, "Std.Array.Slice"},
+    BuiltinSpec{BuiltinId::ArrayConcat, "Std.Array.Concat"},
+    BuiltinSpec{BuiltinId::ArraySetAt2D, "Std.Array.SetAt2D"},
+    BuiltinSpec{BuiltinId::ArrayFill, "Std.Array.Fill"},
+    BuiltinSpec{BuiltinId::ArrayTranspose2D, "Std.Array.Transpose2D"},
+    BuiltinSpec{BuiltinId::ArraySlice2D, "Std.Array.Slice2D"},
+    BuiltinSpec{BuiltinId::ArrayReshape, "Std.Array.Reshape"},
+    BuiltinSpec{BuiltinId::ArrayRank, "Std.Array.Rank"},
+    BuiltinSpec{BuiltinId::ArrayShape, "Std.Array.Shape"},
+    BuiltinSpec{BuiltinId::ArrayFlatten, "Std.Array.Flatten"},
+    BuiltinSpec{BuiltinId::ArrayGetAtND, "Std.Array.GetAtND"},
+    BuiltinSpec{BuiltinId::ArraySetAtND, "Std.Array.SetAtND"},
+    BuiltinSpec{BuiltinId::ArrayReshapeND, "Std.Array.ReshapeND"},
+    BuiltinSpec{BuiltinId::DictCreate, "Std.Dict.Create"},
+    BuiltinSpec{BuiltinId::DictSet, "Std.Dict.Set"},
+    BuiltinSpec{BuiltinId::DictGet, "Std.Dict.Get"},
+    BuiltinSpec{BuiltinId::DictGetDefault, "Std.Dict.GetDefault"},
+    BuiltinSpec{BuiltinId::DictContains, "Std.Dict.Contains"},
+    BuiltinSpec{BuiltinId::DictDelete, "Std.Dict.Delete"},
+    BuiltinSpec{BuiltinId::DictMerge, "Std.Dict.Merge"},
+    BuiltinSpec{BuiltinId::DictKeys, "Std.Dict.Keys"},
+    BuiltinSpec{BuiltinId::DictValues, "Std.Dict.Values"},
+    BuiltinSpec{BuiltinId::DictEntries, "Std.Dict.Entries"},
+    BuiltinSpec{BuiltinId::DictClear, "Std.Dict.Clear"},
+    BuiltinSpec{BuiltinId::DictLength, "Std.Dict.Length"},
+    BuiltinSpec{BuiltinId::ToInt64, "Std.ToInt64"},
+    BuiltinSpec{BuiltinId::ToUInt64, "Std.ToUInt64"},
+    BuiltinSpec{BuiltinId::ToFloat64, "Std.ToFloat64"},
+    BuiltinSpec{BuiltinId::MathFloor, "Std.Math.Floor"},
+    BuiltinSpec{BuiltinId::MathCeil, "Std.Math.Ceil"},
+    BuiltinSpec{BuiltinId::MathAbs, "Std.Math.Abs"},
+    BuiltinSpec{BuiltinId::MathLog, "Std.Math.Log"},
+    BuiltinSpec{BuiltinId::MathClamp, "Std.Math.Clamp"},
+    BuiltinSpec{BuiltinId::Sqrt, "Std.Math.Sqrt"},
+    BuiltinSpec{BuiltinId::Sin, "Std.Math.Sin"},
+    BuiltinSpec{BuiltinId::Cos, "Std.Math.Cos"},
+    BuiltinSpec{BuiltinId::Tan, "Std.Math.Tan"},
+    BuiltinSpec{BuiltinId::ResultOk, "Std.Result.Ok"},
+    BuiltinSpec{BuiltinId::ResultErr, "Std.Result.Err"},
+    BuiltinSpec{BuiltinId::ResultTag, "Std.Result.Tag"},
+    BuiltinSpec{BuiltinId::ResultPayload, "Std.Result.Payload"},
+    BuiltinSpec{BuiltinId::ResultIsOk, "Std.Result.IsOk"},
+    BuiltinSpec{BuiltinId::ResultIsErr, "Std.Result.IsErr"},
+    BuiltinSpec{BuiltinId::ResultUnwrap, "Std.Result.Unwrap"},
+    BuiltinSpec{BuiltinId::ResultUnwrapErr, "Std.Result.UnwrapErr"},
+    BuiltinSpec{BuiltinId::Try, "Std.Try"},
+    BuiltinSpec{BuiltinId::ParallelMap, "Std.Parallel.Map"},
+    BuiltinSpec{BuiltinId::ParallelWithOptions, "Std.Parallel.WithOptions"},
+    BuiltinSpec{BuiltinId::ParallelForEach, "Std.Parallel.ForEach"},
+    BuiltinSpec{BuiltinId::ParallelReduce, "Std.Parallel.Reduce"},
+    BuiltinSpec{BuiltinId::TaskSpawn, "Std.Task.Spawn"},
+    BuiltinSpec{BuiltinId::TaskAwait, "Std.Task.Await"},
+    BuiltinSpec{BuiltinId::TaskAwaitAll, "Std.Task.AwaitAll"},
+    BuiltinSpec{BuiltinId::TaskCancel, "Std.Task.Cancel"},
+    BuiltinSpec{BuiltinId::TaskWithTimeout, "Std.Task.WithTimeout"},
+    BuiltinSpec{BuiltinId::Wrap, "Std.Wrap"},
+    BuiltinSpec{BuiltinId::Unwrap, "Std.Unwrap"},
+    BuiltinSpec{BuiltinId::ElementAt, "Std.ElementAt"},
+    BuiltinSpec{BuiltinId::Length, "Std.Length"},
+    BuiltinSpec{BuiltinId::Take, "Std.Take"},
+    BuiltinSpec{BuiltinId::Drop, "Std.Drop"},
+    BuiltinSpec{BuiltinId::Slice, "Std.Slice"},
+    BuiltinSpec{BuiltinId::ToString, "Std.ToString"},
+    BuiltinSpec{BuiltinId::ToNum, "Std.ToNum"},
+    BuiltinSpec{BuiltinId::StringUpper, "Std.String.Upper"},
+    BuiltinSpec{BuiltinId::StringLower, "Std.String.Lower"},
+    BuiltinSpec{BuiltinId::StringTrim, "Std.String.Trim"},
+    BuiltinSpec{BuiltinId::StringTrimStart, "Std.String.TrimStart"},
+    BuiltinSpec{BuiltinId::StringTrimEnd, "Std.String.TrimEnd"},
+    BuiltinSpec{BuiltinId::StringSplit, "Std.String.Split"},
+    BuiltinSpec{BuiltinId::StringJoin, "Std.String.Join"},
+    BuiltinSpec{BuiltinId::StringReplace, "Std.String.Replace"},
+    BuiltinSpec{BuiltinId::StringContains, "Std.String.Contains"},
+    BuiltinSpec{BuiltinId::StringStartsWith, "Std.String.StartsWith"},
+    BuiltinSpec{BuiltinId::StringEndsWith, "Std.String.EndsWith"},
+    BuiltinSpec{BuiltinId::StringLength, "Std.String.Length"},
+    BuiltinSpec{BuiltinId::StringCharAt, "Std.String.CharAt"},
+    BuiltinSpec{BuiltinId::StringSlice, "Std.String.Slice"},
+    BuiltinSpec{BuiltinId::StringFind, "Std.String.Find"},
+    BuiltinSpec{BuiltinId::StringFormat, "Std.String.Format"},
+    BuiltinSpec{BuiltinId::StringRegexIsMatch, "Std.String.Regex.IsMatch"},
+    BuiltinSpec{BuiltinId::StringRegexFind, "Std.String.Regex.Find"},
+    BuiltinSpec{BuiltinId::StringRegexReplace, "Std.String.Regex.Replace"},
+    BuiltinSpec{BuiltinId::StringRegexSplit, "Std.String.Regex.Split"},
+    BuiltinSpec{BuiltinId::Half, "Std.Half"},
+    BuiltinSpec{BuiltinId::Third, "Std.Third"},
+    BuiltinSpec{BuiltinId::TwoThirds, "Std.TwoThirds"},
+    BuiltinSpec{BuiltinId::Sixth, "Std.Sixth"},
+    BuiltinSpec{BuiltinId::ThreeQuarters, "Std.ThreeQuarters"},
+    BuiltinSpec{BuiltinId::RootTwo, "Std.RootTwo"},
+    BuiltinSpec{BuiltinId::RootThree, "Std.RootThree"},
+    BuiltinSpec{BuiltinId::HalfRootTwo, "Std.HalfRootTwo"},
+    BuiltinSpec{BuiltinId::LnTwo, "Std.LnTwo"},
+    BuiltinSpec{BuiltinId::LnLnTwo, "Std.LnLnTwo"},
+    BuiltinSpec{BuiltinId::RootLnFour, "Std.RootLnFour"},
+    BuiltinSpec{BuiltinId::OneDivRootTwo, "Std.OneDivRootTwo"},
+    BuiltinSpec{BuiltinId::Pi, "Std.Pi"},
+    BuiltinSpec{BuiltinId::HalfPi, "Std.HalfPi"},
+    BuiltinSpec{BuiltinId::ThirdPi, "Std.ThirdPi"},
+    BuiltinSpec{BuiltinId::SixthPi, "Std.SixthPi"},
+    BuiltinSpec{BuiltinId::TwoPi, "Std.TwoPi"},
+    BuiltinSpec{BuiltinId::Tau, "Std.Tau"},
+    BuiltinSpec{BuiltinId::TwoThirdsPi, "Std.TwoThirdsPi"},
+    BuiltinSpec{BuiltinId::ThreeQuartersPi, "Std.ThreeQuartersPi"},
+    BuiltinSpec{BuiltinId::FourThirdsPi, "Std.FourThirdsPi"},
+    BuiltinSpec{BuiltinId::OneDivTwoPi, "Std.OneDivTwoPi"},
+    BuiltinSpec{BuiltinId::OneDivRootTwoPi, "Std.OneDivRootTwoPi"},
+    BuiltinSpec{BuiltinId::RootPi, "Std.RootPi"},
+    BuiltinSpec{BuiltinId::RootHalfPi, "Std.RootHalfPi"},
+    BuiltinSpec{BuiltinId::RootTwoPi, "Std.RootTwoPi"},
+    BuiltinSpec{BuiltinId::LogRootTwoPi, "Std.LogRootTwoPi"},
+    BuiltinSpec{BuiltinId::OneDivRootPi, "Std.OneDivRootPi"},
+    BuiltinSpec{BuiltinId::RootOneDivPi, "Std.RootOneDivPi"},
+    BuiltinSpec{BuiltinId::PiMinusThree, "Std.PiMinusThree"},
+    BuiltinSpec{BuiltinId::FourMinusPi, "Std.FourMinusPi"},
+    BuiltinSpec{BuiltinId::PiPowE, "Std.PiPowE"},
+    BuiltinSpec{BuiltinId::PiSqr, "Std.PiSqr"},
+    BuiltinSpec{BuiltinId::PiSqrDivSix, "Std.PiSqrDivSix"},
+    BuiltinSpec{BuiltinId::PiCubed, "Std.PiCubed"},
+    BuiltinSpec{BuiltinId::CbrtPi, "Std.CbrtPi"},
+    BuiltinSpec{BuiltinId::OneDivCbrtPi, "Std.OneDivCbrtPi"},
+    BuiltinSpec{BuiltinId::Log2E, "Std.Log2E"},
+    BuiltinSpec{BuiltinId::E, "Std.E"},
+    BuiltinSpec{BuiltinId::ExpMinusHalf, "Std.ExpMinusHalf"},
+    BuiltinSpec{BuiltinId::ExpMinusOne, "Std.ExpMinusOne"},
+    BuiltinSpec{BuiltinId::EPowPi, "Std.EPowPi"},
+    BuiltinSpec{BuiltinId::RootE, "Std.RootE"},
+    BuiltinSpec{BuiltinId::Log10E, "Std.Log10E"},
+    BuiltinSpec{BuiltinId::OneDivLog10E, "Std.OneDivLog10E"},
+    BuiltinSpec{BuiltinId::LnTen, "Std.LnTen"},
+    BuiltinSpec{BuiltinId::Degree, "Std.Degree"},
+    BuiltinSpec{BuiltinId::Radian, "Std.Radian"},
+    BuiltinSpec{BuiltinId::SinOne, "Std.SinOne"},
+    BuiltinSpec{BuiltinId::CosOne, "Std.CosOne"},
+    BuiltinSpec{BuiltinId::SinhOne, "Std.SinhOne"},
+    BuiltinSpec{BuiltinId::CoshOne, "Std.CoshOne"},
+    BuiltinSpec{BuiltinId::Phi, "Std.Phi"},
+    BuiltinSpec{BuiltinId::LnPhi, "Std.LnPhi"},
+    BuiltinSpec{BuiltinId::OneDivLnPhi, "Std.OneDivLnPhi"},
+    BuiltinSpec{BuiltinId::Euler, "Std.Euler"},
+    BuiltinSpec{BuiltinId::OneDivEuler, "Std.OneDivEuler"},
+    BuiltinSpec{BuiltinId::EulerSqr, "Std.EulerSqr"},
+    BuiltinSpec{BuiltinId::ZetaTwo, "Std.ZetaTwo"},
+    BuiltinSpec{BuiltinId::ZetaThree, "Std.ZetaThree"},
+    BuiltinSpec{BuiltinId::Catalan, "Std.Catalan"},
+    BuiltinSpec{BuiltinId::Glaisher, "Std.Glaisher"},
+    BuiltinSpec{BuiltinId::Khinchin, "Std.Khinchin"},
+    BuiltinSpec{BuiltinId::ExtremeValueSkewness, "Std.ExtremeValueSkewness"},
+    BuiltinSpec{BuiltinId::RayleighSkewness, "Std.RayleighSkewness"},
+    BuiltinSpec{BuiltinId::RayleighKurtosis, "Std.RayleighKurtosis"},
+    BuiltinSpec{BuiltinId::RayleighKurtosisExcess, "Std.RayleighKurtosisExcess"},
+    BuiltinSpec{BuiltinId::TwoDivPi, "Std.TwoDivPi"},
+    BuiltinSpec{BuiltinId::RootTwoDivPi, "Std.RootTwoDivPi"},
+    BuiltinSpec{BuiltinId::QuarterPi, "Std.QuarterPi"},
+    BuiltinSpec{BuiltinId::InvPi, "Std.InvPi"},
+    BuiltinSpec{BuiltinId::TwoDivRootPi, "Std.TwoDivRootPi"},
+});
+
+inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>({
+    ConstantBuiltinSpec{BuiltinId::Half, "Std.Half", 0.5000000000000000000000000000000000000e-01},
+    ConstantBuiltinSpec{BuiltinId::Third, "Std.Third", 3.333333333333333333333333333333333333e-01},
+    ConstantBuiltinSpec{BuiltinId::TwoThirds, "Std.TwoThirds", 6.666666666666666666666666666666666666e-01},
+    ConstantBuiltinSpec{BuiltinId::Sixth, "Std.Sixth", 1.666666666666666666666666666666666666e-01},
+    ConstantBuiltinSpec{BuiltinId::ThreeQuarters, "Std.ThreeQuarters", 7.500000000000000000000000000000000000e-01},
+    ConstantBuiltinSpec{BuiltinId::RootTwo, "Std.RootTwo", 1.414213562373095048801688724209698078e+00},
+    ConstantBuiltinSpec{BuiltinId::RootThree, "Std.RootThree", 1.732050807568877293527446341505872366e+00},
+    ConstantBuiltinSpec{BuiltinId::HalfRootTwo, "Std.HalfRootTwo", 7.071067811865475244008443621048490392e-01},
+    ConstantBuiltinSpec{BuiltinId::LnTwo, "Std.LnTwo", 6.931471805599453094172321214581765680e-01},
+    ConstantBuiltinSpec{BuiltinId::LnLnTwo, "Std.LnLnTwo", -3.665129205816643270124391582326694694e-01},
+    ConstantBuiltinSpec{BuiltinId::RootLnFour, "Std.RootLnFour", 1.177410022515474691011569326459699637e+00},
+    ConstantBuiltinSpec{BuiltinId::OneDivRootTwo, "Std.OneDivRootTwo", 7.071067811865475244008443621048490392e-01},
+    ConstantBuiltinSpec{BuiltinId::Pi, "Std.Pi", 3.141592653589793238462643383279502884e+00},
+    ConstantBuiltinSpec{BuiltinId::HalfPi, "Std.HalfPi", 1.570796326794896619231321691639751442e+00},
+    ConstantBuiltinSpec{BuiltinId::ThirdPi, "Std.ThirdPi", 1.047197551196597746154214461093167628e+00},
+    ConstantBuiltinSpec{BuiltinId::SixthPi, "Std.SixthPi", 5.235987755982988730771072305465838140e-01},
+    ConstantBuiltinSpec{BuiltinId::TwoPi, "Std.TwoPi", 6.283185307179586476925286766559005768e+00},
+    ConstantBuiltinSpec{BuiltinId::Tau, "Std.Tau", 6.283185307179586476925286766559005768e+00},
+    ConstantBuiltinSpec{BuiltinId::TwoThirdsPi, "Std.TwoThirdsPi", 2.094395102393195492308428922186335256e+00},
+    ConstantBuiltinSpec{BuiltinId::ThreeQuartersPi, "Std.ThreeQuartersPi", 2.356194490192344928846982537459627163e+00},
+    ConstantBuiltinSpec{BuiltinId::FourThirdsPi, "Std.FourThirdsPi", 4.188790204786390984616857844372670512e+00},
+    ConstantBuiltinSpec{BuiltinId::OneDivTwoPi, "Std.OneDivTwoPi", 1.591549430918953357688837633725143620e-01},
+    ConstantBuiltinSpec{BuiltinId::OneDivRootTwoPi, "Std.OneDivRootTwoPi", 3.989422804014326779399460599343818684e-01},
+    ConstantBuiltinSpec{BuiltinId::RootPi, "Std.RootPi", 1.772453850905516027298167483341145182e+00},
+    ConstantBuiltinSpec{BuiltinId::RootHalfPi, "Std.RootHalfPi", 1.253314137315500251207882642405522626e+00},
+    ConstantBuiltinSpec{BuiltinId::RootTwoPi, "Std.RootTwoPi", 2.506628274631000502415765284811045253e+00},
+    ConstantBuiltinSpec{BuiltinId::LogRootTwoPi, "Std.LogRootTwoPi", 9.189385332046727417803297364056176398e-01},
+    ConstantBuiltinSpec{BuiltinId::OneDivRootPi, "Std.OneDivRootPi", 5.641895835477562869480794515607725858e-01},
+    ConstantBuiltinSpec{BuiltinId::RootOneDivPi, "Std.RootOneDivPi", 5.641895835477562869480794515607725858e-01},
+    ConstantBuiltinSpec{BuiltinId::PiMinusThree, "Std.PiMinusThree", 1.415926535897932384626433832795028841e-01},
+    ConstantBuiltinSpec{BuiltinId::FourMinusPi, "Std.FourMinusPi", 8.584073464102067615373566167204971158e-01},
+    ConstantBuiltinSpec{BuiltinId::PiPowE, "Std.PiPowE", 2.245915771836104547342715220454373502e+01},
+    ConstantBuiltinSpec{BuiltinId::PiSqr, "Std.PiSqr", 9.869604401089358618834490999876151135e+00},
+    ConstantBuiltinSpec{BuiltinId::PiSqrDivSix, "Std.PiSqrDivSix", 1.644934066848226436472415166646025189e+00},
+    ConstantBuiltinSpec{BuiltinId::PiCubed, "Std.PiCubed", 3.100627668029982017547631506710139520e+01},
+    ConstantBuiltinSpec{BuiltinId::CbrtPi, "Std.CbrtPi", 1.464591887561523263020142527263790391e+00},
+    ConstantBuiltinSpec{BuiltinId::OneDivCbrtPi, "Std.OneDivCbrtPi", 6.827840632552956814670208331581645981e-01},
+    ConstantBuiltinSpec{BuiltinId::Log2E, "Std.Log2E", 1.44269504088896340735992468100189213742664595415298},
+    ConstantBuiltinSpec{BuiltinId::E, "Std.E", 2.718281828459045235360287471352662497e+00},
+    ConstantBuiltinSpec{BuiltinId::ExpMinusHalf, "Std.ExpMinusHalf", 6.065306597126334236037995349911804534e-01},
+    ConstantBuiltinSpec{BuiltinId::ExpMinusOne, "Std.ExpMinusOne", 3.678794411714423215955237701614608674e-01},
+    ConstantBuiltinSpec{BuiltinId::EPowPi, "Std.EPowPi", 2.314069263277926900572908636794854738e+01},
+    ConstantBuiltinSpec{BuiltinId::RootE, "Std.RootE", 1.648721270700128146848650787814163571e+00},
+    ConstantBuiltinSpec{BuiltinId::Log10E, "Std.Log10E", 4.342944819032518276511289189166050822e-01},
+    ConstantBuiltinSpec{BuiltinId::OneDivLog10E, "Std.OneDivLog10E", 2.302585092994045684017991454684364207e+00},
+    ConstantBuiltinSpec{BuiltinId::LnTen, "Std.LnTen", 2.302585092994045684017991454684364207e+00},
+    ConstantBuiltinSpec{BuiltinId::Degree, "Std.Degree", 1.745329251994329576923690768488612713e-02},
+    ConstantBuiltinSpec{BuiltinId::Radian, "Std.Radian", 5.729577951308232087679815481410517033e+01},
+    ConstantBuiltinSpec{BuiltinId::SinOne, "Std.SinOne", 8.414709848078965066525023216302989996e-01},
+    ConstantBuiltinSpec{BuiltinId::CosOne, "Std.CosOne", 5.403023058681397174009366074429766037e-01},
+    ConstantBuiltinSpec{BuiltinId::SinhOne, "Std.SinhOne", 1.175201193643801456882381850595600815e+00},
+    ConstantBuiltinSpec{BuiltinId::CoshOne, "Std.CoshOne", 1.543080634815243778477905620757061682e+00},
+    ConstantBuiltinSpec{BuiltinId::Phi, "Std.Phi", 1.618033988749894848204586834365638117e+00},
+    ConstantBuiltinSpec{BuiltinId::LnPhi, "Std.LnPhi", 4.812118250596034474977589134243684231e-01},
+    ConstantBuiltinSpec{BuiltinId::OneDivLnPhi, "Std.OneDivLnPhi", 2.078086921235027537601322606117795767e+00},
+    ConstantBuiltinSpec{BuiltinId::Euler, "Std.Euler", 5.772156649015328606065120900824024310e-01},
+    ConstantBuiltinSpec{BuiltinId::OneDivEuler, "Std.OneDivEuler", 1.732454714600633473583025315860829681e+00},
+    ConstantBuiltinSpec{BuiltinId::EulerSqr, "Std.EulerSqr", 3.331779238077186743183761363552442266e-01},
+    ConstantBuiltinSpec{BuiltinId::ZetaTwo, "Std.ZetaTwo", 1.644934066848226436472415166646025189e+00},
+    ConstantBuiltinSpec{BuiltinId::ZetaThree, "Std.ZetaThree", 1.202056903159594285399738161511449990e+00},
+    ConstantBuiltinSpec{BuiltinId::Catalan, "Std.Catalan", 9.159655941772190150546035149323841107e-01},
+    ConstantBuiltinSpec{BuiltinId::Glaisher, "Std.Glaisher", 1.282427129100622636875342568869791727e+00},
+    ConstantBuiltinSpec{BuiltinId::Khinchin, "Std.Khinchin", 2.685452001065306445309714835481795693e+00},
+    ConstantBuiltinSpec{BuiltinId::ExtremeValueSkewness, "Std.ExtremeValueSkewness", 1.139547099404648657492793019389846112e+00},
+    ConstantBuiltinSpec{BuiltinId::RayleighSkewness, "Std.RayleighSkewness", 6.311106578189371381918993515442277798e-01},
+    ConstantBuiltinSpec{BuiltinId::RayleighKurtosis, "Std.RayleighKurtosis", 3.245089300687638062848660410619754415e+00},
+    ConstantBuiltinSpec{BuiltinId::RayleighKurtosisExcess, "Std.RayleighKurtosisExcess", 2.450893006876380628486604106197544154e-01},
+    ConstantBuiltinSpec{BuiltinId::TwoDivPi, "Std.TwoDivPi", 6.366197723675813430755350534900574481e-01},
+    ConstantBuiltinSpec{BuiltinId::RootTwoDivPi, "Std.RootTwoDivPi", 7.978845608028653558798921198687637369e-01},
+    ConstantBuiltinSpec{BuiltinId::QuarterPi, "Std.QuarterPi", 0.785398163397448309615660845819875721049292},
+    ConstantBuiltinSpec{BuiltinId::InvPi, "Std.InvPi", 0.3183098861837906715377675267450287240689192},
+    ConstantBuiltinSpec{BuiltinId::TwoDivRootPi, "Std.TwoDivRootPi", 1.12837916709551257389615890312154517168810125},
+});
+
+[[nodiscard]] constexpr auto builtin_count() -> std::size_t {
+  return static_cast<std::size_t>(BuiltinId::kCount);
+}
+
+[[nodiscard]] constexpr auto callable_builtin_count() -> std::size_t {
+  return static_cast<std::size_t>(BuiltinId::Half);
+}
+
+[[nodiscard]] constexpr auto builtin_operand(const BuiltinId id) -> std::int64_t {
+  return static_cast<std::int64_t>(id);
+}
+
+[[nodiscard]] constexpr auto builtin_id_from_operand(const std::int64_t operand) -> std::optional<BuiltinId> {
+  if (operand < 0 || operand >= static_cast<std::int64_t>(builtin_count())) { return std::nullopt; }
+  return static_cast<BuiltinId>(operand);
+}
+
+[[nodiscard]] constexpr auto builtin_id_from_name(const std::string_view name) -> std::optional<BuiltinId> {
+  for (const auto& spec : kBuiltinSpecs) {
+    if (spec.name == name) { return spec.id; }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] constexpr auto builtin_name(const BuiltinId id) -> std::string_view {
+  return kBuiltinSpecs[static_cast<std::size_t>(id)].name;
+}
+
+[[nodiscard]] constexpr auto all_builtin_specs() -> std::span<const BuiltinSpec> {
+  return kBuiltinSpecs;
+}
+
+[[nodiscard]] constexpr auto all_callable_builtin_specs() -> std::span<const BuiltinSpec> {
+  return {kBuiltinSpecs.data(), callable_builtin_count()};
+}
+
+[[nodiscard]] constexpr auto all_constant_builtin_specs() -> std::span<const ConstantBuiltinSpec> {
+  return kConstantBuiltinSpecs;
+}
+
+}  // namespace fleaux::vm

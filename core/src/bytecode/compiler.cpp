@@ -8,6 +8,7 @@
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/bytecode/escape_analyzer.hpp"
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::bytecode {
 namespace {
@@ -64,8 +65,6 @@ auto binary_operator_to_opcode(const std::string& op) -> std::optional<Opcode> {
 // Compile state
 
 struct CompileState {
-  // Builtin name -> index into Module::builtin_names (deduplicated).
-  std::unordered_map<std::string, std::uint32_t> builtin_idx;
   // Exact internal function key -> index into Module::functions.
   std::unordered_map<std::string, std::uint32_t> function_idx;
   std::unordered_set<std::string> ambiguous_function_names;
@@ -74,14 +73,6 @@ struct CompileState {
   bool enable_auto_value_ref{false};
   std::unordered_map<std::uint32_t, std::unordered_set<std::uint32_t>> by_ref_param_slots;
   std::optional<std::uint32_t> current_function_idx;
-
-  auto intern_builtin(Module& bytecode_module, const std::string& name) -> std::uint32_t {
-    if (const auto it = builtin_idx.find(name); it != builtin_idx.end()) return it->second;
-    const auto idx = static_cast<std::uint32_t>(bytecode_module.builtin_names.size());
-    bytecode_module.builtin_names.push_back(name);
-    builtin_idx[name] = idx;
-    return idx;
-  }
 
   static auto intern_const(Module& bytecode_module, ConstValue c) -> std::uint32_t {
     const auto idx = static_cast<std::uint32_t>(bytecode_module.constants.size());
@@ -198,8 +189,11 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
     if (it == opmap.end()) {
       return tl::unexpected(make_err("Unsupported operator in bytecode compiler: '" + op_ref.op + "'."));
     }
-    const auto idx = state.intern_builtin(bytecode_module, it->second);
-    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = static_cast<std::int64_t>(idx)});
+    const auto builtin_id = fleaux::vm::builtin_id_from_name(it->second);
+    if (!builtin_id.has_value()) {
+      return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + it->second + "'."));
+    }
+    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
     return {};
   };
 
@@ -291,10 +285,13 @@ auto can_emit_native_branch_call(const std::string& full_name, const IRTupleExpr
 auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out, const LocalSlots& locals,
                       CompileState& state, Module& bytecode_module) -> EmitResult {
   (void)locals;
-  // Helper: emit kCallBuiltin with an interned name.
+  // Helper: emit kCallBuiltin with a resolved BuiltinId.
   auto emit_builtin = [&](const std::string& name) -> EmitResult {
-    const auto idx = state.intern_builtin(bytecode_module, name);
-    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = static_cast<std::int64_t>(idx)});
+    const auto builtin_id = fleaux::vm::builtin_id_from_name(name);
+    if (!builtin_id.has_value()) {
+      return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + name + "'."));
+    }
+    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
     return {};
   };
 
@@ -426,16 +423,22 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 
             if (name_ref.qualifier.has_value() &&
                 (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
-              const auto idx = state.intern_builtin(bytecode_module, full_name);
+              const auto builtin_id = fleaux::vm::builtin_id_from_name(full_name);
+              if (!builtin_id.has_value()) {
+                return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + full_name + "'."));
+              }
               out.push_back(
-                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = static_cast<std::int64_t>(idx)});
+                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = fleaux::vm::builtin_operand(*builtin_id)});
               return {};
             }
 
             if (const auto alias_it = state.builtin_alias.find(full_name); alias_it != state.builtin_alias.end()) {
-              const auto idx = state.intern_builtin(bytecode_module, alias_it->second);
+              const auto builtin_id = fleaux::vm::builtin_id_from_name(alias_it->second);
+              if (!builtin_id.has_value()) {
+                return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + alias_it->second + "'."));
+              }
               out.push_back(
-                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = static_cast<std::int64_t>(idx)});
+                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = fleaux::vm::builtin_operand(*builtin_id)});
               return {};
             }
 
