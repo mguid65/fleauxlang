@@ -25,8 +25,8 @@ let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;
   -> Std.Result.Unwrap
   -> Std.Println;
 
-// Task.Cancel
-(Inc, 9) -> Std.Task.Spawn -> CancelTask -> Std.Println;
+// Task.Cancel returns a Bool, but the exact value is scheduler-sensitive if the task starts immediately.
+(Inc, 9) -> Std.Task.Spawn -> CancelTask -> Std.Type -> Std.Println;
 
 // Task.WithTimeout
 (Inc, 7) -> Std.Task.Spawn -> (_, 500) -> AwaitTaskWithTimeout -> Std.Result.Unwrap -> Std.Println;

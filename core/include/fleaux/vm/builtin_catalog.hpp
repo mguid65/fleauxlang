@@ -7,7 +7,6 @@
   X("Std.Println", Println)                          \
   X("Std.GetArgs", GetArgs)                          \
   X("Std.Type", Type)                                \
-  X("Std.TypeOf", TypeOf)                            \
   X("Std.ToInt64", ToInt64)                          \
   X("Std.ToUInt64", ToUInt64)                        \
   X("Std.ToFloat64", ToFloat64)                      \

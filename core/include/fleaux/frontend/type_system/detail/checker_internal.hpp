@@ -37,6 +37,8 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
 [[nodiscard]] auto qualified_symbol_name(const std::optional<std::string>& qualifier, const std::string& name)
     -> std::string;
 [[nodiscard]] auto is_symbolic_qualifier(const std::optional<std::string>& qualifier) -> bool;
+[[nodiscard]] auto is_removed_symbolic_alias(const std::optional<std::string>& qualifier, const std::string& name)
+    -> bool;
 [[nodiscard]] auto target_name(const ir::IRCallTarget& target) -> std::optional<std::string>;
 [[nodiscard]] auto resolve_signature(const FunctionIndex& index, const ir::IRCallTarget& target)
     -> const FunctionOverloadSet*;

@@ -79,7 +79,6 @@ let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __built
 let Std.Input() : String :: __builtin__;
 let Std.Help(name: String) : String :: __builtin__;
 let Std.Type(value: Any) : String :: __builtin__;
-let Std.TypeOf(value: Any) : String :: __builtin__;
 // Explicit numeric cast functions. Mixed Int64/UInt64 arithmetic requires
 // an explicit cast; there is no implicit promotion between integer kinds.
 let Std.ToInt64(value: Any) : Int64 :: __builtin__;
@@ -140,7 +139,8 @@ let Std.Try<T, U>(value: T, func: (T) => U) : Result(U, String) :: __builtin__;
 let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U) : Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;
 // @brief Execute parallel operation with explicit scheduler options.
 // (items, func, options_dict) -> Std.Parallel.WithOptions;
-// options may include: max_workers, timeout_ms, error_mode.
+// currently supported options:
+// - max_workers
 let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)) : Result(Tuple(U...), Tuple(Int64, String))
     :: __builtin__;
 // @brief Apply fn to each element in parallel for side effects; returns empty tuple.

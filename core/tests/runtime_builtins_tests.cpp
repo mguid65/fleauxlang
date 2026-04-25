@@ -4,12 +4,34 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
+#include <sstream>
 #include <thread>
 
 #include "fleaux/runtime/runtime_support.hpp"
 
 using namespace fleaux::runtime;
+
+namespace {
+
+class StdoutCapture {
+public:
+  StdoutCapture() : old_buffer_(std::cout.rdbuf(buffer_.rdbuf())) {}
+
+  StdoutCapture(const StdoutCapture&) = delete;
+  auto operator=(const StdoutCapture&) -> StdoutCapture& = delete;
+
+  ~StdoutCapture() { std::cout.rdbuf(old_buffer_); }
+
+  [[nodiscard]] auto str() const -> std::string { return buffer_.str(); }
+
+private:
+  std::ostringstream buffer_;
+  std::streambuf* old_buffer_;
+};
+
+}  // namespace
 
 TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
   SECTION("Wrap and Unwrap") {
@@ -269,8 +291,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value add_one = make_callable_ref([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
 
     Value options{Object{}};
-    as_object(options)["max_workers"] = make_int(4);
-    as_object(options)["chunk_size"] = make_int(2);
+    as_object(options)["s:max_workers"] = make_int(4);
 
     const Value result =
         make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), add_one, options) | ParallelWithOptions{};
@@ -293,7 +314,6 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
 
     Value options{Object{}};
     as_object(options)["s:max_workers"] = make_int(2);
-    as_object(options)["s:chunk_size"] = make_int(2);
 
     const Value result =
         make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4), make_int(5)), add_one, options) |
@@ -316,7 +336,6 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
 
     Value options{Object{}};
     as_object(options)["s:max_workers"] = make_int(2);
-    as_object(options)["s:chunk_size"] = make_int(2);
 
     const Value result =
         make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4), make_int(5)), fail_on_four, options) |
@@ -336,6 +355,16 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value workers_result = make_tuple(make_tuple(make_int(1)), identity, bad_workers) | ParallelWithOptions{};
     REQUIRE(as_bool(workers_result | ResultIsErr{}));
     REQUIRE(as_string(workers_result | ResultUnwrapErr{}) == "Parallel.WithOptions: max_workers must be > 0");
+  }
+
+  SECTION("WithOptions rejects unsupported option keys") {
+    const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
+
+    Value options{Object{}};
+    as_object(options)["s:chunk_size"] = make_int(2);
+    const Value result = make_tuple(make_tuple(make_int(1)), identity, options) | ParallelWithOptions{};
+    REQUIRE(as_bool(result | ResultIsErr{}));
+    REQUIRE(as_string(result | ResultUnwrapErr{}) == "Parallel.WithOptions: unsupported option 'chunk_size'");
   }
 }
 
@@ -658,9 +687,21 @@ TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
     Value v2 = make_int(7) | Println{};
     REQUIRE(to_double(v2) == 7.0);
   }
+
+  SECTION("Printf returns original arg tuple without newline") {
+    StdoutCapture capture;
+    const Value result = make_tuple(make_string("{} + {}"), make_int(1), make_int(2)) | Printf{};
+    REQUIRE(capture.str() == "1 + 2");
+
+    const auto& returned = as_array(result);
+    REQUIRE(returned.Size() == 3U);
+    REQUIRE(as_string(*returned.TryGet(0)) == "{} + {}");
+    REQUIRE(to_double(*returned.TryGet(1)) == 1.0);
+    REQUIRE(to_double(*returned.TryGet(2)) == 2.0);
+  }
 }
 
-TEST_CASE("Runtime builtins: Std.Type and Std.TypeOf", "[runtime]") {
+TEST_CASE("Runtime builtins: Std.Type", "[runtime]") {
   REQUIRE(as_string(make_int(42) | Type{}) == "Int64");
   REQUIRE(as_string(make_uint(42) | Type{}) == "UInt64");
   REQUIRE(as_string(make_float(3.14) | Type{}) == "Float64");
@@ -674,8 +715,6 @@ TEST_CASE("Runtime builtins: Std.Type and Std.TypeOf", "[runtime]") {
 
   const Value callable = make_callable_ref([](const Value& v) -> Value { return v; });
   REQUIRE(as_string(callable | Type{}) == "Callable");
-
-  REQUIRE(as_string(make_tuple(make_int(1)) | TypeOf{}) == "Int64");
 }
 
 TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {

@@ -269,6 +269,11 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
          qualifier->starts_with("StdBuiltins.");
 }
 
+[[nodiscard]] auto is_removed_symbolic_alias(const std::optional<std::string>& qualifier, const std::string& name)
+    -> bool {
+  return qualifier.has_value() && *qualifier == "Std" && name == "TypeOf";
+}
+
 [[nodiscard]] auto target_name(const ir::IRCallTarget& target) -> std::optional<std::string> {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
     return name_ref->qualifier.has_value() ? (*name_ref->qualifier + "." + name_ref->name) : name_ref->name;

@@ -506,6 +506,110 @@ TEST_CASE("Qualified exported overload symbol-key behavior is aligned between in
   REQUIRE(runtime_result.has_value());
 }
 
+TEST_CASE("Std.Printf return shape is aligned between interpreter and VM", "[vm][samples][parity][printf]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_printf_return_parity";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "printf_return_shape.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(\"value:{}|\", 7) -> Std.Printf -> (_, 1) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  SampleExecutionObservation interpreter_observation;
+  {
+    StdoutCapture capture;
+    const auto interpreter_result = interpreter.run_file(source_path);
+    interpreter_observation.success = interpreter_result.has_value();
+    interpreter_observation.output = capture.str();
+    if (!interpreter_result.has_value()) {
+      interpreter_observation.error_text = interpret_error_text(interpreter_result.error());
+    }
+  }
+
+  SampleExecutionObservation bytecode_observation;
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  {
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto runtime_result = runtime.execute(*compiled_module, output);
+    bytecode_observation.success = runtime_result.has_value();
+    bytecode_observation.output = output.str();
+    if (!runtime_result.has_value()) { bytecode_observation.error_text = runtime_result.error().message; }
+  }
+
+  INFO("interpreter output: " << interpreter_observation.output);
+  INFO("bytecode output: " << bytecode_observation.output);
+  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
+  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
+
+  REQUIRE(interpreter_observation.success);
+  REQUIRE(bytecode_observation.success);
+  REQUIRE(interpreter_observation.output == "value:7|Int64\n");
+  REQUIRE(bytecode_observation.output == interpreter_observation.output);
+}
+
+TEST_CASE("Std.Println return shape is aligned between interpreter and VM", "[vm][samples][parity][println]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_println_return_parity";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "println_return_shape.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(\"x\") -> Std.Println -> Std.Type -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  SampleExecutionObservation interpreter_observation;
+  {
+    StdoutCapture capture;
+    const auto interpreter_result = interpreter.run_file(source_path);
+    interpreter_observation.success = interpreter_result.has_value();
+    interpreter_observation.output = capture.str();
+    if (!interpreter_result.has_value()) {
+      interpreter_observation.error_text = interpret_error_text(interpreter_result.error());
+    }
+  }
+
+  SampleExecutionObservation bytecode_observation;
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  {
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto runtime_result = runtime.execute(*compiled_module, output);
+    bytecode_observation.success = runtime_result.has_value();
+    bytecode_observation.output = output.str();
+    if (!runtime_result.has_value()) { bytecode_observation.error_text = runtime_result.error().message; }
+  }
+
+  INFO("interpreter output: " << interpreter_observation.output);
+  INFO("bytecode output: " << bytecode_observation.output);
+  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
+  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
+
+  REQUIRE(interpreter_observation.success);
+  REQUIRE(bytecode_observation.success);
+  REQUIRE(interpreter_observation.output == "x\nString\n");
+  REQUIRE(bytecode_observation.output == interpreter_observation.output);
+}
+
 TEST_CASE("Interpreter run_file reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
   fleaux::runtime::reset_callable_registry();
   REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
@@ -1013,7 +1117,7 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Type and Std.TypeOf execute in both interpreter and VM modes", "[vm][samples]") {
+TEST_CASE("Std.Type executes in both interpreter and VM modes", "[vm][samples]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_typeof";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "typeof_ok.fleaux";
@@ -1023,7 +1127,7 @@ TEST_CASE("Std.Type and Std.TypeOf execute in both interpreter and VM modes", "[
     out << "import Std;\n"
            "(1) -> Std.Type -> Std.Println;\n"
            "(1.5) -> Std.Type -> Std.Println;\n"
-           "(\"hi\") -> Std.TypeOf -> Std.Println;\n"
+           "(\"hi\") -> Std.Type -> Std.Println;\n"
            "((1, 2, 3)) -> Std.Type -> Std.Println;\n";
   }
 
@@ -1041,6 +1145,31 @@ TEST_CASE("Std.Type and Std.TypeOf execute in both interpreter and VM modes", "[
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
   REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Std.TypeOf is unresolved after alias removal", "[vm][samples][types]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_typeof_removed";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "typeof_removed.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(\"hi\") -> Std.TypeOf -> Std.Println;\n";
+  }
+
+  constexpr fleaux::vm::Interpreter interpreter;
+  const auto interpreter_result = interpreter.run_file(source_path);
+  REQUIRE_FALSE(interpreter_result.has_value());
+  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
+  REQUIRE(interpreter_result.error().hint.has_value());
+  REQUIRE(interpreter_result.error().hint->find("Std.TypeOf") != std::string::npos);
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("Unresolved symbol") != std::string::npos);
+  REQUIRE(analyzed.error().find("Std.TypeOf") != std::string::npos);
 }
 
 TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][samples]") {

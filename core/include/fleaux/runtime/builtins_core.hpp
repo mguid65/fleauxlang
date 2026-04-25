@@ -318,24 +318,19 @@ struct Println {
 
 struct Printf {
   // arg = [format, arg0, arg1, ...]
-  // Prints formatted text and returns (format, (arg0, arg1, ...)).
+  // Prints formatted text and returns the original argument tuple unchanged.
   auto operator()(Value arg) const -> Value {
     const auto& args = as_array(arg);
     if (args.Size() < 1) { throw std::invalid_argument{"Printf expects at least 1 argument"}; }
     const std::string fmt = to_string(*args.TryGet(0));
     std::vector<Value> values;
     values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-
-    Array returned_args;
-    returned_args.Reserve(args.Size() > 0 ? args.Size() - 1 : 0);
     for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
-      const Value value = *args.TryGet(arg_index);
-      values.push_back(value);
-      returned_args.PushBack(value);
+      values.push_back(*args.TryGet(arg_index));
     }
 
     std::cout << format_values(fmt, values);
-    return make_tuple(make_string(fmt), Value{std::move(returned_args)});
+    return arg;
   }
 };
 
@@ -381,10 +376,6 @@ struct Type {
   auto operator()(Value arg) const -> Value { return make_string(type_name(unwrap_singleton_arg(std::move(arg)))); }
 };
 
-struct TypeOf {
-  // Alias of Type for compatibility with Std.TypeOf
-  auto operator()(Value arg) const -> Value { return Type{}(std::move(arg)); }
-};
 
 struct ToInt64 {
   auto operator()(Value arg) const -> Value {
@@ -853,6 +844,19 @@ inline auto parse_positive_size_option(const Object& options, const std::string_
   return parsed;
 }
 
+inline auto strip_object_key_prefix(const std::string& internal_key) -> std::string {
+  if (internal_key.size() >= 2U && internal_key[1] == ':') { return internal_key.substr(2); }
+  return internal_key;
+}
+
+inline auto validate_parallel_with_options_keys(const Object& options) -> void {
+  for (const auto& internal_key : options | std::views::keys) {
+    if (internal_key == "s:max_workers") { continue; }
+    throw std::invalid_argument{"Parallel.WithOptions: unsupported option '" +
+                                strip_object_key_prefix(internal_key) + "'"};
+  }
+}
+
 // Run a parallel map over items using the shared task pool. max_in_flight caps how
 // many items are queued to the pool at once (back-pressure). Output order matches
 // input order. Returns a Result value.
@@ -1032,6 +1036,7 @@ struct ParallelWithOptions {
     const auto& options = as_object(*args.TryGet(2));
 
     try {
+      validate_parallel_with_options_keys(options);
       const auto requested_workers = parse_positive_size_option(options, "max_workers");
 
       const std::size_t pool_workers = task_runtime().worker_count();
