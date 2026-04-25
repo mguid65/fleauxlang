@@ -366,39 +366,29 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 #endif
 }
 
-struct MathFloor {
-  auto operator()(Value arg) const -> Value {
-    return num_result(std::floor(to_double(unwrap_singleton_arg(std::move(arg)))));
-  }
-};
+[[nodiscard]] inline auto MathFloor(Value arg) -> Value {
+  return num_result(std::floor(to_double(unwrap_singleton_arg(std::move(arg)))));
+}
 
-struct MathCeil {
-  auto operator()(Value arg) const -> Value {
-    return num_result(std::ceil(to_double(unwrap_singleton_arg(std::move(arg)))));
-  }
-};
+[[nodiscard]] inline auto MathCeil(Value arg) -> Value {
+  return num_result(std::ceil(to_double(unwrap_singleton_arg(std::move(arg)))));
+}
 
-struct MathAbs {
-  auto operator()(Value arg) const -> Value {
-    return num_result(std::abs(to_double(unwrap_singleton_arg(std::move(arg)))));
-  }
-};
+[[nodiscard]] inline auto MathAbs(Value arg) -> Value {
+  return num_result(std::abs(to_double(unwrap_singleton_arg(std::move(arg)))));
+}
 
-struct MathLog {
-  auto operator()(Value arg) const -> Value {
-    return num_result(std::log(to_double(unwrap_singleton_arg(std::move(arg)))));
-  }
-};
+[[nodiscard]] inline auto MathLog(Value arg) -> Value {
+  return num_result(std::log(to_double(unwrap_singleton_arg(std::move(arg)))));
+}
 
-struct MathClamp {
-  auto operator()(Value arg) const -> Value {
-    const auto& args = as_array(arg);
-    if (args.Size() != 3) { throw std::invalid_argument{"MathClamp expects 3 arguments"}; }
-    const double value_to_clamp = to_double(*args.TryGet(0));
-    const double lower_bound = to_double(*args.TryGet(1));
-    const double upper_bound = to_double(*args.TryGet(2));
-    return num_result(std::clamp(value_to_clamp, lower_bound, upper_bound));
-  }
-};
+[[nodiscard]] inline auto MathClamp(Value arg) -> Value {
+  const auto& args = as_array(arg);
+  if (args.Size() != 3) { throw std::invalid_argument{"MathClamp expects 3 arguments"}; }
+  const double value_to_clamp = to_double(*args.TryGet(0));
+  const double lower_bound = to_double(*args.TryGet(1));
+  const double upper_bound = to_double(*args.TryGet(2));
+  return num_result(std::clamp(value_to_clamp, lower_bound, upper_bound));
+}
 
 }  // namespace fleaux::runtime
