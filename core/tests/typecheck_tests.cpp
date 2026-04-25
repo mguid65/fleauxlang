@@ -424,6 +424,48 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
+  SECTION("Std.Parallel.WithOptions infers Result(Tuple(U...), Any) output") {
+    const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+        "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Any) :: __builtin__;\n"
+        "let ToInt(x: Float64): Int64 = 1;\n"
+        "let NeedsMapped(r: Result(Tuple(Int64...), Any)): Result(Tuple(Int64...), Any) = r;\n"
+        "let BuildOptions(): Dict(String, Any) = (() -> Std.Dict.Create, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "((1.0, 2.0), ToInt, () -> BuildOptions) -> Std.Parallel.WithOptions -> NeedsMapped;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3e_parallel_with_options_result_inference.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Parallel.WithOptions rejects callable input mismatch") {
+    const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+        "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Any) :: __builtin__;\n"
+        "let NeedsInt(x: Int64): Int64 = x;\n"
+        "let BuildOptions(): Dict(String, Any) = (() -> Std.Dict.Create, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "((1.0, 2.0), NeedsInt, () -> BuildOptions) -> Std.Parallel.WithOptions;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3e_parallel_with_options_callable_mismatch.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
+  }
+
   SECTION("Std.Task.Spawn infers generic argument compatibility") {
     const std::string src =
         "let Std.Task.Spawn<T, U>(func: (T) => U, value: T): TaskHandle :: __builtin__;\n"
@@ -1992,6 +2034,27 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3t_parallel_map_error_shape_propagation.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Parallel.WithOptions propagates tuple index+message error shape") {
+    const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+        "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+        "let ToInt(x: Int64): Int64 = x;\n"
+        "let NeedsMapped(r: Result(Tuple(Int64...), Tuple(Int64, String))): Result(Tuple(Int64...), Tuple(Int64, "
+        "String)) = r;\n"
+        "let BuildOptions(): Dict(String, Any) = (() -> Std.Dict.Create, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "((1, 2), ToInt, () -> BuildOptions) -> Std.Parallel.WithOptions -> NeedsMapped;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3t_parallel_with_options_error_shape_propagation.fleaux");
     REQUIRE(parsed.has_value());
 
     const fleaux::frontend::lowering::Lowerer lowerer;

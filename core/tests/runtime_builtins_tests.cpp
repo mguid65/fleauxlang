@@ -306,7 +306,10 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
     const Value result = make_tuple(make_tuple(make_int(1)), identity, make_int(5)) | ParallelWithOptions{};
     REQUIRE(as_bool(result | ResultIsErr{}));
-    REQUIRE(as_string(result | ResultUnwrapErr{}) == "Parallel.WithOptions: options must be a Dict");
+    const Value err = result | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 0.0);
+    REQUIRE(as_string(array_at(err, 1)) == "Parallel.WithOptions: options must be a Dict");
   }
 
   SECTION("WithOptions preserves deterministic output order under chunking") {
@@ -354,7 +357,10 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     as_object(bad_workers)["s:max_workers"] = make_int(0);
     const Value workers_result = make_tuple(make_tuple(make_int(1)), identity, bad_workers) | ParallelWithOptions{};
     REQUIRE(as_bool(workers_result | ResultIsErr{}));
-    REQUIRE(as_string(workers_result | ResultUnwrapErr{}) == "Parallel.WithOptions: max_workers must be > 0");
+    const Value err = workers_result | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 0.0);
+    REQUIRE(as_string(array_at(err, 1)) == "Parallel.WithOptions: max_workers must be > 0");
   }
 
   SECTION("WithOptions rejects unsupported option keys") {
@@ -364,7 +370,10 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     as_object(options)["s:chunk_size"] = make_int(2);
     const Value result = make_tuple(make_tuple(make_int(1)), identity, options) | ParallelWithOptions{};
     REQUIRE(as_bool(result | ResultIsErr{}));
-    REQUIRE(as_string(result | ResultUnwrapErr{}) == "Parallel.WithOptions: unsupported option 'chunk_size'");
+    const Value err = result | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 0.0);
+    REQUIRE(as_string(array_at(err, 1)) == "Parallel.WithOptions: unsupported option 'chunk_size'");
   }
 }
 
@@ -512,12 +521,11 @@ TEST_CASE("Runtime builtins: Std.Parallel.ForEach", "[runtime]") {
 
 TEST_CASE("Runtime builtins: Std.Parallel.Reduce", "[runtime]") {
   SECTION("Reduce sums a small list") {
-    // fn(acc, item) returns Result.Ok(acc + item) via Int add.
     const Value add = make_callable_ref([](const Value& arg) -> Value {
       const auto& arr = as_array(arg);
       const Int a = as_int_value(*arr.TryGet(0));
       const Int b = as_int_value(*arr.TryGet(1));
-      return ResultOk{}(make_tuple(make_int(a + b)));
+      return make_int(a + b);
     });
     const Value result =
         make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4)), make_int(0), add) | ParallelReduce{};
@@ -543,16 +551,39 @@ TEST_CASE("Runtime builtins: Std.Parallel.Reduce", "[runtime]") {
     REQUIRE(to_double(result | ResultUnwrap{}) == 99.0);
   }
 
-  SECTION("Reduce propagates Err from step function") {
+  SECTION("Reduce preserves accumulator tuples that begin with Bool") {
+    const Value fold = make_callable_ref([](const Value& arg) -> Value {
+      const auto& arr = as_array(arg);
+      const auto& acc = as_array(*arr.TryGet(0));
+      const bool flag = as_bool(*acc.TryGet(0));
+      const Int sum = as_int_value(*acc.TryGet(1)) + as_int_value(*arr.TryGet(1));
+      return make_tuple(make_bool(flag), make_int(sum));
+    });
+    const Value result =
+        make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), make_tuple(make_bool(false), make_int(0)), fold) |
+        ParallelReduce{};
+    REQUIRE(as_bool(result | ResultIsOk{}));
+    const Value payload = result | ResultUnwrap{};
+    REQUIRE(as_array(payload).Size() == 2);
+    REQUIRE(as_bool(array_at(payload, 0)) == false);
+    REQUIRE(to_double(array_at(payload, 1)) == 6.0);
+  }
+
+  SECTION("Reduce annotates thrown step exceptions with global index") {
     const Value fail = make_callable_ref([](const Value& arg) -> Value {
       const auto& arr = as_array(arg);
       const Int b = as_int_value(*arr.TryGet(1));
-      if (b == 3) { return ResultErr{}(make_tuple(make_string("reduce-error"))); }
-      return ResultOk{}(make_tuple(*arr.TryGet(0)));
+      if (b == 3) { throw std::runtime_error("reduce-throw"); }
+      return *arr.TryGet(0);
     });
     const Value result =
-        make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), make_int(0), fail) | ParallelReduce{};
+        make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4)), make_int(0), fail) |
+        ParallelReduce{};
     REQUIRE(as_bool(result | ResultIsErr{}));
+    const Value err = result | ResultUnwrapErr{};
+    REQUIRE(as_array(err).Size() == 2);
+    REQUIRE(to_double(array_at(err, 0)) == 2.0);
+    REQUIRE(as_string(array_at(err, 1)) == "reduce-throw");
   }
 }
 
