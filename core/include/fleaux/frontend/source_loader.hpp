@@ -39,6 +39,16 @@ namespace fleaux::frontend::source_loader {
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
+[[nodiscard]] inline auto let_identity_key(const ir::IRLet& let) -> std::string {
+  if (!let.symbol_key.empty()) { return let.symbol_key; }
+  return symbol_key(let.qualifier, let.name);
+}
+
+[[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file) -> bool {
+  if (!let.span.has_value()) { return false; }
+  return std::filesystem::path(let.span->source_name) == source_file;
+}
+
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto parse_text_to_ir(const std::string& source_text, const std::string& source_name,
                                     ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
@@ -106,11 +116,6 @@ template <typename ErrorT, typename ErrorFactory>
   using IRExprStatement = ir::IRExprStatement;
   using IRLet = ir::IRLet;
 
-  const auto let_identity_key = [](const IRLet& let) -> std::string {
-    if (!let.symbol_key.empty()) { return let.symbol_key; }
-    return symbol_key(let.qualifier, let.name);
-  };
-
   const auto collect_program = [&](const auto& self, const std::filesystem::path& current_source,
                                    std::unordered_map<std::string, IRProgram>& cache,
                                    std::unordered_set<std::string>& in_progress) -> tl::expected<IRProgram, ErrorT> {
@@ -128,6 +133,10 @@ template <typename ErrorT, typename ErrorFactory>
       in_progress.erase(key);
       return tl::unexpected(current.error());
     }
+
+    std::unordered_set<std::string> direct_imported_symbols;
+    std::vector<IRLet> direct_imported_typed_lets;
+    std::unordered_set<std::string> direct_imported_typed_let_keys;
 
     IRProgram merged = current.value();
     std::unordered_set<std::string> seen;
@@ -154,6 +163,16 @@ template <typename ErrorT, typename ErrorFactory>
         return tl::unexpected(imported.error());
       }
 
+      // Seed only direct module declarations for current-module type checking.
+      for (const auto& imported_let : imported->lets) {
+        if (!let_declared_in_source(imported_let, import_source)) { continue; }
+        direct_imported_symbols.insert(symbol_key(imported_let.qualifier, imported_let.name));
+        if (const auto typed_key = let_identity_key(imported_let);
+            direct_imported_typed_let_keys.insert(typed_key).second) {
+          direct_imported_typed_lets.push_back(imported_let);
+        }
+      }
+
       for (const auto& imported_let : imported->lets) {
         if (const auto sym = let_identity_key(imported_let); seen.insert(sym).second) {
           imported_lets.push_back(imported_let);
@@ -162,17 +181,20 @@ template <typename ErrorT, typename ErrorFactory>
       imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
     }
 
-    merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
-    merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
-    auto analyzed = type_check::analyze_program(merged);
-    if (!analyzed) {
+    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
+    if (!analyzed_current) {
       in_progress.erase(key);
-      return tl::unexpected(make_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
+      return tl::unexpected(make_error(analyzed_current.error().message, analyzed_current.error().hint,
+                                       analyzed_current.error().span));
     }
 
-    cache[key] = analyzed.value();
+    merged = analyzed_current.value();
+    merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
+    merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
+
+    cache[key] = merged;
     in_progress.erase(key);
-    return analyzed.value();
+    return merged;
   };
 
   std::unordered_map<std::string, IRProgram> cache;

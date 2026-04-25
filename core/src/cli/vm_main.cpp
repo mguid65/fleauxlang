@@ -12,7 +12,6 @@
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/cli/repl_driver.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
-#include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
@@ -56,6 +55,20 @@ auto vm_runtime_hint_for(const std::string& runtime_message) -> std::optional<st
   return std::nullopt;
 }
 
+auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::string> {
+  if (load_message.starts_with("import-unresolved:")) {
+    return "Resolve the missing module path or module name, then retry.";
+  }
+  if (load_message.starts_with("import-cycle:")) {
+    return "Break the cycle by extracting shared declarations into a separate module.";
+  }
+  if (load_message.find("Type mismatch in call target arguments") != std::string::npos ||
+      load_message.find("Unresolved symbol") != std::string::npos) {
+    return "Imported module API typing must match consuming usage across module boundaries.";
+  }
+  return "Switch to --mode interpreter only for runtime VM coverage gaps; import/type contract failures apply in both modes.";
+}
+
 auto usage_text() -> std::string {
   return "usage: fleaux [--mode vm,interpreter] [--repl] [--no-run] [--inspect] [--emit-bytecode] "
          "[--no-color] [file.fleaux|file.fleaux.bc] [-- "
@@ -79,16 +92,13 @@ void print_help() {
             << "Notes:\n"
             << "  - Default mode is vm\n"
             << "  - REPL forces interpreter mode\n"
+            << "  - REPL imports are symbolic-only: Std, StdBuiltins\n"
             << "  - In REPL, use :help (or :?) to list REPL commands\n"
             << "  - If no source is provided, defaults to test.fleaux\n"
             << "  - --inspect expects a .fleaux.bc file (or a .fleaux file with sibling .fleaux.bc)\n"
             << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
 }
 
-auto make_cli_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
-                    const std::optional<fleaux::frontend::diag::SourceSpan>& span = std::nullopt) -> CliError {
-  return CliError{.message = message, .hint = hint, .span = span};
-}
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
             const bool emit_bytecode) -> tl::expected<void, CliError> {
@@ -101,7 +111,7 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   if (!module_result) {
     return tl::unexpected(CliError{
         .message = module_result.error().message,
-        .hint = "Switch to --mode interpreter for this program.",
+        .hint = vm_loader_hint_for(module_result.error().message),
         .span = std::nullopt,
     });
   }
