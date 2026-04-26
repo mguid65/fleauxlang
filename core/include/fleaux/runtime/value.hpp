@@ -268,6 +268,52 @@ inline auto callable_registry_mutex() -> std::mutex& {
 
 // Process arguments
 
+inline auto runtime_output_stream_storage() -> std::ostream*& {
+  static thread_local std::ostream* stream = &std::cout;
+  return stream;
+}
+
+inline auto runtime_input_stream_storage() -> std::istream*& {
+  static thread_local std::istream* stream = &std::cin;
+  return stream;
+}
+
+[[nodiscard]] inline auto runtime_output_stream() -> std::ostream& { return *runtime_output_stream_storage(); }
+
+[[nodiscard]] inline auto runtime_input_stream() -> std::istream& { return *runtime_input_stream_storage(); }
+
+class RuntimeOutputStreamScope {
+public:
+  explicit RuntimeOutputStreamScope(std::ostream& stream)
+      : previous_(runtime_output_stream_storage()) {
+    runtime_output_stream_storage() = &stream;
+  }
+
+  RuntimeOutputStreamScope(const RuntimeOutputStreamScope&) = delete;
+  auto operator=(const RuntimeOutputStreamScope&) -> RuntimeOutputStreamScope& = delete;
+
+  ~RuntimeOutputStreamScope() { runtime_output_stream_storage() = previous_; }
+
+private:
+  std::ostream* previous_;
+};
+
+class RuntimeInputStreamScope {
+public:
+  explicit RuntimeInputStreamScope(std::istream& stream)
+      : previous_(runtime_input_stream_storage()) {
+    runtime_input_stream_storage() = &stream;
+  }
+
+  RuntimeInputStreamScope(const RuntimeInputStreamScope&) = delete;
+  auto operator=(const RuntimeInputStreamScope&) -> RuntimeInputStreamScope& = delete;
+
+  ~RuntimeInputStreamScope() { runtime_input_stream_storage() = previous_; }
+
+private:
+  std::istream* previous_;
+};
+
 inline auto process_args_mutex() -> std::mutex& {
   static std::mutex mutex;
   return mutex;

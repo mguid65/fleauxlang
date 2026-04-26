@@ -115,49 +115,48 @@ struct ParsedDoc {
 
 }  // namespace detail
 
-struct Help {
-  auto operator()(Value arg) const -> Value {
-    std::string name = detail::trim_copy(to_string(unwrap_singleton_arg(std::move(arg))));
+[[nodiscard]] inline auto Help(Value arg) -> Value {
+  std::string name = detail::trim_copy(to_string(unwrap_singleton_arg(std::move(arg))));
 
-    const auto& registry = help_metadata_registry();
-    if (name.empty()) {
-      if (registry.empty()) { return make_string("Help: no symbols available."); }
+  const auto& registry = help_metadata_registry();
+  if (name.empty()) {
+    if (registry.empty()) { return make_string("Help: no symbols available."); }
 
-      std::vector<std::string> names;
-      names.reserve(registry.size());
-      for (const auto& key : registry | std::views::keys) { names.push_back(key); }
-      std::ranges::sort(names);
+    std::vector<std::string> names;
+    names.reserve(registry.size());
+    for (const auto& key : registry | std::views::keys) { names.push_back(key); }
+    std::ranges::sort(names);
 
-      std::string result = "Available symbols:\n";
-      for (const auto& symbol_name : names) {
-        const auto& metadata = registry.at(symbol_name);
-        const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
-        result += "- " + symbol_name;
-        if (!parsed.brief.empty()) { result += " - " + parsed.brief; }
-        result += "\n";
-      }
-      return make_string(result);
-    }
-
-    auto it = registry.find(name);
-    if (it == registry.end() && name.find('.') == std::string::npos) { it = registry.find("Std." + name); }
-
-    if (it == registry.end()) {
-      return make_string("Help: unknown symbol '" + name +
-                         "'\n\nUse Std.Help(\"Std.Add\") for symbol help, or Std.Help(\"\") to list symbols.");
-    }
-
-    const auto& metadata = it->second;
-    const auto [brief, params, returns, notes] = detail::parse_doc_lines(metadata.doc_lines);
-
-    std::string result;
-    result += "Help on function " + metadata.name + "\n\n";
-    result += metadata.signature + "\n";
-
-    if (!brief.empty()) {
+    std::string result = "Available symbols:\n";
+    for (const auto& symbol_name : names) {
+      const auto& metadata = registry.at(symbol_name);
+      const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
+      result += "- " + symbol_name;
+      if (!parsed.brief.empty()) { result += " - " + parsed.brief; }
       result += "\n";
-      result += brief + "\n";
     }
+    return make_string(result);
+  }
+
+  auto it = registry.find(name);
+  if (it == registry.end() && name.find('.') == std::string::npos) { it = registry.find("Std." + name); }
+
+  if (it == registry.end()) {
+    return make_string("Help: unknown symbol '" + name +
+                       "'\n\nUse Std.Help(\"Std.Add\") for symbol help, or Std.Help(\"\") to list symbols.");
+  }
+
+  const auto& metadata = it->second;
+  const auto [brief, params, returns, notes] = detail::parse_doc_lines(metadata.doc_lines);
+
+  std::string result;
+  result += "Help on function " + metadata.name + "\n\n";
+  result += metadata.signature + "\n";
+
+  if (!brief.empty()) {
+    result += "\n";
+    result += brief + "\n";
+  }
 
     if (!params.empty()) {
       std::vector<std::string> param_names;
@@ -185,8 +184,7 @@ struct Help {
       for (const auto& note : notes) { result += "- " + note + "\n"; }
     }
 
-    return make_string(result);
-  }
-};
+  return make_string(result);
+}
 
 }  // namespace fleaux::runtime
