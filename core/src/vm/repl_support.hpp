@@ -1,7 +1,10 @@
 #pragma once
 
+#include <charconv>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -38,6 +41,155 @@ inline auto repl_let_internal_key(const frontend::ir::IRLet& let) -> std::string
   return let.symbol_key.empty() ? repl_let_key(let.qualifier, let.name) : let.symbol_key;
 }
 
+inline auto repl_normalize_type_name(const std::string& name,
+                                     const std::unordered_map<std::string, std::size_t>& generic_slots)
+    -> std::string {
+  if (const auto it = generic_slots.find(name); it != generic_slots.end()) {
+    return "G" + std::to_string(it->second);
+  }
+  return name;
+}
+
+inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
+                                         const std::unordered_map<std::string, std::size_t>& generic_slots)
+    -> std::string {
+  std::string out;
+  out += repl_normalize_type_name(type.name, generic_slots);
+  out += type.variadic ? "..." : "";
+
+  if (!type.alternative_types.empty()) {
+    out += "|U[";
+    for (std::size_t index = 0; index < type.alternative_types.size(); ++index) {
+      if (index != 0U) { out += ","; }
+      out += repl_type_signature_fragment(type.alternative_types[index], generic_slots);
+    }
+    out += "]";
+  } else if (!type.alternatives.empty()) {
+    out += "|u[";
+    for (std::size_t index = 0; index < type.alternatives.size(); ++index) {
+      if (index != 0U) { out += ","; }
+      out += repl_normalize_type_name(type.alternatives[index], generic_slots);
+    }
+    out += "]";
+  }
+
+  if (!type.tuple_items.empty()) {
+    out += "|T[";
+    for (std::size_t index = 0; index < type.tuple_items.size(); ++index) {
+      if (index != 0U) { out += ","; }
+      out += repl_type_signature_fragment(type.tuple_items[index], generic_slots);
+    }
+    out += "]";
+  }
+
+  if (!type.type_args.empty()) {
+    out += "|A[";
+    for (std::size_t index = 0; index < type.type_args.size(); ++index) {
+      if (index != 0U) { out += ","; }
+      out += repl_type_signature_fragment(type.type_args[index], generic_slots);
+    }
+    out += "]";
+  }
+
+  if (type.function_sig.has_value()) {
+    out += "|F(";
+    for (std::size_t index = 0; index < type.function_sig->param_types.size(); ++index) {
+      if (index != 0U) { out += ","; }
+      out += repl_type_signature_fragment(type.function_sig->param_types[index], generic_slots);
+    }
+    out += ")->";
+    out += repl_type_signature_fragment(*type.function_sig->return_type, generic_slots);
+  }
+
+  return out;
+}
+
+inline auto repl_signature_key(const frontend::ir::IRLet& let) -> std::string {
+  std::unordered_map<std::string, std::size_t> generic_slots;
+  generic_slots.reserve(let.generic_params.size());
+  for (std::size_t index = 0; index < let.generic_params.size(); ++index) {
+    generic_slots.emplace(let.generic_params[index], index);
+  }
+
+  std::string out = "g" + std::to_string(let.generic_params.size()) + "|p[";
+  for (std::size_t index = 0; index < let.params.size(); ++index) {
+    if (index != 0U) { out += ";"; }
+    out += repl_type_signature_fragment(let.params[index].type, generic_slots);
+  }
+  out += "]";
+  return out;
+}
+
+inline auto repl_let_ordinal(const frontend::ir::IRLet& let) -> std::optional<std::size_t> {
+  const std::string public_symbol = repl_let_key(let.qualifier, let.name);
+  const std::string internal_key = repl_let_internal_key(let);
+  if (!internal_key.starts_with(public_symbol + "#")) { return std::nullopt; }
+
+  const std::string_view ordinal_text =
+      std::string_view{internal_key}.substr(public_symbol.size() + 1U);
+  std::size_t ordinal = 0;
+  const auto* begin = ordinal_text.data();
+  const auto* end = begin + ordinal_text.size();
+  if (const auto [ptr, error] = std::from_chars(begin, end, ordinal); error != std::errc{} || ptr != end) {
+    return std::nullopt;
+  }
+  return ordinal;
+}
+
+inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
+                                           const std::vector<frontend::ir::IRLet>& prior_session_lets) -> void {
+  struct SymbolSlots {
+    std::unordered_map<std::string, std::size_t> signature_to_ordinal;
+    std::size_t next_ordinal = 0;
+  };
+
+  std::unordered_map<std::string, SymbolSlots> slots_by_symbol;
+
+  auto reserve_slot = [&](const frontend::ir::IRLet& let) -> SymbolSlots& {
+    const std::string public_symbol = repl_let_key(let.qualifier, let.name);
+    return slots_by_symbol[public_symbol];
+  };
+
+  for (const auto& prior_let : prior_session_lets) {
+    auto& symbol_slots = reserve_slot(prior_let);
+    const auto signature_key = repl_signature_key(prior_let);
+    const auto ordinal = repl_let_ordinal(prior_let).value_or(symbol_slots.next_ordinal);
+    symbol_slots.signature_to_ordinal[signature_key] = ordinal;
+    symbol_slots.next_ordinal = std::max(symbol_slots.next_ordinal, ordinal + 1U);
+  }
+
+  std::unordered_map<std::string, std::size_t> last_definition_index;
+  last_definition_index.reserve(program.lets.size());
+  std::vector<std::string> let_signatures;
+  let_signatures.reserve(program.lets.size());
+  for (std::size_t index = 0; index < program.lets.size(); ++index) {
+    const auto& let = program.lets[index];
+    const std::string signature_key = repl_signature_key(let);
+    let_signatures.push_back(signature_key);
+    last_definition_index[repl_let_key(let.qualifier, let.name) + "\n" + signature_key] = index;
+  }
+
+  std::vector<frontend::ir::IRLet> normalized_lets;
+  normalized_lets.reserve(program.lets.size());
+  for (std::size_t index = 0; index < program.lets.size(); ++index) {
+    auto let = std::move(program.lets[index]);
+    const std::string public_symbol = repl_let_key(let.qualifier, let.name);
+    const std::string dedupe_key = public_symbol + "\n" + let_signatures[index];
+    if (last_definition_index.at(dedupe_key) != index) { continue; }
+
+    auto& symbol_slots = slots_by_symbol[public_symbol];
+    const auto existing = symbol_slots.signature_to_ordinal.find(let_signatures[index]);
+    const std::size_t ordinal = existing != symbol_slots.signature_to_ordinal.end()
+                                    ? existing->second
+                                    : symbol_slots.next_ordinal++;
+    symbol_slots.signature_to_ordinal[let_signatures[index]] = ordinal;
+    let.symbol_key = public_symbol + "#" + std::to_string(ordinal);
+    normalized_lets.push_back(std::move(let));
+  }
+
+  program.lets = std::move(normalized_lets);
+}
+
 inline auto ensure_repl_imports_supported(const frontend::ir::IRProgram& program)
     -> tl::expected<void, ReplSessionError> {
   for (const auto& [module_name, span] : program.imports) {
@@ -59,6 +211,8 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
   if (auto imports_ok = ensure_repl_imports_supported(*lowered); !imports_ok) {
     return tl::unexpected(imports_ok.error());
   }
+
+  assign_repl_stable_symbol_keys(*lowered, prior_session_lets);
 
   std::unordered_set<std::string> replaced_keys;
   replaced_keys.reserve(lowered->lets.size());
