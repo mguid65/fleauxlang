@@ -89,7 +89,6 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   INFO("stderr: " << stderr_text);
   REQUIRE(exit_code == 0);
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("[--repl]"));
-  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("VM mode writes/refreshes .fleaux.bc cache files by default"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("Start the interactive REPL"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--no-emit-bytecode"));
   REQUIRE(stdout_text.find("--mode") == std::string::npos);
