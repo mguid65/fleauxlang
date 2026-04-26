@@ -121,21 +121,65 @@ TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][
   REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
 }
 
-TEST_CASE("RuntimeSession typed let redefinition replaces prior signature", "[vm][repl][type]") {
+TEST_CASE("RuntimeSession preserves overloads across snippets", "[vm][repl][type][overload]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
-  std::ostringstream output;
+  std::ostringstream sink;
 
-  REQUIRE(session.run_snippet("import Std;\nlet Convert(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output)
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(): Any = (\"FuncA\") -> Std.Println;\n", sink).has_value());
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(x: Int64): Any = (\"FuncA: x: Int64\") -> Std.Println;\n", sink)
               .has_value());
-  REQUIRE(session.run_snippet("let Convert(x: String): String = x;\n", output).has_value());
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(x: String): Any = (\"FuncA: x: String\") -> Std.Println;\n", sink)
+              .has_value());
 
-  const auto string_ok = session.run_snippet("\"text\" -> Convert;\n", output);
-  REQUIRE(string_ok.has_value());
+  std::ostringstream nullary_output;
+  const auto nullary_result = session.run_snippet("import Std;\n() -> FuncA;\n", nullary_output);
+  if (!nullary_result.has_value()) { INFO(nullary_result.error().message); }
+  REQUIRE(nullary_result.has_value());
+  REQUIRE(nullary_output.str() == "FuncA\n");
 
-  const auto stale_signature = session.run_snippet("1 -> Convert;\n", output);
-  REQUIRE_FALSE(stale_signature.has_value());
-  REQUIRE(stale_signature.error().message == "Type mismatch in call target arguments.");
+  std::ostringstream int_output;
+  const auto int_result = session.run_snippet("import Std;\n(1) -> FuncA;\n", int_output);
+  if (!int_result.has_value()) { INFO(int_result.error().message); }
+  REQUIRE(int_result.has_value());
+  REQUIRE(int_output.str() == "FuncA: x: Int64\n");
+
+  std::ostringstream string_output;
+  const auto string_result = session.run_snippet("import Std;\n(\"hello\") -> FuncA;\n", string_output);
+  if (!string_result.has_value()) { INFO(string_result.error().message); }
+  REQUIRE(string_result.has_value());
+  REQUIRE(string_output.str() == "FuncA: x: String\n");
+}
+
+TEST_CASE("RuntimeSession exact overload redefinition replaces only the matching overload", "[vm][repl][type][overload]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream sink;
+
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(): Any = (\"FuncA\") -> Std.Println;\n", sink).has_value());
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(x: Int64): Any = (\"FuncA: x: Int64\") -> Std.Println;\n", sink)
+              .has_value());
+  REQUIRE(session.run_snippet("import Std;\nlet FuncA(x: String): Any = (\"FuncA: x: String\") -> Std.Println;\n", sink)
+              .has_value());
+
+  REQUIRE(session.run_snippet(
+              "import Std;\nlet FuncA(x: Int64): Any = (\"FuncA: x: Int64 updated\") -> Std.Println;\n", sink)
+              .has_value());
+
+  std::ostringstream nullary_output;
+  const auto nullary_result = session.run_snippet("import Std;\n() -> FuncA;\n", nullary_output);
+  REQUIRE(nullary_result.has_value());
+  REQUIRE(nullary_output.str() == "FuncA\n");
+
+  std::ostringstream int_output;
+  const auto int_result = session.run_snippet("import Std;\n(1) -> FuncA;\n", int_output);
+  REQUIRE(int_result.has_value());
+  REQUIRE(int_output.str() == "FuncA: x: Int64 updated\n");
+
+  std::ostringstream string_output;
+  const auto string_result = session.run_snippet("import Std;\n(\"hello\") -> FuncA;\n", string_output);
+  REQUIRE(string_result.has_value());
+  REQUIRE(string_output.str() == "FuncA: x: String\n");
 }
 
 TEST_CASE("VM executes value-ref opcodes round-trip", "[vm][lifetime][value_ref]") {
