@@ -8,7 +8,7 @@ import Std;
 (10, 3) -> Std.Divide -> Std.Println;             // 3.333...
 (10, 3) -> Std.Mod -> Std.Println;                // 1
 (2, 10) -> Std.Pow -> Std.Println;                // 1024
-(16) -> Std.Math.Sqrt -> Std.Println;             // 4.0
+(16.0) -> Std.Math.Sqrt -> Std.Println;           // 4.0
 
 // -- Operators used directly as pipeline call targets --
 // These are shorthand for the corresponding Std.* functions.
@@ -23,7 +23,7 @@ import Std;
 // -- Composing arithmetic in pipelines --
 
 // (4 + 6) * 2 = 20
-(4, 6) -> Std.Add -> (_, 2) -> Std.Multiply -> Std.Println;
+(4.0, 6.0) -> Std.Add -> (_, 2.0) -> Std.Multiply -> Std.Println;
 
 // Square: x * x
 let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
@@ -32,12 +32,12 @@ let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
 let Cube(x: Float64): Float64 =
     ((x, x) -> Std.Multiply, x) -> Std.Multiply;
 
-(5) -> Square -> Std.Println;                     // 25
-(3) -> Cube -> Std.Println;                       // 27
+(5.0) -> Square -> Std.Println;                   // 25
+(3.0) -> Cube -> Std.Println;                     // 27
 
 // Hypotenuse of a 3-4-5 right triangle: sqrt(3^2 + 4^2)
 let Hypotenuse(a: Float64, b: Float64): Float64 =
     ((a, a) -> Std.Multiply, (b, b) -> Std.Multiply) -> Std.Add -> Std.Math.Sqrt;
 
-(3, 4) -> Hypotenuse -> Std.Println;              // 5.0
+(3.0, 4.0) -> Hypotenuse -> Std.Println;          // 5.0
 

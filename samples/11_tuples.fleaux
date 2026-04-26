@@ -17,11 +17,11 @@ import Std;
 // -- Zip --
 ((1, 2, 3), (4, 5, 6)) -> Std.Tuple.Zip -> Std.Println;         // ((1,4),(2,5),(3,6))
 // -- Map: apply a function to each element --
-let Double(x: Float64): Float64 = (x, 2) -> Std.Multiply;
-((1, 2, 3, 4), Double) -> Std.Tuple.Map -> Std.Println;          // (2, 4, 6, 8)
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+((1.0, 2.0, 3.0, 4.0), Double) -> Std.Tuple.Map -> Std.Println;  // (2, 4, 6, 8)
 // -- Filter: keep elements matching a predicate --
-let IsEven(x: Float64): Bool = (x, 2) -> Std.Mod -> (_, 0) -> Std.Equal;
-((1, 2, 3, 4, 5, 6), IsEven) -> Std.Tuple.Filter -> Std.Println; // (2, 4, 6)
+let IsEven(x: Float64): Bool = (x, 2.0) -> Std.Mod -> (_, 0.0) -> Std.Equal;
+((1.0, 2.0, 3.0, 4.0, 5.0, 6.0), IsEven) -> Std.Tuple.Filter -> Std.Println; // (2, 4, 6)
 // -- Wrap/Unwrap: lift single value into a 1-tuple and back --
 (42) -> Std.Wrap -> Std.Println;                                  // (42,)
 (42) -> Std.Wrap -> Std.Unwrap -> Std.Println;                    // 42

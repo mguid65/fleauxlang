@@ -13,4 +13,7 @@ namespace fleaux::frontend::type_system {
 [[nodiscard]] auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args,
                                              std::string& error_message) -> bool;
 
+[[nodiscard]] auto refine_builtin_return_type(const std::string& full_name, const std::vector<Type>& args,
+                                              const Type& declared_return_type) -> Type;
+
 }  // namespace fleaux::frontend::type_system

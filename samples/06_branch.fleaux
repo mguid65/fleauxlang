@@ -5,12 +5,12 @@ import Std;
 // Only the chosen function is called - unlike Select, the other is never evaluated.
 
 // -- Basic branch between two functions --
-let Double(x: Float64): Float64 = (x, 2) -> Std.Multiply;
-let Halve(x: Float64): Float64  = (x, 2) -> Std.Divide;
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+let Halve(x: Float64): Float64  = (x, 2.0) -> Std.Divide;
 
 // If 10 > 0, Double it; otherwise Halve it.
-((10, 0) -> Std.GreaterThan, 10, Double, Halve) -> Std.Branch -> Std.Println;    // 20
-((-4, 0) -> Std.GreaterThan, -4, Double, Halve) -> Std.Branch -> Std.Println;   // -2.0
+((10.0, 0.0) -> Std.GreaterThan, 10.0, Double, Halve) -> Std.Branch -> Std.Println;  // 20
+((-4.0, 0.0) -> Std.GreaterThan, -4.0, Double, Halve) -> Std.Branch -> Std.Println;  // -2.0
 
 // -- Branch to apply different string transforms --
 let Shout(s: String): String = (s) -> Std.String.Upper;
@@ -24,22 +24,22 @@ let Announce(loud: Bool, message: String): String =
 
 // -- Branch used for early-exit style logic --
 let SafeDivide(a: Float64, b: Float64): Float64 =
-    ((b, 0) -> Std.Equal, b, Halve, Double) -> Std.Branch;
+    ((b, 0.0) -> Std.Equal, b, Halve, Double) -> Std.Branch;
 
 // b=0 -> Halve(0) = 0.0, b=4 -> Double(4) = 8
-(10, 0) -> SafeDivide -> Std.Println;                             // 0.0
-(10, 4) -> SafeDivide -> Std.Println;                             // 8
+(10.0, 0.0) -> SafeDivide -> Std.Println;                         // 0.0
+(10.0, 4.0) -> SafeDivide -> Std.Println;                         // 8
 
 // -- Branch with inline closures: no named helpers needed --
 // The value at position 1 is forwarded as the argument to whichever closure runs.
-((7, 0) -> Std.GreaterThan,
- 7,
+((7.0, 0.0) -> Std.GreaterThan,
+ 7.0,
  (n: Float64): String = ("positive: {}", n) -> Std.String.Format,
  (n: Float64): String = ("non-positive: {}", n) -> Std.String.Format
 ) -> Std.Branch -> Std.Println;                                   // positive: 7
 
-((-3, 0) -> Std.GreaterThan,
- -3,
+((-3.0, 0.0) -> Std.GreaterThan,
+ -3.0,
  (n: Float64): String = ("positive: {}", n) -> Std.String.Format,
  (n: Float64): String = ("non-positive: {}", n) -> Std.String.Format
 ) -> Std.Branch -> Std.Println;                                   // non-positive: -3

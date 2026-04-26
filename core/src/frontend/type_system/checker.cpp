@@ -791,9 +791,9 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
                                                    join_sorted_type_var_names(unbound)),
                                        span));
     }
-    return instantiate_generic_type(sig.return_type, generic_bindings);
+    return refine_builtin_return_type(full_name, args, instantiate_generic_type(sig.return_type, generic_bindings));
   }
-  return sig.return_type;
+  return refine_builtin_return_type(full_name, args, sig.return_type);
 }
 
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,

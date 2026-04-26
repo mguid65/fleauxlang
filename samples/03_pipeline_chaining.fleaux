@@ -1,7 +1,7 @@
 import Std;
 
 // -- Simple single-step pipeline --
-(7) -> Std.Math.Sqrt -> Std.Println;
+(7.0) -> Std.Math.Sqrt -> Std.Println;
 
 // -- Multi-step pipeline: (3 + 4) * 2 --
 (3, 4) -> Std.Add -> (_, 2) -> Std.Multiply -> Std.Println;      // 14
@@ -12,23 +12,23 @@ import Std;
 
 // -- Pipelines inside function bodies --
 let AddThenSquare(a: Float64, b: Float64): Float64 =
-    (a, b) -> Std.Add -> (_, 2) -> Std.Pow;
+    (a, b) -> Std.Add -> (_, 2.0) -> Std.Pow;
 
-(3, 4) -> AddThenSquare -> Std.Println;                           // 49
+(3.0, 4.0) -> AddThenSquare -> Std.Println;                       // 49
 
 // -- Chaining three stages: (a + b) * c / 2 --
 let WeightedSum(a: Float64, b: Float64, c: Float64): Float64 =
-    (a, b) -> Std.Add -> (_, c) -> Std.Multiply -> (_, 2) -> Std.Divide;
+    (a, b) -> Std.Add -> (_, c) -> Std.Multiply -> (_, 2.0) -> Std.Divide;
 
-(2, 3, 4) -> WeightedSum -> Std.Println;                          // 10.0
+(2.0, 3.0, 4.0) -> WeightedSum -> Std.Println;                    // 10.0
 
 // -- Calling a user-defined function in a pipeline --
-let Double(x: Float64): Float64 = (x, 2) -> Std.Multiply;
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
 
-let Triple(x: Float64): Float64 = (x, 3) -> Std.Multiply;
+let Triple(x: Float64): Float64 = (x, 3.0) -> Std.Multiply;
 
 // 5 * 2 * 3 = 30
-(5) -> Double -> Triple -> Std.Println;                           // 30
+(5.0) -> Double -> Triple -> Std.Println;                         // 30
 
 // -- Empty tuple as pipeline start --
 // () -> Std.GetArgs retrieves command-line arguments as a tuple

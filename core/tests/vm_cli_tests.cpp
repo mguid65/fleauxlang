@@ -103,8 +103,8 @@ TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli("--repl", temp_dir,
                               "import Std;\n"
-                              "let AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
-                              "2 -> AddOne -> Std.Println;\n"
+                              "let AddOne(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
+                              "2.0 -> AddOne -> Std.Println;\n"
                               ":quit\n");
   INFO("stdout: " << result.stdout_text);
   INFO("stderr: " << result.stderr_text);

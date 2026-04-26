@@ -510,10 +510,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (lhs->HasString() && rhs->HasString()) {
             return fleaux::runtime::make_string(fleaux::runtime::as_string(*lhs) + fleaux::runtime::as_string(*rhs));
           }
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "add");
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "add");
           return fleaux::runtime::num_result(
               fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -526,10 +528,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "sub");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("sub", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "sub");
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "sub");
           return fleaux::runtime::num_result(
               fleaux::runtime::to_double(*lhs) - fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -542,10 +546,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "mul");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("mul", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mul");
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mul");
           return fleaux::runtime::num_result(
               fleaux::runtime::to_double(*lhs) * fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -559,10 +565,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("div", [&]() -> Value {
           // Native division follows floating-point semantics (e.g. x/0 -> inf).
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "div");
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "div");
           return fleaux::runtime::num_result(
               fleaux::runtime::to_double(*lhs) / fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -575,10 +583,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "mod");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("mod", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mod");
           fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mod");
           return fleaux::runtime::num_result(
               std::fmod(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs));
+              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -591,8 +601,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "pow");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("pow", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "pow");
           return fleaux::runtime::num_result(
-              std::pow(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)));
+              std::pow(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)), false,
+              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -603,7 +615,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto value = pop_stack(stack, "neg");
         if (!value) return tl::unexpected(value.error());
         auto result = run_native_op(
-            "neg", [&]() -> Value { return fleaux::runtime::num_result(-fleaux::runtime::to_double(*value)); });
+            "neg", [&]() -> Value {
+              return fleaux::runtime::num_result(-fleaux::runtime::to_double(*value), false,
+                                                 fleaux::runtime::is_float_number(*value));
+            });
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
         break;
@@ -633,6 +648,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_lt");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_lt", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_lt");
           return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) < 0);
         });
         if (!result) return tl::unexpected(result.error());
@@ -646,6 +662,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_gt");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_gt", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_gt");
           return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) > 0);
         });
         if (!result) return tl::unexpected(result.error());
@@ -659,6 +676,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_le");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_le", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_le");
           return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) <= 0);
         });
         if (!result) return tl::unexpected(result.error());
@@ -672,6 +690,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_ge");
         if (!lhs) return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_ge", [&]() -> Value {
+          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_ge");
           return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) >= 0);
         });
         if (!result) return tl::unexpected(result.error());

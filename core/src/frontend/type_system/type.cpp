@@ -202,10 +202,6 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
 
   if (expected.kind == TypeKind::kNever) { return actual.kind == TypeKind::kNever; }
 
-  if (expected.kind == TypeKind::kFloat64 &&
-      (actual.kind == TypeKind::kInt64 || actual.kind == TypeKind::kUInt64 || actual.kind == TypeKind::kFloat64)) {
-    return true;
-  }
 
   if (expected.kind == TypeKind::kUnion && actual.kind == TypeKind::kUnion) {
     if (expected.union_members.empty() || actual.union_members.empty()) { return false; }

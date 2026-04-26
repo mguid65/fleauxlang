@@ -25,6 +25,6 @@ import Std;
 let FormatScore(name: String, score: Float64): String =
     ("{} scored {} points", name, score) -> Std.String.Format;
 
-("Alice", 98) -> FormatScore -> Std.Println;                      // Alice scored 98 points
-("Bob", 75) -> FormatScore -> Std.Println;                        // Bob scored 75 points
+("Alice", 98.0) -> FormatScore -> Std.Println;                    // Alice scored 98 points
+("Bob", 75.0) -> FormatScore -> Std.Println;                      // Bob scored 75 points
 

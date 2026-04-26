@@ -2494,9 +2494,9 @@ TEST_CASE("Type checker matrix: strict binding diagnostics", "[typecheck][bindin
   SECTION("Resolved local and user function symbols still pass") {
     const std::string src =
         "let Std.Add(lhs: Float64, rhs: Float64): Float64 :: __builtin__;\n"
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
         "let UseLocal(x: Float64): Float64 = (x) -> Inc;\n"
-        "(2) -> UseLocal;\n";
+        "(2.0) -> UseLocal;\n";
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_binding_resolved_symbols.fleaux");
     REQUIRE(parsed.has_value());
@@ -2728,8 +2728,8 @@ TEST_CASE("Type checker matrix: declared return-type enforcement", "[typecheck][
     REQUIRE(lowered.error().hint->find("declares return type") != std::string::npos);
   }
 
-  SECTION("Numeric widening to Float64 is accepted") {
-    const std::string src = "let Good(): Float64 = 1;\n";
+  SECTION("Exact Float64 return is accepted") {
+    const std::string src = "let Good(): Float64 = 1.0;\n";
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_return_numeric_widening.fleaux");
     REQUIRE(parsed.has_value());

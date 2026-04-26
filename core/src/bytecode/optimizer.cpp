@@ -150,7 +150,9 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
     if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) { return *float_value; }
     return std::nullopt;
   };
-  const auto num_result = [](const double value, const bool prefer_unsigned = false) -> ConstValue {
+  const auto num_result = [](const double value, const bool prefer_unsigned = false,
+                             const bool prefer_float = false) -> ConstValue {
+    if (prefer_float) { return ConstValue{.data = value}; }
     if (value == std::floor(value) && std::isfinite(value)) {
       if (prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
         return ConstValue{.data = static_cast<std::uint64_t>(value)};
@@ -192,14 +194,17 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
 
     if (opcode == Opcode::kDiv) {
       const bool prefer_unsigned = is_uint(left) && is_uint(right);
-      return num_result(*lhs / *rhs, prefer_unsigned);
+      const bool prefer_float = std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data);
+      return num_result(*lhs / *rhs, prefer_unsigned, prefer_float);
     }
     if (opcode == Opcode::kMod) {
       const bool prefer_unsigned = is_uint(left) && is_uint(right);
-      return num_result(std::fmod(*lhs, *rhs), prefer_unsigned);
+      const bool prefer_float = std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data);
+      return num_result(std::fmod(*lhs, *rhs), prefer_unsigned, prefer_float);
     }
     // pow uses default runtime numeric-result preference.
-    return num_result(std::pow(*lhs, *rhs));
+    return num_result(std::pow(*lhs, *rhs), false,
+                      std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data));
   }
 
   const auto* lhs_i64 = std::get_if<std::int64_t>(&left.data);
