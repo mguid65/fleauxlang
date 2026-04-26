@@ -1,17 +1,13 @@
 #pragma once
 
-// Shared builtin catalog consumed by VM runtime/interpreter and transpiler.
-// Each entry is: (fully_qualified_name, runtime_node_type)
+// Shared builtin catalog consumed by the VM runtime and transpiler.
+// FLEAUX_VM_BUILTINS contains struct-backed callable types.
+// FLEAUX_VM_FUNCTION_BUILTINS contains direct runtime function symbols.
 #define FLEAUX_VM_BUILTINS(X)                        \
   X("Std.Printf", Printf)                            \
   X("Std.Println", Println)                          \
   X("Std.GetArgs", GetArgs)                          \
   X("Std.Type", Type)                                \
-  X("Std.ToInt64", ToInt64)                          \
-  X("Std.ToUInt64", ToUInt64)                        \
-  X("Std.ToFloat64", ToFloat64)                      \
-  X("Std.ToString", ToString)                        \
-  X("Std.ToNum", ToNum)                              \
   X("Std.Input", Input)                              \
   X("Std.Help", Help)                                \
   X("Std.Exit", Exit)                                \
@@ -78,26 +74,6 @@
   X("Std.Math.Sin", Sin)                             \
   X("Std.Math.Cos", Cos)                             \
   X("Std.Math.Tan", Tan)                             \
-  X("Std.String.Upper", StringUpper)                 \
-  X("Std.String.Lower", StringLower)                 \
-  X("Std.String.Trim", StringTrim)                   \
-  X("Std.String.TrimStart", StringTrimStart)         \
-  X("Std.String.TrimEnd", StringTrimEnd)             \
-  X("Std.String.Split", StringSplit)                 \
-  X("Std.String.Join", StringJoin)                   \
-  X("Std.String.Replace", StringReplace)             \
-  X("Std.String.Contains", StringContains)           \
-  X("Std.String.StartsWith", StringStartsWith)       \
-  X("Std.String.EndsWith", StringEndsWith)           \
-  X("Std.String.Length", StringLength)               \
-  X("Std.String.CharAt", StringCharAt)               \
-  X("Std.String.Slice", StringSlice)                 \
-  X("Std.String.Find", StringFind)                   \
-  X("Std.String.Format", StringFormat)               \
-  X("Std.String.Regex.IsMatch", StringRegexIsMatch)  \
-  X("Std.String.Regex.Find", StringRegexFind)        \
-  X("Std.String.Regex.Replace", StringRegexReplace)  \
-  X("Std.String.Regex.Split", StringRegexSplit)      \
   X("Std.OS.Cwd", Cwd)                               \
   X("Std.OS.Env", OSEnv)                             \
   X("Std.OS.HasEnv", OSHasEnv)                       \
@@ -139,51 +115,79 @@
   X("Std.Dir.Create", DirCreate)                     \
   X("Std.Dir.Delete", DirDelete)                     \
   X("Std.Dir.List", DirList)                         \
-  X("Std.Dir.ListFull", DirListFull)                 \
-  X("Std.Tuple.Append", TupleAppend)                 \
-  X("Std.Tuple.Prepend", TuplePrepend)               \
-  X("Std.Tuple.Reverse", TupleReverse)               \
-  X("Std.Tuple.Contains", TupleContains)             \
-  X("Std.Tuple.Zip", TupleZip)                       \
-  X("Std.Tuple.Map", TupleMap)                       \
-  X("Std.Tuple.Filter", TupleFilter)                 \
-  X("Std.Tuple.Sort", TupleSort)                     \
-  X("Std.Tuple.Unique", TupleUnique)                 \
-  X("Std.Tuple.Min", TupleMin)                       \
-  X("Std.Tuple.Max", TupleMax)                       \
-  X("Std.Tuple.Reduce", TupleReduce)                 \
-  X("Std.Tuple.FindIndex", TupleFindIndex)           \
-  X("Std.Tuple.Any", TupleAny)                       \
-  X("Std.Tuple.All", TupleAll)                       \
-  X("Std.Tuple.Range", TupleRange)                   \
-  X("Std.Dict.Create", DictCreate)                   \
-  X("Std.Dict.Set", DictSet)                         \
-  X("Std.Dict.Get", DictGet)                         \
-  X("Std.Dict.GetDefault", DictGetDefault)           \
-  X("Std.Dict.Contains", DictContains)               \
-  X("Std.Dict.Delete", DictDelete)                   \
-  X("Std.Dict.Keys", DictKeys)                       \
-  X("Std.Dict.Values", DictValues)                   \
-  X("Std.Dict.Entries", DictEntries)                 \
-  X("Std.Dict.Clear", DictClear)                     \
-  X("Std.Dict.Length", DictLength)                   \
-  X("Std.Array.GetAt", ArrayGetAt)                   \
-  X("Std.Array.SetAt", ArraySetAt)                   \
-  X("Std.Array.InsertAt", ArrayInsertAt)             \
-  X("Std.Array.RemoveAt", ArrayRemoveAt)             \
-  X("Std.Array.Slice", ArraySlice)                   \
-  X("Std.Array.Concat", ArrayConcat)                 \
-  X("Std.Array.SetAt2D", ArraySetAt2D)               \
-  X("Std.Array.Fill", ArrayFill)                     \
-  X("Std.Array.Transpose2D", ArrayTranspose2D)       \
-  X("Std.Array.Slice2D", ArraySlice2D)               \
-  X("Std.Array.Reshape", ArrayReshape)               \
-  X("Std.Array.Rank", ArrayRank)                     \
-  X("Std.Array.Shape", ArrayShape)                   \
-  X("Std.Array.Flatten", ArrayFlatten)               \
-  X("Std.Array.GetAtND", ArrayGetAtND)               \
-  X("Std.Array.SetAtND", ArraySetAtND)               \
-  X("Std.Array.ReshapeND", ArrayReshapeND)
+  X("Std.Dir.ListFull", DirListFull)
+
+#define FLEAUX_VM_FUNCTION_BUILTINS(X)      \
+  X("Std.Tuple.Append", TupleAppend)       \
+  X("Std.Tuple.Prepend", TuplePrepend)     \
+  X("Std.Tuple.Reverse", TupleReverse)     \
+  X("Std.Tuple.Contains", TupleContains)   \
+  X("Std.Tuple.Zip", TupleZip)             \
+  X("Std.Tuple.Map", TupleMap)             \
+  X("Std.Tuple.Filter", TupleFilter)       \
+  X("Std.Tuple.Sort", TupleSort)           \
+  X("Std.Tuple.Unique", TupleUnique)       \
+  X("Std.Tuple.Min", TupleMin)             \
+  X("Std.Tuple.Max", TupleMax)             \
+  X("Std.Tuple.Reduce", TupleReduce)       \
+  X("Std.Tuple.FindIndex", TupleFindIndex) \
+  X("Std.Tuple.Any", TupleAny)             \
+  X("Std.Tuple.All", TupleAll)             \
+  X("Std.Tuple.Range", TupleRange)         \
+  X("Std.Array.GetAt", ArrayGetAt)         \
+  X("Std.Array.SetAt", ArraySetAt)         \
+  X("Std.Array.InsertAt", ArrayInsertAt)   \
+  X("Std.Array.RemoveAt", ArrayRemoveAt)   \
+  X("Std.Array.Slice", ArraySlice)         \
+  X("Std.Array.Concat", ArrayConcat)       \
+  X("Std.Array.SetAt2D", ArraySetAt2D)     \
+  X("Std.Array.Fill", ArrayFill)           \
+  X("Std.Array.Transpose2D", ArrayTranspose2D) \
+  X("Std.Array.Slice2D", ArraySlice2D)     \
+  X("Std.Array.Reshape", ArrayReshape)     \
+  X("Std.Array.Rank", ArrayRank)           \
+  X("Std.Array.Shape", ArrayShape)         \
+  X("Std.Array.Flatten", ArrayFlatten)     \
+  X("Std.Array.GetAtND", ArrayGetAtND)     \
+  X("Std.Array.SetAtND", ArraySetAtND)     \
+  X("Std.Array.ReshapeND", ArrayReshapeND) \
+  X("Std.Dict.Create", DictCreate)         \
+  X("Std.Dict.Set", DictSet)               \
+  X("Std.Dict.Get", DictGet)               \
+  X("Std.Dict.GetDefault", DictGetDefault) \
+  X("Std.Dict.Contains", DictContains)     \
+  X("Std.Dict.Delete", DictDelete)         \
+  X("Std.Dict.Merge", DictMerge)           \
+  X("Std.Dict.Keys", DictKeys)             \
+  X("Std.Dict.Values", DictValues)         \
+  X("Std.Dict.Entries", DictEntries)       \
+  X("Std.Dict.Clear", DictClear)           \
+  X("Std.Dict.Length", DictLength)         \
+  X("Std.ToInt64", ToInt64)                \
+  X("Std.ToUInt64", ToUInt64)              \
+  X("Std.ToFloat64", ToFloat64)            \
+  X("Std.ToString", ToString)              \
+  X("Std.ToNum", ToNum)                    \
+  X("Std.String.Upper", StringUpper)       \
+  X("Std.String.Lower", StringLower)       \
+  X("Std.String.Trim", StringTrim)         \
+  X("Std.String.TrimStart", StringTrimStart) \
+  X("Std.String.TrimEnd", StringTrimEnd)   \
+  X("Std.String.Split", StringSplit)       \
+  X("Std.String.Join", StringJoin)         \
+  X("Std.String.Replace", StringReplace)   \
+  X("Std.String.Contains", StringContains) \
+  X("Std.String.StartsWith", StringStartsWith) \
+  X("Std.String.EndsWith", StringEndsWith) \
+  X("Std.String.Length", StringLength)     \
+  X("Std.String.CharAt", StringCharAt)     \
+  X("Std.String.Slice", StringSlice)       \
+  X("Std.String.Find", StringFind)         \
+  X("Std.String.Format", StringFormat)     \
+  X("Std.String.Regex.IsMatch", StringRegexIsMatch) \
+  X("Std.String.Regex.Find", StringRegexFind) \
+  X("Std.String.Regex.Replace", StringRegexReplace) \
+  X("Std.String.Regex.Split", StringRegexSplit)
 
 // Each entry is: (fully_qualified_name, numeric_value)
 #define FLEAUX_VM_CONSTANT_BUILTINS(X)                                        \

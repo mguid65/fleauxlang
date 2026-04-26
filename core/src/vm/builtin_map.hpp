@@ -3,7 +3,7 @@
 //
 // Defines vm_builtin_callables(), an inline function returning a
 // map<string, RuntimeCallable> covering all builtins exposed by the
-// FLEAUX_VM_BUILTINS X-macro.
+// FLEAUX_VM_BUILTINS and FLEAUX_VM_FUNCTION_BUILTINS X-macros.
 #pragma once
 
 #include <string>
@@ -28,6 +28,10 @@ namespace fleaux::vm {
   out.emplace(name_literal, [](Value arg) -> Value { return node_type{}(std::move(arg)); });
     FLEAUX_VM_BUILTINS(FLEAUX_INSERT_BUILTIN)
 #undef FLEAUX_INSERT_BUILTIN
+
+#define FLEAUX_INSERT_FUNCTION_BUILTIN(name_literal, builtin_function) out.emplace(name_literal, builtin_function);
+    FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_INSERT_FUNCTION_BUILTIN)
+#undef FLEAUX_INSERT_FUNCTION_BUILTIN
 
     // Numeric constants (zero-arg: ignore the argument, return the constant).
     auto constant = [](const double constant_value) {

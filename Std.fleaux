@@ -361,6 +361,9 @@ let Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K) : Bool :: __builtin__;
 // @brief Return a new dictionary without the given key.
 // (dict, key) -> Std.Dict.Delete;
 let Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K) : Dict(K, V) :: __builtin__;
+// @brief Return a new dictionary with overlay entries applied over the base dictionary.
+// (dict_base, dict_overlay) -> Std.Dict.Merge;
+let Std.Dict.Merge<K, V>(dict_base: Dict(K, V), dict_overlay: Dict(K, V)) : Dict(K, V) :: __builtin__;
 // @brief Return keys as tuple sorted by key string.
 // (dict) -> Std.Dict.Keys;
 let Std.Dict.Keys<K, V>(dict: Dict(K, V)) : Tuple(K...) :: __builtin__;

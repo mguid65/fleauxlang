@@ -140,32 +140,14 @@ if(FLEAUX_PCRE2_TARGET)
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
   target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
 
-  add_library(fleaux_vm_interpreter STATIC)
-  target_include_directories(fleaux_vm_interpreter
-      PUBLIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-  set(FLEAUX_VM_INTERPRETER_SOURCES
-          src/vm/interpreter.cpp
-  )
-
-  target_sources(fleaux_vm_interpreter PRIVATE ${FLEAUX_VM_INTERPRETER_SOURCES})
-  target_link_libraries(fleaux_vm_interpreter PUBLIC
-      fleaux_frontend_parser
-      fleaux_frontend_lowering
-      fleaux_frontend_diagnostics
-      tl_expected
-      datatree
-      ${FLEAUX_PCRE2_TARGET})
-
   set(FLEAUX_MAIN_SOURCES
           src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
   )
 
   add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
-  target_link_libraries(fleaux PRIVATE fleaux_vm_interpreter fleaux_vm)
+  target_link_libraries(fleaux PRIVATE fleaux_vm)
 elseif(EMSCRIPTEN)
-  message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm, fleaux_vm_interpreter, and fleaux targets")
+  message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm and fleaux targets")
 endif()
 
 if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
@@ -211,15 +193,15 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${FLEAUX_WASM_OUT_DIR}")
 endif()
 
-if(BUILD_TESTING AND TARGET fleaux_vm AND TARGET fleaux_vm_interpreter)
+if(BUILD_TESTING AND TARGET fleaux_vm)
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
       tests/vm_cli_tests.cpp
-      tests/vm_import_contract_parity_tests.cpp
+      tests/vm_import_contract_tests.cpp
       tests/vm_boundary_matrix_tests.cpp
       tests/vm_runtime_tests.cpp
       tests/vm_samples_tests.cpp)
-  target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_vm_interpreter)
+  target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm)
   target_compile_definitions(fleaux_core_tests PRIVATE
       FLEAUX_CORE_BIN_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
   add_dependencies(fleaux_core_tests fleaux)

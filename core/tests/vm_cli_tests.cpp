@@ -88,10 +88,11 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   INFO("stdout: " << stdout_text);
   INFO("stderr: " << stderr_text);
   REQUIRE(exit_code == 0);
-  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("[--no-emit-bytecode]"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("[--repl]"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("VM mode writes/refreshes .fleaux.bc cache files by default"));
-  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("REPL runs in the selected mode; default REPL mode is vm"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("Start the interactive REPL"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--no-emit-bytecode"));
+  REQUIRE(stdout_text.find("--mode") == std::string::npos);
 }
 
 TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
@@ -100,7 +101,7 @@ TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
   std::filesystem::create_directories(temp_dir);
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
-  const auto result = run_cli("--mode vm --repl", temp_dir,
+  const auto result = run_cli("--repl", temp_dir,
                               "import Std;\n"
                               "let AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
                               "2 -> AddOne -> Std.Println;\n"
@@ -108,9 +109,27 @@ TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
   INFO("stdout: " << result.stdout_text);
   INFO("stderr: " << result.stderr_text);
   REQUIRE(result.exit_code == 0);
-  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Fleaux vm REPL"));
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Fleaux REPL"));
   REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("3"));
   REQUIRE(result.stderr_text.empty());
+}
+
+TEST_CASE("CLI REPL rejects non-symbolic imports", "[vm][cli][repl][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_import_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl", temp_dir,
+                              "import custom_module;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stderr_text,
+               Catch::Matchers::ContainsSubstring("REPL only supports symbolic imports: Std, StdBuiltins."));
+  REQUIRE_THAT(result.stderr_text,
+               Catch::Matchers::ContainsSubstring("Define helper lets inline, or run a file for module imports."));
 }
 
 TEST_CASE("CLI vm mode writes bytecode cache by default", "[vm][cli]") {

@@ -19,7 +19,6 @@
 #include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
-#include "fleaux/vm/interpreter.hpp"
 #include "fleaux/vm/runtime.hpp"
 
 #ifndef FLEAUX_REPO_ROOT
@@ -30,37 +29,6 @@ namespace {
 
 using IRProgram = fleaux::frontend::ir::IRProgram;
 
-enum class SampleOutcomeClass {
-  kSuccess,
-  kImportUnresolved,
-  kImportCycle,
-  kTypeMismatch,
-  kUnresolvedSymbol,
-  kOther,
-};
-
-struct SampleExecutionObservation {
-  bool success = false;
-  std::string output;
-  std::optional<std::string> error_text;
-};
-
-class StdoutCapture {
-public:
-  StdoutCapture() : old_buffer_(std::cout.rdbuf(buffer_.rdbuf())) {}
-
-  StdoutCapture(const StdoutCapture&) = delete;
-  auto operator=(const StdoutCapture&) -> StdoutCapture& = delete;
-
-  ~StdoutCapture() { std::cout.rdbuf(old_buffer_); }
-
-  [[nodiscard]] auto str() const -> std::string { return buffer_.str(); }
-
-private:
-  std::ostringstream buffer_;
-  std::streambuf* old_buffer_;
-};
-
 std::filesystem::path repo_root_path() { return std::filesystem::path(FLEAUX_REPO_ROOT); }
 
 std::filesystem::path samples_dir_path() { return repo_root_path() / "samples"; }
@@ -68,21 +36,6 @@ std::filesystem::path samples_dir_path() { return repo_root_path() / "samples"; 
 auto make_load_error(const std::string& message, const std::optional<std::string>& hint,
                      const std::optional<fleaux::frontend::diag::SourceSpan>&) -> std::string {
   return hint.has_value() ? message + " (" + *hint + ")" : message;
-}
-
-auto classify_sample_message(const std::string& text) -> SampleOutcomeClass {
-  if (text.find("import-unresolved:") != std::string::npos) { return SampleOutcomeClass::kImportUnresolved; }
-  if (text.find("import-cycle:") != std::string::npos) { return SampleOutcomeClass::kImportCycle; }
-  if (text.find("Type mismatch in call target arguments") != std::string::npos) {
-    return SampleOutcomeClass::kTypeMismatch;
-  }
-  if (text.find("Unresolved symbol") != std::string::npos) { return SampleOutcomeClass::kUnresolvedSymbol; }
-  return SampleOutcomeClass::kOther;
-}
-
-auto interpret_error_text(const fleaux::vm::InterpretError& error) -> std::string {
-  if (error.hint.has_value()) { return error.message + " (" + *error.hint + ")"; }
-  return error.message;
 }
 
 tl::expected<IRProgram, std::string> load_ir_program(const std::filesystem::path& source_file) {
@@ -117,11 +70,16 @@ void run_sample_in_vm_and_assert(const std::string_view sample_file) {
   REQUIRE(std::filesystem::exists(sample_path));
   const auto runtime_args = sample_runtime_args(sample_file, sample_path);
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto result = interpreter.run_file(sample_path, runtime_args);
+  const auto loaded_module = fleaux::bytecode::load_linked_module(sample_path);
   INFO("sample file: " << sample_path);
-  if (!result.has_value()) { INFO("vm error: " << result.error().message); }
-  REQUIRE(result.has_value());
+  if (!loaded_module) { INFO("vm load error: " << loaded_module.error().message); }
+  REQUIRE(loaded_module.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(sample_path, runtime_args);
+  const auto runtime_result = runtime.execute(*loaded_module);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
 }
 
 void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
@@ -144,59 +102,6 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   const auto runtime_result = runtime.execute(compiled_module.value());
   if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
-}
-
-void run_sample_parity_and_assert(const std::string_view sample_file) {
-  const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
-  REQUIRE(std::filesystem::exists(sample_path));
-  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  SampleExecutionObservation interpreter_observation;
-  {
-    StdoutCapture capture;
-    const auto interp_result = interpreter.run_file(sample_path, runtime_args);
-    interpreter_observation.success = interp_result.has_value();
-    interpreter_observation.output = capture.str();
-    if (!interp_result.has_value()) { interpreter_observation.error_text = interpret_error_text(interp_result.error()); }
-  }
-
-  SampleExecutionObservation bytecode_observation;
-  if (const auto analyzed = load_ir_program(sample_path); analyzed) {
-    constexpr fleaux::bytecode::BytecodeCompiler compiler;
-    if (const auto compiled_module = compiler.compile(analyzed.value()); compiled_module) {
-      std::ostringstream output;
-      const fleaux::vm::Runtime runtime;
-      set_runtime_process_args(sample_path, runtime_args);
-      const auto runtime_result = runtime.execute(compiled_module.value(), output);
-      bytecode_observation.success = runtime_result.has_value();
-      bytecode_observation.output = output.str();
-      if (!runtime_result) { bytecode_observation.error_text = runtime_result.error().message; }
-    } else {
-      bytecode_observation.error_text = compiled_module.error().message;
-    }
-  } else {
-    bytecode_observation.error_text = analyzed.error();
-  }
-
-  INFO("sample file: " << sample_path);
-  INFO("interpreter success: " << interpreter_observation.success);
-  INFO("bytecode success: " << bytecode_observation.success);
-  INFO("interpreter output: " << interpreter_observation.output);
-  INFO("bytecode output: " << bytecode_observation.output);
-  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
-  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
-
-  REQUIRE(interpreter_observation.success == bytecode_observation.success);
-  if (interpreter_observation.success) {
-    REQUIRE(interpreter_observation.output == bytecode_observation.output);
-    return;
-  }
-
-  REQUIRE(interpreter_observation.error_text.has_value());
-  REQUIRE(bytecode_observation.error_text.has_value());
-  REQUIRE(classify_sample_message(*interpreter_observation.error_text) ==
-          classify_sample_message(*bytecode_observation.error_text));
 }
 
 constexpr std::array<std::string_view, 38> kExpectedSamples = {
@@ -266,53 +171,11 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
            "(1, 2) -> Add -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
 }
 
-TEST_CASE("Interpreter file mode rejects bytecode entry files with explicit guidance",
-          "[vm][imports][contract][entry]") {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_interpreter_entry_policy_contract";
-  std::filesystem::remove_all(temp_dir);
-  std::filesystem::create_directories(temp_dir);
-
-  const auto source_path = temp_dir / "entry.fleaux";
-  const auto bytecode_path = temp_dir / "entry.fleaux.bc";
-  {
-    std::ofstream out(source_path);
-    out << "import Std;\n"
-           "(1, 2) -> Std.Add -> Std.Println;\n";
-  }
-
-  const auto vm_load_from_source = fleaux::bytecode::load_linked_module(source_path);
-  REQUIRE(vm_load_from_source.has_value());
-  REQUIRE(std::filesystem::exists(bytecode_path));
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(bytecode_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message == "Interpreter file mode only accepts .fleaux source entry files.");
-  REQUIRE(interpreter_result.error().hint.has_value());
-  REQUIRE_THAT(*interpreter_result.error().hint,
-               Catch::Matchers::ContainsSubstring("--mode vm for .fleaux.bc modules"));
-
-  const auto vm_load_from_bytecode = fleaux::bytecode::load_linked_module(bytecode_path);
-  if (!vm_load_from_bytecode) { INFO("vm load error: " << vm_load_from_bytecode.error().message); }
-  REQUIRE(vm_load_from_bytecode.has_value());
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto runtime_result = runtime.execute(*vm_load_from_bytecode, output);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
-  REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "3\n");
-}
-
-TEST_CASE("Std.Help loads canonical Std metadata in VM mode without interpreter preloading", "[vm][help][contract]") {
+TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help registry state", "[vm][help][contract]") {
   const auto sample_path = samples_dir_path() / "34_help.fleaux";
   REQUIRE(std::filesystem::exists(sample_path));
 
@@ -338,7 +201,7 @@ TEST_CASE("Std.Help loads canonical Std metadata in VM mode without interpreter 
                                  "Float64 | Int64 | UInt64 :: __builtin__"));
 }
 
-TEST_CASE("Import unresolved diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {
+TEST_CASE("VM loader reports unresolved imports", "[vm][imports][contract]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_unresolved_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -350,19 +213,13 @@ TEST_CASE("Import unresolved diagnostics are aligned between interpreter and VM 
            "let Main(x: Float64): Float64 = x;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message.find("import-unresolved:") != std::string::npos);
-  REQUIRE(interpreter_result.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(source_path);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("import-unresolved:") != std::string::npos);
   REQUIRE(vm_load_result.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
 }
 
-TEST_CASE("Import cycle diagnostics are aligned between interpreter and VM loader", "[vm][imports][contract]") {
+TEST_CASE("VM loader reports import cycles", "[vm][imports][contract]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_cycle_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -380,18 +237,12 @@ TEST_CASE("Import cycle diagnostics are aligned between interpreter and VM loade
            "let B(x: Float64): Float64 = x;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(module_a);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message.find("import-cycle:") != std::string::npos);
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(module_a);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("import-cycle:") != std::string::npos);
 }
 
-TEST_CASE("Imported type mismatch diagnostics are aligned between interpreter and VM loader",
-          "[vm][imports][contract][types]") {
+TEST_CASE("VM loader reports imported type mismatches", "[vm][imports][contract][types]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_type_mismatch_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -409,21 +260,13 @@ TEST_CASE("Imported type mismatch diagnostics are aligned between interpreter an
            "(1) -> Add4 -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(entry_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message == "Type mismatch in call target arguments.");
-  REQUIRE(interpreter_result.error().hint.has_value());
-  REQUIRE(interpreter_result.error().hint->find("Add4 expects argument 0") != std::string::npos);
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(vm_load_result.error().message.find("Add4 expects argument 0") != std::string::npos);
 }
 
-TEST_CASE("Direct import visibility is aligned between interpreter and VM loader",
-          "[vm][imports][contract][types]") {
+TEST_CASE("VM loader enforces direct import visibility", "[vm][imports][contract][types]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_direct_visibility_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -449,21 +292,13 @@ TEST_CASE("Direct import visibility is aligned between interpreter and VM loader
            "(1) -> CFn -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(module_a);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
-  REQUIRE(interpreter_result.error().hint.has_value());
-  REQUIRE(interpreter_result.error().hint->find("CFn") != std::string::npos);
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(module_a);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("Unresolved symbol") != std::string::npos);
   REQUIRE(vm_load_result.error().message.find("CFn") != std::string::npos);
 }
 
-TEST_CASE("Qualified export unresolved diagnostics are aligned between interpreter and VM loader",
-          "[vm][imports][contract][types]") {
+TEST_CASE("VM loader reports unresolved qualified exports", "[vm][imports][contract][types]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_qualified_unresolved_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -482,21 +317,13 @@ TEST_CASE("Qualified export unresolved diagnostics are aligned between interpret
            "(1) -> WrongMath.Add4 -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(entry_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
-  REQUIRE(interpreter_result.error().hint.has_value());
-  REQUIRE(interpreter_result.error().hint->find("WrongMath.Add4") != std::string::npos);
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("Unresolved symbol") != std::string::npos);
   REQUIRE(vm_load_result.error().message.find("WrongMath.Add4") != std::string::npos);
 }
 
-TEST_CASE("Qualified exported overload symbol-key behavior is aligned between interpreter and VM loader",
-          "[vm][imports][contract][types]") {
+TEST_CASE("VM loader resolves qualified exported overload symbol keys", "[vm][imports][contract][types]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_qualified_symbol_key_contract";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -517,11 +344,6 @@ TEST_CASE("Qualified exported overload symbol-key behavior is aligned between in
            "(\"ok\") -> MyMath.Echo -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(entry_path);
-  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
-  REQUIRE(interpreter_result.has_value());
-
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
   if (!vm_load_result) { INFO("vm load error: " << vm_load_result.error().message); }
   REQUIRE(vm_load_result.has_value());
@@ -532,8 +354,8 @@ TEST_CASE("Qualified exported overload symbol-key behavior is aligned between in
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Printf return shape is aligned between interpreter and VM", "[vm][samples][parity][printf]") {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_printf_return_parity";
+TEST_CASE("VM Std.Printf returns the expected tuple shape", "[vm][samples][printf]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_printf_return_shape";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
@@ -544,19 +366,6 @@ TEST_CASE("Std.Printf return shape is aligned between interpreter and VM", "[vm]
            "(\"value:{}|\", 7) -> Std.Printf -> (_, 1) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  SampleExecutionObservation interpreter_observation;
-  {
-    StdoutCapture capture;
-    const auto interpreter_result = interpreter.run_file(source_path);
-    interpreter_observation.success = interpreter_result.has_value();
-    interpreter_observation.output = capture.str();
-    if (!interpreter_result.has_value()) {
-      interpreter_observation.error_text = interpret_error_text(interpreter_result.error());
-    }
-  }
-
-  SampleExecutionObservation bytecode_observation;
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -568,24 +377,14 @@ TEST_CASE("Std.Printf return shape is aligned between interpreter and VM", "[vm]
     std::ostringstream output;
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(*compiled_module, output);
-    bytecode_observation.success = runtime_result.has_value();
-    bytecode_observation.output = output.str();
-    if (!runtime_result.has_value()) { bytecode_observation.error_text = runtime_result.error().message; }
+    if (!runtime_result.has_value()) { INFO("bytecode error: " << runtime_result.error().message); }
+    REQUIRE(runtime_result.has_value());
+    REQUIRE(output.str() == "value:7|Int64\n");
   }
-
-  INFO("interpreter output: " << interpreter_observation.output);
-  INFO("bytecode output: " << bytecode_observation.output);
-  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
-  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
-
-  REQUIRE(interpreter_observation.success);
-  REQUIRE(bytecode_observation.success);
-  REQUIRE(interpreter_observation.output == "value:7|Int64\n");
-  REQUIRE(bytecode_observation.output == interpreter_observation.output);
 }
 
-TEST_CASE("Std.Println return shape is aligned between interpreter and VM", "[vm][samples][parity][println]") {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_println_return_parity";
+TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][println]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_println_return_shape";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
@@ -596,19 +395,6 @@ TEST_CASE("Std.Println return shape is aligned between interpreter and VM", "[vm
            "(\"x\") -> Std.Println -> Std.Type -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  SampleExecutionObservation interpreter_observation;
-  {
-    StdoutCapture capture;
-    const auto interpreter_result = interpreter.run_file(source_path);
-    interpreter_observation.success = interpreter_result.has_value();
-    interpreter_observation.output = capture.str();
-    if (!interpreter_result.has_value()) {
-      interpreter_observation.error_text = interpret_error_text(interpreter_result.error());
-    }
-  }
-
-  SampleExecutionObservation bytecode_observation;
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -620,105 +406,13 @@ TEST_CASE("Std.Println return shape is aligned between interpreter and VM", "[vm
     std::ostringstream output;
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(*compiled_module, output);
-    bytecode_observation.success = runtime_result.has_value();
-    bytecode_observation.output = output.str();
-    if (!runtime_result.has_value()) { bytecode_observation.error_text = runtime_result.error().message; }
-  }
-
-  INFO("interpreter output: " << interpreter_observation.output);
-  INFO("bytecode output: " << bytecode_observation.output);
-  if (interpreter_observation.error_text.has_value()) { INFO("interpreter error: " << *interpreter_observation.error_text); }
-  if (bytecode_observation.error_text.has_value()) { INFO("bytecode error: " << *bytecode_observation.error_text); }
-
-  REQUIRE(interpreter_observation.success);
-  REQUIRE(bytecode_observation.success);
-  REQUIRE(interpreter_observation.output == "x\nString\n");
-  REQUIRE(bytecode_observation.output == interpreter_observation.output);
-}
-
-TEST_CASE("Interpreter run_file reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  const auto sample_file = std::string_view{"29_inline_closures.fleaux"};
-  const auto sample_path = samples_dir_path() / std::filesystem::path(sample_file);
-  REQUIRE(std::filesystem::exists(sample_path));
-  const auto runtime_args = sample_runtime_args(sample_file, sample_path);
-
-  constexpr fleaux::vm::Interpreter interpreter;
-
-  const auto first = interpreter.run_file(sample_path, runtime_args);
-  REQUIRE(first.has_value());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  const auto second = interpreter.run_file(sample_path, runtime_args);
-  REQUIRE(second.has_value());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-}
-
-TEST_CASE("InterpreterSession run_snippet reclaims transient callable refs across runs", "[vm][samples][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  const std::string snippet =
-      "import Std;\n"
-      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
-
-  for (int iter = 0; iter < 50; ++iter) {
-    const auto result = session.run_snippet(snippet);
-    REQUIRE(result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+    if (!runtime_result.has_value()) { INFO("bytecode error: " << runtime_result.error().message); }
+    REQUIRE(runtime_result.has_value());
+    REQUIRE(output.str() == "x\nString\n");
   }
 }
 
-TEST_CASE("InterpreterSession preserves typed lets across snippets", "[vm][samples][repl][type]") {
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  const auto define_result =
-      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n");
-  REQUIRE(define_result.has_value());
-
-  const auto use_result = session.run_snippet("import Std;\n2 -> AddOne -> Std.Println;\n");
-  if (!use_result.has_value()) { INFO("repl typed let lookup error: " << use_result.error().message); }
-  REQUIRE(use_result.has_value());
-}
-
-TEST_CASE("InterpreterSession type-checks later snippets against prior lets", "[vm][samples][repl][type]") {
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  const auto define_result =
-      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n");
-  REQUIRE(define_result.has_value());
-
-  const auto mismatch_result = session.run_snippet("\"oops\" -> AddOne;\n");
-  REQUIRE_FALSE(mismatch_result.has_value());
-  REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
-  REQUIRE(mismatch_result.error().hint.has_value());
-  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
-}
-
-TEST_CASE("InterpreterSession typed let redefinition replaces prior signature", "[vm][samples][repl][type]") {
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  REQUIRE(session.run_snippet("import Std;\nlet Convert(x: Float64): Float64 = (x, 1) -> Std.Add;\n").has_value());
-  REQUIRE(session.run_snippet("let Convert(x: String): String = x;\n").has_value());
-
-  const auto string_ok = session.run_snippet("\"text\" -> Convert;\n");
-  REQUIRE(string_ok.has_value());
-
-  const auto stale_signature = session.run_snippet("1 -> Convert;\n");
-  REQUIRE_FALSE(stale_signature.has_value());
-  REQUIRE(stale_signature.error().message == "Type mismatch in call target arguments.");
-}
-
-TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM", "[vm][samples][lifetime]") {
+TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samples][lifetime]") {
   fleaux::runtime::reset_callable_registry();
   REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
 
@@ -736,8 +430,6 @@ TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM"
            "((1, 2, 3, 4), (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
@@ -745,11 +437,6 @@ TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM"
   REQUIRE(compiled_module.has_value());
 
   for (int iter = 0; iter < 40; ++iter) {
-    const auto interp_result = interpreter.run_file(source_path);
-    if (!interp_result.has_value()) { INFO("interpreter churn error: " << interp_result.error().message); }
-    REQUIRE(interp_result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(compiled_module.value());
     if (!runtime_result.has_value()) { INFO("vm churn error: " << runtime_result.error().message); }
@@ -758,8 +445,7 @@ TEST_CASE("Nested closure dict capture churn stays stable in interpreter and VM"
   }
 }
 
-TEST_CASE("Task and Parallel samples keep interpreter/VM parity and registry stability",
-          "[vm][samples][lifetime][concurrency]") {
+TEST_CASE("Task and Parallel samples keep VM registry stability", "[vm][samples][lifetime][concurrency]") {
   fleaux::runtime::reset_callable_registry();
   fleaux::runtime::reset_value_registry_for_tests();
   fleaux::runtime::reset_task_registry_for_tests();
@@ -768,8 +454,6 @@ TEST_CASE("Task and Parallel samples keep interpreter/VM parity and registry sta
   REQUIRE(fleaux::runtime::value_registry_telemetry().rejected_allocations == 0U);
   REQUIRE(fleaux::runtime::value_registry_telemetry().stale_deref_rejections == 0U);
   REQUIRE(fleaux::runtime::task_registry_size() == 0U);
-
-  constexpr fleaux::vm::Interpreter interpreter;
 
   constexpr std::array<std::string_view, 4> kConcurrencySamples = {
       "35_concurrency_tasks.fleaux",
@@ -792,17 +476,6 @@ TEST_CASE("Task and Parallel samples keep interpreter/VM parity and registry sta
     REQUIRE(compiled_module.has_value());
 
     for (int iter = 0; iter < 30; ++iter) {
-      const auto interp_result = interpreter.run_file(sample_path, runtime_args);
-      INFO("sample file: " << sample_path);
-      if (!interp_result.has_value()) { INFO("interpreter concurrency sample error: " << interp_result.error().message); }
-      REQUIRE(interp_result.has_value());
-      REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-      REQUIRE(fleaux::runtime::task_registry_size() == 0U);
-      const auto interp_telemetry = fleaux::runtime::value_registry_telemetry();
-      REQUIRE(interp_telemetry.active_count == 0U);
-      REQUIRE(interp_telemetry.rejected_allocations == 0U);
-      REQUIRE(interp_telemetry.stale_deref_rejections == 0U);
-
       const fleaux::vm::Runtime runtime;
       set_runtime_process_args(sample_path, runtime_args);
       const auto runtime_result = runtime.execute(compiled_module.value());
@@ -814,76 +487,6 @@ TEST_CASE("Task and Parallel samples keep interpreter/VM parity and registry sta
       REQUIRE(vm_telemetry.active_count == 0U);
       REQUIRE(vm_telemetry.rejected_allocations == 0U);
       REQUIRE(vm_telemetry.stale_deref_rejections == 0U);
-    }
-  }
-}
-
-TEST_CASE("Interpreter session stale callable ref is rejected after scope cleanup", "[vm][samples][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  // Snippet produces a closure ref via MakeAdder and applies it in the same run.
-  const std::string snippet =
-      "import Std;\n"
-      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
-
-  // First run: registry should return to zero after the scope.
-  {
-    const auto result = session.run_snippet(snippet);
-    REQUIRE(result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  }
-
-  // Manually forge a ref to slot 0 gen 0 -- these would have been valid during the first run.
-  fleaux::runtime::Array forged_ref;
-  forged_ref.Reserve(3);
-  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::String{fleaux::runtime::k_callable_tag}});
-  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::UInt{0}});
-  forged_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::UInt{0}});
-
-  // Must be rejected: the slot was retired at scope exit.
-  REQUIRE_THROWS_WITH(
-      fleaux::runtime::invoke_callable_ref(fleaux::runtime::Value{std::move(forged_ref)}, fleaux::runtime::make_int(1)),
-      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-
-  // Second run must still work and return registry to zero.
-  {
-    const auto result = session.run_snippet(snippet);
-    REQUIRE(result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  }
-}
-
-TEST_CASE("Interpreter session registry grows only with let-registered callables and shrinks on each run",
-          "[vm][samples][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto session = interpreter.create_session({});
-
-  // Multiple distinct closures registered per snippet run.
-  const std::string snippet =
-      "import Std;\n"
-      "let Add1(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
-      "let Mul2(x: Float64): Float64 = (x, 2) -> Std.Multiply;\n"
-      "let Neg(x: Float64): Float64 = (-1, x) -> Std.Multiply;\n"
-      "5 -> Add1 -> Mul2 -> Neg -> Std.Println;\n";
-
-  std::size_t baseline = 0;
-  for (int run_index = 0; run_index < 30; ++run_index) {
-    const auto result = session.run_snippet(snippet);
-    REQUIRE(result.has_value());
-    const auto size_after_run = fleaux::runtime::callable_registry_size();
-    if (run_index == 0) {
-      baseline = size_after_run;
-    } else {
-      // Registry must not grow beyond the baseline established on the first run.
-      REQUIRE(size_after_run <= baseline);
     }
   }
 }
@@ -904,10 +507,6 @@ TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]"
     out << "import Std;\n"
            "(1, 2) -> Std.Add -> Std.Println;\n";
   }
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
@@ -936,10 +535,6 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
            "((10, 20, 30)) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -965,15 +560,11 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
            "() -> HeadTail -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
 }
 
-TEST_CASE("Imported user overloads dispatch consistently in interpreter and VM", "[vm][samples][overload]") {
+TEST_CASE("Imported user overloads dispatch correctly in the VM", "[vm][samples][overload]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_imported_user_overloads";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -996,11 +587,6 @@ TEST_CASE("Imported user overloads dispatch consistently in interpreter and VM",
            "(\"ok\") -> Echo -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(entry_path);
-  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
-  REQUIRE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(entry_path);
   if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
   REQUIRE(analyzed.has_value());
@@ -1016,7 +602,7 @@ TEST_CASE("Imported user overloads dispatch consistently in interpreter and VM",
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Dict.Create clone overload executes in interpreter and VM", "[vm][samples][dict]") {
+TEST_CASE("Std.Dict.Create clone overload executes in the VM", "[vm][samples][dict]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_dict_create_clone";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1029,11 +615,6 @@ TEST_CASE("Std.Dict.Create clone overload executes in interpreter and VM", "[vm]
            "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
            "() -> MakeDict -> Std.Dict.Create -> (_, \"a\") -> Std.Dict.Get -> Std.Println;\n";
   }
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  if (!interpreter_result) { INFO("interpreter error: " << interpreter_result.error().message); }
-  REQUIRE(interpreter_result.has_value());
 
   const auto analyzed = load_ir_program(source_path);
   if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
@@ -1073,15 +654,11 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
            "(1.25) -> Std.Exit -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
 }
 
-TEST_CASE("Inline closures execute in both interpreter and VM modes", "[vm][samples][closure]") {
+TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_inline_closure";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "inline_closure_ok.fleaux";
@@ -1095,10 +672,6 @@ TEST_CASE("Inline closures execute in both interpreter and VM modes", "[vm][samp
            "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -1111,7 +684,7 @@ TEST_CASE("Inline closures execute in both interpreter and VM modes", "[vm][samp
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM modes", "[vm][samples][match]") {
+TEST_CASE("Std.Match executes ordered pattern closures in the VM", "[vm][samples][match]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_match";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "match_ok.fleaux";
@@ -1127,10 +700,6 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
            "(8, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -1143,7 +712,7 @@ TEST_CASE("Std.Match executes ordered pattern closures in interpreter and VM mod
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Std.Type executes in both interpreter and VM modes", "[vm][samples]") {
+TEST_CASE("Std.Type executes in the VM", "[vm][samples]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_typeof";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "typeof_ok.fleaux";
@@ -1156,10 +725,6 @@ TEST_CASE("Std.Type executes in both interpreter and VM modes", "[vm][samples]")
            "(\"hi\") -> Std.Type -> Std.Println;\n"
            "((1, 2, 3)) -> Std.Type -> Std.Println;\n";
   }
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
@@ -1185,13 +750,6 @@ TEST_CASE("Std.TypeOf is unresolved after alias removal", "[vm][samples][types]"
            "(\"hi\") -> Std.TypeOf -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-  REQUIRE(interpreter_result.error().message == "Unresolved symbol.");
-  REQUIRE(interpreter_result.error().hint.has_value());
-  REQUIRE(interpreter_result.error().hint->find("Std.TypeOf") != std::string::npos);
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
   REQUIRE(analyzed.error().find("Unresolved symbol") != std::string::npos);
@@ -1211,15 +769,11 @@ TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][sam
            "(Std.Pi) -> NeedsInt -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE_FALSE(interpreter_result.has_value());
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
 }
 
-TEST_CASE("Std.Parallel.WithOptions preflight errors stay typed in interpreter and VM", "[vm][samples][parallel]") {
+TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][samples][parallel]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_with_options_error";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1237,12 +791,6 @@ TEST_CASE("Std.Parallel.WithOptions preflight errors stay typed in interpreter a
            "Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  StdoutCapture interpreter_capture;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-  REQUIRE(interpreter_capture.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -1258,7 +806,7 @@ TEST_CASE("Std.Parallel.WithOptions preflight errors stay typed in interpreter a
   REQUIRE(output.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
 }
 
-TEST_CASE("Std.Parallel.Reduce step failures stay typed in interpreter and VM", "[vm][samples][parallel]") {
+TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][parallel]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_reduce_error";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1276,12 +824,6 @@ TEST_CASE("Std.Parallel.Reduce step failures stay typed in interpreter and VM", 
            "((1.0, 2.0, 3.0, 4.0), 0.0, AddOrFail) -> Std.Parallel.Reduce -> Std.Result.UnwrapErr -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  StdoutCapture interpreter_capture;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-  REQUIRE(interpreter_capture.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -1297,7 +839,7 @@ TEST_CASE("Std.Parallel.Reduce step failures stay typed in interpreter and VM", 
   REQUIRE(output.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
 }
 
-TEST_CASE("Std.Task.AwaitAll failures stay typed in interpreter and VM", "[vm][samples][task]") {
+TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_awaitall_error";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1319,12 +861,6 @@ TEST_CASE("Std.Task.AwaitAll failures stay typed in interpreter and VM", "[vm][s
            "  -> Std.Println;\n";
   }
 
-  constexpr fleaux::vm::Interpreter interpreter;
-  StdoutCapture interpreter_capture;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-  REQUIRE(interpreter_capture.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
-
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
 
@@ -1340,7 +876,7 @@ TEST_CASE("Std.Task.AwaitAll failures stay typed in interpreter and VM", "[vm][s
   REQUIRE(output.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
 }
 
-TEST_CASE("Std.Task.WithTimeout negative timeout stays typed in interpreter and VM", "[vm][samples][task]") {
+TEST_CASE("VM Std.Task.WithTimeout negative timeout stays typed", "[vm][samples][task]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_timeout_preflight";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1352,12 +888,6 @@ TEST_CASE("Std.Task.WithTimeout negative timeout stays typed in interpreter and 
            "let Identity(x: Float64): Float64 = x;\n"
            "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout -> Std.Result.UnwrapErr -> Std.Println;\n";
   }
-
-  constexpr fleaux::vm::Interpreter interpreter;
-  StdoutCapture interpreter_capture;
-  const auto interpreter_result = interpreter.run_file(source_path);
-  REQUIRE(interpreter_result.has_value());
-  REQUIRE(interpreter_capture.str() == "Task.WithTimeout: timeout_ms must be non-negative\n");
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE(analyzed.has_value());
@@ -1380,11 +910,6 @@ TEST_CASE("Std.Task.WithTimeout negative timeout stays typed in interpreter and 
 #define FLEAUX_VM_BYTECODE_SAMPLE_TEST(sample_file_literal)                    \
   TEST_CASE("Compiled VM sample: " sample_file_literal, "[vm][samples][vm]") { \
     run_sample_in_bytecode_and_assert(sample_file_literal);                    \
-  }
-
-#define FLEAUX_VM_PARITY_SAMPLE_TEST(sample_file_literal)                              \
-  TEST_CASE("VM parity sample: " sample_file_literal, "[vm][samples][parity][fast]") { \
-    run_sample_parity_and_assert(sample_file_literal);                                 \
   }
 
 FLEAUX_VM_SAMPLE_TEST("01_hello_world.fleaux")
@@ -1463,44 +988,5 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("37_parallel_error_paths.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
 
-FLEAUX_VM_PARITY_SAMPLE_TEST("01_hello_world.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("02_arithmetic.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("03_pipeline_chaining.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("04_function_definitions.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("05_select.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("06_branch.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("07_apply.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("08_loop.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("09_loop_n.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("10_strings.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("11_tuples.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("12_math.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("13_comparison_and_logic.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("14_os.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("15_path.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("16_file_and_dir.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("17_printf_and_tostring.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("18_constants.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("19_composition.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("20_export.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("21_import.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("22_file_streaming.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("23_binary_search.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("24_dicts.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("25_fleaux_parser.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("26_format_specifiers.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("27_error_handling_branching.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("28_variadics.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("29_inline_closures.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("30_pattern_matching.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("31_result_ok_err.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("32_try_empty_tuple.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("33_exp_parallel.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("35_concurrency_tasks.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("37_parallel_error_paths.fleaux")
-FLEAUX_VM_PARITY_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
-
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST
-#undef FLEAUX_VM_PARITY_SAMPLE_TEST

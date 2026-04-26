@@ -773,21 +773,93 @@ TEST_CASE("Runtime builtins: Std.Type", "[runtime]") {
   REQUIRE(as_string(callable | Type{}) == "Callable");
 }
 
+TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
+  SECTION("Dict helpers execute as plain functions") {
+    const Value empty = DictCreate(make_tuple());
+    const Value seeded = DictSet(make_tuple(empty, make_string("answer"), make_int(42)));
+
+    REQUIRE(to_double(DictGet(make_tuple(seeded, make_string("answer")))) == 42.0);
+    REQUIRE(to_double(DictGetDefault(make_tuple(seeded, make_string("missing"), make_int(9)))) == 9.0);
+    REQUIRE(as_bool(DictContains(make_tuple(seeded, make_string("answer")))));
+
+    const Value keys = DictKeys(seeded);
+    const Value values = DictValues(seeded);
+    const Value entries = DictEntries(seeded);
+    REQUIRE(as_array(keys).Size() == 1U);
+    REQUIRE(as_string(array_at(keys, 0)) == "answer");
+    REQUIRE(to_double(array_at(values, 0)) == 42.0);
+    REQUIRE(as_array(array_at(entries, 0)).Size() == 2U);
+    REQUIRE(as_string(array_at(array_at(entries, 0), 0)) == "answer");
+    REQUIRE(to_double(array_at(array_at(entries, 0), 1)) == 42.0);
+
+    const Value erased = DictDelete(make_tuple(seeded, make_string("answer")));
+    REQUIRE_FALSE(as_bool(DictContains(make_tuple(erased, make_string("answer")))));
+    REQUIRE(to_double(DictLength(seeded)) == 1.0);
+    REQUIRE(to_double(DictLength(DictClear(seeded))) == 0.0);
+  }
+
+  SECTION("DictMerge overlays values without mutating the base input") {
+    Value base{Object{}};
+    as_object(base)[dict_key_from_value(make_string("shared"))] = make_int(1);
+    as_object(base)[dict_key_from_value(make_string("base_only"))] = make_int(10);
+
+    Value overlay{Object{}};
+    as_object(overlay)[dict_key_from_value(make_string("shared"))] = make_int(2);
+    as_object(overlay)[dict_key_from_value(make_string("overlay_only"))] = make_int(20);
+
+    const Value merged = DictMerge(make_tuple(base, overlay));
+    const auto& merged_object = as_object(merged);
+
+    REQUIRE(merged_object.Size() == 3U);
+    REQUIRE(to_double(*merged_object.TryGet("s:shared")) == 2.0);
+    REQUIRE(to_double(*merged_object.TryGet("s:base_only")) == 10.0);
+    REQUIRE(to_double(*merged_object.TryGet("s:overlay_only")) == 20.0);
+    REQUIRE(to_double(*as_object(base).TryGet("s:shared")) == 1.0);
+  }
+
+  SECTION("merge_dict_values keeps empty overlays as no-ops") {
+    Value base{Object{}};
+    as_object(base)[dict_key_from_value(make_string("k"))] = make_int(7);
+
+    const Value merged = merge_dict_values(base, Value{Object{}});
+    const auto& merged_object = as_object(merged);
+
+    REQUIRE(merged_object.Size() == 1U);
+    REQUIRE(to_double(*merged_object.TryGet("s:k")) == 7.0);
+  }
+}
+
 TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
+  SECTION("Tuple helpers execute as plain functions") {
+    const Value values = make_tuple(make_int(1), make_int(2));
+
+    const Value appended = TupleAppend(make_tuple(values, make_int(3)));
+    const Value prepended = TuplePrepend(make_tuple(values, make_int(0)));
+    const Value reversed = TupleReverse(values);
+    const Value zipped = TupleZip(make_tuple(values, make_tuple(make_int(3), make_int(4))));
+
+    REQUIRE(to_double(array_at(appended, 2)) == 3.0);
+    REQUIRE(to_double(array_at(prepended, 0)) == 0.0);
+    REQUIRE(to_double(array_at(reversed, 0)) == 2.0);
+    REQUIRE(as_bool(TupleContains(make_tuple(values, make_int(2)))));
+    REQUIRE(as_array(zipped).Size() == 2U);
+    REQUIRE(to_double(array_at(TupleRange(make_tuple(make_int(3))), 2)) == 2.0);
+  }
+
   SECTION("TupleMin and TupleMax reject empty tuples") {
-    REQUIRE_THROWS_WITH(make_tuple() | TupleMin{}, Catch::Matchers::ContainsSubstring("non-empty"));
-    REQUIRE_THROWS_WITH(make_tuple() | TupleMax{}, Catch::Matchers::ContainsSubstring("non-empty"));
+    REQUIRE_THROWS_WITH(TupleMin(make_tuple()), Catch::Matchers::ContainsSubstring("non-empty"));
+    REQUIRE_THROWS_WITH(TupleMax(make_tuple()), Catch::Matchers::ContainsSubstring("non-empty"));
   }
 
   SECTION("TupleMin and TupleMax handle singleton tuples") {
-    REQUIRE(to_double(make_tuple(make_int(7)) | TupleMin{}) == 7.0);
-    REQUIRE(to_double(make_tuple(make_int(7)) | TupleMax{}) == 7.0);
+    REQUIRE(to_double(TupleMin(make_tuple(make_int(7)))) == 7.0);
+    REQUIRE(to_double(TupleMax(make_tuple(make_int(7)))) == 7.0);
   }
 
   SECTION("TupleMin and TupleMax choose boundaries across numeric range") {
     const Value values = make_tuple(make_int(-9223372036854775807LL), make_int(0), make_int(9223372036854775807LL));
-    REQUIRE(to_double(values | TupleMin{}) < -9.0e18);
-    REQUIRE(to_double(values | TupleMax{}) > 9.0e18);
+    REQUIRE(to_double(TupleMin(values)) < -9.0e18);
+    REQUIRE(to_double(TupleMax(values)) > 9.0e18);
   }
 }
 
@@ -795,21 +867,35 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   const Value grid =
       make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), make_tuple(make_int(4), make_int(5), make_int(6)));
 
+  SECTION("Array helpers execute as plain functions") {
+    const Value one_d = make_tuple(make_int(10), make_int(20), make_int(30));
+
+    REQUIRE(to_double(ArrayGetAt(make_tuple(one_d, make_int(1)))) == 20.0);
+    REQUIRE(to_double(array_at(ArraySetAt(make_tuple(one_d, make_int(1), make_int(99))), 1)) == 99.0);
+    REQUIRE(to_double(array_at(ArrayInsertAt(make_tuple(one_d, make_int(1), make_int(15))), 1)) == 15.0);
+    REQUIRE(as_array(ArrayRemoveAt(make_tuple(one_d, make_int(1)))).Size() == 2U);
+    REQUIRE(as_array(ArraySlice(make_tuple(one_d, make_int(1), make_int(3)))).Size() == 2U);
+    REQUIRE(as_array(ArrayConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))))).Size() == 5U);
+    REQUIRE(to_double(ArrayRank(grid)) == 2.0);
+    REQUIRE(as_array(ArrayShape(grid)).Size() == 2U);
+    REQUIRE(as_array(ArrayFlatten(grid)).Size() == 6U);
+  }
+
   SECTION("SetAt2D updates one cell without mutating others") {
-    const Value out = make_tuple(grid, make_int(1), make_int(2), make_int(99)) | ArraySetAt2D{};
+    const Value out = ArraySetAt2D(make_tuple(grid, make_int(1), make_int(2), make_int(99)));
     REQUIRE(to_double(array_at(array_at(out, 0), 0)) == 1.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 1)) == 5.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 2)) == 99.0);
 
-    REQUIRE_THROWS_WITH(make_tuple(grid, make_int(5), make_int(0), make_int(9)) | ArraySetAt2D{},
+    REQUIRE_THROWS_WITH(ArraySetAt2D(make_tuple(grid, make_int(5), make_int(0), make_int(9))),
                         Catch::Matchers::ContainsSubstring("row"));
-    REQUIRE_THROWS_WITH(make_tuple(grid, make_int(0), make_int(9), make_int(9)) | ArraySetAt2D{},
+    REQUIRE_THROWS_WITH(ArraySetAt2D(make_tuple(grid, make_int(0), make_int(9), make_int(9))),
                         Catch::Matchers::ContainsSubstring("col"));
   }
 
   SECTION("Fill replaces a contiguous region") {
     const Value seq = make_tuple(make_int(10), make_int(20), make_int(30), make_int(40));
-    const Value out = make_tuple(seq, make_int(1), make_int(2), make_int(7)) | ArrayFill{};
+    const Value out = ArrayFill(make_tuple(seq, make_int(1), make_int(2), make_int(7)));
     REQUIRE(to_double(array_at(out, 0)) == 10.0);
     REQUIRE(to_double(array_at(out, 1)) == 7.0);
     REQUIRE(to_double(array_at(out, 2)) == 7.0);
@@ -817,7 +903,7 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   }
 
   SECTION("Transpose2D flips rows and columns") {
-    const Value out = grid | ArrayTranspose2D{};
+    const Value out = ArrayTranspose2D(grid);
     REQUIRE(as_array(out).Size() == 3);
     REQUIRE(as_array(array_at(out, 0)).Size() == 2);
     REQUIRE(to_double(array_at(array_at(out, 0), 1)) == 4.0);
@@ -825,7 +911,7 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   }
 
   SECTION("Slice2D extracts a rectangular region") {
-    const Value out = make_tuple(grid, make_int(0), make_int(2), make_int(1), make_int(3)) | ArraySlice2D{};
+    const Value out = ArraySlice2D(make_tuple(grid, make_int(0), make_int(2), make_int(1), make_int(3)));
     REQUIRE(as_array(out).Size() == 2);
     REQUIRE(to_double(array_at(array_at(out, 0), 0)) == 2.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 1)) == 6.0);
@@ -833,40 +919,40 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
 
   SECTION("Reshape maps row-major flat data into 2D") {
     const Value flat = make_tuple(make_int(1), make_int(2), make_int(3), make_int(4), make_int(5), make_int(6));
-    const Value out = make_tuple(flat, make_int(2), make_int(3)) | ArrayReshape{};
+    const Value out = ArrayReshape(make_tuple(flat, make_int(2), make_int(3)));
     REQUIRE(as_array(out).Size() == 2);
     REQUIRE(to_double(array_at(array_at(out, 0), 2)) == 3.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 0)) == 4.0);
 
-    REQUIRE_THROWS_WITH(make_tuple(flat, make_int(4), make_int(4)) | ArrayReshape{},
+    REQUIRE_THROWS_WITH(ArrayReshape(make_tuple(flat, make_int(4), make_int(4))),
                         Catch::Matchers::ContainsSubstring("requires"));
   }
 
   SECTION("1-D helpers: get/set/insert/remove/slice/concat") {
     const Value one_d = make_tuple(make_int(10), make_int(20), make_int(30));
 
-    REQUIRE(to_double(make_tuple(one_d, make_int(1)) | ArrayGetAt{}) == 20.0);
+    REQUIRE(to_double(ArrayGetAt(make_tuple(one_d, make_int(1)))) == 20.0);
 
-    const Value set_out = make_tuple(one_d, make_int(1), make_int(99)) | ArraySetAt{};
+    const Value set_out = ArraySetAt(make_tuple(one_d, make_int(1), make_int(99)));
     REQUIRE(to_double(array_at(set_out, 0)) == 10.0);
     REQUIRE(to_double(array_at(set_out, 1)) == 99.0);
     REQUIRE(to_double(array_at(set_out, 2)) == 30.0);
 
-    const Value insert_out = make_tuple(one_d, make_int(1), make_int(15)) | ArrayInsertAt{};
+    const Value insert_out = ArrayInsertAt(make_tuple(one_d, make_int(1), make_int(15)));
     REQUIRE(as_array(insert_out).Size() == 4);
     REQUIRE(to_double(array_at(insert_out, 1)) == 15.0);
 
-    const Value remove_out = make_tuple(one_d, make_int(1)) | ArrayRemoveAt{};
+    const Value remove_out = ArrayRemoveAt(make_tuple(one_d, make_int(1)));
     REQUIRE(as_array(remove_out).Size() == 2);
     REQUIRE(to_double(array_at(remove_out, 0)) == 10.0);
     REQUIRE(to_double(array_at(remove_out, 1)) == 30.0);
 
-    const Value slice_out = make_tuple(one_d, make_int(1), make_int(3)) | ArraySlice{};
+    const Value slice_out = ArraySlice(make_tuple(one_d, make_int(1), make_int(3)));
     REQUIRE(as_array(slice_out).Size() == 2);
     REQUIRE(to_double(array_at(slice_out, 0)) == 20.0);
     REQUIRE(to_double(array_at(slice_out, 1)) == 30.0);
 
-    const Value concat_out = make_tuple(one_d, make_tuple(make_int(40), make_int(50))) | ArrayConcat{};
+    const Value concat_out = ArrayConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))));
     REQUIRE(as_array(concat_out).Size() == 5);
     REQUIRE(to_double(array_at(concat_out, 4)) == 50.0);
   }
@@ -876,49 +962,47 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
         make_tuple(make_tuple(make_tuple(make_int(1), make_int(2)), make_tuple(make_int(3), make_int(4))),
                    make_tuple(make_tuple(make_int(5), make_int(6)), make_tuple(make_int(7), make_int(8))));
 
-    REQUIRE(to_double(cube | ArrayRank{}) == 3.0);
-    const Value shape = cube | ArrayShape{};
+    REQUIRE(to_double(ArrayRank(cube)) == 3.0);
+    const Value shape = ArrayShape(cube);
     REQUIRE(as_array(shape).Size() == 3);
     REQUIRE(to_double(array_at(shape, 0)) == 2.0);
     REQUIRE(to_double(array_at(shape, 1)) == 2.0);
     REQUIRE(to_double(array_at(shape, 2)) == 2.0);
 
-    const Value flattened = cube | ArrayFlatten{};
+    const Value flattened = ArrayFlatten(cube);
     REQUIRE(as_array(flattened).Size() == 8);
     REQUIRE(to_double(array_at(flattened, 0)) == 1.0);
     REQUIRE(to_double(array_at(flattened, 7)) == 8.0);
 
-    REQUIRE(to_double(make_tuple(cube, make_tuple(make_int(1), make_int(0), make_int(1))) | ArrayGetAtND{}) == 6.0);
+    REQUIRE(to_double(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(1), make_int(0), make_int(1))))) == 6.0);
 
-    const Value set_nd =
-        make_tuple(cube, make_tuple(make_int(1), make_int(1), make_int(0)), make_int(70)) | ArraySetAtND{};
-    REQUIRE(to_double(make_tuple(set_nd, make_tuple(make_int(1), make_int(1), make_int(0))) | ArrayGetAtND{}) == 70.0);
+    const Value set_nd = ArraySetAtND(make_tuple(cube, make_tuple(make_int(1), make_int(1), make_int(0)), make_int(70)));
+    REQUIRE(to_double(ArrayGetAtND(make_tuple(set_nd, make_tuple(make_int(1), make_int(1), make_int(0))))) == 70.0);
 
-    const Value reshaped_nd =
-        make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(2))) | ArrayReshapeND{};
-    REQUIRE(to_double(make_tuple(reshaped_nd, make_tuple(make_int(1), make_int(1), make_int(1))) | ArrayGetAtND{}) ==
-            8.0);
+    const Value reshaped_nd = ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(2))));
+    REQUIRE(to_double(ArrayGetAtND(make_tuple(reshaped_nd, make_tuple(make_int(1), make_int(1), make_int(1))))) == 8.0);
 
-    REQUIRE_THROWS_WITH(make_tuple(cube, make_tuple(make_int(1), make_float(0.5), make_int(1))) | ArrayGetAtND{},
+    REQUIRE_THROWS_WITH(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(1), make_float(0.5), make_int(1)))),
                         Catch::Matchers::ContainsSubstring("expects an integer value"));
-    REQUIRE_THROWS_WITH(make_tuple(flattened, make_tuple(make_int(2), make_float(2.5), make_int(2))) | ArrayReshapeND{},
+    REQUIRE_THROWS_WITH(ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_float(2.5), make_int(2)))),
                         Catch::Matchers::ContainsSubstring("expects an integer value"));
 
-    const Value whole = make_tuple(cube, make_tuple()) | ArrayGetAtND{};
+    const Value whole = ArrayGetAtND(make_tuple(cube, make_tuple()));
     REQUIRE(as_array(whole).Size() == 2);
 
-    REQUIRE_THROWS_WITH(make_tuple(cube, make_tuple(make_int(-1), make_int(0), make_int(0))) | ArrayGetAtND{},
+    REQUIRE_THROWS_WITH(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(-1), make_int(0), make_int(0)))),
                         Catch::Matchers::ContainsSubstring("non-negative index"));
-    REQUIRE_THROWS_AS(make_tuple(cube, make_tuple(make_int(0), make_int(0), make_int(0), make_int(0))) | ArrayGetAtND{},
-                      std::runtime_error);
+    REQUIRE_THROWS_AS(
+        ArrayGetAtND(make_tuple(cube, make_tuple(make_int(0), make_int(0), make_int(0), make_int(0)))),
+        std::runtime_error);
 
-    REQUIRE_THROWS_WITH(make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(3))) | ArrayReshapeND{},
+    REQUIRE_THROWS_WITH(ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(3)))),
                         Catch::Matchers::ContainsSubstring("shape product"));
 
-    REQUIRE_THROWS_WITH(make_tuple(make_tuple(), make_tuple()) | ArrayReshapeND{},
+    REQUIRE_THROWS_WITH(ArrayReshapeND(make_tuple(make_tuple(), make_tuple())),
                         Catch::Matchers::ContainsSubstring("shape product"));
 
-    const Value scalar_reshape = make_tuple(make_tuple(make_int(9)), make_tuple()) | ArrayReshapeND{};
+    const Value scalar_reshape = ArrayReshapeND(make_tuple(make_tuple(make_int(9)), make_tuple()));
     REQUIRE(to_double(scalar_reshape) == 9.0);
   }
 }
@@ -1017,21 +1101,69 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
   }
 }
 
+TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
+  SECTION("conversion helpers") {
+    REQUIRE(as_string(ToString(make_int(42))) == "42");
+    REQUIRE(to_double(ToNum(make_tuple(make_string("42.5")))) == 42.5);
+    REQUIRE_THROWS_WITH(ToNum(make_tuple(make_string("42xyz"))), Catch::Matchers::ContainsSubstring("trailing characters"));
+  }
+
+  SECTION("case conversion and trimming") {
+    REQUIRE(as_string(StringUpper(make_string("hElLo"))) == "HELLO");
+    REQUIRE(as_string(StringLower(make_string("MiXeD"))) == "mixed");
+    REQUIRE(as_string(StringTrim(make_string("  trim me  "))) == "trim me");
+    REQUIRE(as_string(StringTrimStart(make_string("  left"))) == "left");
+    REQUIRE(as_string(StringTrimEnd(make_string("right  "))) == "right");
+  }
+
+  SECTION("split join replace and predicate helpers") {
+    const Value parts = StringSplit(make_tuple(make_string("a,b,c"), make_string(",")));
+    REQUIRE(as_array(parts).Size() == 3);
+    REQUIRE(as_string(array_at(parts, 0)) == "a");
+    REQUIRE(as_string(array_at(parts, 1)) == "b");
+    REQUIRE(as_string(array_at(parts, 2)) == "c");
+
+    REQUIRE(as_string(StringJoin(make_tuple(make_string(","), make_tuple(make_string("abc"), make_string("b"),
+                                                               make_string("bc"))))) == "abc,b,bc");
+    REQUIRE(as_string(StringJoin(make_tuple(make_string("-"), make_string("abc")))) == "a-b-c");
+    REQUIRE(as_string(StringReplace(make_tuple(make_string("a,b,c"), make_string(","), make_string("_")))) ==
+            "a_b_c");
+    REQUIRE(as_bool(StringContains(make_tuple(make_string("abc"), make_string("b")))));
+    REQUIRE(as_bool(StringStartsWith(make_tuple(make_string("abc"), make_string("ab")))));
+    REQUIRE(as_bool(StringEndsWith(make_tuple(make_string("abc"), make_string("bc")))));
+    REQUIRE_FALSE(as_bool(StringEndsWith(make_tuple(make_string("abc"), make_string("abcd")))));
+  }
+
+  SECTION("length indexing slicing find and format") {
+    REQUIRE(to_double(StringLength(make_string("abcd"))) == 4.0);
+    REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(1)))) == "b");
+    REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(9)))) == "");
+    REQUIRE(as_string(StringSlice(make_tuple(make_string("abcdef"), make_int(3)))) == "abc");
+    REQUIRE(as_string(StringSlice(make_tuple(make_string("abcdef"), make_int(1), make_int(4)))) == "bcd");
+    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("bc")))) == 1.0);
+    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("bc"), make_int(2)))) == 4.0);
+    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("zz")))) == -1.0);
+    REQUIRE(as_string(
+                StringFormat(make_tuple(make_string("{} + {} = {}"), make_int(2), make_int(3), make_int(5)))) ==
+            "2 + 3 = 5");
+  }
+}
+
 TEST_CASE("Runtime builtins: string regex", "[runtime]") {
   SECTION("IsMatch and Find") {
     const Value text = make_string("abc-123 xyz");
-    REQUIRE(as_bool(make_tuple(text, make_string("[a-z]+-[0-9]+")) | StringRegexIsMatch{}));
-    REQUIRE_FALSE(as_bool(make_tuple(text, make_string("^XYZ$")) | StringRegexIsMatch{}));
-    REQUIRE(to_double(make_tuple(text, make_string("[0-9]+")) | StringRegexFind{}) == 4.0);
-    REQUIRE(to_double(make_tuple(text, make_string("ZZZ")) | StringRegexFind{}) == -1.0);
+    REQUIRE(as_bool(StringRegexIsMatch(make_tuple(text, make_string("[a-z]+-[0-9]+")))));
+    REQUIRE_FALSE(as_bool(StringRegexIsMatch(make_tuple(text, make_string("^XYZ$")))));
+    REQUIRE(to_double(StringRegexFind(make_tuple(text, make_string("[0-9]+")))) == 4.0);
+    REQUIRE(to_double(StringRegexFind(make_tuple(text, make_string("ZZZ")))) == -1.0);
   }
 
   SECTION("Replace and Split") {
     const Value text = make_string("one,two;three");
-    REQUIRE(as_string(make_tuple(text, make_string("[,;]"), make_string("|")) | StringRegexReplace{}) ==
+    REQUIRE(as_string(StringRegexReplace(make_tuple(text, make_string("[,;]"), make_string("|")))) ==
             "one|two|three");
 
-    const Value parts = make_tuple(text, make_string("[,;]")) | StringRegexSplit{};
+    const Value parts = StringRegexSplit(make_tuple(text, make_string("[,;]")));
     REQUIRE(as_array(parts).Size() == 3);
     REQUIRE(as_string(array_at(parts, 0)) == "one");
     REQUIRE(as_string(array_at(parts, 1)) == "two");
@@ -1041,22 +1173,22 @@ TEST_CASE("Runtime builtins: string regex", "[runtime]") {
 
 TEST_CASE("Runtime builtins: numeric cast helpers", "[runtime]") {
   SECTION("ToInt64") {
-    REQUIRE(as_int_value(make_int(42) | ToInt64{}) == 42);
-    REQUIRE(as_int_value(make_float(3.0) | ToInt64{}) == 3);
-    REQUIRE_THROWS_AS(make_float(1.5) | ToInt64{}, std::invalid_argument);
+    REQUIRE(as_int_value(ToInt64(make_int(42))) == 42);
+    REQUIRE(as_int_value(ToInt64(make_float(3.0))) == 3);
+    REQUIRE_THROWS_AS(ToInt64(make_float(1.5)), std::invalid_argument);
   }
 
   SECTION("ToUInt64") {
-    REQUIRE(is_uint_number(make_int(5) | ToUInt64{}));
-    REQUIRE(is_uint_number(make_uint(10) | ToUInt64{}));
-    REQUIRE_THROWS_AS(make_int(-1) | ToUInt64{}, std::invalid_argument);
-    REQUIRE_THROWS_AS(make_float(-0.5) | ToUInt64{}, std::invalid_argument);
+    REQUIRE(is_uint_number(ToUInt64(make_int(5))));
+    REQUIRE(is_uint_number(ToUInt64(make_uint(10))));
+    REQUIRE_THROWS_AS(ToUInt64(make_int(-1)), std::invalid_argument);
+    REQUIRE_THROWS_AS(ToUInt64(make_float(-0.5)), std::invalid_argument);
   }
 
   SECTION("ToFloat64") {
-    REQUIRE(is_float_number(make_int(7) | ToFloat64{}));
-    REQUIRE(is_float_number(make_uint(7) | ToFloat64{}));
-    REQUIRE(is_float_number(make_float(7.0) | ToFloat64{}));
-    REQUIRE(to_double(make_int(3) | ToFloat64{}) == 3.0);
+    REQUIRE(is_float_number(ToFloat64(make_int(7))));
+    REQUIRE(is_float_number(ToFloat64(make_uint(7))));
+    REQUIRE(is_float_number(ToFloat64(make_float(7.0))));
+    REQUIRE(to_double(ToFloat64(make_int(3))) == 3.0);
   }
 }

@@ -57,16 +57,16 @@ def sample_runtime_args(sample_path: Path) -> list[str]:
     return provider(sample_path)
 
 
-def run_one(binary: Path, mode: str, sample_path: Path, extra_args: list[str]) -> int:
+def run_one(binary: Path, sample_path: Path, extra_args: list[str]) -> int:
     forwarded_args = [*sample_runtime_args(sample_path), *extra_args]
-    command = [str(binary), "--mode", mode, str(sample_path)]
+    command = [str(binary), str(sample_path)]
     if forwarded_args:
         command.extend(["--", *forwarded_args])
 
-    print(f"[{mode}] {sample_path.name}")
+    print(f"[vm] {sample_path.name}")
     result = subprocess.run(command, cwd=repo_root())
     if result.returncode != 0:
-        print(f"FAILED [{mode}] {sample_path.name} (exit={result.returncode})")
+        print(f"FAILED [vm] {sample_path.name} (exit={result.returncode})")
     return result.returncode
 
 
@@ -74,12 +74,6 @@ def parse_args() -> argparse.Namespace:
     root = repo_root()
 
     parser = argparse.ArgumentParser(description="Run all Fleaux samples via the fleaux CLI.")
-    parser.add_argument(
-        "--mode",
-        choices=["vm", "interpreter", "both"],
-        default="vm",
-        help="Execution mode to use for sample runs (default: vm).",
-    )
     parser.add_argument(
         "--fleaux-bin",
         type=Path,
@@ -133,22 +127,19 @@ def main() -> int:
         print(f"no .fleaux files found under: {samples_dir}", file=sys.stderr)
         return 2
 
-    modes = ["vm", "interpreter"] if args.mode == "both" else [args.mode]
-
-    failures: list[tuple[str, str, int]] = []
-    for mode in modes:
-        for sample in samples:
-            code = run_one(binary, mode, sample, runtime_args)
-            if code != 0:
-                failures.append((mode, sample.name, code))
+    failures: list[tuple[str, int]] = []
+    for sample in samples:
+        code = run_one(binary, sample, runtime_args)
+        if code != 0:
+            failures.append((sample.name, code))
 
     if failures:
         print("\nSample run failures:")
-        for mode, name, code in failures:
-            print(f"  [{mode}] {name}: exit={code}")
+        for name, code in failures:
+            print(f"  [vm] {name}: exit={code}")
         return 1
 
-    print(f"\nAll sample runs passed ({len(samples)} samples x {len(modes)} mode(s)).")
+    print(f"\nAll sample runs passed ({len(samples)} samples).")
     return 0
 
 
