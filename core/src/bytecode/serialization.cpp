@@ -248,7 +248,8 @@ auto valid_index(const std::int64_t operand, const std::size_t size) -> bool {
 
 auto describe_operand(const Module& module, const std::vector<Instruction>& stream, const Instruction& instruction)
     -> std::string {
-  const auto index_label = [](const std::int64_t operand, const std::size_t size, const std::string_view kind) -> std::string {
+  const auto index_label = [](const std::int64_t operand, const std::size_t size,
+                              const std::string_view kind) -> std::string {
     return std::format("invalid {} index {} (size={})", kind, operand, size);
   };
 
@@ -308,9 +309,9 @@ void print_instruction(std::ostream& out, const std::size_t instruction_index, c
                        const std::vector<Instruction>& stream, const Instruction& instruction,
                        const std::string_view indent) {
   const auto annotation = describe_operand(module, stream, instruction);
-  const auto operand_line = annotation.empty() ? std::format("{}operand: {}\n", indent, instruction.operand)
-                                               : std::format("{}operand: {} ({})\n", indent, instruction.operand,
-                                                             annotation);
+  const auto operand_line = annotation.empty()
+                                ? std::format("{}operand: {}\n", indent, instruction.operand)
+                                : std::format("{}operand: {} ({})\n", indent, instruction.operand, annotation);
 
   out << std::format("{}Instruction {}:\n", indent.substr(0, indent.size() - 2), instruction_index)
       << std::format("{}opcode: {}\n", indent, stringify_opcode(instruction.opcode)) << operand_line;
@@ -468,8 +469,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           !read_pod(buffer, offset, fn.has_variadic_tail) || !read_pod(buffer, offset, fn.is_import_placeholder) ||
           !read_instruction_stream(buffer, offset, fn.instructions) ||
           !read_string_list(buffer, offset, fn.generic_params) ||
-          !read_string_list(buffer, offset, fn.param_type_names) ||
-          !read_string(buffer, offset, fn.return_type_name)) {
+          !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       deserialized.functions.push_back(std::move(fn));
@@ -531,8 +531,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "Instructions:\n";
   size_t instruction_index = 0;
   for (const auto& [opcode, operand] : module.instructions) {
-    print_instruction(out, instruction_index, module, module.instructions, Instruction{.opcode = opcode, .operand = operand},
-                      "    ");
+    print_instruction(out, instruction_index, module, module.instructions,
+                      Instruction{.opcode = opcode, .operand = operand}, "    ");
 
     instruction_index++;
   }
@@ -544,12 +544,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
     const auto [type, value] = std::visit(
         common::overloaded{
-            [](const std::int64_t& val) -> VisitRType {
-              return {"int64_t", std::format("{}({:x})", val, val)};
-            },
-            [](const std::uint64_t& val) -> VisitRType {
-              return {"uint64_t", std::format("{}({:x})", val, val)};
-            },
+            [](const std::int64_t& val) -> VisitRType { return {"int64_t", std::format("{}({:x})", val, val)}; },
+            [](const std::uint64_t& val) -> VisitRType { return {"uint64_t", std::format("{}({:x})", val, val)}; },
             [](const double& val) -> VisitRType {
               return {"double", std::format("{}({:x})", val, std::bit_cast<std::uint64_t>(val))};
             },
@@ -569,7 +565,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
   out << "Functions:\n";
   size_t func_index = 0;
-  for (const auto& fn : module.functions) {
+  for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
+                    param_type_names, return_type_name] : module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
@@ -577,22 +574,26 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         "    has_variadic_tail: {}\n"
         "    is_import_placeholder: {}\n"
         "    return_type_name: {}\n",
-        func_index, fn.name, fn.arity, fn.has_variadic_tail, fn.is_import_placeholder, fn.return_type_name);
+        func_index, name, arity, has_variadic_tail, is_import_placeholder, return_type_name);
 
-    if (!fn.generic_params.empty()) {
+    if (!generic_params.empty()) {
       out << "    generic_params:";
-      for (const auto& gp : fn.generic_params) { out << " " << gp; }
+      for (const auto& gp : generic_params) {
+        out << " " << gp;
+      }
       out << "\n";
     }
-    if (!fn.param_type_names.empty()) {
+    if (!param_type_names.empty()) {
       out << "    param_type_names:";
-      for (const auto& pt : fn.param_type_names) { out << " " << pt; }
+      for (const auto& pt : param_type_names) {
+        out << " " << pt;
+      }
       out << "\n";
     }
 
     size_t func_instruction_index = 0;
-    for (const auto& [opcode, operand] : fn.instructions) {
-      print_instruction(out, func_instruction_index, module, fn.instructions,
+    for (const auto& [opcode, operand] : instructions) {
+      print_instruction(out, func_instruction_index, module, instructions,
                         Instruction{.opcode = opcode, .operand = operand}, "      ");
 
       func_instruction_index++;
