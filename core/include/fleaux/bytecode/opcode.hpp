@@ -20,8 +20,9 @@ enum class Opcode {
   kBuildTuple,
 
   // Stdlib builtin call:
-  // Pop the top-of-stack argument, call the named builtin, push result.
-  // operand = index into Module::builtin_names.
+  // Pop the top-of-stack argument, call the builtin identified by operand,
+  // push result.
+  // operand = BuiltinId value.
   kCallBuiltin,
 
   // User-defined function call:
@@ -43,7 +44,7 @@ enum class Opcode {
   // operand = index into Module::functions.
   kMakeUserFuncRef,
   // Wrap a stdlib builtin as a callable-ref Value for higher-order use.
-  // operand = index into Module::builtin_names.
+  // operand = BuiltinId value.
   kMakeBuiltinFuncRef,
   // Materialize an inline closure as a callable-ref, capturing the current
   // lexical values from the stack-built capture tuple.

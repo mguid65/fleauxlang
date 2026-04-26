@@ -77,9 +77,6 @@ struct Module {
   // Constant pool: indexed by kPushConst operand.
   std::vector<ConstValue> constants;
 
-  // Indexed stdlib builtin names: indexed by kCallBuiltin operand.
-  std::vector<std::string> builtin_names;
-
   // User-defined functions: indexed by kCallUserFunc operand.
   std::vector<FunctionDef> functions;
 

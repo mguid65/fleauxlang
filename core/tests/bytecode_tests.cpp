@@ -135,20 +135,13 @@ auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string>
 
 auto vm_catalog_builtin_names() -> std::set<std::string> {
   std::set<std::string> names;
-#define FLEAUX_INSERT_VM_BUILTIN(name_literal, node_type) names.insert(name_literal);
-  FLEAUX_VM_BUILTINS(FLEAUX_INSERT_VM_BUILTIN)
-#undef FLEAUX_INSERT_VM_BUILTIN
-#define FLEAUX_INSERT_VM_FUNCTION_BUILTIN(name_literal, builtin_function) names.insert(name_literal);
-  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_INSERT_VM_FUNCTION_BUILTIN)
-#undef FLEAUX_INSERT_VM_FUNCTION_BUILTIN
+  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) { names.insert(std::string{spec.name}); }
   return names;
 }
 
 auto vm_catalog_constant_names() -> std::set<std::string> {
   std::set<std::string> names;
-#define FLEAUX_INSERT_VM_CONSTANT(name_literal, numeric_value) names.insert(name_literal);
-  FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_VM_CONSTANT)
-#undef FLEAUX_INSERT_VM_CONSTANT
+  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) { names.insert(std::string{spec.name}); }
   return names;
 }
 
@@ -191,10 +184,10 @@ TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[
   REQUIRE(instr[2].operand == 2);
 
   REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(result->builtin_names.at(static_cast<std::size_t>(instr[3].operand)) == "Std.Add");
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Add");
 
   REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(result->builtin_names.at(static_cast<std::size_t>(instr[4].operand)) == "Std.Println");
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[4].operand)) == "Std.Println");
 
   REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kPop);
   REQUIRE(instr[6].opcode == fleaux::bytecode::Opcode::kHalt);
@@ -243,16 +236,15 @@ TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand",
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kAdd);
   REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(result->builtin_names.at(static_cast<std::size_t>(instr[3].operand)) == "Std.Println");
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
   REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
   REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
-TEST_CASE("Bytecode compiler always dispatches Std.Ref and Std.Deref as builtins (no explicit gate)",
-          "[bytecode][value_ref]") {
-  // Std.Ref and Std.Deref are internal-only and are never lowered via explicit call-target
-  // dispatch. kMakeValueRef / kDerefValueRef are emitted only through the automatic by-ref
-  // heuristic path (enable_auto_value_ref). Explicit call sites always produce kCallBuiltin.
+TEST_CASE("Bytecode compiler rejects explicit Std.Ref and Std.Deref without catalog entries", "[bytecode][value_ref]") {
+  // Std.Ref and Std.Deref are internal by-ref helpers. The VM now resolves builtins
+  // through the explicit BuiltinId catalog, so user-authored builtin declarations do
+  // not manufacture new runtime builtin IDs.
   const auto ir_program = lower_source_to_ir(
       "let Std.Ref(value: Any): Any :: __builtin__;\n"
       "let Std.Deref(value_ref: Any): Any :: __builtin__;\n"
@@ -267,28 +259,9 @@ TEST_CASE("Bytecode compiler always dispatches Std.Ref and Std.Deref as builtins
                                                          .enable_value_ref_gate = gate_on,
                                                          .enable_auto_value_ref = false,
                                                      });
-    REQUIRE(result.has_value());
-
-    bool saw_make_value_ref = false;
-    bool saw_deref_value_ref = false;
-    bool saw_ref_builtin = false;
-    bool saw_deref_builtin = false;
-
-    for (const auto& ins : result->instructions) {
-      if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) { saw_make_value_ref = true; }
-      if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) { saw_deref_value_ref = true; }
-      if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-        const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
-        if (name == "Std.Ref") { saw_ref_builtin = true; }
-        if (name == "Std.Deref") { saw_deref_builtin = true; }
-      }
-    }
-
     INFO("enable_value_ref_gate = " << gate_on);
-    REQUIRE_FALSE(saw_make_value_ref);
-    REQUIRE_FALSE(saw_deref_value_ref);
-    REQUIRE(saw_ref_builtin);
-    REQUIRE(saw_deref_builtin);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Unknown builtin in bytecode compiler: 'Std.Ref'.");
   }
 }
 
@@ -764,7 +737,7 @@ TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", 
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kNot);
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(result->builtin_names.at(static_cast<std::size_t>(instr[2].operand)) == "Std.Println");
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[2].operand)) == "Std.Println");
   REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kPop);
   REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
 }
@@ -844,7 +817,9 @@ let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto name = fleaux::vm::builtin_name(*builtin_id);
       if (name == "Std.Branch") { found_builtin_branch = true; }
     }
   }
@@ -866,7 +841,9 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kMakeBuiltinFuncRef) {
       found_make_builtin_ref = true;
-      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto name = fleaux::vm::builtin_name(*builtin_id);
       REQUIRE(name == "Std.UnaryMinus");
     }
   }
@@ -966,7 +943,9 @@ TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
   bool found_match_call = false;
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto name = fleaux::vm::builtin_name(*builtin_id);
       if (name == "Std.Match") { found_match_call = true; }
     }
   }
@@ -997,7 +976,9 @@ let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
   for (const auto& ins : choose_it->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto name = fleaux::vm::builtin_name(*builtin_id);
       if (name == "Std.Branch") { found_builtin_branch = true; }
     }
   }
@@ -1021,7 +1002,9 @@ TEST_CASE("Bytecode compiler supports Std.ToString via kCallBuiltin", "[bytecode
   bool found_to_string = false;
   for (const auto& ins : result->instructions) {
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto& name = result->builtin_names.at(static_cast<std::size_t>(ins.operand));
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto name = fleaux::vm::builtin_name(*builtin_id);
       if (name == "Std.ToString") { found_to_string = true; }
     }
   }
@@ -1351,8 +1334,6 @@ TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][
       fleaux::bytecode::ConstValue{std::int64_t{10}},
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
-  original.builtin_names = {"Std.Println"};
-
   const auto serialized = fleaux::bytecode::serialize_module(original);
   REQUIRE(serialized.has_value());
 
@@ -1369,8 +1350,6 @@ TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][
   REQUIRE(restored.exports.size() == original.exports.size());
   REQUIRE(restored.instructions.size() == original.instructions.size());
   REQUIRE(restored.constants.size() == original.constants.size());
-  REQUIRE(restored.builtin_names.size() == original.builtin_names.size());
-
   REQUIRE(restored.dependencies[0].module_name == "Std");
   REQUIRE(restored.dependencies[0].is_symbolic);
   REQUIRE(restored.dependencies[1].module_name == "20_export");
@@ -1388,7 +1367,6 @@ TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][
 
   REQUIRE(std::get<std::int64_t>(restored.constants[0].data) == 10);
   REQUIRE(std::get<std::int64_t>(restored.constants[1].data) == 20);
-  REQUIRE(restored.builtin_names[0] == "Std.Println");
 }
 
 TEST_CASE("Bytecode serialization handles all constant types", "[bytecode][serialization]") {
@@ -1530,7 +1508,6 @@ TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", 
 
   REQUIRE(restored.instructions.size() == original.instructions.size());
   REQUIRE(restored.constants.size() == original.constants.size());
-  REQUIRE(restored.builtin_names.size() == original.builtin_names.size());
   REQUIRE(restored.functions.size() == original.functions.size());
   REQUIRE(restored.closures.size() == original.closures.size());
   REQUIRE(restored.header.module_name == original.header.module_name);

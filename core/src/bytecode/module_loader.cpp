@@ -34,7 +34,6 @@ struct LinkContext {
 
 struct MergeMaps {
   std::vector<std::uint32_t> constants;
-  std::vector<std::uint32_t> builtins;
   std::vector<std::uint32_t> functions;
   std::vector<std::uint32_t> closures;
 };
@@ -101,7 +100,6 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
         break;
       case Opcode::kCallBuiltin:
       case Opcode::kMakeBuiltinFuncRef:
-        operand = static_cast<std::int64_t>(maps.builtins[static_cast<std::size_t>(operand)]);
         break;
       case Opcode::kCallUserFunc:
       case Opcode::kMakeUserFuncRef:
@@ -134,21 +132,6 @@ auto merge_module_into(Module& target, const Module& source,
     target.constants.push_back(constant);
   }
 
-  std::unordered_map<std::string, std::uint32_t> builtin_index_by_name;
-  for (std::uint32_t index = 0; index < static_cast<std::uint32_t>(target.builtin_names.size()); ++index) {
-    builtin_index_by_name.emplace(target.builtin_names[index], index);
-  }
-  maps.builtins.reserve(source.builtin_names.size());
-  for (const auto& builtin_name : source.builtin_names) {
-    if (const auto it = builtin_index_by_name.find(builtin_name); it != builtin_index_by_name.end()) {
-      maps.builtins.push_back(it->second);
-      continue;
-    }
-    const auto new_index = static_cast<std::uint32_t>(target.builtin_names.size());
-    target.builtin_names.push_back(builtin_name);
-    builtin_index_by_name.emplace(builtin_name, new_index);
-    maps.builtins.push_back(new_index);
-  }
 
   maps.functions.resize(source.functions.size());
   for (std::uint32_t index = 0; index < static_cast<std::uint32_t>(source.functions.size()); ++index) {

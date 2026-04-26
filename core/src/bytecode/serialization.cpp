@@ -9,7 +9,7 @@ namespace fleaux::bytecode {
 namespace {
 
 constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
-constexpr std::uint32_t BYTECODE_VERSION = 3;
+constexpr std::uint32_t BYTECODE_VERSION = 4;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -221,12 +221,6 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   }
 
   {
-    const auto count = static_cast<std::uint32_t>(module.builtin_names.size());
-    write_pod(buffer, count);
-    for (const auto& name : module.builtin_names) { write_string(buffer, name); }
-  }
-
-  {
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
     for (const auto& fn : module.functions) {
@@ -324,21 +318,6 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
         return tl::unexpected(SerializationError{.message = "Cannot read constant"});
       }
       deserialized.constants.push_back(std::move(cv));
-    }
-  }
-
-  {
-    std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
-      return tl::unexpected(SerializationError{.message = "Cannot read builtin count"});
-    }
-    deserialized.builtin_names.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i) {
-      std::string name;
-      if (!read_string(buffer, offset, name)) {
-        return tl::unexpected(SerializationError{.message = "Cannot read builtin name"});
-      }
-      deserialized.builtin_names.push_back(std::move(name));
     }
   }
 

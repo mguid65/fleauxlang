@@ -17,8 +17,6 @@
 
 // The order here is important
 #include "fleaux/runtime/runtime_support.hpp"
-// builtin_map.hpp must be included after runtime_support.hpp
-#include "builtin_map.hpp"
 #include "repl_support.hpp"
 #include "std_help_metadata.hpp"
 
@@ -87,13 +85,18 @@ struct CallFrame {
 using LoopExit = std::variant<std::monostate, Value>;
 using LoopResult = tl::expected<LoopExit, RuntimeError>;
 
+auto constant_builtin_value(const fleaux::vm::BuiltinId builtin_id) -> std::optional<double> {
+  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
+    if (spec.id == builtin_id) { return spec.value; }
+  }
+  return std::nullopt;
+}
+
 // Forward declarations.
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
-              const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output) -> LoopResult;
+              std::ostream& output) -> LoopResult;
 
-auto dispatch_builtin(const std::string& name, Value arg,
-                      const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
-    -> tl::expected<Value, RuntimeError>;
+auto dispatch_builtin(fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
 
 auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t arity, const bool has_variadic_tail,
                                Value arg) -> tl::expected<std::vector<Value>, RuntimeError> {
@@ -208,14 +211,8 @@ auto pack_call_args(std::vector<Value> values) -> Value {
   return Value{std::move(out)};
 }
 
-// Primary stdlib builtin dispatch for kCallBuiltin.
-// Returns nullopt only when the name is not part of the direct builtin dispatch tables.
-auto try_dispatch_primary_builtin(const std::string& name, Value& arg)
-    -> tl::expected<std::optional<Value>, RuntimeError>;
-
 auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg,
-                       const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
-    -> tl::expected<Value, RuntimeError>;
+                       std::ostream& output) -> tl::expected<Value, RuntimeError>;
 
 auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& step_func,
                         const std::optional<std::size_t> max_iters) -> tl::expected<Value, RuntimeError> {
@@ -235,8 +232,7 @@ auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& st
 // run_user_function
 
 auto run_user_function(const bytecode::Module& bytecode_module, const std::size_t fn_idx, Value arg,
-                       const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
-    -> tl::expected<Value, RuntimeError> {
+                       std::ostream& output) -> tl::expected<Value, RuntimeError> {
   if (fn_idx >= bytecode_module.functions.size()) {
     return tl::unexpected(RuntimeError{"function index out of range"});
   }
@@ -259,7 +255,7 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
 
   inner_frames.push_back(std::move(frame));
 
-  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, builtins, output);
+  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
   if (std::get_if<std::monostate>(&*loop_result) != nullptr) {
@@ -272,7 +268,7 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
 // run_loop
 
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
-              const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output) -> LoopResult {
+              std::ostream& output) -> LoopResult {
   while (!frames.empty()) {
     const std::size_t curr_ip = frames.back().ip;
     frames.back().ip++;
@@ -339,16 +335,15 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       }
 
       case bytecode::Opcode::kCallBuiltin: {
-        const auto idx = static_cast<std::size_t>(operand);
-        if (idx >= bytecode_module.builtin_names.size()) {
+        const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
+        if (!builtin_id.has_value()) {
           return tl::unexpected(RuntimeError{"builtin index out of range"});
         }
-        const auto& name = bytecode_module.builtin_names[idx];
 
         auto arg = pop_stack(stack, "call_builtin");
         if (!arg) return tl::unexpected(arg.error());
 
-        auto result = dispatch_builtin(name, std::move(*arg), builtins, output);
+        auto result = dispatch_builtin(*builtin_id, std::move(*arg));
         if (!result) return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
         break;
@@ -391,8 +386,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         // cannot outlive execute(). For async builtins (e.g. Std.Parallel.Map),
         // all futures complete via .get() before run_loop continues, so the
         // captured refs are still live during any async invocation.
-        auto callable = [&bytecode_module, fn_idx, &builtins, &output](Value call_arg) -> Value {
-          auto run_result = run_user_function(bytecode_module, fn_idx, std::move(call_arg), builtins, output);
+        auto callable = [&bytecode_module, fn_idx, &output](Value call_arg) -> Value {
+          auto run_result = run_user_function(bytecode_module, fn_idx, std::move(call_arg), output);
           if (!run_result) throw std::runtime_error(run_result.error().message);
           return std::move(*run_result);
         };
@@ -401,13 +396,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       }
 
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
-        const auto idx = static_cast<std::size_t>(operand);
-        if (idx >= bytecode_module.builtin_names.size()) {
+        const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
+        if (!builtin_id.has_value()) {
           return tl::unexpected(RuntimeError{"builtin index out of range"});
         }
-        const auto& name = bytecode_module.builtin_names[idx];
-        auto callable = [name, &builtins, &output](Value arg) -> Value {
-          auto result = dispatch_builtin(name, std::move(arg), builtins, output);
+        auto callable = [builtin_id = *builtin_id](Value arg) -> Value {
+          auto result = dispatch_builtin(builtin_id, std::move(arg));
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
@@ -442,7 +436,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         // the enclosing Runtime::execute() call. Callable-ref Values stay on the
         // execution stack and cannot outlive execute().
         auto closure_callable = [&bytecode_module, function_index, capture_count, declared_arity,
-                                 declared_has_variadic_tail, captured_values = std::move(captured_values), &builtins,
+                                 declared_has_variadic_tail, captured_values = std::move(captured_values),
                                  &output](Value call_arg) mutable -> Value {
           auto declared_args =
               unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
@@ -453,8 +447,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           for (const auto& captured : captured_values) { full_args.push_back(captured); }
           for (auto& arg : *declared_args) { full_args.push_back(std::move(arg)); }
 
-          auto result = run_user_function(bytecode_module, function_index, pack_call_args(std::move(full_args)),
-                                          builtins, output);
+          auto result = run_user_function(bytecode_module, function_index, pack_call_args(std::move(full_args)), output);
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
@@ -810,74 +803,200 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(RuntimeError{"program terminated without halt"});
 }
 
-enum class PrimaryBuiltinDispatchKey {
-#define FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY(name_literal, builtin_function) k##builtin_function,
-  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY)
-#undef FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY
-};
-
-[[nodiscard]] auto primary_builtin_dispatch_table()
-    -> const std::unordered_map<std::string, PrimaryBuiltinDispatchKey>& {
-  static const std::unordered_map<std::string, PrimaryBuiltinDispatchKey> table =
-      []() -> std::unordered_map<std::string, PrimaryBuiltinDispatchKey> {
-    std::unordered_map<std::string, PrimaryBuiltinDispatchKey> out;
-#define FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH(name_literal, builtin_function) \
-  out.emplace(name_literal, PrimaryBuiltinDispatchKey::k##builtin_function);
-    FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH)
-#undef FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH
-    return out;
-  }();
-  return table;
-}
-
-auto try_dispatch_primary_builtin(const std::string& name, Value& arg)
-    -> tl::expected<std::optional<Value>, RuntimeError> {
-  static const std::unordered_map<std::string, double> kConstantDispatchTable =
-      []() -> std::unordered_map<std::string, double> {
-    std::unordered_map<std::string, double> out;
-#define FLEAUX_INSERT_NATIVE_CONST(name_literal, numeric_value) out.emplace(name_literal, numeric_value);
-    FLEAUX_VM_CONSTANT_BUILTINS(FLEAUX_INSERT_NATIVE_CONST)
-#undef FLEAUX_INSERT_NATIVE_CONST
-    return out;
-  }();
-
-  if (const auto constant_it = kConstantDispatchTable.find(name); constant_it != kConstantDispatchTable.end()) {
-    return std::optional<Value>{fleaux::runtime::make_float(constant_it->second)};
-  }
-
-  const auto dispatch_it = primary_builtin_dispatch_table().find(name);
-  if (dispatch_it == primary_builtin_dispatch_table().end()) { return std::optional<Value>{std::nullopt}; }
-
+auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
   try {
-    switch (dispatch_it->second) {
-#define FLEAUX_DISPATCH_PRIMARY_BUILTIN(name_literal, builtin_function) \
-  case PrimaryBuiltinDispatchKey::k##builtin_function:                         \
-    return std::optional<Value>{fleaux::runtime::builtin_function(std::move(arg))};
-      FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_DISPATCH_PRIMARY_BUILTIN)
-#undef FLEAUX_DISPATCH_PRIMARY_BUILTIN
+    switch (builtin_id) {
+      case BuiltinId::UnaryPlus: return fleaux::runtime::UnaryPlus(std::move(arg));
+      case BuiltinId::UnaryMinus: return fleaux::runtime::UnaryMinus(std::move(arg));
+      case BuiltinId::Add: return fleaux::runtime::Add(std::move(arg));
+      case BuiltinId::Subtract: return fleaux::runtime::Subtract(std::move(arg));
+      case BuiltinId::Multiply: return fleaux::runtime::Multiply(std::move(arg));
+      case BuiltinId::Divide: return fleaux::runtime::Divide(std::move(arg));
+      case BuiltinId::Mod: return fleaux::runtime::Mod(std::move(arg));
+      case BuiltinId::Pow: return fleaux::runtime::Pow(std::move(arg));
+      case BuiltinId::BitAnd: return fleaux::runtime::BitAnd(std::move(arg));
+      case BuiltinId::BitOr: return fleaux::runtime::BitOr(std::move(arg));
+      case BuiltinId::BitXor: return fleaux::runtime::BitXor(std::move(arg));
+      case BuiltinId::BitNot: return fleaux::runtime::BitNot(std::move(arg));
+      case BuiltinId::BitShiftLeft: return fleaux::runtime::BitShiftLeft(std::move(arg));
+      case BuiltinId::BitShiftRight: return fleaux::runtime::BitShiftRight(std::move(arg));
+      case BuiltinId::Equal: return fleaux::runtime::Equal(std::move(arg));
+      case BuiltinId::NotEqual: return fleaux::runtime::NotEqual(std::move(arg));
+      case BuiltinId::LessThan: return fleaux::runtime::LessThan(std::move(arg));
+      case BuiltinId::GreaterThan: return fleaux::runtime::GreaterThan(std::move(arg));
+      case BuiltinId::GreaterOrEqual: return fleaux::runtime::GreaterOrEqual(std::move(arg));
+      case BuiltinId::LessOrEqual: return fleaux::runtime::LessOrEqual(std::move(arg));
+      case BuiltinId::Not: return fleaux::runtime::Not(std::move(arg));
+      case BuiltinId::And: return fleaux::runtime::And(std::move(arg));
+      case BuiltinId::Or: return fleaux::runtime::Or(std::move(arg));
+      case BuiltinId::Select: return fleaux::runtime::Select(std::move(arg));
+      case BuiltinId::Match: return fleaux::runtime::Match(std::move(arg));
+      case BuiltinId::Apply: return fleaux::runtime::Apply(std::move(arg));
+      case BuiltinId::Branch: return fleaux::runtime::Branch(std::move(arg));
+      case BuiltinId::Loop: return fleaux::runtime::Loop(std::move(arg));
+      case BuiltinId::LoopN: return fleaux::runtime::LoopN(std::move(arg));
+      case BuiltinId::Printf: return fleaux::runtime::Printf(std::move(arg));
+      case BuiltinId::Println: return fleaux::runtime::Println(std::move(arg));
+      case BuiltinId::GetArgs: return fleaux::runtime::GetArgs(std::move(arg));
+      case BuiltinId::Type: return fleaux::runtime::Type(std::move(arg));
+      case BuiltinId::Input: return fleaux::runtime::Input(std::move(arg));
+      case BuiltinId::Help: return fleaux::runtime::Help(std::move(arg));
+      case BuiltinId::Exit: return fleaux::runtime::Exit(std::move(arg));
+      case BuiltinId::Cwd: return fleaux::runtime::Cwd(std::move(arg));
+      case BuiltinId::OSEnv: return fleaux::runtime::OSEnv(std::move(arg));
+      case BuiltinId::OSHasEnv: return fleaux::runtime::OSHasEnv(std::move(arg));
+      case BuiltinId::OSSetEnv: return fleaux::runtime::OSSetEnv(std::move(arg));
+      case BuiltinId::OSUnsetEnv: return fleaux::runtime::OSUnsetEnv(std::move(arg));
+      case BuiltinId::OSIsWindows: return fleaux::runtime::OSIsWindows(std::move(arg));
+      case BuiltinId::OSIsLinux: return fleaux::runtime::OSIsLinux(std::move(arg));
+      case BuiltinId::OSIsMacOS: return fleaux::runtime::OSIsMacOS(std::move(arg));
+      case BuiltinId::OSHome: return fleaux::runtime::OSHome(std::move(arg));
+      case BuiltinId::OSTempDir: return fleaux::runtime::OSTempDir(std::move(arg));
+      case BuiltinId::OSExec: return fleaux::runtime::OSExec(std::move(arg));
+      case BuiltinId::OSMakeTempFile: return fleaux::runtime::OSMakeTempFile(std::move(arg));
+      case BuiltinId::OSMakeTempDir: return fleaux::runtime::OSMakeTempDir(std::move(arg));
+      case BuiltinId::PathJoin: return fleaux::runtime::PathJoin(std::move(arg));
+      case BuiltinId::PathNormalize: return fleaux::runtime::PathNormalize(std::move(arg));
+      case BuiltinId::PathBasename: return fleaux::runtime::PathBasename(std::move(arg));
+      case BuiltinId::PathDirname: return fleaux::runtime::PathDirname(std::move(arg));
+      case BuiltinId::PathExists: return fleaux::runtime::PathExists(std::move(arg));
+      case BuiltinId::PathIsFile: return fleaux::runtime::PathIsFile(std::move(arg));
+      case BuiltinId::PathIsDir: return fleaux::runtime::PathIsDir(std::move(arg));
+      case BuiltinId::PathAbsolute: return fleaux::runtime::PathAbsolute(std::move(arg));
+      case BuiltinId::PathExtension: return fleaux::runtime::PathExtension(std::move(arg));
+      case BuiltinId::PathStem: return fleaux::runtime::PathStem(std::move(arg));
+      case BuiltinId::PathWithExtension: return fleaux::runtime::PathWithExtension(std::move(arg));
+      case BuiltinId::PathWithBasename: return fleaux::runtime::PathWithBasename(std::move(arg));
+      case BuiltinId::FileReadText: return fleaux::runtime::FileReadText(std::move(arg));
+      case BuiltinId::FileWriteText: return fleaux::runtime::FileWriteText(std::move(arg));
+      case BuiltinId::FileAppendText: return fleaux::runtime::FileAppendText(std::move(arg));
+      case BuiltinId::FileReadLines: return fleaux::runtime::FileReadLines(std::move(arg));
+      case BuiltinId::FileDelete: return fleaux::runtime::FileDelete(std::move(arg));
+      case BuiltinId::FileSize: return fleaux::runtime::FileSize(std::move(arg));
+      case BuiltinId::FileOpen: return fleaux::runtime::FileOpen(std::move(arg));
+      case BuiltinId::FileReadLine: return fleaux::runtime::FileReadLine(std::move(arg));
+      case BuiltinId::FileReadChunk: return fleaux::runtime::FileReadChunk(std::move(arg));
+      case BuiltinId::FileWriteChunk: return fleaux::runtime::FileWriteChunk(std::move(arg));
+      case BuiltinId::FileFlush: return fleaux::runtime::FileFlush(std::move(arg));
+      case BuiltinId::FileClose: return fleaux::runtime::FileClose(std::move(arg));
+      case BuiltinId::FileWithOpen: return fleaux::runtime::FileWithOpen(std::move(arg));
+      case BuiltinId::DirCreate: return fleaux::runtime::DirCreate(std::move(arg));
+      case BuiltinId::DirDelete: return fleaux::runtime::DirDelete(std::move(arg));
+      case BuiltinId::DirList: return fleaux::runtime::DirList(std::move(arg));
+      case BuiltinId::DirListFull: return fleaux::runtime::DirListFull(std::move(arg));
+      case BuiltinId::TupleAppend: return fleaux::runtime::TupleAppend(std::move(arg));
+      case BuiltinId::TuplePrepend: return fleaux::runtime::TuplePrepend(std::move(arg));
+      case BuiltinId::TupleReverse: return fleaux::runtime::TupleReverse(std::move(arg));
+      case BuiltinId::TupleContains: return fleaux::runtime::TupleContains(std::move(arg));
+      case BuiltinId::TupleZip: return fleaux::runtime::TupleZip(std::move(arg));
+      case BuiltinId::TupleMap: return fleaux::runtime::TupleMap(std::move(arg));
+      case BuiltinId::TupleFilter: return fleaux::runtime::TupleFilter(std::move(arg));
+      case BuiltinId::TupleSort: return fleaux::runtime::TupleSort(std::move(arg));
+      case BuiltinId::TupleUnique: return fleaux::runtime::TupleUnique(std::move(arg));
+      case BuiltinId::TupleMin: return fleaux::runtime::TupleMin(std::move(arg));
+      case BuiltinId::TupleMax: return fleaux::runtime::TupleMax(std::move(arg));
+      case BuiltinId::TupleReduce: return fleaux::runtime::TupleReduce(std::move(arg));
+      case BuiltinId::TupleFindIndex: return fleaux::runtime::TupleFindIndex(std::move(arg));
+      case BuiltinId::TupleAny: return fleaux::runtime::TupleAny(std::move(arg));
+      case BuiltinId::TupleAll: return fleaux::runtime::TupleAll(std::move(arg));
+      case BuiltinId::TupleRange: return fleaux::runtime::TupleRange(std::move(arg));
+      case BuiltinId::ArrayGetAt: return fleaux::runtime::ArrayGetAt(std::move(arg));
+      case BuiltinId::ArraySetAt: return fleaux::runtime::ArraySetAt(std::move(arg));
+      case BuiltinId::ArrayInsertAt: return fleaux::runtime::ArrayInsertAt(std::move(arg));
+      case BuiltinId::ArrayRemoveAt: return fleaux::runtime::ArrayRemoveAt(std::move(arg));
+      case BuiltinId::ArraySlice: return fleaux::runtime::ArraySlice(std::move(arg));
+      case BuiltinId::ArrayConcat: return fleaux::runtime::ArrayConcat(std::move(arg));
+      case BuiltinId::ArraySetAt2D: return fleaux::runtime::ArraySetAt2D(std::move(arg));
+      case BuiltinId::ArrayFill: return fleaux::runtime::ArrayFill(std::move(arg));
+      case BuiltinId::ArrayTranspose2D: return fleaux::runtime::ArrayTranspose2D(std::move(arg));
+      case BuiltinId::ArraySlice2D: return fleaux::runtime::ArraySlice2D(std::move(arg));
+      case BuiltinId::ArrayReshape: return fleaux::runtime::ArrayReshape(std::move(arg));
+      case BuiltinId::ArrayRank: return fleaux::runtime::ArrayRank(std::move(arg));
+      case BuiltinId::ArrayShape: return fleaux::runtime::ArrayShape(std::move(arg));
+      case BuiltinId::ArrayFlatten: return fleaux::runtime::ArrayFlatten(std::move(arg));
+      case BuiltinId::ArrayGetAtND: return fleaux::runtime::ArrayGetAtND(std::move(arg));
+      case BuiltinId::ArraySetAtND: return fleaux::runtime::ArraySetAtND(std::move(arg));
+      case BuiltinId::ArrayReshapeND: return fleaux::runtime::ArrayReshapeND(std::move(arg));
+      case BuiltinId::DictCreate: return fleaux::runtime::DictCreate(std::move(arg));
+      case BuiltinId::DictSet: return fleaux::runtime::DictSet(std::move(arg));
+      case BuiltinId::DictGet: return fleaux::runtime::DictGet(std::move(arg));
+      case BuiltinId::DictGetDefault: return fleaux::runtime::DictGetDefault(std::move(arg));
+      case BuiltinId::DictContains: return fleaux::runtime::DictContains(std::move(arg));
+      case BuiltinId::DictDelete: return fleaux::runtime::DictDelete(std::move(arg));
+      case BuiltinId::DictMerge: return fleaux::runtime::DictMerge(std::move(arg));
+      case BuiltinId::DictKeys: return fleaux::runtime::DictKeys(std::move(arg));
+      case BuiltinId::DictValues: return fleaux::runtime::DictValues(std::move(arg));
+      case BuiltinId::DictEntries: return fleaux::runtime::DictEntries(std::move(arg));
+      case BuiltinId::DictClear: return fleaux::runtime::DictClear(std::move(arg));
+      case BuiltinId::DictLength: return fleaux::runtime::DictLength(std::move(arg));
+      case BuiltinId::ToInt64: return fleaux::runtime::ToInt64(std::move(arg));
+      case BuiltinId::ToUInt64: return fleaux::runtime::ToUInt64(std::move(arg));
+      case BuiltinId::ToFloat64: return fleaux::runtime::ToFloat64(std::move(arg));
+      case BuiltinId::MathFloor: return fleaux::runtime::MathFloor(std::move(arg));
+      case BuiltinId::MathCeil: return fleaux::runtime::MathCeil(std::move(arg));
+      case BuiltinId::MathAbs: return fleaux::runtime::MathAbs(std::move(arg));
+      case BuiltinId::MathLog: return fleaux::runtime::MathLog(std::move(arg));
+      case BuiltinId::MathClamp: return fleaux::runtime::MathClamp(std::move(arg));
+      case BuiltinId::Sqrt: return fleaux::runtime::Sqrt(std::move(arg));
+      case BuiltinId::Sin: return fleaux::runtime::Sin(std::move(arg));
+      case BuiltinId::Cos: return fleaux::runtime::Cos(std::move(arg));
+      case BuiltinId::Tan: return fleaux::runtime::Tan(std::move(arg));
+      case BuiltinId::ResultOk: return fleaux::runtime::ResultOk(std::move(arg));
+      case BuiltinId::ResultErr: return fleaux::runtime::ResultErr(std::move(arg));
+      case BuiltinId::ResultTag: return fleaux::runtime::ResultTag(std::move(arg));
+      case BuiltinId::ResultPayload: return fleaux::runtime::ResultPayload(std::move(arg));
+      case BuiltinId::ResultIsOk: return fleaux::runtime::ResultIsOk(std::move(arg));
+      case BuiltinId::ResultIsErr: return fleaux::runtime::ResultIsErr(std::move(arg));
+      case BuiltinId::ResultUnwrap: return fleaux::runtime::ResultUnwrap(std::move(arg));
+      case BuiltinId::ResultUnwrapErr: return fleaux::runtime::ResultUnwrapErr(std::move(arg));
+      case BuiltinId::Try: return fleaux::runtime::Try(std::move(arg));
+      case BuiltinId::ParallelMap: return fleaux::runtime::ParallelMap(std::move(arg));
+      case BuiltinId::ParallelWithOptions: return fleaux::runtime::ParallelWithOptions(std::move(arg));
+      case BuiltinId::ParallelForEach: return fleaux::runtime::ParallelForEach(std::move(arg));
+      case BuiltinId::ParallelReduce: return fleaux::runtime::ParallelReduce(std::move(arg));
+      case BuiltinId::TaskSpawn: return fleaux::runtime::TaskSpawn(std::move(arg));
+      case BuiltinId::TaskAwait: return fleaux::runtime::TaskAwait(std::move(arg));
+      case BuiltinId::TaskAwaitAll: return fleaux::runtime::TaskAwaitAll(std::move(arg));
+      case BuiltinId::TaskCancel: return fleaux::runtime::TaskCancel(std::move(arg));
+      case BuiltinId::TaskWithTimeout: return fleaux::runtime::TaskWithTimeout(std::move(arg));
+      case BuiltinId::Wrap: return fleaux::runtime::Wrap(std::move(arg));
+      case BuiltinId::Unwrap: return fleaux::runtime::Unwrap(std::move(arg));
+      case BuiltinId::ElementAt: return fleaux::runtime::ElementAt(std::move(arg));
+      case BuiltinId::Length: return fleaux::runtime::Length(std::move(arg));
+      case BuiltinId::Take: return fleaux::runtime::Take(std::move(arg));
+      case BuiltinId::Drop: return fleaux::runtime::Drop(std::move(arg));
+      case BuiltinId::Slice: return fleaux::runtime::Slice(std::move(arg));
+      case BuiltinId::ToString: return fleaux::runtime::ToString(std::move(arg));
+      case BuiltinId::ToNum: return fleaux::runtime::ToNum(std::move(arg));
+      case BuiltinId::StringUpper: return fleaux::runtime::StringUpper(std::move(arg));
+      case BuiltinId::StringLower: return fleaux::runtime::StringLower(std::move(arg));
+      case BuiltinId::StringTrim: return fleaux::runtime::StringTrim(std::move(arg));
+      case BuiltinId::StringTrimStart: return fleaux::runtime::StringTrimStart(std::move(arg));
+      case BuiltinId::StringTrimEnd: return fleaux::runtime::StringTrimEnd(std::move(arg));
+      case BuiltinId::StringSplit: return fleaux::runtime::StringSplit(std::move(arg));
+      case BuiltinId::StringJoin: return fleaux::runtime::StringJoin(std::move(arg));
+      case BuiltinId::StringReplace: return fleaux::runtime::StringReplace(std::move(arg));
+      case BuiltinId::StringContains: return fleaux::runtime::StringContains(std::move(arg));
+      case BuiltinId::StringStartsWith: return fleaux::runtime::StringStartsWith(std::move(arg));
+      case BuiltinId::StringEndsWith: return fleaux::runtime::StringEndsWith(std::move(arg));
+      case BuiltinId::StringLength: return fleaux::runtime::StringLength(std::move(arg));
+      case BuiltinId::StringCharAt: return fleaux::runtime::StringCharAt(std::move(arg));
+      case BuiltinId::StringSlice: return fleaux::runtime::StringSlice(std::move(arg));
+      case BuiltinId::StringFind: return fleaux::runtime::StringFind(std::move(arg));
+      case BuiltinId::StringFormat: return fleaux::runtime::StringFormat(std::move(arg));
+      case BuiltinId::StringRegexIsMatch: return fleaux::runtime::StringRegexIsMatch(std::move(arg));
+      case BuiltinId::StringRegexFind: return fleaux::runtime::StringRegexFind(std::move(arg));
+      case BuiltinId::StringRegexReplace: return fleaux::runtime::StringRegexReplace(std::move(arg));
+      case BuiltinId::StringRegexSplit: return fleaux::runtime::StringRegexSplit(std::move(arg));
+      default:
+        if (const auto constant_value = constant_builtin_value(builtin_id); constant_value.has_value()) {
+          return fleaux::runtime::make_float(*constant_value);
+        }
+        return tl::unexpected(RuntimeError{"unknown builtin id"});
     }
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{std::string("builtin '") + name + "' threw: " + ex.what()});
-  }
-
-  return std::optional<Value>{std::nullopt};
-}
-
-auto dispatch_builtin(const std::string& name, Value arg,
-                      const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
-    -> tl::expected<Value, RuntimeError> {
-  (void)output;
-
-  auto direct = try_dispatch_primary_builtin(name, arg);
-  if (!direct) return tl::unexpected(direct.error());
-  if (direct->has_value()) { return std::move(**direct); }
-
-  const auto it = builtins.find(name);
-  if (it == builtins.end()) { return tl::unexpected(RuntimeError{"unknown builtin: '" + name + "'"}); }
-  try {
-    return it->second(std::move(arg));
-  } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{std::string("builtin '") + name + "' threw: " + ex.what()});
+    return tl::unexpected(RuntimeError{std::string("builtin '") + std::string(fleaux::vm::builtin_name(builtin_id)) +
+                                       "' threw: " + ex.what()});
   }
 }
 
@@ -944,13 +1063,12 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
   fleaux::runtime::TaskRegistryScope task_scope;
   detail::StdHelpMetadataScope help_scope;
   fleaux::runtime::RuntimeOutputStreamScope output_scope(output);
-  const auto& builtins = vm_builtin_callables();
 
   std::vector<Value> stack;
   std::vector<CallFrame> frames;
   frames.push_back(CallFrame{.instructions = &bytecode_module.instructions, .ip = 0, .locals = {}});
 
-  auto loop_result = run_loop(bytecode_module, stack, frames, builtins, output);
+  auto loop_result = run_loop(bytecode_module, stack, frames, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
   if (std::get_if<Value>(&*loop_result) != nullptr) {

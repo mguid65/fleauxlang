@@ -36,12 +36,12 @@ constexpr auto kOpcodeBoundaryCases = std::to_array<OpcodeBoundaryCase>({
     {Opcode::kBuildTuple, 1, false, "build_tuple"},
     {Opcode::kMakeValueRef, 0, false, "make_value_ref"},
     {Opcode::kDerefValueRef, 0, false, "deref_value_ref"},
-    {Opcode::kCallBuiltin, 0, false, "builtin index out of range"},
+    {Opcode::kCallBuiltin, 0, false, "call_builtin"},
     {Opcode::kCallUserFunc, 0, false, "function index out of range"},
     {Opcode::kReturn, 0, false, "return"},
     {Opcode::kLoadLocal, 0, false, "local slot index out of range"},
     {Opcode::kMakeUserFuncRef, 0, false, "function index out of range"},
-    {Opcode::kMakeBuiltinFuncRef, 0, false, "builtin index out of range"},
+    {Opcode::kMakeBuiltinFuncRef, 0, true, ""},
     {Opcode::kMakeClosureRef, 0, false, "closure index out of range"},
     {Opcode::kJump, 99, false, "jump target out of range"},
     {Opcode::kJumpIf, 99, false, "jump_if"},
@@ -83,15 +83,10 @@ enum class BuiltinBoundaryMode {
   kMakeRefOnly,
 };
 
-auto make_builtin_names() -> std::vector<std::string_view> {
-  std::vector<std::string_view> names;
-  names.reserve(256);
-#define FLEAUX_BUILTIN_NAME_COLLECTOR(name_literal, node_type) names.push_back(std::string_view{name_literal});
-  FLEAUX_VM_BUILTINS(FLEAUX_BUILTIN_NAME_COLLECTOR)
-#undef FLEAUX_BUILTIN_NAME_COLLECTOR
-#define FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR(name_literal, builtin_function) names.push_back(std::string_view{name_literal});
-  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR)
-#undef FLEAUX_BUILTIN_FUNCTION_NAME_COLLECTOR
+auto make_builtin_names() -> std::vector<fleaux::vm::BuiltinSpec> {
+  std::vector<fleaux::vm::BuiltinSpec> names;
+  names.reserve(fleaux::vm::callable_builtin_count());
+  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) { names.push_back(spec); }
   return names;
 }
 
@@ -103,15 +98,14 @@ auto make_ref_only_boundary_builtins() -> std::unordered_set<std::string_view> {
   };
 }
 
-auto make_builtin_boundary_module(const std::vector<std::string_view>& names, const std::size_t index,
+auto make_builtin_boundary_module(const std::vector<fleaux::vm::BuiltinSpec>& names, const std::size_t index,
                                   const BuiltinBoundaryMode mode) -> Module {
   Module bytecode_module;
-  bytecode_module.builtin_names.reserve(names.size());
-  for (const auto name : names) { bytecode_module.builtin_names.emplace_back(name); }
+  const auto operand = fleaux::vm::builtin_operand(names[index].id);
 
   if (mode == BuiltinBoundaryMode::kMakeRefOnly) {
     bytecode_module.instructions = {
-        Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = static_cast<std::int64_t>(index)},
+        Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = operand},
         Instruction{.opcode = Opcode::kPop, .operand = 0},
         Instruction{.opcode = Opcode::kHalt, .operand = 0},
     };
@@ -120,7 +114,7 @@ auto make_builtin_boundary_module(const std::vector<std::string_view>& names, co
 
   bytecode_module.instructions = {
       Instruction{.opcode = Opcode::kBuildTuple, .operand = 0},
-      Instruction{.opcode = Opcode::kCallBuiltin, .operand = static_cast<std::int64_t>(index)},
+      Instruction{.opcode = Opcode::kCallBuiltin, .operand = operand},
       Instruction{.opcode = Opcode::kPop, .operand = 0},
       Instruction{.opcode = Opcode::kHalt, .operand = 0},
   };
@@ -173,7 +167,7 @@ TEST_CASE("VM builtin boundary matrix", "[vm][boundary][builtin]") {
   const fleaux::vm::Runtime runtime;
 
   for (std::size_t index = 0; index < names.size(); ++index) {
-    const auto name = names[index];
+    const auto name = names[index].name;
     const auto mode =
         ref_only.contains(name) ? BuiltinBoundaryMode::kMakeRefOnly : BuiltinBoundaryMode::kInvokeEmptyTuple;
     const auto bytecode_module = make_builtin_boundary_module(names, index, mode);
