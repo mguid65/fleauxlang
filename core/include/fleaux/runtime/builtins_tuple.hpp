@@ -1,7 +1,9 @@
 #pragma once
 // Tuple collection builtins (Map, Filter, Sort, Reduce, Range, Zip, etc.).
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
+
 #include "fleaux/runtime/value.hpp"
+
 namespace fleaux::runtime {
 // Tuple builtins
 
@@ -97,9 +99,8 @@ namespace fleaux::runtime {
   items.reserve(src.Size());
   for (std::size_t index = 0; index < src.Size(); ++index) { items.push_back(*src.TryGet(index)); }
 
-  std::ranges::stable_sort(items, [](const Value& lhs, const Value& rhs) -> bool {
-    return compare_values_for_sort(lhs, rhs) < 0;
-  });
+  std::ranges::stable_sort(
+      items, [](const Value& lhs, const Value& rhs) -> bool { return compare_values_for_sort(lhs, rhs) < 0; });
 
   Array out;
   out.Reserve(items.size());

@@ -603,10 +603,14 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
     ConstantBuiltinSpec{BuiltinId::Catalan, "Std.Catalan", 9.159655941772190150546035149323841107e-01},
     ConstantBuiltinSpec{BuiltinId::Glaisher, "Std.Glaisher", 1.282427129100622636875342568869791727e+00},
     ConstantBuiltinSpec{BuiltinId::Khinchin, "Std.Khinchin", 2.685452001065306445309714835481795693e+00},
-    ConstantBuiltinSpec{BuiltinId::ExtremeValueSkewness, "Std.ExtremeValueSkewness", 1.139547099404648657492793019389846112e+00},
-    ConstantBuiltinSpec{BuiltinId::RayleighSkewness, "Std.RayleighSkewness", 6.311106578189371381918993515442277798e-01},
-    ConstantBuiltinSpec{BuiltinId::RayleighKurtosis, "Std.RayleighKurtosis", 3.245089300687638062848660410619754415e+00},
-    ConstantBuiltinSpec{BuiltinId::RayleighKurtosisExcess, "Std.RayleighKurtosisExcess", 2.450893006876380628486604106197544154e-01},
+    ConstantBuiltinSpec{BuiltinId::ExtremeValueSkewness, "Std.ExtremeValueSkewness",
+                        1.139547099404648657492793019389846112e+00},
+    ConstantBuiltinSpec{BuiltinId::RayleighSkewness, "Std.RayleighSkewness",
+                        6.311106578189371381918993515442277798e-01},
+    ConstantBuiltinSpec{BuiltinId::RayleighKurtosis, "Std.RayleighKurtosis",
+                        3.245089300687638062848660410619754415e+00},
+    ConstantBuiltinSpec{BuiltinId::RayleighKurtosisExcess, "Std.RayleighKurtosisExcess",
+                        2.450893006876380628486604106197544154e-01},
     ConstantBuiltinSpec{BuiltinId::TwoDivPi, "Std.TwoDivPi", 6.366197723675813430755350534900574481e-01},
     ConstantBuiltinSpec{BuiltinId::RootTwoDivPi, "Std.RootTwoDivPi", 7.978845608028653558798921198687637369e-01},
     ConstantBuiltinSpec{BuiltinId::QuarterPi, "Std.QuarterPi", 0.785398163397448309615660845819875721049292},
@@ -614,9 +618,7 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
     ConstantBuiltinSpec{BuiltinId::TwoDivRootPi, "Std.TwoDivRootPi", 1.12837916709551257389615890312154517168810125},
 });
 
-[[nodiscard]] constexpr auto builtin_count() -> std::size_t {
-  return static_cast<std::size_t>(BuiltinId::kCount);
-}
+[[nodiscard]] constexpr auto builtin_count() -> std::size_t { return static_cast<std::size_t>(BuiltinId::kCount); }
 
 [[nodiscard]] constexpr auto callable_builtin_count() -> std::size_t {
   return static_cast<std::size_t>(BuiltinId::Half);
@@ -650,9 +652,7 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
   return kBuiltinSpecs[static_cast<std::size_t>(id)].name;
 }
 
-[[nodiscard]] constexpr auto all_builtin_specs() -> std::span<const BuiltinSpec> {
-  return kBuiltinSpecs;
-}
+[[nodiscard]] constexpr auto all_builtin_specs() -> std::span<const BuiltinSpec> { return kBuiltinSpecs; }
 
 [[nodiscard]] constexpr auto all_callable_builtin_specs() -> std::span<const BuiltinSpec> {
   return {kBuiltinSpecs.data(), callable_builtin_count()};

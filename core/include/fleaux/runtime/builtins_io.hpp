@@ -142,7 +142,7 @@ inline void set_web_env_value(std::string key, std::string value) {
 }
 
 [[nodiscard]] inline auto resolve_runtime_path(std::string_view raw_path) -> std::filesystem::path {
-  return std::filesystem::path(raw_path);
+  return {raw_path};
 }
 
 inline void ensure_runtime_filesystem_ready() {}
@@ -185,7 +185,8 @@ inline void ensure_runtime_filesystem_ready() {}
 
 [[nodiscard]] inline auto PathIsFile(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  return make_bool(std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
+  return make_bool(
+      std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
 }
 
 [[nodiscard]] inline auto PathIsDir(Value arg) -> Value {
@@ -276,7 +277,8 @@ inline void ensure_runtime_filesystem_ready() {}
 
 [[nodiscard]] inline auto FileSize(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  return make_int(static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
+  return make_int(
+      static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
 }
 
 [[nodiscard]] inline auto DirCreate(Value arg) -> Value {
@@ -289,7 +291,8 @@ inline void ensure_runtime_filesystem_ready() {}
 [[nodiscard]] inline auto DirDelete(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   std::error_code ec;
-  const auto removed = std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
+  const auto removed =
+      std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
   throw_if_filesystem_error(ec, "DirDelete");
   return make_bool(removed > 0);
 }
@@ -481,29 +484,30 @@ inline void ensure_runtime_filesystem_ready() {}
 #if defined(__EMSCRIPTEN__)
   return make_tuple(
       make_int(-1),
-      make_string("Std.OS.Exec is unavailable on web/WASM targets: shell command execution is not supported in the browser"));
+      make_string(
+          "Std.OS.Exec is unavailable on web/WASM targets: shell command execution is not supported in the browser"));
 #endif
 
 #if defined(_WIN32)
-    const std::string wrapped = command + " 2>&1";
-    FILE* pipe = _popen(wrapped.c_str(), "r");
+  const std::string wrapped = command + " 2>&1";
+  FILE* pipe = _popen(wrapped.c_str(), "r");
 #else
-    const std::string wrapped = command + " 2>&1";
-    FILE* pipe = popen(wrapped.c_str(), "r");
+  const std::string wrapped = command + " 2>&1";
+  FILE* pipe = popen(wrapped.c_str(), "r");
 #endif
-    if (pipe == nullptr) { throw std::runtime_error{"OSExec: failed to start command"}; }
+  if (pipe == nullptr) { throw std::runtime_error{"OSExec: failed to start command"}; }
 
-    std::string output;
-    std::array<char, 4096> buffer{};
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) { output += buffer.data(); }
+  std::string output;
+  std::array<char, 4096> buffer{};
+  while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) { output += buffer.data(); }
 
 #if defined(_WIN32)
-    const int close_status = _pclose(pipe);
-    const Int exit_code = static_cast<Int>(close_status);
+  const int close_status = _pclose(pipe);
+  const Int exit_code = static_cast<Int>(close_status);
 #else
-    const int close_status = pclose(pipe);
-    Int exit_code = static_cast<Int>(close_status);
-    if (WIFEXITED(close_status)) { exit_code = static_cast<Int>(WEXITSTATUS(close_status)); }
+  const int close_status = pclose(pipe);
+  Int exit_code = static_cast<Int>(close_status);
+  if (WIFEXITED(close_status)) { exit_code = static_cast<Int>(WEXITSTATUS(close_status)); }
 #endif
 
   return make_tuple(make_int(exit_code), make_string(std::move(output)));

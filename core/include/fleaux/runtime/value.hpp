@@ -22,14 +22,9 @@
 #include <concepts>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
-#if __has_include(<format>)
-#include <format>
-#define FLEAUX_HAS_STD_FORMAT 1
-#else
-#define FLEAUX_HAS_STD_FORMAT 0
-#endif
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -284,8 +279,7 @@ inline auto runtime_input_stream_storage() -> std::istream*& {
 
 class RuntimeOutputStreamScope {
 public:
-  explicit RuntimeOutputStreamScope(std::ostream& stream)
-      : previous_(runtime_output_stream_storage()) {
+  explicit RuntimeOutputStreamScope(std::ostream& stream) : previous_(runtime_output_stream_storage()) {
     runtime_output_stream_storage() = &stream;
   }
 
@@ -300,8 +294,7 @@ private:
 
 class RuntimeInputStreamScope {
 public:
-  explicit RuntimeInputStreamScope(std::istream& stream)
-      : previous_(runtime_input_stream_storage()) {
+  explicit RuntimeInputStreamScope(std::istream& stream) : previous_(runtime_input_stream_storage()) {
     runtime_input_stream_storage() = &stream;
   }
 
@@ -417,7 +410,7 @@ public:
 
   explicit PinnedCallableRef(RuntimeCallable fn) {
     id_ = register_callable_pinned(std::move(fn));
-    ref_ = [&] {
+    ref_ = [&]() -> Value {
       Array out;
       out.Reserve(3);
       out.PushBack(Value{String{k_callable_tag}});
@@ -477,14 +470,14 @@ template <typename F>
 }
 
 [[nodiscard]] inline auto make_callable_ref(RuntimeCallable fn) -> Value {
-  const CallableId id = register_callable(std::move(fn));
+  const auto [slot, generation] = register_callable(std::move(fn));
 
   // Return simple array with type tag, slot, and generation for passing around.
   Array out;
   out.Reserve(3);
   out.PushBack(Value{String{k_callable_tag}});
-  out.PushBack(Value{id.slot});
-  out.PushBack(Value{id.generation});
+  out.PushBack(Value{slot});
+  out.PushBack(Value{generation});
   return Value{std::move(out)};
 }
 
@@ -599,7 +592,7 @@ inline void reset_value_registry_for_tests() {
 
 // Returns a Value token for a stored value (transient; cleaned up by ValueRegistryScope).
 [[nodiscard]] inline auto make_value_ref(Value val) -> Value {
-  RegistryId id;
+  RegistryId id{};
   {
     std::scoped_lock lock(value_registry_mutex());
     auto& telemetry = value_registry_telemetry_state();
@@ -697,7 +690,7 @@ public:
   PinnedValueRef() = default;
 
   explicit PinnedValueRef(Value val) {
-    RegistryId id;
+    RegistryId id{};
     {
       std::scoped_lock lock(value_registry_mutex());
       id = value_registry().insert(std::move(val), /*logged=*/false);
@@ -753,7 +746,7 @@ public:
   }
 
 private:
-  void do_release() {
+  void do_release() const {
     std::scoped_lock lock(value_registry_mutex());
     value_registry().retire(id_.slot);
   }
@@ -866,20 +859,18 @@ public:
   auto operator=(HandleRegistryScope&&) -> HandleRegistryScope& = delete;
 
   ~HandleRegistryScope() {
-    auto& reg = handle_registry();
-    std::scoped_lock lock(reg.mtx);
-    const auto log_size = reg.registration_log.size();
+    auto& [entries, registration_log, mtx] = handle_registry();
+    std::scoped_lock lock(mtx);
+    const auto log_size = registration_log.size();
     for (std::size_t i = checkpoint_; i < log_size; ++i) {
-      const auto slot = static_cast<std::size_t>(reg.registration_log[i]);
-      if (slot < reg.entries.size()) {
-        auto& entry = reg.entries[slot];
-        if (!entry.closed) {
+      if (const auto slot = static_cast<std::size_t>(registration_log[i]); slot < entries.size()) {
+        if (auto& entry = entries[slot]; !entry.closed) {
           entry.stream.close();
           entry.closed = true;
         }
       }
     }
-    reg.registration_log.resize(checkpoint_);
+    registration_log.resize(checkpoint_);
   }
 
 private:
@@ -1115,8 +1106,7 @@ auto make_tuple(Values&&... vals) -> Value {
 
 [[nodiscard]] inline auto compare_numbers(const Value& lhs, const Value& rhs) -> int {
   const bool lhs_float = is_float_number(lhs);
-  const bool rhs_float = is_float_number(rhs);
-  if (lhs_float || rhs_float) {
+  if (const bool rhs_float = is_float_number(rhs); lhs_float || rhs_float) {
     const double lhs_value = to_double(lhs);
     const double rhs_value = to_double(rhs);
     return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
@@ -1422,49 +1412,72 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 }
 
 [[nodiscard]] inline auto format_value_plain(const Value& value) -> std::string {
-#if FLEAUX_HAS_STD_FORMAT
-  if (const auto num = value.TryGetNumber()) {
-    return num->Visit(
-        [&](const Int signed_value) -> std::string { return std::vformat("{}", std::make_format_args(signed_value)); },
-        [&](const UInt unsigned_value) -> std::string {
-          return std::vformat("{}", std::make_format_args(unsigned_value));
-        },
-        [&](const Float float_value) -> std::string { return std::vformat("{}", std::make_format_args(float_value)); });
-  }
-  if (const auto bool_value = value.TryGetBool()) { return std::vformat("{}", std::make_format_args(*bool_value)); }
-  if (const auto string_value = value.TryGetString()) {
-    return std::vformat("{}", std::make_format_args(*string_value));
-  }
-#endif
-  return to_string(value);
+  return value.Visit(
+      [&](const Array&) -> std::string { return to_string(value); },
+      [&](const Object&) -> std::string { return to_string(value); },
+      [&](const Generic&) -> std::string { return to_string(value); },
+      [&](const ValueNode& value_node) -> std::string {
+        return value_node.Visit(
+            [&](const Null&) -> std::string { return to_string(value); },
+            [&](const Bool bool_value) -> std::string { return std::vformat("{}", std::make_format_args(bool_value)); },
+            [&](const Number& number_value) -> std::string {
+              return number_value.Visit(
+                  [&](const Int signed_value) -> std::string {
+                    return std::vformat("{}", std::make_format_args(signed_value));
+                  },
+                  [&](const UInt unsigned_value) -> std::string {
+                    return std::vformat("{}", std::make_format_args(unsigned_value));
+                  },
+                  [&](const Float float_value) -> std::string {
+                    return std::vformat("{}", std::make_format_args(float_value));
+                  });
+            },
+            [&](const String& string_value) -> std::string {
+              return std::vformat("{}", std::make_format_args(string_value));
+            });
+      });
 }
 
 [[nodiscard]] inline auto format_value_with_spec(const Value& value, const std::string& spec) -> std::string {
-#if FLEAUX_HAS_STD_FORMAT
   const std::string single_fmt = std::format("{{0:{}}}", spec);
-  if (const auto num = value.TryGetNumber()) {
-    return num->Visit(
-        [&](const Int signed_value) -> std::string {
-          return std::vformat(single_fmt, std::make_format_args(signed_value));
-        },
-        [&](const UInt unsigned_value) -> std::string {
-          return std::vformat(single_fmt, std::make_format_args(unsigned_value));
-        },
-        [&](const Float float_value) -> std::string {
-          return std::vformat(single_fmt, std::make_format_args(float_value));
-        });
-  }
-  if (const auto bool_value = value.TryGetBool()) {
-    return std::vformat(single_fmt, std::make_format_args(*bool_value));
-  }
-  if (const auto string_value = value.TryGetString()) {
-    return std::vformat(single_fmt, std::make_format_args(*string_value));
-  }
-  const std::string repr = to_string(value);
-  return std::vformat(single_fmt, std::make_format_args(repr));
-#else
-  throw std::invalid_argument{"Format specs require <format> support"};
-#endif
+  return value.Visit(
+      [&](const Array&) -> std::string {
+        const std::string repr = to_string(value);
+        return std::vformat(single_fmt, std::make_format_args(repr));
+      },
+      [&](const Object&) -> std::string {
+        const std::string repr = to_string(value);
+        return std::vformat(single_fmt, std::make_format_args(repr));
+      },
+      [&](const Generic&) -> std::string {
+        const std::string repr = to_string(value);
+        return std::vformat(single_fmt, std::make_format_args(repr));
+      },
+      [&](const ValueNode& value_node) -> std::string {
+        return value_node.Visit(
+            [&](const Null&) -> std::string {
+              const std::string repr = to_string(value);
+              return std::vformat(single_fmt, std::make_format_args(repr));
+            },
+            [&](const Bool bool_value) -> std::string {
+              return std::vformat(single_fmt, std::make_format_args(bool_value));
+            },
+            [&](const Number& number_value) -> std::string {
+              return number_value.Visit(
+                  [&](const Int signed_value) -> std::string {
+                    return std::vformat(single_fmt, std::make_format_args(signed_value));
+                  },
+                  [&](const UInt unsigned_value) -> std::string {
+                    return std::vformat(single_fmt, std::make_format_args(unsigned_value));
+                  },
+                  [&](const Float float_value) -> std::string {
+                    return std::vformat(single_fmt, std::make_format_args(float_value));
+                  });
+            },
+            [&](const String& string_value) -> std::string {
+              return std::vformat(single_fmt, std::make_format_args(string_value));
+            });
+      });
 }
 
 [[nodiscard]] inline auto format_values_fallback(const std::string& fmt, const std::vector<Value>& values)

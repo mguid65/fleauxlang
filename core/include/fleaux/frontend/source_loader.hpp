@@ -44,7 +44,8 @@ namespace fleaux::frontend::source_loader {
   return symbol_key(let.qualifier, let.name);
 }
 
-[[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file) -> bool {
+[[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file)
+    -> bool {
   if (!let.span.has_value()) { return false; }
   return std::filesystem::path(let.span->source_name) == source_file;
 }
@@ -149,12 +150,12 @@ template <typename ErrorT, typename ErrorFactory>
       const auto import_source = resolve_import_source(current_source, module_name);
       if (import_source.empty()) {
         in_progress.erase(key);
-        return tl::unexpected(make_error(
-            "import-unresolved: Import not found: '" + module_name + "'",
-            std::optional<std::string>{"Checked relative to '" +
-                                       std::filesystem::weakly_canonical(current_source).string() +
-                                       "'. Verify module name and file location."},
-            span));
+        return tl::unexpected(
+            make_error("import-unresolved: Import not found: '" + module_name + "'",
+                       std::optional<std::string>{"Checked relative to '" +
+                                                  std::filesystem::weakly_canonical(current_source).string() +
+                                                  "'. Verify module name and file location."},
+                       span));
       }
 
       auto imported = self(self, import_source, cache, in_progress);
@@ -181,11 +182,12 @@ template <typename ErrorT, typename ErrorFactory>
       imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
     }
 
-    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
+    auto analyzed_current =
+        type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
     if (!analyzed_current) {
       in_progress.erase(key);
-      return tl::unexpected(make_error(analyzed_current.error().message, analyzed_current.error().hint,
-                                       analyzed_current.error().span));
+      return tl::unexpected(
+          make_error(analyzed_current.error().message, analyzed_current.error().hint, analyzed_current.error().span));
     }
 
     merged = analyzed_current.value();
