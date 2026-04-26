@@ -606,6 +606,21 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
     if (!lowered_stmt) { return tl::unexpected(lowered_stmt.error()); }
   }
 
+  std::unordered_map<std::string, std::vector<std::size_t>> builtin_overload_slots;
+  for (std::size_t let_index = 0; let_index < ir_program.lets.size(); ++let_index) {
+    const auto& let = ir_program.lets[let_index];
+    if (!let.is_builtin) { continue; }
+    const std::string public_symbol = let.qualifier.has_value() ? (*let.qualifier + "." + let.name) : let.name;
+    builtin_overload_slots[public_symbol].push_back(let_index);
+  }
+
+  for (const auto& [public_symbol, overload_slots] : builtin_overload_slots) {
+    if (overload_slots.size() <= 1U) { continue; }
+    for (std::size_t ordinal = 0; ordinal < overload_slots.size(); ++ordinal) {
+      ir_program.lets[overload_slots[ordinal]].symbol_key = public_symbol + "#" + std::to_string(ordinal);
+    }
+  }
+
   return ir_program;
 }
 

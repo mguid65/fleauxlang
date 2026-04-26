@@ -39,7 +39,8 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
               if (const auto it = locals.find(name_ref.name); it != locals.end()) { return it->second; }
             }
 
-            if (const auto* overloads = index.resolve_name(name_ref.qualifier, name_ref.name); overloads != nullptr) {
+            if (const auto* overloads = resolve_name_or_symbolic_builtin(index, name_ref.qualifier, name_ref.name);
+                overloads != nullptr) {
               const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
               if (overloads->size() > 1U) {
                 return tl::unexpected(

@@ -2811,7 +2811,7 @@ TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary 
 
   constexpr auto kOSIsLinuxBuiltin = builtin(fleaux::vm::BuiltinId::OSIsLinux);
   constexpr auto kTupleAppendBuiltin = builtin(fleaux::vm::BuiltinId::TupleAppend);
-  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreate);
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
   constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
   constexpr auto kDictGetBuiltin = builtin(fleaux::vm::BuiltinId::DictGet);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
@@ -2971,7 +2971,7 @@ TEST_CASE("VM executes Std.Dict.Merge with shared overwrite semantics", "[vm]") 
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"overlay_only"}});
   const auto cOverlayOnly = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreate);
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
   constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
   constexpr auto kDictMergeBuiltin = builtin(fleaux::vm::BuiltinId::DictMerge);
   constexpr auto kDictGetBuiltin = builtin(fleaux::vm::BuiltinId::DictGet);
@@ -3252,7 +3252,7 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
   REQUIRE(require_builtin("Std.Type") == fleaux::vm::BuiltinId::Type);
   REQUIRE(require_builtin("Std.Input") == fleaux::vm::BuiltinId::Input);
   REQUIRE(require_builtin("Std.Help") == fleaux::vm::BuiltinId::Help);
-  REQUIRE(require_builtin("Std.Exit") == fleaux::vm::BuiltinId::Exit);
+  REQUIRE(require_builtin("Std.Exit") == fleaux::vm::BuiltinId::ExitVoid);
 
   std::ostringstream output;
   fleaux::runtime::RuntimeOutputStreamScope output_scope(output);
@@ -3306,9 +3306,9 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
               fleaux::runtime::make_tuple(fleaux::runtime::make_int(3), continue_func, step_func,
                                           fleaux::runtime::make_int(3)))) == 0.0);
 
-  REQUIRE_THROWS_WITH(fleaux::runtime::Exit(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1),
-                                                                        fleaux::runtime::make_int(2))),
-                      Catch::Matchers::ContainsSubstring("Exit expects 0 or 1 argument"));
+  REQUIRE_THROWS_WITH(fleaux::runtime::Exit_Int64(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1),
+                                                                              fleaux::runtime::make_int(2))),
+                      Catch::Matchers::ContainsSubstring("Exit_Int64 expects 1 argument"));
 
   REQUIRE(output.str() == "8\n1 + 2name> ");
   fleaux::runtime::clear_help_metadata_registry();
@@ -3407,7 +3407,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
   constexpr auto kTuplePrependBuiltin = builtin(fleaux::vm::BuiltinId::TuplePrepend);
   constexpr auto kTupleContainsBuiltin = builtin(fleaux::vm::BuiltinId::TupleContains);
   constexpr auto kTupleZipBuiltin = builtin(fleaux::vm::BuiltinId::TupleZip);
-  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreate);
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
   constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
   constexpr auto kDictGetBuiltin = builtin(fleaux::vm::BuiltinId::DictGet);
   constexpr auto kDictGetDefaultBuiltin = builtin(fleaux::vm::BuiltinId::DictGetDefault);

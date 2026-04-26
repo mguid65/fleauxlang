@@ -9,7 +9,7 @@ namespace fleaux::bytecode {
 namespace {
 
 constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
-constexpr std::uint32_t BYTECODE_VERSION = 4;
+constexpr std::uint32_t BYTECODE_VERSION = 5;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;

@@ -841,7 +841,8 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
       case BuiltinId::Type: return fleaux::runtime::Type(std::move(arg));
       case BuiltinId::Input: return fleaux::runtime::Input(std::move(arg));
       case BuiltinId::Help: return fleaux::runtime::Help(std::move(arg));
-      case BuiltinId::Exit: return fleaux::runtime::Exit(std::move(arg));
+      case BuiltinId::ExitVoid: return fleaux::runtime::Exit_Void(std::move(arg));
+      case BuiltinId::ExitInt64: return fleaux::runtime::Exit_Int64(std::move(arg));
       case BuiltinId::Cwd: return fleaux::runtime::Cwd(std::move(arg));
       case BuiltinId::OSEnv: return fleaux::runtime::OSEnv(std::move(arg));
       case BuiltinId::OSHasEnv: return fleaux::runtime::OSHasEnv(std::move(arg));
@@ -917,7 +918,8 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
       case BuiltinId::ArrayGetAtND: return fleaux::runtime::ArrayGetAtND(std::move(arg));
       case BuiltinId::ArraySetAtND: return fleaux::runtime::ArraySetAtND(std::move(arg));
       case BuiltinId::ArrayReshapeND: return fleaux::runtime::ArrayReshapeND(std::move(arg));
-      case BuiltinId::DictCreate: return fleaux::runtime::DictCreate(std::move(arg));
+      case BuiltinId::DictCreateVoid: return fleaux::runtime::DictCreate_Void(std::move(arg));
+      case BuiltinId::DictCreateDict: return fleaux::runtime::DictCreate_Dict(std::move(arg));
       case BuiltinId::DictSet: return fleaux::runtime::DictSet(std::move(arg));
       case BuiltinId::DictGet: return fleaux::runtime::DictGet(std::move(arg));
       case BuiltinId::DictGetDefault: return fleaux::runtime::DictGetDefault(std::move(arg));
@@ -1042,7 +1044,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
 
   impl_->lets = std::move(merged_lets);
 
-  const Runtime runtime;
+  constexpr Runtime runtime;
   return runtime.execute(*compiled, output);
 }
 

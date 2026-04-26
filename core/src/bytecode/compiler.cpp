@@ -286,10 +286,10 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
                       CompileState& state, Module& bytecode_module) -> EmitResult {
   (void)locals;
   // Helper: emit kCallBuiltin with a resolved BuiltinId.
-  auto emit_builtin = [&](const std::string& name) -> EmitResult {
-    const auto builtin_id = fleaux::vm::builtin_id_from_name(name);
+  auto emit_builtin = [&](const std::string& symbol_key) -> EmitResult {
+    const auto builtin_id = fleaux::vm::builtin_id_from_symbol_key(symbol_key);
     if (!builtin_id.has_value()) {
-      return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + name + "'."));
+      return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
     }
     out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
     return {};
@@ -315,7 +315,7 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
             // Qualified Std.* builtin (e.g. Std.Add, Std.Math.Floor).
             if (name_ref.qualifier.has_value() &&
                 (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
-              return emit_builtin(full_name);
+              return emit_builtin(target_name);
             }
 
             // User-defined function (check by full name first, then short name).
@@ -423,9 +423,9 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 
             if (name_ref.qualifier.has_value() &&
                 (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
-              const auto builtin_id = fleaux::vm::builtin_id_from_name(full_name);
+              const auto builtin_id = fleaux::vm::builtin_id_from_symbol_key(target_name);
               if (!builtin_id.has_value()) {
-                return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + full_name + "'."));
+                return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + target_name + "'."));
               }
               out.push_back(
                   Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = fleaux::vm::builtin_operand(*builtin_id)});
