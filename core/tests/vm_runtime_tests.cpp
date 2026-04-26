@@ -1093,7 +1093,7 @@ TEST_CASE("VM reports native kLoopNCall max-iteration failure", "[vm]") {
   REQUIRE(result.error().message == "native 'loop_n_call' threw: LoopN: exceeded max_iters");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Loop and Std.LoopN through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Loop and Std.LoopN through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c0 = push_i64_const(bytecode_module, 0);
   const auto c1 = push_i64_const(bytecode_module, 1);
@@ -1154,7 +1154,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Loop and Std.LoopN through fallback map"
   REQUIRE(output.str() == "0\n0\n");
 }
 
-TEST_CASE("VM kCallBuiltin reports Std.LoopN errors through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin reports Std.LoopN errors through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c0 = push_i64_const(bytecode_module, 0);
   const auto c1 = push_i64_const(bytecode_module, 1);
@@ -1377,7 +1377,7 @@ TEST_CASE("VM native kAdd rejects mixed Int64 and UInt64 operands", "[vm]") {
   REQUIRE_FALSE(result.has_value());
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Add through fallback map and preserves UInt64 results", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Add through primary builtin dispatch and preserves UInt64 results", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c4 = push_i64_const(bytecode_module, 4);
   const auto c5 = push_i64_const(bytecode_module, 5);
@@ -1418,7 +1418,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Add through fallback map and preserves U
   REQUIRE(output.str() == "9\nUInt64\n");
 }
 
-TEST_CASE("VM kCallBuiltin rejects mixed Int64 and UInt64 arithmetic through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin rejects mixed Int64 and UInt64 arithmetic through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto cNeg2 = push_i64_const(bytecode_module, -2);
   const auto u5 = push_u64_const(bytecode_module, 5);
@@ -1440,7 +1440,7 @@ TEST_CASE("VM kCallBuiltin rejects mixed Int64 and UInt64 arithmetic through fal
           "builtin 'Std.Add' threw: Add: cannot mix Int64 and UInt64 operands without explicit cast");
 }
 
-TEST_CASE("VM kCallBuiltin falls back for unported builtin", "[vm]") {
+TEST_CASE("VM kCallBuiltin resolves Std.Println via builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c8 = push_i64_const(bytecode_module, 8);
   bytecode_module.builtin_names = {"Std.Println"};
@@ -1458,7 +1458,7 @@ TEST_CASE("VM kCallBuiltin falls back for unported builtin", "[vm]") {
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Println through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Println through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c8 = push_i64_const(bytecode_module, 8);
   bytecode_module.builtin_names = {"Std.Println"};
@@ -1476,7 +1476,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Println through fallback map", "[vm]") {
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("VM kCallBuiltin executes comparison and logical builtins through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes comparison and logical builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto cNeg1 = push_i64_const(bytecode_module, -1);
   const auto u2 = push_u64_const(bytecode_module, 2);
@@ -1510,7 +1510,7 @@ TEST_CASE("VM kCallBuiltin executes comparison and logical builtins through fall
   REQUIRE(output.str() == "True\nFalse\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes unary builtins through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes unary builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c10 = push_i64_const(bytecode_module, 10);
   bytecode_module.builtin_names = {
@@ -1543,7 +1543,7 @@ TEST_CASE("VM kCallBuiltin executes unary builtins through fallback map", "[vm]"
   REQUIRE(output.str() == "-10\n10\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Select through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Select through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   const auto c10 = push_i64_const(bytecode_module, 10);
@@ -1574,7 +1574,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Select through fallback map", "[vm]") {
   REQUIRE(output.str() == "20\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Branch through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Branch through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
   const auto c1 = push_i64_const(bytecode_module, 1);
@@ -1726,7 +1726,7 @@ TEST_CASE("VM executes kCallUserFunc opcode", "[vm]") {
   REQUIRE(output.str() == "42\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Apply through fallback map for inline closure callables", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Apply through primary builtin dispatch for inline closure callables", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c32 = push_i64_const(bytecode_module, 32);
@@ -1814,7 +1814,7 @@ TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
   REQUIRE(result.error().message == "builtin 'Std.Apply' threw: too few arguments for inline closure");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Match with wildcard closure case through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Match with wildcard closure case through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c3 = push_i64_const(bytecode_module, 3);
   const auto c0 = push_i64_const(bytecode_module, 0);
@@ -1876,7 +1876,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Match with wildcard closure case through
   REQUIRE(output.str() == "many\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Match with predicate pattern case through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Match with predicate pattern case through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c6 = push_i64_const(bytecode_module, 6);
   const auto c2 = push_i64_const(bytecode_module, 2);
@@ -1953,7 +1953,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Match with predicate pattern case throug
   REQUIRE(output.str() == "even\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Result builtins through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Result builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c42 = push_i64_const(bytecode_module, 42);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"boom"}});
@@ -2001,7 +2001,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Result builtins through fallback map", "
   REQUIRE(output.str() == "True\n42\nTrue\nboom\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes more arithmetic/logical builtins through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes more arithmetic/logical builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
@@ -2067,7 +2067,7 @@ TEST_CASE("VM kCallBuiltin executes more arithmetic/logical builtins through fal
   REQUIRE(output.str() == "6\n21\nTrue\nTrue\nTrue\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes bitwise builtins through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes bitwise builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c6 = push_i64_const(bytecode_module, 6);
   const auto c3 = push_i64_const(bytecode_module, 3);
@@ -2125,7 +2125,7 @@ TEST_CASE("VM kCallBuiltin executes bitwise builtins through fallback map", "[vm
   REQUIRE(output.str() == "2\n-1\n12\n3\n");
 }
 
-TEST_CASE("VM kCallBuiltin reports bitwise shift errors through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin reports bitwise shift errors through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto cNeg1 = push_i64_const(bytecode_module, -1);
@@ -2146,7 +2146,7 @@ TEST_CASE("VM kCallBuiltin reports bitwise shift errors through fallback map", "
   REQUIRE(result.error().message == "builtin 'Std.Bit.ShiftLeft' threw: BitShiftLeft: shift must be non-negative");
 }
 
-TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c41 = push_i64_const(bytecode_module, 41);
@@ -2202,7 +2202,7 @@ TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through fall
   REQUIRE(output.str() == "42\n7\n42\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes numeric cast helpers through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes numeric cast helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto cInt42 = push_i64_const(bytecode_module, 42);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{3.0});
@@ -2248,7 +2248,7 @@ TEST_CASE("VM kCallBuiltin executes numeric cast helpers through fallback map", 
   REQUIRE(output.str() == "3\n42\n7\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c20 = push_i64_const(bytecode_module, 20);
@@ -2429,7 +2429,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
   REQUIRE(output.str() == "3\n20\n10 20\n30\n20 30\n10 20\n10 30\n3\n0\n1\n0\n2\n3\n7.5\n0\n5\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through fallback map",
+TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through primary builtin dispatch",
           "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c42 = push_i64_const(bytecode_module, 42);
@@ -2625,7 +2625,7 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
           "42\nHELLO\nmixed\ntrim me\na b c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\nb\nbcd\n4\n2 + 3 = 5\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc-123 xyz"}});
   const auto cText = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
@@ -2696,7 +2696,7 @@ TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through fallback ma
   REQUIRE(output.str() == "True\n4\none|two|three\n3\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Path and Std.OS helpers through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Path and Std.OS helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
   const auto cTmp = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
@@ -2789,7 +2789,7 @@ TEST_CASE("VM kCallBuiltin executes Std.Path and Std.OS helpers through fallback
   REQUIRE(output.str() == "/tmp/file.txt\nfile.txt\n.txt\nfile\nTrue\nTrue\nTrue\n/tmp/file.log\n/tmp/other.bin\n");
 }
 
-TEST_CASE("VM executes Std.String and Std.Path builtins through fallback map", "[vm]") {
+TEST_CASE("VM executes Std.String and Std.Path builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
   const auto cAbc = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
@@ -2831,7 +2831,7 @@ TEST_CASE("VM executes Std.String and Std.Path builtins through fallback map", "
   REQUIRE(output.str() == "ABC\n/tmp/file.log\n");
 }
 
-TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through fallback map", "[vm]") {
+TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c2 = push_i64_const(bytecode_module, 2);
@@ -2885,7 +2885,7 @@ TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through fallback
   REQUIRE(output.str() == "True\n1 2 3\n3\n");
 }
 
-TEST_CASE("VM executes Std.OS env and Std.File/Std.Dir builtins through fallback map", "[vm]") {
+TEST_CASE("VM executes Std.OS env and Std.File/Std.Dir builtins through primary builtin dispatch", "[vm]") {
   const auto base = std::filesystem::temp_directory_path() / "fleaux_vm_native_fs_test";
   const auto file_path = (base / "data.txt").string();
   const auto dir_path = base.string();
@@ -3060,9 +3060,9 @@ TEST_CASE("VM executes Std.Dict.Merge with shared overwrite semantics", "[vm]") 
   REQUIRE(output.str() == "2\n10\n20\n");
 }
 
-TEST_CASE("VM builtin fallback map supports function-based Std.UnaryPlus, Std.UnaryMinus, Std.Add, Std.Bit, Std.GreaterThan, Std.Not, Std.Select, Std.Match, Std.Apply, Std.Branch, Std.Tuple, Std.Array, Std.Dict, Std.Result, Std.Try, Std.Parallel, Std.Task, Std.Wrap, Std.Unwrap, Std.ElementAt, Std.Length, Std.Take, Std.Drop, Std.Slice, Std.ToInt64, Std.ToUInt64, Std.ToFloat64, Std.Math, Std.ToString, Std.ToNum, Std.String, and Std.String.Regex entries",
+TEST_CASE("VM builtin registry exposes function-based Std.UnaryPlus, Std.UnaryMinus, Std.Add, Std.Bit, Std.GreaterThan, Std.Not, Std.Select, Std.Match, Std.Apply, Std.Branch, Std.Tuple, Std.Array, Std.Dict, Std.Result, Std.Try, Std.Parallel, Std.Task, Std.Wrap, Std.Unwrap, Std.ElementAt, Std.Length, Std.Take, Std.Drop, Std.Slice, Std.ToInt64, Std.ToUInt64, Std.ToFloat64, Std.Math, Std.ToString, Std.ToNum, Std.String, and Std.String.Regex entries",
           "[vm]") {
-  const auto& builtins = fleaux::vm::vm_builtin_callables();
+  const auto& builtins = fleaux::vm::vm_builtin_registry();
   const auto unary_plus_it = builtins.find("Std.UnaryPlus");
   const auto unary_minus_it = builtins.find("Std.UnaryMinus");
   const auto add_it = builtins.find("Std.Add");
@@ -3297,9 +3297,9 @@ TEST_CASE("VM builtin fallback map supports function-based Std.UnaryPlus, Std.Un
   REQUIRE(fleaux::runtime::to_double(regex_match_offset) == 4.0);
 }
 
-TEST_CASE("VM builtin fallback map supports function-based Std.Loop, Std.Printf, Std.Println, Std.GetArgs, Std.Type, Std.Input, Std.Help, and Std.Exit entries",
+TEST_CASE("VM builtin registry exposes function-based Std.Loop, Std.Printf, Std.Println, Std.GetArgs, Std.Type, Std.Input, Std.Help, and Std.Exit entries",
           "[vm]") {
-  const auto& builtins = fleaux::vm::vm_builtin_callables();
+  const auto& builtins = fleaux::vm::vm_builtin_registry();
   const auto loop_it = builtins.find("Std.Loop");
   const auto loop_n_it = builtins.find("Std.LoopN");
   const auto printf_it = builtins.find("Std.Printf");
@@ -3380,8 +3380,8 @@ TEST_CASE("VM builtin fallback map supports function-based Std.Loop, Std.Printf,
   fleaux::runtime::clear_help_metadata_registry();
 }
 
-TEST_CASE("VM builtin fallback map supports function-based Std.OS, Std.Path, Std.File, and Std.Dir entries", "[vm]") {
-  const auto& builtins = fleaux::vm::vm_builtin_callables();
+TEST_CASE("VM builtin registry exposes function-based Std.OS, Std.Path, Std.File, and Std.Dir entries", "[vm]") {
+  const auto& builtins = fleaux::vm::vm_builtin_registry();
   const auto os_set_env_it = builtins.find("Std.OS.SetEnv");
   const auto os_env_it = builtins.find("Std.OS.Env");
   const auto os_unset_env_it = builtins.find("Std.OS.UnsetEnv");
@@ -3404,11 +3404,11 @@ TEST_CASE("VM builtin fallback map supports function-based Std.OS, Std.Path, Std
   REQUIRE(file_read_text_it != builtins.end());
   REQUIRE(file_delete_it != builtins.end());
 
-  const auto base = std::filesystem::temp_directory_path() / "fleaux_vm_fallback_fs_test";
+  const auto base = std::filesystem::temp_directory_path() / "fleaux_vm_builtin_dispatch_fs_test";
   const auto file_path = (base / "data.txt").string();
   const auto dir_path = base.string();
   const std::string env_key = "FLEAUX_VM_FALLBACK_ENV_KEY";
-  const std::string env_value = "vm_fallback_ok";
+  const std::string env_value = "vm_builtin_dispatch_ok";
   std::filesystem::remove_all(base);
 
   const auto joined = path_join_it->second(
@@ -3442,7 +3442,7 @@ TEST_CASE("VM builtin fallback map supports function-based Std.OS, Std.Path, Std
 #endif
 }
 
-TEST_CASE("VM Std.Path.Join reports fallback error prefix", "[vm]") {
+TEST_CASE("VM Std.Path.Join reports builtin error prefix", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
   bytecode_module.builtin_names = {"Std.Path.Join"};
@@ -3461,7 +3461,7 @@ TEST_CASE("VM Std.Path.Join reports fallback error prefix", "[vm]") {
   REQUIRE(result.error().message == "builtin 'Std.Path.Join' threw: PathJoin expects at least 2 arguments");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through fallback map", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c0 = push_i64_const(bytecode_module, 0);
   const auto c1 = push_i64_const(bytecode_module, 1);

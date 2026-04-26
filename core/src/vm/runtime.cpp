@@ -208,8 +208,9 @@ auto pack_call_args(std::vector<Value> values) -> Value {
   return Value{std::move(out)};
 }
 
-// Try VM-native builtin execution; returns nullopt when builtin is not ported yet.
-auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::ostream& output)
+// Primary stdlib builtin dispatch for kCallBuiltin.
+// Returns nullopt only when the name is not part of the direct builtin dispatch tables.
+auto try_dispatch_primary_builtin(const std::string& name, Value& arg)
     -> tl::expected<std::optional<Value>, RuntimeError>;
 
 auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg,
@@ -809,11 +810,28 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(RuntimeError{"program terminated without halt"});
 }
 
-auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::ostream& output)
-    -> tl::expected<std::optional<Value>, RuntimeError> {
-  (void)arg;
-  (void)output;
+enum class PrimaryBuiltinDispatchKey {
+#define FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY(name_literal, builtin_function) k##builtin_function,
+  FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY)
+#undef FLEAUX_DEFINE_PRIMARY_BUILTIN_DISPATCH_KEY
+};
 
+[[nodiscard]] auto primary_builtin_dispatch_table()
+    -> const std::unordered_map<std::string, PrimaryBuiltinDispatchKey>& {
+  static const std::unordered_map<std::string, PrimaryBuiltinDispatchKey> table =
+      []() -> std::unordered_map<std::string, PrimaryBuiltinDispatchKey> {
+    std::unordered_map<std::string, PrimaryBuiltinDispatchKey> out;
+#define FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH(name_literal, builtin_function) \
+  out.emplace(name_literal, PrimaryBuiltinDispatchKey::k##builtin_function);
+    FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH)
+#undef FLEAUX_INSERT_PRIMARY_BUILTIN_DISPATCH
+    return out;
+  }();
+  return table;
+}
+
+auto try_dispatch_primary_builtin(const std::string& name, Value& arg)
+    -> tl::expected<std::optional<Value>, RuntimeError> {
   static const std::unordered_map<std::string, double> kConstantDispatchTable =
       []() -> std::unordered_map<std::string, double> {
     std::unordered_map<std::string, double> out;
@@ -827,15 +845,32 @@ auto try_run_vm_native_builtin(const std::string& name, const Value& arg, std::o
     return std::optional<Value>{fleaux::runtime::make_float(constant_it->second)};
   }
 
+  const auto dispatch_it = primary_builtin_dispatch_table().find(name);
+  if (dispatch_it == primary_builtin_dispatch_table().end()) { return std::optional<Value>{std::nullopt}; }
+
+  try {
+    switch (dispatch_it->second) {
+#define FLEAUX_DISPATCH_PRIMARY_BUILTIN(name_literal, builtin_function) \
+  case PrimaryBuiltinDispatchKey::k##builtin_function:                         \
+    return std::optional<Value>{fleaux::runtime::builtin_function(std::move(arg))};
+      FLEAUX_VM_FUNCTION_BUILTINS(FLEAUX_DISPATCH_PRIMARY_BUILTIN)
+#undef FLEAUX_DISPATCH_PRIMARY_BUILTIN
+    }
+  } catch (const std::exception& ex) {
+    return tl::unexpected(RuntimeError{std::string("builtin '") + name + "' threw: " + ex.what()});
+  }
+
   return std::optional<Value>{std::nullopt};
 }
 
 auto dispatch_builtin(const std::string& name, Value arg,
                       const std::unordered_map<std::string, RuntimeCallable>& builtins, std::ostream& output)
     -> tl::expected<Value, RuntimeError> {
-  auto native = try_run_vm_native_builtin(name, arg, output);
-  if (!native) return tl::unexpected(native.error());
-  if (native->has_value()) { return std::move(**native); }
+  (void)output;
+
+  auto direct = try_dispatch_primary_builtin(name, arg);
+  if (!direct) return tl::unexpected(direct.error());
+  if (direct->has_value()) { return std::move(**direct); }
 
   const auto it = builtins.find(name);
   if (it == builtins.end()) { return tl::unexpected(RuntimeError{"unknown builtin: '" + name + "'"}); }

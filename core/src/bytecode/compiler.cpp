@@ -190,7 +190,7 @@ auto count_inline_closures(const IRExpr& expr) -> std::size_t {
 
 auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std::vector<Instruction>& out,
                              const LocalSlots& locals, CompileState& state, Module& bytecode_module) -> EmitResult {
-  const auto emit_builtin_fallback = [&]() -> EmitResult {
+  const auto emit_builtin_call = [&]() -> EmitResult {
     if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result) return emit_result;
 
     const auto& opmap = operator_to_builtin();
@@ -232,7 +232,7 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
     return {};
   }
 
-  return emit_builtin_fallback();
+  return emit_builtin_call();
 }
 
 auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
@@ -301,7 +301,7 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
   return std::visit(
       common::overloaded{
           [&](const IROperatorRef& op_ref) -> EmitResult {
-            // Operator shorthand falls back to builtin dispatch here when a native opcode
+            // Operator shorthand routes through builtin dispatch here when a native opcode
             // form is not selected by emit_operator_flow_expr().
             const auto& opmap = operator_to_builtin();
             const auto it = opmap.find(op_ref.op);
