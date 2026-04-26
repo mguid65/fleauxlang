@@ -53,6 +53,21 @@ struct FunctionDef {
   bool has_variadic_tail = false;  // true when the last declared parameter is variadic
   bool is_import_placeholder = false;
   std::vector<Instruction> instructions;
+
+  // Generic type-parameter names (e.g. {"T", "U"} for `let Foo<T,U>(...)`).
+  // Non-empty only for generic functions.  Preserved so consumers that only
+  // have the bytecode file (no source) can reconstruct accurate typed-import
+  // stubs and validate call sites against the generic signature.
+  std::vector<std::string> generic_params;
+
+  // Declared parameter type names, one per parameter (parallel to `arity`).
+  // For simple/named types (including type-variable names such as "T") this
+  // is the complete type name.  For complex structural types the outer name
+  // is stored (e.g. "Function", "Tuple").  Empty when not available.
+  std::vector<std::string> param_type_names;
+
+  // Declared return type name.  Same encoding as `param_type_names`.
+  std::string return_type_name;
 };
 
 struct ClosureDef {
