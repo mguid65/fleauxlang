@@ -4,7 +4,7 @@ let ToErr(_vals: Any): Any = ("division by zero") -> Std.Result.Err;
 let ToOkDiv(vals: Any): Any = (vals) -> Std.Divide -> Std.Result.Ok;
 
 let SafeDiv(lhs: Float64, rhs: Float64): Any =
-  ((rhs, 0) -> Std.Equal, (lhs, rhs), ToErr, ToOkDiv) -> Std.Branch;
+  ((rhs, 0.0) -> Std.Equal, (lhs, rhs), ToErr, ToOkDiv) -> Std.Branch;
 
 let PrintResult(r: Any): Any =
   ((r) -> Std.Result.Tag,
@@ -15,9 +15,9 @@ let PrintResult(r: Any): Any =
 let TryUnsafeUnwrap(r: Any): Any =
   ((r), Std.Result.Unwrap) -> Std.Try;
 
-(10, 2) -> SafeDiv -> PrintResult;
-(10, 0) -> SafeDiv -> PrintResult;
-(10, 0) -> SafeDiv -> TryUnsafeUnwrap -> PrintResult;
+(10.0, 2.0) -> SafeDiv -> PrintResult;
+(10.0, 0.0) -> SafeDiv -> PrintResult;
+(10.0, 0.0) -> SafeDiv -> TryUnsafeUnwrap -> PrintResult;
 
 
 

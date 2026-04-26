@@ -132,44 +132,70 @@ inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const 
   }
 }
 
+inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& rhs, const char* op_name) -> void {
+  const bool has_float = is_float_number(lhs) || is_float_number(rhs);
+  const bool has_integer = is_int_number(lhs) || is_int_number(rhs) || is_uint_number(lhs) || is_uint_number(rhs);
+  if (has_float && has_integer) {
+    throw std::invalid_argument{std::string(op_name) +
+                                ": cannot mix Float64 with Int64 or UInt64 operands without explicit cast"};
+  }
+}
+
+[[nodiscard]] inline auto prefer_float_numeric_result(const Value& lhs, const Value& rhs) -> bool {
+  return is_float_number(lhs) || is_float_number(rhs);
+}
+
 [[nodiscard]] inline auto Add(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
   if (lhs.HasString() && rhs.HasString()) { return make_string(as_string(lhs) + as_string(rhs)); }
+  require_no_implicit_float_promotion(lhs, rhs, "Add");
   require_same_integer_kind(lhs, rhs, "Add");
-  return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
+  return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
+                    prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto Subtract(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
+  require_no_implicit_float_promotion(lhs, rhs, "Subtract");
   require_same_integer_kind(lhs, rhs, "Subtract");
-  return num_result(to_double(lhs) - to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
+  return num_result(to_double(lhs) - to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
+                    prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto Multiply(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
+  require_no_implicit_float_promotion(lhs, rhs, "Multiply");
   require_same_integer_kind(lhs, rhs, "Multiply");
-  return num_result(to_double(lhs) * to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
+  return num_result(to_double(lhs) * to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
+                    prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto Divide(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
+  require_no_implicit_float_promotion(lhs, rhs, "Divide");
   require_same_integer_kind(lhs, rhs, "Divide");
-  return num_result(to_double(lhs) / to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs));
+  return num_result(to_double(lhs) / to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
+                    prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto Mod(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
+  require_no_implicit_float_promotion(lhs, rhs, "Mod");
   require_same_integer_kind(lhs, rhs, "Mod");
-  return num_result(std::fmod(to_double(lhs), to_double(rhs)), is_uint_number(lhs) && is_uint_number(rhs));
+  return num_result(std::fmod(to_double(lhs), to_double(rhs)), is_uint_number(lhs) && is_uint_number(rhs),
+                    prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto Pow(Value arg) -> Value {
-  return num_result(std::pow(to_double(array_at(arg, 0)), to_double(array_at(arg, 1))));
+  const Value& lhs = array_at(arg, 0);
+  const Value& rhs = array_at(arg, 1);
+  require_no_implicit_float_promotion(lhs, rhs, "Pow");
+  return num_result(std::pow(to_double(lhs), to_double(rhs)), false, prefer_float_numeric_result(lhs, rhs));
 }
 
 [[nodiscard]] inline auto BitAnd(Value arg) -> Value {
@@ -206,44 +232,50 @@ inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const 
 }
 
 [[nodiscard]] inline auto Sqrt(Value arg) -> Value {
-  return num_result(std::sqrt(to_double(unwrap_singleton_arg(std::move(arg)))));
+  return num_result(std::sqrt(to_double(unwrap_singleton_arg(std::move(arg)))), false, true);
 }
 
 [[nodiscard]] inline auto UnaryMinus(Value arg) -> Value {
-  return num_result(-to_double(unwrap_singleton_arg(std::move(arg))));
+  const Value value = unwrap_singleton_arg(std::move(arg));
+  return num_result(-to_double(value), false, is_float_number(value));
 }
 
 [[nodiscard]] inline auto UnaryPlus(Value arg) -> Value {
-  return num_result(+to_double(unwrap_singleton_arg(std::move(arg))));
+  const Value value = unwrap_singleton_arg(std::move(arg));
+  return num_result(+to_double(value), false, is_float_number(value));
 }
 
 [[nodiscard]] inline auto Sin(Value arg) -> Value {
-  return num_result(std::sin(to_double(unwrap_singleton_arg(std::move(arg)))));
+  return num_result(std::sin(to_double(unwrap_singleton_arg(std::move(arg)))), false, true);
 }
 
 [[nodiscard]] inline auto Cos(Value arg) -> Value {
-  return num_result(std::cos(to_double(unwrap_singleton_arg(std::move(arg)))));
+  return num_result(std::cos(to_double(unwrap_singleton_arg(std::move(arg)))), false, true);
 }
 
 [[nodiscard]] inline auto Tan(Value arg) -> Value {
-  return num_result(std::tan(to_double(unwrap_singleton_arg(std::move(arg)))));
+  return num_result(std::tan(to_double(unwrap_singleton_arg(std::move(arg)))), false, true);
 }
 
 // Comparison & logical
 
 [[nodiscard]] inline auto GreaterThan(Value arg) -> Value {
+  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "GreaterThan");
   return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) > 0);
 }
 
 [[nodiscard]] inline auto LessThan(Value arg) -> Value {
+  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "LessThan");
   return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) < 0);
 }
 
 [[nodiscard]] inline auto GreaterOrEqual(Value arg) -> Value {
+  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "GreaterOrEqual");
   return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) >= 0);
 }
 
 [[nodiscard]] inline auto LessOrEqual(Value arg) -> Value {
+  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "LessOrEqual");
   return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) <= 0);
 }
 

@@ -20,8 +20,8 @@ import Std;
 // -- Compound conditions --
 let InRange(x: Float64, lo: Float64, hi: Float64): Bool =
     ((x, lo) -> Std.GreaterOrEqual, (x, hi) -> Std.LessOrEqual) -> Std.And;
-(5, 1, 10) -> InRange -> Std.Println;                             // True
-(15, 1, 10) -> InRange -> Std.Println;                            // False
+(5.0, 1.0, 10.0) -> InRange -> Std.Println;                       // True
+(15.0, 1.0, 10.0) -> InRange -> Std.Println;                      // False
 // -- String equality --
 ("hello", "hello") -> Std.Equal -> Std.Println;                   // True
 ("hello", "world") -> Std.Equal -> Std.Println;                   // False

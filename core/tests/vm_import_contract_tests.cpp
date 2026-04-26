@@ -118,7 +118,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
               FixtureFile{
                   .name = "c.fleaux",
                   .source = "import Std;\n"
-                            "let CFn(x: Float64): Float64 = (x, 1) -> Std.Add;\n",
+                            "let CFn(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n",
               },
               FixtureFile{
                   .name = "b.fleaux",
@@ -129,7 +129,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
                   .name = "a.fleaux",
                   .source = "import Std;\n"
                             "import b;\n"
-                            "(1) -> CFn -> Std.Println;\n",
+                            "(1.0) -> CFn -> Std.Println;\n",
               },
           },
           .expected_outcome = OutcomeClass::kUnresolvedSymbol,
@@ -142,13 +142,13 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
               FixtureFile{
                   .name = "typed_dep_qualified.fleaux",
                   .source = "import Std;\n"
-                            "let MyMath.Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n",
+                            "let MyMath.Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n",
               },
               FixtureFile{
                   .name = "typed_entry_qualified.fleaux",
                   .source = "import Std;\n"
                             "import typed_dep_qualified;\n"
-                            "(1) -> WrongMath.Add4 -> Std.Println;\n",
+                            "(1.0) -> WrongMath.Add4 -> Std.Println;\n",
               },
           },
           .expected_outcome = OutcomeClass::kUnresolvedSymbol,

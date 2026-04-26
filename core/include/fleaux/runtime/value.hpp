@@ -1075,7 +1075,9 @@ auto make_tuple(Values&&... vals) -> Value {
 }
 
 // Convert a double result back to the most correct numeric Value (Int64, UInt64, or Float64).
-[[nodiscard]] inline auto num_result(const double val, const bool prefer_unsigned = false) -> Value {
+[[nodiscard]] inline auto num_result(const double val, const bool prefer_unsigned = false,
+                                     const bool prefer_float = false) -> Value {
+  if (prefer_float) { return make_float(val); }
   if (val == std::floor(val) && std::isfinite(val)) {
     if (prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
       return make_uint(static_cast<UInt>(val));

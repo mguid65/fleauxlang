@@ -9,8 +9,8 @@
 TEST_CASE("Lowerer maps parser program into import let and expression buckets", "[lowering]") {
   const std::string src =
       "import Std;\n"
-      "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n"
-      "(4) -> Add4 -> Std.Println;\n";
+      "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n"
+      "(4.0) -> Add4 -> Std.Println;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "lowering_shape.fleaux");
@@ -151,7 +151,7 @@ TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") 
 }
 
 TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") {
-  const std::string src = "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n";
+  const std::string src = "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_pipeline_desugar.fleaux");
@@ -184,7 +184,7 @@ TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") 
 }
 
 TEST_CASE("Lowerer excludes shadowed outer names from closure captures", "[lowering]") {
-  const std::string src = "let Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1) -> Std.Add;\n";
+  const std::string src = "let Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1.0) -> Std.Add;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_shadow_capture.fleaux");
@@ -294,11 +294,10 @@ TEST_CASE("Lowerer rejects malformed Std.Match case tuples", "[lowering]") {
   REQUIRE(lowered.error().message.find("case must be a 2-item tuple") != std::string::npos);
 }
 
-TEST_CASE("Lowerer accepts transitional typed numerics alongside Float64", "[lowering]") {
+TEST_CASE("Lowerer rejects implicit Int64 to Float64 promotion", "[lowering]") {
   const std::string src =
-      "let PromoteToFloat(x: Int64): Float64 = (x, 0.5) -> Std.Add;\n"
       "let KeepFloat(x: Float64): Float64 = x;\n"
-      "(1) -> PromoteToFloat -> KeepFloat;\n";
+      "(1) -> KeepFloat;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "typed_numeric_transition_lowering.fleaux");
@@ -306,9 +305,8 @@ TEST_CASE("Lowerer accepts transitional typed numerics alongside Float64", "[low
 
   constexpr fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
-  REQUIRE(lowered.has_value());
-  REQUIRE(lowered->lets.size() == 2);
-  REQUIRE(lowered->expressions.size() == 1);
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
 }
 
 TEST_CASE("Lowerer accepts UInt64 literal arguments for UInt64 parameters", "[lowering]") {
@@ -371,7 +369,7 @@ TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[loweri
       "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
       "__builtin__;\n"
       "let Std.ToFloat64(value: Any): Float64 :: __builtin__;\n"
-      "let Good(a: Int64, b: UInt64): Float64 = (a, (b) -> Std.ToFloat64) -> Std.Add;\n";
+      "let Good(a: Int64, b: UInt64): Float64 = ((a) -> Std.ToFloat64, (b) -> Std.ToFloat64) -> Std.Add;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "mixed_int_uint_add_cast_ok_lowering.fleaux");
@@ -386,7 +384,7 @@ TEST_CASE("Lowerer preserves let doc comments in IR", "[lowering]") {
   const std::string src =
       "// @brief Increment a value\n"
       "// @param x input value\n"
-      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+      "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "lowering_doc_comments.fleaux");

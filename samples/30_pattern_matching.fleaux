@@ -14,15 +14,15 @@ import Std;
 ) -> Std.Match -> Std.Println;
 
 // Handlers can use the matched value as input when they declare a parameter.
-(7,
-  (0, (): Any = "zero"),
+(7.0,
+  (0.0, (): Any = "zero"),
   (_, (n: Float64): Any = n)
 ) -> Std.Match -> Std.Println;
 
-let IsEven(n: Float64): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;
+let IsEven(n: Float64): Bool = ((n, 2.0) -> Std.Mod, 0.0) -> Std.Equal;
 
 // Predicate patterns can be callables: pattern(subject) -> Bool.
-(8,
+(8.0,
   (IsEven, (): Any = "even"),
   (_, (): Any = "odd")
 ) -> Std.Match -> Std.Println;

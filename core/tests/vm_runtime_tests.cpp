@@ -96,10 +96,10 @@ TEST_CASE("RuntimeSession preserves typed lets across snippets", "[vm][repl][typ
   std::ostringstream output;
 
   const auto define_result =
-      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output);
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n", output);
   REQUIRE(define_result.has_value());
 
-  const auto use_result = session.run_snippet("import Std;\n2 -> AddOne -> Std.Println;\n", output);
+  const auto use_result = session.run_snippet("import Std;\n2.0 -> AddOne -> Std.Println;\n", output);
   if (!use_result.has_value()) { INFO("vm repl typed let lookup error: " << use_result.error().message); }
   REQUIRE(use_result.has_value());
   REQUIRE(output.str() == "3\n");
@@ -111,7 +111,7 @@ TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][
   std::ostringstream output;
 
   const auto define_result =
-      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1) -> Std.Add;\n", output);
+      session.run_snippet("import Std;\nlet AddOne(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n", output);
   REQUIRE(define_result.has_value());
 
   const auto mismatch_result = session.run_snippet("\"oops\" -> AddOne;\n", output);
@@ -239,7 +239,7 @@ TEST_CASE("RuntimeSession run_snippet reclaims transient callable refs across ru
   const std::string snippet =
       "import Std;\n"
       "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+      "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
 
   for (int iter = 0; iter < 25; ++iter) {
     std::ostringstream output;

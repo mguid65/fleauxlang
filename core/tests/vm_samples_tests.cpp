@@ -278,7 +278,7 @@ TEST_CASE("VM loader enforces direct import visibility", "[vm][imports][contract
   {
     std::ofstream out(module_c);
     out << "import Std;\n"
-           "let CFn(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+           "let CFn(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n";
   }
   {
     std::ofstream out(module_b);
@@ -289,7 +289,7 @@ TEST_CASE("VM loader enforces direct import visibility", "[vm][imports][contract
     std::ofstream out(module_a);
     out << "import Std;\n"
            "import b;\n"
-           "(1) -> CFn -> Std.Println;\n";
+           "(1.0) -> CFn -> Std.Println;\n";
   }
 
   const auto vm_load_result = fleaux::bytecode::load_linked_module(module_a);
@@ -308,13 +308,13 @@ TEST_CASE("VM loader reports unresolved qualified exports", "[vm][imports][contr
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let MyMath.Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let MyMath.Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
   {
     std::ofstream out(entry_path);
     out << "import Std;\n"
            "import typed_dep_qualified;\n"
-           "(1) -> WrongMath.Add4 -> Std.Println;\n";
+           "(1.0) -> WrongMath.Add4 -> Std.Println;\n";
   }
 
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
@@ -427,7 +427,7 @@ TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samp
            "let MakeDict(): Any = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
            "() -> MakeDict -> MakeLookup -> (\"a\", _) -> Std.Apply -> "
            "Std.Println;\n"
-           "((1, 2, 3, 4), (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
+           "((1.0, 2.0, 3.0, 4.0), (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -532,7 +532,7 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
            "let Collect(rest: Any...): Any = rest;\n"
            "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
            "(1) -> Collect -> Std.Length -> Std.Println;\n"
-           "((10, 20, 30)) -> HeadTail -> Std.Length -> Std.Println;\n";
+           "((10.0, 20.0, 30.0)) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -666,10 +666,10 @@ TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n"
-           "(10) -> (x: Float64): Float64 = (x, 1) -> Std.Add -> Std.Println;\n"
+           "(10.0, (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Apply -> Std.Println;\n"
+           "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n"
            "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-           "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+           "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -692,12 +692,12 @@ TEST_CASE("Std.Match executes ordered pattern closures in the VM", "[vm][samples
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let IsEven(n: Float64): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
+           "let IsEven(n: Float64): Bool = ((n, 2.0) -> Std.Mod, 0.0) -> Std.Equal;\n"
            "(0, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> "
            "Std.Println;\n"
            "(3, (0, (): Any = \"zero\"), (1, (): Any = \"one\"), (_, (): Any = \"many\")) -> Std.Match -> "
            "Std.Println;\n"
-           "(8, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
+           "(8.0, (IsEven, (): Any = \"even\"), (_, (): Any = \"odd\")) -> Std.Match -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);

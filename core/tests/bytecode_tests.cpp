@@ -584,14 +584,14 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
           "[bytecode][value_ref][semantic_equiv][concurrency]") {
   SECTION("Parallel.Map") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "((1, 2, 3, 4), Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_map.fleaux");
   }
 
   SECTION("Parallel.WithOptions") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
         "((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_with_options.fleaux");
@@ -599,28 +599,28 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
 
   SECTION("Parallel.ForEach") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "((10, 20, 30), Inc) -> Std.Parallel.ForEach -> Std.Result.IsOk -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_foreach.fleaux");
   }
 
   SECTION("Parallel.Reduce") {
     require_copy_vs_auto_byref_equivalent(
-        "let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;\n"
+        "let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;\n"
         "((1, 2, 3, 4, 5), 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_reduce.fleaux");
   }
 
   SECTION("Task.Spawn + Task.Await") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "(Inc, 41) -> Std.Task.Spawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_task_spawn_await.fleaux");
   }
 
   SECTION("Task.AwaitAll") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "(((Inc, 1) -> Std.Task.Spawn, (Inc, 2) -> Std.Task.Spawn, (Inc, 3) -> Std.Task.Spawn))\n"
         "  -> Std.Task.AwaitAll\n"
         "  -> Std.Result.Unwrap\n"
@@ -630,7 +630,7 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
 
   SECTION("Task.WithTimeout non-timeout path") {
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "(Inc, 7) -> Std.Task.Spawn -> (_, 500) -> Std.Task.WithTimeout -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_task_with_timeout.fleaux");
   }
@@ -656,13 +656,13 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
     INFO("run=" << run << ", n=" << n);
 
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "(" +
             tuple_literal + ", Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_property_parallel_map_" + std::to_string(run) + ".fleaux");
 
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", " +
             std::to_string(max_workers) +
             ") -> Std.Dict.Set;\n"
@@ -672,13 +672,13 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
         "bytecode_semantic_equiv_property_parallel_with_options_" + std::to_string(run) + ".fleaux");
 
     require_copy_vs_auto_byref_equivalent(
-        "let Add(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;\n"
+        "let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;\n"
         "(" +
             tuple_literal + ", 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_property_parallel_reduce_" + std::to_string(run) + ".fleaux");
 
     require_copy_vs_auto_byref_equivalent(
-        "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+        "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
         "(" +
             tasks_literal + ") -> Std.Task.AwaitAll -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_property_task_await_all_" + std::to_string(run) + ".fleaux");
@@ -799,9 +799,9 @@ TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
 
 TEST_CASE("Bytecode compiler emits kLoopCall for Std.Loop", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
-let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
-(10, Continue, Step) -> Std.Loop -> Std.Println;
+let Continue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
+let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
+(10.0, Continue, Step) -> Std.Loop -> Std.Println;
 )",
                                              "bytecode_native_loop.fleaux");
 
@@ -819,9 +819,9 @@ let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 
 TEST_CASE("Bytecode compiler emits kLoopNCall for Std.LoopN", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Continue(n: Float64): Bool = (n, 0) -> Std.GreaterThan;
-let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
-(10, Continue, Step, 100) -> Std.LoopN -> Std.Println;
+let Continue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
+let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
+(10.0, Continue, Step, 100) -> Std.LoopN -> Std.Println;
 )",
                                              "bytecode_native_loopn.fleaux");
 
@@ -839,9 +839,9 @@ let Step(n: Float64): Float64 = (n, 1) -> Std.Subtract;
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with user function refs", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;
-let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
-(True, 10, Inc, Dec) -> Std.Branch -> Std.Println;
+let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
+let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
+(True, 10.0, Inc, Dec) -> Std.Branch -> Std.Println;
 )",
                                              "bytecode_native_branch_safe.fleaux");
 
@@ -907,7 +907,7 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
 TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
   const auto ir_program =
-      lower_source_to_ir("(10, (x: Float64): Float64 = (x, 1) -> Std.Add) -> Std.Apply -> Std.Println;\n",
+      lower_source_to_ir("(10.0, (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Apply -> Std.Println;\n",
                          "bytecode_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -926,7 +926,7 @@ TEST_CASE("Bytecode compiler emits closure materialization for inline closure li
 TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
       "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-      "(10, (4) -> MakeAdder) -> Std.Apply -> Std.Println;\n",
+      "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n",
       "bytecode_captured_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -956,7 +956,7 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
 
 TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[bytecode]") {
   const auto ir_program =
-      lower_source_to_ir("(10, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
+      lower_source_to_ir("(10.0, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
                          "bytecode_variadic_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -992,11 +992,11 @@ TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
 
 TEST_CASE("Bytecode compiler keeps Std.Branch as builtin for callable locals", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
-let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;
-let Dec(x: Float64): Float64 = (x, 1) -> Std.Subtract;
+let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
+let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
 let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
-    ((x, 0) -> Std.GreaterThan, x, tf, ff) -> Std.Branch;
-(10, Inc, Dec) -> ChooseApply -> Std.Println;
+    ((x, 0.0) -> Std.GreaterThan, x, tf, ff) -> Std.Branch;
+(10.0, Inc, Dec) -> ChooseApply -> Std.Println;
 )",
                                              "bytecode_branch_callable_locals.fleaux");
 
@@ -1074,7 +1074,7 @@ TEST_CASE("Analysis rejects unknown unqualified call target before bytecode comp
 TEST_CASE("Bytecode compiler emits user function and kCallUserFunc", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
 let Double(x: Float64): Float64 = (x, x) -> Std.Add;
-(7) -> Double -> Std.Println;
+(7.0) -> Double -> Std.Println;
 )",
                                              "bytecode_user_func.fleaux");
 
@@ -1622,14 +1622,14 @@ TEST_CASE("Bytecode module loader falls back to source when dependency bytecode 
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import Std;\n"
            "import typed_dep;\n"
-           "(1) -> Add4 -> Std.Println;\n";
+           "(1.0) -> Add4 -> Std.Println;\n";
   }
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
@@ -1665,13 +1665,13 @@ TEST_CASE("Bytecode module loader imports serialized dependency modules", "[byte
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import 20_export;\n"
-           "(4) -> Add4 -> Std.Println;\n";
+           "(4.0) -> Add4 -> Std.Println;\n";
   }
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
@@ -1779,14 +1779,14 @@ TEST_CASE("Bytecode module loader revalidates typed import seeds when entry cach
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import Std;\n"
            "import typed_dep;\n"
-           "(1) -> Add4 -> Std.Println;\n";
+           "(1.0) -> Add4 -> Std.Println;\n";
   }
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
@@ -1827,14 +1827,14 @@ TEST_CASE("Bytecode module loader reports missing typed import seed declaration 
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import Std;\n"
            "import typed_dep;\n"
-           "(1) -> Add4 -> Std.Println;\n";
+           "(1.0) -> Add4 -> Std.Println;\n";
   }
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
@@ -1919,14 +1919,14 @@ TEST_CASE("Bytecode module loader accepts qualified imported exports when typed 
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let MyMath.Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let MyMath.Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import Std;\n"
            "import typed_dep_qualified_ok;\n"
-           "(1) -> MyMath.Add4 -> Std.Println;\n";
+           "(1.0) -> MyMath.Add4 -> Std.Println;\n";
   }
 
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
@@ -1952,13 +1952,13 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
   {
     std::ofstream out(dependency_path);
     out << "import Std;\n"
-           "let Add4(x: Float64): Float64 = (4, x) -> Std.Add;\n";
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(entry_path);
     out << "import 20_export;\n"
-           "(4) -> Add4 -> Std.Println;\n";
+           "(4.0) -> Add4 -> Std.Println;\n";
   }
 
   const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
@@ -1994,19 +1994,19 @@ TEST_CASE("Bytecode module loader handles diamond dependencies with serialized f
     std::ofstream out(shared_path);
     out << "import Std;\n"
            "(\"shared-init\") -> Std.Println;\n"
-           "let Add1(x: Float64): Float64 = (x, 1) -> Std.Add;\n";
+           "let Add1(x: Int64): Int64 = (x, 1) -> Std.Add;\n";
   }
 
   {
     std::ofstream out(left_path);
     out << "import shared;\n"
-           "let Left(x: Float64): Float64 = (x) -> Add1;\n";
+           "let Left(x: Int64): Int64 = (x) -> Add1;\n";
   }
 
   {
     std::ofstream out(right_path);
     out << "import shared;\n"
-           "let Right(x: Float64): Float64 = (x) -> Add1;\n";
+           "let Right(x: Int64): Int64 = (x) -> Add1;\n";
   }
 
   {

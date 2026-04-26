@@ -19,13 +19,13 @@ let IsOk(result: Any): Bool =
     ((result) -> ResultTag, "Ok") -> Std.Equal;
 
 let ReciprocalOk(x: Float64): Any =
-    (1, x) -> Std.Divide -> Ok;
+    (1.0, x) -> Std.Divide -> Ok;
 
 let ReciprocalErr(x: Float64): Any =
     ("division by zero") -> Err;
 
 let SafeReciprocalResult(x: Float64): Any =
-    ((x, 0) -> Std.Equal, x, ReciprocalErr, ReciprocalOk) -> Std.Branch;
+    ((x, 0.0) -> Std.Equal, x, ReciprocalErr, ReciprocalOk) -> Std.Branch;
 
 let PrintOk(result: Any): Any =
     ("OK: {}", (result) -> ResultPayload) -> Std.String.Format -> Std.Println;
@@ -37,8 +37,8 @@ let PrintErr(result: Any): Any =
 let HandleResult(result: Any): Any =
     ((result) -> IsOk, result, PrintOk, PrintErr) -> Std.Branch;
 
-(4) -> SafeReciprocalResult -> HandleResult;
-(0) -> SafeReciprocalResult -> HandleResult;
+(4.0) -> SafeReciprocalResult -> HandleResult;
+(0.0) -> SafeReciprocalResult -> HandleResult;
 
 
 
