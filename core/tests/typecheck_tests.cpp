@@ -109,6 +109,20 @@ TEST_CASE("Type checker accepts user generic let body with higher-order closure 
   REQUIRE(lowered.has_value());
 }
 
+TEST_CASE("Type checker accepts prefix-generic inline closure with local type variable",
+          "[typecheck][generics][closures]") {
+  const std::string src =
+      "let MakeInlineGeneric(): Any = <T>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_prefix_generic_closure_ok.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
 TEST_CASE("Type checker infers user generic variadic tail argument type", "[typecheck][generics][stage_g3c]") {
   const std::string src =
       "let FirstOf<T>(head: T, tail: T...): T = head;\n"

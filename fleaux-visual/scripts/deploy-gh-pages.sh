@@ -61,6 +61,25 @@ if [[ ! -d "${VISUAL_DIR}/dist" ]]; then
   exit 1
 fi
 
+DIST_INDEX="${VISUAL_DIR}/dist/index.html"
+if [[ ! -f "${DIST_INDEX}" ]]; then
+  echo "error: build output missing index.html at ${DIST_INDEX}" >&2
+  exit 1
+fi
+
+JS_BUNDLE="$(sed -n 's/.*src="[^"]*\/assets\/\([^"/]*\.js\)".*/\1/p' "${DIST_INDEX}" | head -n 1)"
+CSS_BUNDLE="$(sed -n 's/.*href="[^"]*\/assets\/\([^"/]*\.css\)".*/\1/p' "${DIST_INDEX}" | head -n 1)"
+
+if [[ -z "${JS_BUNDLE}" || ! -f "${VISUAL_DIR}/dist/assets/${JS_BUNDLE}" ]]; then
+  echo "error: dist/index.html references a JS bundle that does not exist in dist/assets" >&2
+  exit 1
+fi
+
+if [[ -z "${CSS_BUNDLE}" || ! -f "${VISUAL_DIR}/dist/assets/${CSS_BUNDLE}" ]]; then
+  echo "error: dist/index.html references a CSS bundle that does not exist in dist/assets" >&2
+  exit 1
+fi
+
 TMP_WORKTREE="$(mktemp -d)"
 CREATED_ORPHAN_BRANCH=0
 cleanup() {
@@ -73,10 +92,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if git -C "${REPO_ROOT}" show-ref --verify --quiet refs/heads/gh-pages; then
-  git -C "${REPO_ROOT}" worktree add "${TMP_WORKTREE}" gh-pages
-elif git -C "${REPO_ROOT}" ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-  git -C "${REPO_ROOT}" fetch origin gh-pages:gh-pages
+if git -C "${REPO_ROOT}" ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+  git -C "${REPO_ROOT}" fetch origin gh-pages
+  if git -C "${REPO_ROOT}" show-ref --verify --quiet refs/heads/gh-pages; then
+    git -C "${REPO_ROOT}" branch -f gh-pages origin/gh-pages
+  else
+    git -C "${REPO_ROOT}" branch gh-pages origin/gh-pages
+  fi
   git -C "${REPO_ROOT}" worktree add "${TMP_WORKTREE}" gh-pages
 else
   git -C "${REPO_ROOT}" worktree add --detach "${TMP_WORKTREE}"

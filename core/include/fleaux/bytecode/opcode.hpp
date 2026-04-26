@@ -118,4 +118,49 @@ enum class Opcode {
   kDerefValueRef,
 };
 
+inline std::string_view stringify_opcode(Opcode opcode) {
+  constexpr std::array opcode_names{
+      std::string_view{"NoOp"},
+      std::string_view{"PushConst"},
+      std::string_view{"Pop"},
+      std::string_view{"Dup"},
+      std::string_view{"BuildTuple"},
+      std::string_view{"CallBuiltin"},
+      std::string_view{"CallUserFunc"},
+      std::string_view{"Return"},
+      std::string_view{"LoadLocal"},
+      std::string_view{"MakeUserFuncRef"},
+      std::string_view{"MakeBuiltinFuncRef"},
+      std::string_view{"MakeClosureRef"},
+      std::string_view{"Jump"},
+      std::string_view{"JumpIf"},
+      std::string_view{"JumpIfNot"},
+      std::string_view{"Add"},
+      std::string_view{"Sub"},
+      std::string_view{"Mul"},
+      std::string_view{"Div"},
+      std::string_view{"Mod"},
+      std::string_view{"Pow"},
+      std::string_view{"Neg"},
+      std::string_view{"CmpEq"},
+      std::string_view{"CmpNe"},
+      std::string_view{"CmpLt"},
+      std::string_view{"CmpGt"},
+      std::string_view{"CmpLe"},
+      std::string_view{"CmpGe"},
+      std::string_view{"And"},
+      std::string_view{"Or"},
+      std::string_view{"Not"},
+      std::string_view{"Select"},
+      std::string_view{"BranchCall"},
+      std::string_view{"LoopCall"},
+      std::string_view{"LoopNCall"},
+      std::string_view{"Halt"},
+      std::string_view{"MakeValueRef"},
+      std::string_view{"DerefValueRef"}
+  };
+
+  return opcode_names.at(static_cast<std::size_t>(opcode));
+}
+
 }  // namespace fleaux::bytecode

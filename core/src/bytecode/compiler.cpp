@@ -133,19 +133,18 @@ auto let_belongs_to_module(const IRLet& let, const CompileOptions& options) -> b
 }
 
 void seed_imported_exports(Module& bytecode_module, CompileState& state, const CompileOptions& options) {
-  for (const Module* imported_module : options.imported_modules) {
-    if (imported_module == nullptr) { continue; }
-    for (const auto& symbol : imported_module->exports) {
-      if (symbol.kind == ExportKind::kBuiltinAlias) {
-        state.builtin_alias.emplace(symbol.name, symbol.builtin_name);
+  for (const Module& imported_module : options.imported_modules) {
+    for (const auto& [name, actual_link_name, kind, index, builtin_name] : imported_module.exports) {
+      if (kind == ExportKind::kBuiltinAlias) {
+        state.builtin_alias.emplace(name, builtin_name);
         continue;
       }
 
-      const auto link_name = symbol.link_name.empty() ? symbol.name : symbol.link_name;
+      const auto link_name = actual_link_name.empty() ? name : actual_link_name;
       if (state.function_idx.contains(link_name)) { continue; }
-      if (symbol.index >= imported_module->functions.size()) { continue; }
+      if (index >= imported_module.functions.size()) { continue; }
 
-      const auto& imported_fn = imported_module->functions[symbol.index];
+      const auto& imported_fn = imported_module.functions[index];
       const auto fn_idx = static_cast<std::uint32_t>(bytecode_module.functions.size());
       bytecode_module.functions.push_back(FunctionDef{
           .name = link_name,
@@ -155,7 +154,7 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
           .instructions = {},
       });
       state.function_idx[link_name] = fn_idx;
-      state.register_public_function_name(symbol.name, fn_idx);
+      state.register_public_function_name(name, fn_idx);
     }
   }
 }

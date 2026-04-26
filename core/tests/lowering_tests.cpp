@@ -150,6 +150,26 @@ TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") 
   REQUIRE(closure_ptr->captures[0] == "n");
 }
 
+TEST_CASE("Lowerer preserves prefix-generic closure parameters in IR", "[lowering][generics]") {
+  const std::string src = "let MakeIdentity(): Any = <T>(x: T): T = x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "closure_generic_params_lowering.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->lets.size() == 1);
+
+  const auto& [node, span] = *lowered->lets[0].body;
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRClosureExprBox>(node));
+  const auto& closure_ptr = std::get<fleaux::frontend::ir::IRClosureExprBox>(node);
+
+  REQUIRE(closure_ptr->generic_params.size() == 1);
+  REQUIRE(closure_ptr->generic_params[0] == "T");
+}
+
 TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") {
   const std::string src = "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n";
 

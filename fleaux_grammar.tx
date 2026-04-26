@@ -86,7 +86,7 @@ Atom:
   op=Operator;
 
 ClosureExpression:
-  '(' params=ParameterDeclList ')' ':' rtype=Type '=' body=Expression;
+  generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type '=' body=Expression;
 
 Operator:
   '^' |

@@ -362,6 +362,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             if (!lowered_body) { return tl::unexpected(lowered_body.error()); }
 
             ir::IRClosureExpr closure_ir;
+            closure_ir.generic_params = closure->generic_params;
             closure_ir.params = std::move(params);
             closure_ir.return_type = lower_simple_type(closure->rtype);
             closure_ir.body = lowered_body.value();

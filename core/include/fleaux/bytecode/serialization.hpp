@@ -25,4 +25,10 @@ struct SerializationError {
 [[nodiscard]] auto deserialize_module(const std::vector<std::uint8_t>& buffer)
     -> tl::expected<Module, SerializationError>;
 
+struct ModuleDumpError {
+  std::string message;
+};
+
+// Dump a binary bytecode module to human-readable format
+[[nodiscard]] auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected<void, ModuleDumpError>;
 }  // namespace fleaux::bytecode

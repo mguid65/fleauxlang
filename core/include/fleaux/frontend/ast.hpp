@@ -91,6 +91,7 @@ struct Atom {
 };
 
 struct ClosureExpression {
+  std::vector<std::string> generic_params;
   ParameterDeclList params;
   TypeNode rtype;
   ExpressionBox body;
@@ -230,6 +231,7 @@ struct IRExpr {
 };
 
 struct IRClosureExpr {
+  std::vector<std::string> generic_params;
   std::vector<IRParam> params;
   IRSimpleType return_type;
   IRExprBox body;
