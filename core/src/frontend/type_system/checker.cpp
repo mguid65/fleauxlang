@@ -274,6 +274,75 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   return qualifier.has_value() && *qualifier == "Std" && name == "TypeOf";
 }
 
+[[nodiscard]] auto make_type_var(const std::string& name) -> Type {
+  return Type{
+      .kind = TypeKind::kTypeVar,
+      .nominal_name = name,
+  };
+}
+
+[[nodiscard]] auto make_applied_type(const std::string& name, std::vector<Type> args) -> Type {
+  return Type{
+      .kind = TypeKind::kApplied,
+      .applied_name = name,
+      .applied_args = std::move(args),
+  };
+}
+
+[[nodiscard]] auto symbolic_builtin_overloads(const std::optional<std::string>& qualifier, const std::string& name)
+    -> const FunctionOverloadSet* {
+  if (!is_symbolic_qualifier(qualifier)) { return nullptr; }
+
+  static const FunctionOverloadSet kStdDictCreateOverloads = [] {
+    FunctionOverloadSet overloads;
+    overloads.push_back(FunctionSig{
+        .resolved_symbol_key = "Std.Dict.Create#0",
+        .generic_params = {},
+        .params = {},
+        .return_type = make_applied_type("Dict", {Type{.kind = TypeKind::kAny}, Type{.kind = TypeKind::kAny}}),
+        .is_builtin = true,
+    });
+    overloads.push_back(FunctionSig{
+        .resolved_symbol_key = "Std.Dict.Create#1",
+        .generic_params = {"K", "V"},
+        .params = {{.name = "dict", .type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}), .variadic = false}},
+        .return_type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}),
+        .is_builtin = true,
+    });
+    return overloads;
+  }();
+
+  static const FunctionOverloadSet kStdExitOverloads = [] {
+    FunctionOverloadSet overloads;
+    overloads.push_back(FunctionSig{
+        .resolved_symbol_key = "Std.Exit#0",
+        .generic_params = {},
+        .params = {},
+        .return_type = Type{.kind = TypeKind::kNever},
+        .is_builtin = true,
+    });
+    overloads.push_back(FunctionSig{
+        .resolved_symbol_key = "Std.Exit#1",
+        .generic_params = {},
+        .params = {{.name = "code", .type = Type{.kind = TypeKind::kInt64}, .variadic = false}},
+        .return_type = Type{.kind = TypeKind::kNever},
+        .is_builtin = true,
+    });
+    return overloads;
+  }();
+
+  const auto full_name = qualified_symbol_name(qualifier, name);
+  if (full_name == "Std.Dict.Create") { return &kStdDictCreateOverloads; }
+  if (full_name == "Std.Exit") { return &kStdExitOverloads; }
+  return nullptr;
+}
+
+[[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index, const std::optional<std::string>& qualifier,
+                                                    const std::string& name) -> const FunctionOverloadSet* {
+  if (const auto* overloads = index.resolve_name(qualifier, name); overloads != nullptr) { return overloads; }
+  return symbolic_builtin_overloads(qualifier, name);
+}
+
 [[nodiscard]] auto target_name(const ir::IRCallTarget& target) -> std::optional<std::string> {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
     return name_ref->qualifier.has_value() ? (*name_ref->qualifier + "." + name_ref->name) : name_ref->name;
@@ -284,7 +353,7 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
 [[nodiscard]] auto resolve_signature(const FunctionIndex& index, const ir::IRCallTarget& target)
     -> const FunctionOverloadSet* {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
-    return index.resolve_name(name_ref->qualifier, name_ref->name);
+    return resolve_name_or_symbolic_builtin(index, name_ref->qualifier, name_ref->name);
   }
   return nullptr;
 }
@@ -332,10 +401,69 @@ auto call_shape_matches(const FunctionSig& sig, const std::size_t arg_count) -> 
   return sig.params.size() == arg_count;
 }
 
+auto overload_shapes_overlap(const FunctionSig& lhs, const FunctionSig& rhs) -> bool {
+  const bool lhs_variadic = !lhs.params.empty() && lhs.params.back().variadic;
+  const bool rhs_variadic = !rhs.params.empty() && rhs.params.back().variadic;
+
+  if (!lhs_variadic && !rhs_variadic) { return lhs.params.size() == rhs.params.size(); }
+  if (lhs_variadic && rhs_variadic) { return true; }
+
+  const auto& variadic_sig = lhs_variadic ? lhs : rhs;
+  const auto& fixed_sig = lhs_variadic ? rhs : lhs;
+  const std::size_t variadic_fixed_count = variadic_sig.params.size() - 1U;
+  return fixed_sig.params.size() >= variadic_fixed_count;
+}
+
+auto function_sig_from_let(const ir::IRLet& let) -> FunctionSig {
+  FunctionSig sig;
+  sig.resolved_symbol_key = let.symbol_key.empty() ? declaration_symbol_key(let) : let.symbol_key;
+  sig.generic_params = let.generic_params;
+  sig.is_builtin = let.is_builtin;
+  sig.return_type = from_ir_type(let.return_type);
+  sig.params.reserve(let.params.size());
+  for (const auto& param : let.params) {
+    sig.params.push_back(ParamSig{
+        .name = param.name,
+        .type = from_ir_type(param.type),
+        .variadic = param.type.variadic,
+    });
+  }
+  return sig;
+}
+
 auto validate_supported_overload_sets(const ir::IRProgram& program, const std::vector<ir::IRLet>& imported_typed_lets)
     -> tl::expected<void, type_check::AnalysisError> {
-  (void)program;
-  (void)imported_typed_lets;
+  std::unordered_map<std::string, std::vector<const ir::IRLet*>> builtin_overload_sets;
+  const auto collect_builtin_overloads = [&](const auto& lets) -> void {
+    for (const auto& let : lets) {
+      if (!let.is_builtin) { continue; }
+      builtin_overload_sets[declaration_symbol_key(let)].push_back(&let);
+    }
+  };
+
+  collect_builtin_overloads(imported_typed_lets);
+  collect_builtin_overloads(program.lets);
+
+  for (const auto& [full_name, lets] : builtin_overload_sets) {
+    if (lets.size() <= 1U) { continue; }
+
+    FunctionOverloadSet overloads;
+    overloads.reserve(lets.size());
+    for (const auto* let : lets) { overloads.push_back(function_sig_from_let(*let)); }
+
+    for (std::size_t lhs_index = 0; lhs_index < overloads.size(); ++lhs_index) {
+      for (std::size_t rhs_index = lhs_index + 1U; rhs_index < overloads.size(); ++rhs_index) {
+        if (!overload_shapes_overlap(overloads[lhs_index], overloads[rhs_index])) { continue; }
+        return tl::unexpected(make_error(
+            "Unsupported builtin overload set.",
+            std::format("{} builtin overloads must differ by call shape because VM builtin dispatch does not "
+                        "resolve by argument types. Candidates: {}.",
+                        full_name, overload_candidate_list(full_name, overloads)),
+            lets[lhs_index]->span));
+      }
+    }
+  }
+
   return {};
 }
 

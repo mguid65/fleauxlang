@@ -869,24 +869,27 @@ TEST_CASE("Runtime builtins: stdlib environment helpers", "[runtime]") {
   }
 
   SECTION("Exit validates non-terminating error paths") {
-    REQUIRE_THROWS_WITH(Exit(make_tuple(make_int(1), make_int(2))),
-                        Catch::Matchers::ContainsSubstring("Exit expects 0 or 1 argument"));
-    REQUIRE_THROWS_WITH(Exit(make_float(1.25)), Catch::Matchers::ContainsSubstring("expects an integer value"));
+    REQUIRE_THROWS_WITH(Exit_Void(make_tuple(make_int(1))),
+                        Catch::Matchers::ContainsSubstring("Exit_Void expects 0 arguments"));
+    REQUIRE_THROWS_WITH(Exit_Int64(make_tuple(make_int(1), make_int(2))),
+                        Catch::Matchers::ContainsSubstring("Exit_Int64 expects 1 argument"));
+    REQUIRE_THROWS_WITH(Exit_Int64(make_float(1.25)), Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 }
 
 TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
   SECTION("Dict helpers execute as plain functions") {
-    const Value empty = DictCreate(make_tuple());
+    const Value empty = DictCreate_Void(make_tuple());
     const Value seeded = DictSet(make_tuple(empty, make_string("answer"), make_int(42)));
+    const Value cloned = DictCreate_Dict(seeded);
 
-    REQUIRE(to_double(DictGet(make_tuple(seeded, make_string("answer")))) == 42.0);
-    REQUIRE(to_double(DictGetDefault(make_tuple(seeded, make_string("missing"), make_int(9)))) == 9.0);
-    REQUIRE(as_bool(DictContains(make_tuple(seeded, make_string("answer")))));
+    REQUIRE(to_double(DictGet(make_tuple(cloned, make_string("answer")))) == 42.0);
+    REQUIRE(to_double(DictGetDefault(make_tuple(cloned, make_string("missing"), make_int(9)))) == 9.0);
+    REQUIRE(as_bool(DictContains(make_tuple(cloned, make_string("answer")))));
 
-    const Value keys = DictKeys(seeded);
-    const Value values = DictValues(seeded);
-    const Value entries = DictEntries(seeded);
+    const Value keys = DictKeys(cloned);
+    const Value values = DictValues(cloned);
+    const Value entries = DictEntries(cloned);
     REQUIRE(as_array(keys).Size() == 1U);
     REQUIRE(as_string(array_at(keys, 0)) == "answer");
     REQUIRE(to_double(array_at(values, 0)) == 42.0);
@@ -894,10 +897,10 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
     REQUIRE(as_string(array_at(array_at(entries, 0), 0)) == "answer");
     REQUIRE(to_double(array_at(array_at(entries, 0), 1)) == 42.0);
 
-    const Value erased = DictDelete(make_tuple(seeded, make_string("answer")));
+    const Value erased = DictDelete(make_tuple(cloned, make_string("answer")));
     REQUIRE_FALSE(as_bool(DictContains(make_tuple(erased, make_string("answer")))));
-    REQUIRE(to_double(DictLength(seeded)) == 1.0);
-    REQUIRE(to_double(DictLength(DictClear(seeded))) == 0.0);
+    REQUIRE(to_double(DictLength(cloned)) == 1.0);
+    REQUIRE(to_double(DictLength(DictClear(cloned))) == 0.0);
   }
 
   SECTION("DictMerge overlays values without mutating the base input") {

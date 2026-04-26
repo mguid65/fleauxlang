@@ -360,7 +360,13 @@ inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const 
   return make_float(to_double(unwrap_singleton_arg(std::move(arg))));
 }
 
-[[nodiscard]] inline auto Exit(Value arg) -> Value {
+[[nodiscard]] inline auto Exit_Void(Value arg) -> Value {
+  const auto& arr = arg.TryGetArray();
+  if (!arr || arr->Size() != 0) { throw std::invalid_argument{"Exit_Void expects 0 arguments"}; }
+  std::exit(0);
+}
+
+[[nodiscard]] inline auto Exit_Int64(Value arg) -> Value {
   auto to_exit_code = [](const Value& value) -> int {
     const Int code = as_int_value_strict(value, "Exit code");
     if (code < static_cast<Int>(std::numeric_limits<int>::min()) ||
@@ -370,12 +376,12 @@ inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const 
     return static_cast<int>(code);
   };
 
-  if (arg.HasArray()) {
-    const auto& args = as_array(arg);
-    if (args.Size() == 0) { std::exit(0); }
-    if (args.Size() == 1) { std::exit(to_exit_code(*args.TryGet(0))); }
-    throw std::invalid_argument{"Exit expects 0 or 1 argument"};
+  const auto& arr = arg.TryGetArray();
+  if (arr) {
+    if (arr->Size() != 1) { throw std::invalid_argument{"Exit_Int64 expects 1 argument"}; }
+    std::exit(to_exit_code(*arr->TryGet(0)));
   }
+
   std::exit(to_exit_code(arg));
 }
 

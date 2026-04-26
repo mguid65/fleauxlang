@@ -67,13 +67,18 @@ namespace fleaux::runtime {
   return Value{merge_dict_objects(as_object(base_dict), as_object(overlay_dict))};
 }
 
-// arg = () -> {}  or  (dict,) -> clone(dict)
-[[nodiscard]] inline auto DictCreate(Value arg) -> Value {
+// arg = () -> {}
+[[nodiscard]] inline auto DictCreate_Void(Value arg) -> Value {
   const auto& arr = arg.TryGetArray();
-  if (arr && arr->Size() == 0) { return Value{Object{}}; }
+  if (!arr || arr->Size() != 0) { throw std::invalid_argument{"DictCreate_Void expects 0 arguments"}; }
+  return Value{Object{}};
+}
 
+// arg = (dict,) or dict -> clone(dict)
+[[nodiscard]] inline auto DictCreate_Dict(Value arg) -> Value {
+  const auto& arr = arg.TryGetArray();
   if (arr) {
-    if (arr->Size() != 1) { throw std::invalid_argument{"DictCreate expects 0 or 1 arguments"}; }
+    if (arr->Size() != 1) { throw std::invalid_argument{"DictCreate_Dict expects 1 argument"}; }
     return Value{as_object(*arr->TryGet(0))};
   }
 

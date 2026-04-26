@@ -44,7 +44,8 @@ enum class BuiltinId : std::uint16_t {
   Type,
   Input,
   Help,
-  Exit,
+  ExitVoid,
+  ExitInt64,
   Cwd,
   OSEnv,
   OSHasEnv,
@@ -120,7 +121,8 @@ enum class BuiltinId : std::uint16_t {
   ArrayGetAtND,
   ArraySetAtND,
   ArrayReshapeND,
-  DictCreate,
+  DictCreateVoid,
+  DictCreateDict,
   DictSet,
   DictGet,
   DictGetDefault,
@@ -269,6 +271,7 @@ enum class BuiltinId : std::uint16_t {
 struct BuiltinSpec {
   BuiltinId id;
   std::string_view name;
+  std::string_view symbol_key{};
 };
 
 struct ConstantBuiltinSpec {
@@ -313,7 +316,8 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{BuiltinId::Type, "Std.Type"},
     BuiltinSpec{BuiltinId::Input, "Std.Input"},
     BuiltinSpec{BuiltinId::Help, "Std.Help"},
-    BuiltinSpec{BuiltinId::Exit, "Std.Exit"},
+    BuiltinSpec{BuiltinId::ExitVoid, "Std.Exit", "Std.Exit#0"},
+    BuiltinSpec{BuiltinId::ExitInt64, "Std.Exit", "Std.Exit#1"},
     BuiltinSpec{BuiltinId::Cwd, "Std.OS.Cwd"},
     BuiltinSpec{BuiltinId::OSEnv, "Std.OS.Env"},
     BuiltinSpec{BuiltinId::OSHasEnv, "Std.OS.HasEnv"},
@@ -389,7 +393,8 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{BuiltinId::ArrayGetAtND, "Std.Array.GetAtND"},
     BuiltinSpec{BuiltinId::ArraySetAtND, "Std.Array.SetAtND"},
     BuiltinSpec{BuiltinId::ArrayReshapeND, "Std.Array.ReshapeND"},
-    BuiltinSpec{BuiltinId::DictCreate, "Std.Dict.Create"},
+    BuiltinSpec{BuiltinId::DictCreateVoid, "Std.Dict.Create", "Std.Dict.Create#0"},
+    BuiltinSpec{BuiltinId::DictCreateDict, "Std.Dict.Create", "Std.Dict.Create#1"},
     BuiltinSpec{BuiltinId::DictSet, "Std.Dict.Set"},
     BuiltinSpec{BuiltinId::DictGet, "Std.Dict.Get"},
     BuiltinSpec{BuiltinId::DictGetDefault, "Std.Dict.GetDefault"},
@@ -631,6 +636,14 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
     if (spec.name == name) { return spec.id; }
   }
   return std::nullopt;
+}
+
+[[nodiscard]] constexpr auto builtin_id_from_symbol_key(const std::string_view symbol_key) -> std::optional<BuiltinId> {
+  for (const auto& spec : kBuiltinSpecs) {
+    const auto effective_symbol_key = spec.symbol_key.empty() ? spec.name : spec.symbol_key;
+    if (effective_symbol_key == symbol_key) { return spec.id; }
+  }
+  return builtin_id_from_name(symbol_key);
 }
 
 [[nodiscard]] constexpr auto builtin_name(const BuiltinId id) -> std::string_view {

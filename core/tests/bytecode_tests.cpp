@@ -152,6 +152,13 @@ TEST_CASE("VM builtin catalog stays in sync with Std.fleaux", "[bytecode]") {
   REQUIRE(vm_catalog_constant_names() == parse_std_declared_names(false));
 }
 
+TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecode][builtins][overload]") {
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Dict.Create#0") == fleaux::vm::BuiltinId::DictCreateVoid);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Dict.Create#1") == fleaux::vm::BuiltinId::DictCreateDict);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#0") == fleaux::vm::BuiltinId::ExitVoid);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#1") == fleaux::vm::BuiltinId::ExitInt64);
+}
+
 // ---------------------------------------------------------------------------
 // Core pipeline: (4, 5) -> Std.Add -> Std.Println
 // Expected codegen:
@@ -218,6 +225,37 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overlo
   REQUIRE(called_user_indices.size() == 2U);
   REQUIRE(called_user_indices[0] == 0);
   REQUIRE(called_user_indices[1] == 1);
+}
+
+TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib builtin overload", "[bytecode][builtins][overload]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+      "let Std.Dict.Create<K, V>(dict: Dict(K, V)): Dict(K, V) :: __builtin__;\n"
+      "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+      "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+      "() -> Std.Dict.Create;\n"
+      "() -> MakeDict -> Std.Dict.Create;\n",
+      "bytecode_builtin_overloads.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  std::vector<fleaux::vm::BuiltinId> called_builtin_ids;
+  const auto collect_builtins = [&](const auto& instructions) {
+    for (const auto& instruction : instructions) {
+      if (instruction.opcode != fleaux::bytecode::Opcode::kCallBuiltin) { continue; }
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(instruction.operand);
+      REQUIRE(builtin_id.has_value());
+      called_builtin_ids.push_back(*builtin_id);
+    }
+  };
+
+  collect_builtins(result->instructions);
+  for (const auto& function : result->functions) { collect_builtins(function.instructions); }
+
+  REQUIRE(std::ranges::find(called_builtin_ids, fleaux::vm::BuiltinId::DictCreateVoid) != called_builtin_ids.end());
+  REQUIRE(std::ranges::find(called_builtin_ids, fleaux::vm::BuiltinId::DictCreateDict) != called_builtin_ids.end());
 }
 
 TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand", "[bytecode]") {

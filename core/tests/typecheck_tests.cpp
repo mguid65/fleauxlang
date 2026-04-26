@@ -1336,6 +1336,43 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[ty
     REQUIRE(lowered.has_value());
   }
 
+  SECTION("Annotated analysis records the resolved builtin overload symbol key") {
+    const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+        "let Std.Dict.Create<K, V>(dict: Dict(K, V)): Dict(K, V) :: __builtin__;\n"
+        "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+        "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+        "() -> Std.Dict.Create;\n"
+        "() -> MakeDict -> Std.Dict.Create;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4c_dict_create_overload_annotation_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const std::unordered_set<std::string> imported_symbols;
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
+    REQUIRE(analyzed.has_value());
+    REQUIRE(analyzed->expressions.size() == 2U);
+
+    const auto* nullary_flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&analyzed->expressions[0].expr.node);
+    REQUIRE(nullary_flow != nullptr);
+    const auto* nullary_name = std::get_if<fleaux::frontend::ir::IRNameRef>(&nullary_flow->rhs);
+    REQUIRE(nullary_name != nullptr);
+    REQUIRE(nullary_name->resolved_symbol_key.has_value());
+    REQUIRE(*nullary_name->resolved_symbol_key == "Std.Dict.Create#0");
+
+    const auto* clone_flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&analyzed->expressions[1].expr.node);
+    REQUIRE(clone_flow != nullptr);
+    const auto* clone_name = std::get_if<fleaux::frontend::ir::IRNameRef>(&clone_flow->rhs);
+    REQUIRE(clone_name != nullptr);
+    REQUIRE(clone_name->resolved_symbol_key.has_value());
+    REQUIRE(*clone_name->resolved_symbol_key == "Std.Dict.Create#1");
+  }
+
   SECTION("Bare Std.Dict.Create reference is rejected because the overload set is ambiguous") {
     const std::string src =
         "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
@@ -1354,6 +1391,24 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[ty
     REQUIRE(lowered.error().hint.has_value());
     REQUIRE(lowered.error().hint->find("multiple overloads") != std::string::npos);
   }
+}
+
+TEST_CASE("Type checker rejects builtin overloads that rely on type-only dispatch", "[typecheck][stage4c][builtins][overload]") {
+  const std::string src =
+      "let Std.Make<T>(x: T): T :: __builtin__;\n"
+      "let Std.Make(x: String): String :: __builtin__;\n"
+      "(\"ok\") -> Std.Make;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_stage4c_builtin_overload_shape_rejects.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Unsupported builtin overload set") != std::string::npos);
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("must differ by call shape") != std::string::npos);
 }
 
 TEST_CASE("Type checker matrix: Stage-4d Std.Match semantics", "[typecheck][stage4d][match]") {
