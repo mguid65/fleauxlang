@@ -825,6 +825,25 @@ TEST_CASE("Runtime builtins: Std.Type", "[runtime]") {
   REQUIRE(as_string(callable | Type) == "Callable");
 }
 
+TEST_CASE("Runtime value formatting helpers cover all runtime value kinds", "[runtime][format]") {
+  REQUIRE(format_value_plain(make_int(42)) == "42");
+  REQUIRE(format_value_plain(make_float(3.5)) == "3.5");
+  REQUIRE(format_value_plain(make_string("hello")) == "hello");
+  REQUIRE(format_value_plain(make_null()) == "Null");
+  REQUIRE(format_value_plain(make_tuple(make_int(1), make_int(2))) == "(1, 2)");
+
+  Value dict{Object{}};
+  REQUIRE(format_value_plain(dict) == "{}");
+
+  Value generic{mguid::NodeTypeTag::Generic};
+  REQUIRE(format_value_plain(generic) == "<generic>");
+
+  REQUIRE(format_value_with_spec(make_null(), ">6") == "  Null");
+  REQUIRE(format_value_with_spec(make_tuple(make_int(1), make_int(2)), ">8") == "  (1, 2)");
+  REQUIRE(format_value_with_spec(dict, "^4") == " {} ");
+  REQUIRE(format_value_with_spec(generic, "<10") == "<generic> ");
+}
+
 TEST_CASE("Runtime builtins: stdlib environment helpers", "[runtime]") {
   SECTION("GetArgs returns the shared process arguments") {
     auto set_args = [](const std::vector<std::string>& args) {

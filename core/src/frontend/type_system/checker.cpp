@@ -305,7 +305,9 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
     overloads.push_back(FunctionSig{
         .resolved_symbol_key = "Std.Dict.Create#1",
         .generic_params = {"K", "V"},
-        .params = {{.name = "dict", .type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}), .variadic = false}},
+        .params = {{.name = "dict",
+                    .type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}),
+                    .variadic = false}},
         .return_type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}),
         .is_builtin = true,
     });
@@ -337,7 +339,8 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   return nullptr;
 }
 
-[[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index, const std::optional<std::string>& qualifier,
+[[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index,
+                                                    const std::optional<std::string>& qualifier,
                                                     const std::string& name) -> const FunctionOverloadSet* {
   if (const auto* overloads = index.resolve_name(qualifier, name); overloads != nullptr) { return overloads; }
   return symbolic_builtin_overloads(qualifier, name);

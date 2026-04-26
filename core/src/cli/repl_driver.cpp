@@ -78,6 +78,16 @@ auto make_repl_style_provider() -> StyleSpanProvider {
         std::string_view{"True"},
         std::string_view{"False"},
     };
+    constexpr std::array<char, 8> kOtherSymbols = {
+        '(',
+        ')',
+        ',',
+        ';',
+        ':',
+        '=',
+        '|',
+        '.'
+    };
 
     auto is_ident_start = [](const char ch) -> bool {
       const auto uch = static_cast<unsigned char>(ch);
@@ -92,6 +102,9 @@ auto make_repl_style_provider() -> StyleSpanProvider {
     };
     auto is_literal = [&](const std::string_view token) -> bool {
       return std::ranges::any_of(kLiterals, [&](const auto& literal) -> bool { return literal == token; });
+    };
+    auto is_other_symbol = [&](const char ch) {
+      return std::ranges::any_of(kOtherSymbols, [&](const auto& symbol) -> bool { return symbol == ch; });
     };
 
     std::vector<StyleSpan> spans;
@@ -151,9 +164,7 @@ auto make_repl_style_provider() -> StyleSpanProvider {
         continue;
       }
 
-      // TODO: For tail, when  || start, switch to a USet of chars
-      if ((ch == '-' && (cursor + 1) < text.size() && text[cursor + 1] == '>') || ch == '(' || ch == ')' || ch == ',' ||
-          ch == ';' || ch == ':' || ch == '=' || ch == '|' || ch == '.') {
+      if ((ch == '-' && (cursor + 1) < text.size() && text[cursor + 1] == '>') || is_other_symbol(ch)) {
         const std::size_t length = (ch == '-') ? 2U : 1U;
         spans.push_back(StyleSpan{.start = cursor, .length = length, .token_class = TokenClass::kOperator});
         cursor += length;
@@ -174,7 +185,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
   const bool use_color = repl_color_enabled(color_enabled);
   LineEditor line_editor(
       LineEditorConfig{.style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{}});
-  const fleaux::vm::Runtime runtime;
+  constexpr fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session(process_args);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
     if (const auto result = session.run_snippet(snippet, std::cout); !result) { return result.error(); }

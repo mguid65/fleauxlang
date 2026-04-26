@@ -57,7 +57,8 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--inspect] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] [-- "
+  return "usage: fleaux [--repl] [--no-run] [--inspect] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] "
+         "[-- "
          "<arg1> <arg2> ...]";
 }
 
@@ -82,7 +83,6 @@ void print_help() {
             << "  - --inspect expects a .fleaux.bc file (or a .fleaux file with sibling .fleaux.bc)\n"
             << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
 }
-
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
             const bool write_bytecode_cache) -> tl::expected<void, CliError> {
@@ -184,9 +184,7 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
 auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
-  if (argc < 2) {
-    options.repl = true;
-  }
+  if (argc < 2) { options.repl = true; }
 
   bool runtime_args_mode = false;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {

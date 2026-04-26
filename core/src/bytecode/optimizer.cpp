@@ -208,8 +208,7 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
   }
 
   const auto* lhs_i64 = std::get_if<std::int64_t>(&left.data);
-  const auto* rhs_i64 = std::get_if<std::int64_t>(&right.data);
-  if (lhs_i64 != nullptr && rhs_i64 != nullptr) {
+  if (const auto* rhs_i64 = std::get_if<std::int64_t>(&right.data); lhs_i64 != nullptr && rhs_i64 != nullptr) {
     switch (opcode) {
       case Opcode::kAdd: {
         const bool overflow = (*rhs_i64 > 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() - *rhs_i64) ||
@@ -225,8 +224,8 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
       }
       case Opcode::kMul: {
         if (*lhs_i64 == 0 || *rhs_i64 == 0) { return ConstValue{.data = static_cast<std::int64_t>(0)}; }
-        const auto result = static_cast<long double>(*lhs_i64) * static_cast<long double>(*rhs_i64);
-        if (result > static_cast<long double>(std::numeric_limits<std::int64_t>::max()) ||
+        if (const auto result = static_cast<long double>(*lhs_i64) * static_cast<long double>(*rhs_i64);
+            result > static_cast<long double>(std::numeric_limits<std::int64_t>::max()) ||
             result < static_cast<long double>(std::numeric_limits<std::int64_t>::min())) {
           return std::nullopt;
         }
@@ -316,8 +315,8 @@ void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, cons
     if (index + 3 < instrs.size() && instrs[index].opcode == Opcode::kPushConst &&
         instrs[index + 1].opcode == Opcode::kPushConst && instrs[index + 2].opcode == Opcode::kPushConst &&
         instrs[index + 3].opcode == Opcode::kSelect) {
-      const auto& cond = constants[static_cast<std::size_t>(instrs[index].operand)];
-      if (const auto* condition = std::get_if<bool>(&cond.data); condition != nullptr) {
+      const auto& [data] = constants[static_cast<std::size_t>(instrs[index].operand)];
+      if (const auto* condition = std::get_if<bool>(&data); condition != nullptr) {
         const auto chosen_operand = *condition ? instrs[index + 1].operand : instrs[index + 2].operand;
         propagated.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = chosen_operand});
         index += 4;

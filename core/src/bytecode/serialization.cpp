@@ -223,23 +223,23 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
-    for (const auto& fn : module.functions) {
-      write_string(buffer, fn.name);
-      write_pod(buffer, fn.arity);
-      write_pod(buffer, fn.has_variadic_tail);
-      write_pod(buffer, fn.is_import_placeholder);
-      write_instruction_stream(buffer, fn.instructions);
+    for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions] : module.functions) {
+      write_string(buffer, name);
+      write_pod(buffer, arity);
+      write_pod(buffer, has_variadic_tail);
+      write_pod(buffer, is_import_placeholder);
+      write_instruction_stream(buffer, instructions);
     }
   }
 
   {
     const auto count = static_cast<std::uint32_t>(module.closures.size());
     write_pod(buffer, count);
-    for (const auto& closure : module.closures) {
-      write_pod(buffer, closure.function_index);
-      write_pod(buffer, closure.capture_count);
-      write_pod(buffer, closure.declared_arity);
-      write_pod(buffer, closure.declared_has_variadic_tail);
+    for (const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] : module.closures) {
+      write_pod(buffer, function_index);
+      write_pod(buffer, capture_count);
+      write_pod(buffer, declared_arity);
+      write_pod(buffer, declared_has_variadic_tail);
     }
   }
 

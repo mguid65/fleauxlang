@@ -427,8 +427,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               if (!builtin_id.has_value()) {
                 return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + target_name + "'."));
               }
-              out.push_back(
-                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+              out.push_back(Instruction{.opcode = Opcode::kMakeBuiltinFuncRef,
+                                        .operand = fleaux::vm::builtin_operand(*builtin_id)});
               return {};
             }
 
@@ -437,8 +437,8 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
               if (!builtin_id.has_value()) {
                 return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + alias_it->second + "'."));
               }
-              out.push_back(
-                  Instruction{.opcode = Opcode::kMakeBuiltinFuncRef, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+              out.push_back(Instruction{.opcode = Opcode::kMakeBuiltinFuncRef,
+                                        .operand = fleaux::vm::builtin_operand(*builtin_id)});
               return {};
             }
 

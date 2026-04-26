@@ -196,7 +196,8 @@ inline void flatten_into(const Value& value, Array& out) {
   }
 
   if (const auto& target_row = as_array(*grid.TryGet(row_idx)); col_idx >= target_row.Size()) {
-    throw std::out_of_range(std::format("ArraySetAt2D: col {} out of range for row size {}", col_idx, target_row.Size()));
+    throw std::out_of_range(
+        std::format("ArraySetAt2D: col {} out of range for row size {}", col_idx, target_row.Size()));
   }
 
   Array out_grid;
@@ -233,7 +234,8 @@ inline void flatten_into(const Value& value, Array& out) {
     throw std::out_of_range(std::format("ArrayFill: start_index {} exceeds tuple size {}", start_idx, src.Size()));
   }
   if (const std::size_t max_len = src.Size() - start_idx; fill_len > max_len) {
-    throw std::out_of_range(std::format("ArrayFill: length {} exceeds available range {} from start {}", fill_len, max_len, start_idx));
+    throw std::out_of_range(
+        std::format("ArrayFill: length {} exceeds available range {} from start {}", fill_len, max_len, start_idx));
   }
   const std::size_t end_idx = start_idx + fill_len;
 
@@ -302,7 +304,8 @@ inline void flatten_into(const Value& value, Array& out) {
   for (std::size_t row_index = row_start; row_index < row_end; ++row_index) {
     const auto& row = as_array(*grid.TryGet(row_index));
     if (col_end > row.Size()) {
-      throw std::out_of_range(std::format("ArraySlice2D: col_end {} exceeds row {} size {}", col_end, row_index, row.Size()));
+      throw std::out_of_range(
+          std::format("ArraySlice2D: col_end {} exceeds row {} size {}", col_end, row_index, row.Size()));
     }
 
     Array new_row;
@@ -328,7 +331,8 @@ inline void flatten_into(const Value& value, Array& out) {
     throw std::invalid_argument("ArrayReshape: rows * cols overflows size_t");
   }
   if (const std::size_t expected_size = num_rows * num_cols; flat.Size() != expected_size) {
-    throw std::invalid_argument(std::format("ArrayReshape: flat_array has {} elements, but {}x{} requires {}", flat.Size(), num_rows, num_cols, expected_size));
+    throw std::invalid_argument(std::format("ArrayReshape: flat_array has {} elements, but {}x{} requires {}",
+                                            flat.Size(), num_rows, num_cols, expected_size));
   }
 
   Array out_grid;
@@ -381,7 +385,8 @@ inline void flatten_into(const Value& value, Array& out) {
     const auto& arr = as_array(*current);
     const std::size_t idx = checked_index(*indices.TryGet(depth), "ArrayGetAtND index");
     if (idx >= arr.Size()) {
-      throw std::out_of_range(std::format("ArrayGetAtND: index {} out of range at depth {} for size {}", idx, depth, arr.Size()));
+      throw std::out_of_range(
+          std::format("ArrayGetAtND: index {} out of range at depth {} for size {}", idx, depth, arr.Size()));
     }
     current = &*arr.TryGet(idx);
   }
@@ -422,7 +427,8 @@ inline void flatten_into(const Value& value, Array& out) {
   }
 
   if (flat.Size() != total) {
-    throw std::invalid_argument(std::format("ArrayReshapeND: flat array size {} does not match shape product {}", flat.Size(), total));
+    throw std::invalid_argument(
+        std::format("ArrayReshapeND: flat array size {} does not match shape product {}", flat.Size(), total));
   }
 
   if (dims.empty()) {

@@ -42,11 +42,8 @@ inline auto repl_let_internal_key(const frontend::ir::IRLet& let) -> std::string
 }
 
 inline auto repl_normalize_type_name(const std::string& name,
-                                     const std::unordered_map<std::string, std::size_t>& generic_slots)
-    -> std::string {
-  if (const auto it = generic_slots.find(name); it != generic_slots.end()) {
-    return "G" + std::to_string(it->second);
-  }
+                                     const std::unordered_map<std::string, std::size_t>& generic_slots) -> std::string {
+  if (const auto it = generic_slots.find(name); it != generic_slots.end()) { return "G" + std::to_string(it->second); }
   return name;
 }
 
@@ -125,8 +122,7 @@ inline auto repl_let_ordinal(const frontend::ir::IRLet& let) -> std::optional<st
   const std::string internal_key = repl_let_internal_key(let);
   if (!internal_key.starts_with(public_symbol + "#")) { return std::nullopt; }
 
-  const std::string_view ordinal_text =
-      std::string_view{internal_key}.substr(public_symbol.size() + 1U);
+  const std::string_view ordinal_text = std::string_view{internal_key}.substr(public_symbol.size() + 1U);
   std::size_t ordinal = 0;
   const auto* begin = ordinal_text.data();
   const auto* end = begin + ordinal_text.size();
@@ -179,9 +175,8 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
 
     auto& symbol_slots = slots_by_symbol[public_symbol];
     const auto existing = symbol_slots.signature_to_ordinal.find(let_signatures[index]);
-    const std::size_t ordinal = existing != symbol_slots.signature_to_ordinal.end()
-                                    ? existing->second
-                                    : symbol_slots.next_ordinal++;
+    const std::size_t ordinal =
+        existing != symbol_slots.signature_to_ordinal.end() ? existing->second : symbol_slots.next_ordinal++;
     symbol_slots.signature_to_ordinal[let_signatures[index]] = ordinal;
     let.symbol_key = public_symbol + "#" + std::to_string(ordinal);
     normalized_lets.push_back(std::move(let));
@@ -204,8 +199,8 @@ inline auto ensure_repl_imports_supported(const frontend::ir::IRProgram& program
 inline auto parse_and_analyze_repl_text(const std::string& source_text, const std::string& source_name,
                                         const std::vector<frontend::ir::IRLet>& prior_session_lets)
     -> tl::expected<frontend::ir::IRProgram, ReplSessionError> {
-  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(
-      source_text, source_name, make_repl_session_error);
+  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(source_text, source_name,
+                                                                                     make_repl_session_error);
   if (!lowered) { return tl::unexpected(lowered.error()); }
 
   if (auto imports_ok = ensure_repl_imports_supported(*lowered); !imports_ok) {
@@ -253,4 +248,3 @@ inline auto merge_repl_session_lets(const std::vector<frontend::ir::IRLet>& prio
 }
 
 }  // namespace fleaux::vm::detail
-

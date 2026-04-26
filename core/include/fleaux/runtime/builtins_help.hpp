@@ -158,31 +158,31 @@ struct ParsedDoc {
     result += brief + "\n";
   }
 
-    if (!params.empty()) {
-      std::vector<std::string> param_names;
-      param_names.reserve(params.size());
-      for (const auto& param_name : params | std::views::keys) { param_names.push_back(param_name); }
-      std::ranges::sort(param_names);
+  if (!params.empty()) {
+    std::vector<std::string> param_names;
+    param_names.reserve(params.size());
+    for (const auto& param_name : params | std::views::keys) { param_names.push_back(param_name); }
+    std::ranges::sort(param_names);
 
-      result += "\nParameters:\n";
-      for (const auto& param_name : param_names) {
-        result += "- " + param_name;
-        if (const auto it_param = params.find(param_name); it_param != params.end() && !it_param->second.empty()) {
-          result += ": " + it_param->second;
-        }
-        result += "\n";
+    result += "\nParameters:\n";
+    for (const auto& param_name : param_names) {
+      result += "- " + param_name;
+      if (const auto it_param = params.find(param_name); it_param != params.end() && !it_param->second.empty()) {
+        result += ": " + it_param->second;
       }
+      result += "\n";
     }
+  }
 
-    if (!returns.empty()) {
-      result += "\nReturns:\n";
-      result += returns + "\n";
-    }
+  if (!returns.empty()) {
+    result += "\nReturns:\n";
+    result += returns + "\n";
+  }
 
-    if (!notes.empty()) {
-      result += "\nNotes:\n";
-      for (const auto& note : notes) { result += "- " + note + "\n"; }
-    }
+  if (!notes.empty()) {
+    result += "\nNotes:\n";
+    for (const auto& note : notes) { result += "- " + note + "\n"; }
+  }
 
   return make_string(result);
 }

@@ -58,8 +58,7 @@ auto check_no_implicit_float_promotion(const std::vector<Type>& args, std::strin
   if ((combined_mask & kNumericOther) != 0U) { return true; }
 
   const bool has_float = (combined_mask & kNumericFloat64) != 0U;
-  const bool has_integer = (combined_mask & (kNumericInt64 | kNumericUInt64)) != 0U;
-  if (!has_float || !has_integer) { return true; }
+  if (const bool has_integer = (combined_mask & (kNumericInt64 | kNumericUInt64)) != 0U; !has_float || !has_integer) { return true; }
 
   error_message = full_name + " does not implicitly cast Int64 or UInt64 to Float64. Use Std.ToFloat64 explicitly.";
   return false;

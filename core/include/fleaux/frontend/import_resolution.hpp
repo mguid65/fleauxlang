@@ -20,7 +20,8 @@ struct ResolvedModulePaths {
   return !path.empty() && std::filesystem::exists(path);
 }
 
-[[nodiscard]] inline auto canonical_if_exists(const std::filesystem::path& path) -> std::optional<std::filesystem::path> {
+[[nodiscard]] inline auto canonical_if_exists(const std::filesystem::path& path)
+    -> std::optional<std::filesystem::path> {
   if (!path_exists(path)) { return std::nullopt; }
   return std::filesystem::weakly_canonical(path);
 }
@@ -35,7 +36,8 @@ struct ResolvedModulePaths {
   return bytecode_path;
 }
 
-[[nodiscard]] inline auto source_path_for_bytecode(const std::filesystem::path& bytecode_path) -> std::filesystem::path {
+[[nodiscard]] inline auto source_path_for_bytecode(const std::filesystem::path& bytecode_path)
+    -> std::filesystem::path {
   return bytecode_path.parent_path() / bytecode_path.stem();
 }
 
@@ -84,4 +86,3 @@ struct ResolvedModulePaths {
 }
 
 }  // namespace fleaux::frontend::import_resolution
-

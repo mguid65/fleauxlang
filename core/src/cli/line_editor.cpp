@@ -85,9 +85,7 @@ auto is_token_word_char(const char ch) -> bool {
   return std::isalnum(uch) != 0 || ch == '_';
 }
 
-auto is_token_space_char(const char ch) -> bool {
-  return std::isspace(static_cast<unsigned char>(ch)) != 0;
-}
+auto is_token_space_char(const char ch) -> bool { return std::isspace(static_cast<unsigned char>(ch)) != 0; }
 
 auto token_class_for_char(const char ch) -> int {
   if (is_token_space_char(ch)) { return 0; }
@@ -103,15 +101,11 @@ auto decode_csi_with_params(const std::string& params, const char final_char) ->
   }
 
   if (final_char == 'D') {
-    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
-      return {.key = InputKey::kTokenLeft};
-    }
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") { return {.key = InputKey::kTokenLeft}; }
     return {.key = InputKey::kArrowLeft};
   }
   if (final_char == 'C') {
-    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
-      return {.key = InputKey::kTokenRight};
-    }
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") { return {.key = InputKey::kTokenRight}; }
     return {.key = InputKey::kArrowRight};
   }
   if (final_char == 'A') { return {.key = InputKey::kArrowUp}; }
@@ -266,7 +260,9 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
   std::cout << '\r' << prompt;
   render_with_styles(editor.buffer(), editor.config().style_span_provider);
   std::cout << "\x1b[K";
-  if (const auto tail_size = editor.buffer().size() - editor.cursor(); tail_size > 0) { std::cout << "\x1b[" << tail_size << 'D'; }
+  if (const auto tail_size = editor.buffer().size() - editor.cursor(); tail_size > 0) {
+    std::cout << "\x1b[" << tail_size << 'D';
+  }
   std::cout.flush();
 }
 
@@ -419,7 +415,6 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
 
     case InputKey::kTokenBackspace:
       return {.needs_redraw = delete_token_left()};
-
 
     case InputKey::kHome:
       if (cursor_ == 0) { return {}; }

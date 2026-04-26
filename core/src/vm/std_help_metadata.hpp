@@ -58,7 +58,9 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
 
   std::filesystem::path cursor = std::filesystem::current_path();
   while (true) {
-    if (const auto candidate = cursor / "Std.fleaux"; std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
+    if (const auto candidate = cursor / "Std.fleaux"; std::filesystem::exists(candidate)) {
+      return std::filesystem::weakly_canonical(candidate);
+    }
     if (cursor == cursor.root_path()) { break; }
     cursor = cursor.parent_path();
   }

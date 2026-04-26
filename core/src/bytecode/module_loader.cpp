@@ -277,8 +277,8 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     }
 
     if (i < imported_module_paths.size()) {
-      const auto& import_paths = imported_module_paths[i];
-      if (!import_paths.source.has_value()) { continue; }
+      const auto& [source, bytecode] = imported_module_paths[i];
+      if (!source.has_value()) { continue; }
 
       const auto make_import_parse_error =
           [](const std::string& message, const std::optional<std::string>& hint,
@@ -287,10 +287,10 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
       };
 
       const auto imported_ir = fleaux::frontend::source_loader::parse_file_to_lowered_ir<ModuleLoadError>(
-          *import_paths.source, make_import_parse_error);
+          *source, make_import_parse_error);
       if (!imported_ir) {
         return finish(
-            tl::unexpected(make_error("Failed to seed typed imports from source: " + import_paths.source->string() +
+            tl::unexpected(make_error("Failed to seed typed imports from source: " + source->string() +
                                       " (" + imported_ir.error().message + ")")));
       }
 
@@ -314,7 +314,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
       for (const auto& exported_key : exported_keys) {
         if (seeded_export_names.contains(exported_key)) { continue; }
         return finish(tl::unexpected(
-            make_error("Failed to seed typed imports from source: " + import_paths.source->string() +
+            make_error("Failed to seed typed imports from source: " + source->string() +
                        " (Missing exported declaration for typed import seed: '" + exported_key + "'.)")));
       }
     }

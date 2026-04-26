@@ -142,6 +142,8 @@ if(FLEAUX_PCRE2_TARGET)
 
   set(FLEAUX_MAIN_SOURCES
           src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
+          include/fleaux/runtime/builtins_parallel.hpp
+          include/fleaux/runtime/builtins_math.hpp
   )
 
   add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
