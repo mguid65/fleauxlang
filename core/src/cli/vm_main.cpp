@@ -22,10 +22,10 @@ struct CliOptions {
   bool no_run = false;
   bool optimize = false;
   bool write_bytecode_cache = true;
-  bool inspect = false;
   bool no_color = false;
   bool repl = false;
   bool show_help = false;
+  bool disassemble = false;
 };
 
 struct CliError {
@@ -57,7 +57,7 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--inspect] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] "
+  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] "
          "[-- "
          "<arg1> <arg2> ...]";
 }
@@ -71,17 +71,8 @@ void print_help() {
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
-            << "  --inspect              Print header/dependency/export info for a .fleaux.bc module and exit\n"
-            << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n"
-            << "\n"
-            << "Notes:\n"
-            << "  - VM mode writes/refreshes .fleaux.bc cache files by default\n"
-            << "  - .fleaux.bc entry modules are supported for execution and --inspect\n"
-            << "  - REPL imports are symbolic-only: Std, StdBuiltins\n"
-            << "  - In REPL, use :help (or :?) to list REPL commands\n"
-            << "  - If no source is provided, defaults to test.fleaux\n"
-            << "  - --inspect expects a .fleaux.bc file (or a .fleaux file with sibling .fleaux.bc)\n"
-            << "  - Arguments after '--' are forwarded to runtime entrypoints\n";
+            << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
+            << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n";
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
@@ -108,7 +99,9 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
 
   std::vector<char*> argv_ptrs;
   argv_ptrs.reserve(args_storage.size());
-  for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
+  for (auto& arg : args_storage) {
+    argv_ptrs.push_back(arg.data());
+  }
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 
   constexpr fleaux::vm::Runtime runtime;
@@ -123,35 +116,11 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   return {};
 }
 
-void print_module_summary(const fleaux::bytecode::Module& module) {
-  std::cout << "module: " << module.header.module_name << '\n';
-  std::cout << "source_path: " << module.header.source_path << '\n';
-  std::cout << "source_hash: " << module.header.source_hash << '\n';
-  std::cout << "payload_checksum: " << module.header.payload_checksum << '\n';
-  std::cout << "optimization_mode: " << static_cast<int>(module.header.optimization_mode) << '\n';
-
-  std::cout << "dependencies(" << module.dependencies.size() << "):\n";
-  for (const auto& dependency : module.dependencies) {
-    std::cout << "  - " << dependency.module_name;
-    if (dependency.is_symbolic) { std::cout << " [symbolic]"; }
-    std::cout << '\n';
-  }
-
-  std::cout << "exports(" << module.exports.size() << "):\n";
-  for (const auto& exported_symbol : module.exports) {
-    std::cout << "  - " << exported_symbol.name << " kind="
-              << (exported_symbol.kind == fleaux::bytecode::ExportKind::kFunction ? "function" : "builtin_alias")
-              << " index=" << exported_symbol.index;
-    if (exported_symbol.kind == fleaux::bytecode::ExportKind::kBuiltinAlias) {
-      std::cout << " builtin=" << exported_symbol.builtin_name;
-    }
-    std::cout << '\n';
-  }
-}
-
-auto run_inspect(const std::filesystem::path& source_or_bytecode) -> tl::expected<void, CliError> {
+auto run_disassembly(const std::filesystem::path& source_or_bytecode) -> tl::expected<void, CliError> {
   std::filesystem::path bytecode_path = source_or_bytecode;
-  if (bytecode_path.extension() != ".bc") { bytecode_path += ".bc"; }
+  if (bytecode_path.extension() != ".bc") {
+    bytecode_path += ".bc";
+  }
 
   std::ifstream in(bytecode_path, std::ios::binary);
   if (!in) {
@@ -172,7 +141,13 @@ auto run_inspect(const std::filesystem::path& source_or_bytecode) -> tl::expecte
     });
   }
 
-  print_module_summary(*module);
+  if (const auto& result = fleaux::bytecode::disassemble_module(*module, std::cout); !result) {
+    return tl::unexpected(CliError{
+        .message = result.error().message,
+        .hint = "An unknown error occurred during disassembly.",
+        .span = std::nullopt,
+    });
+  }
   return {};
 }
 
@@ -184,7 +159,9 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
 auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
-  if (argc < 2) { options.repl = true; }
+  if (argc < 2) {
+    options.repl = true;
+  }
 
   bool runtime_args_mode = false;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
@@ -219,11 +196,6 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
       continue;
     }
 
-    if (token == "--inspect") {
-      options.inspect = true;
-      continue;
-    }
-
     if (token == "--no-color") {
       options.no_color = true;
       continue;
@@ -231,6 +203,11 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
 
     if (token == "--repl") {
       options.repl = true;
+      continue;
+    }
+
+    if (token == "--disassemble") {
+      options.disassemble = true;
       continue;
     }
 
@@ -254,7 +231,7 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
     });
   }
 
-  if (!options.repl && !options.inspect && !options.source.has_value()) {
+  if (!options.repl && !options.source.has_value()) {
     options.source = std::filesystem::path("test.fleaux");
   }
 
@@ -267,28 +244,30 @@ auto main(int argc, char** argv) -> int {
   if (!parsed) {
     std::cerr << usage_text() << '\n';
     std::cerr << parsed.error().message;
-    if (parsed.error().hint.has_value()) { std::cerr << " (" << *parsed.error().hint << ")"; }
+    if (parsed.error().hint.has_value()) {
+      std::cerr << " (" << *parsed.error().hint << ")";
+    }
     std::cerr << '\n';
     return 1;
   }
 
-  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, inspect, no_color, repl, show_help] =
-      *parsed;
+  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, no_color, repl, show_help,
+               disassemble] = *parsed;
   if (show_help) {
     print_help();
     return 0;
   }
 
-  if (inspect) {
+  if (disassemble) {
     if (!source_path.has_value()) {
-      return print_diag_and_return("vm-inspect", CliError{
-                                                     .message = "inspect mode requires a module path",
+      return print_diag_and_return("vm-disassemble", CliError{
+                                                     .message = "disassembly mode requires a module path",
                                                      .hint = "Pass a .fleaux.bc file (or .fleaux with sibling .bc).",
                                                      .span = std::nullopt,
                                                  });
     }
-    if (const auto result = run_inspect(*source_path); !result) {
-      return print_diag_and_return("vm-inspect", result.error());
+    if (const auto result = run_disassembly(*source_path); !result) {
+      return print_diag_and_return("vm-disassemble", result.error());
     }
     return 0;
   }

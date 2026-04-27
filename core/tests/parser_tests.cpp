@@ -74,6 +74,56 @@ TEST_CASE("Parser accepts zero-arg inline closure literal", "[parser]") {
   REQUIRE(parsed->statements.size() == 1);
 }
 
+TEST_CASE("Parser rejects let with missing sig-body separator", "[parser]") {
+  const std::string src = "let Identity(x: Int64): Int64 x;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_missing_separator_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Expected one of ['::', '='], got") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects closure with missing sig-body separator", "[parser]") {
+  const std::string src = "(x: Float64): Float64 (x, 1) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_let_missing_separator_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Expected one of ['::', '='], got") != std::string::npos);
+}
+
+TEST_CASE("Parser accepts prefix-generic inline closure literal", "[parser][generics]") {
+  const std::string src = "(10, <T>(x: T): T = x) -> Std.Apply -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "prefix_generic_inline_closure_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+}
+
+TEST_CASE("Parser rejects empty prefix-generic closure parameter list", "[parser][generics]") {
+  const std::string src = "(10, <>(x: Any): Any = x) -> Std.Apply;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "prefix_generic_closure_empty_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("cannot be empty") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects trailing comma in prefix-generic closure parameter list", "[parser][generics]") {
+  const std::string src = "(10, <T,>(x: T): T = x) -> Std.Apply;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "prefix_generic_closure_trailing_comma_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Trailing comma") != std::string::npos);
+}
+
 TEST_CASE("Parser accepts nested inline closure literals", "[parser]") {
   const std::string src =
       "(2, (x: Float64): Float64 = (x, (y: Float64): Float64 = (y, 1) -> Std.Add) -> Std.Apply) -> Std.Apply;\n";
@@ -92,9 +142,10 @@ TEST_CASE("Parser reports malformed inline closure body diagnostics", "[parser]"
   const auto parsed = parser.parse_program(src, "malformed_inline_closure_body_parser.fleaux");
 
   REQUIRE_FALSE(parsed.has_value());
-  // The parser attempts to parse (x: Float64) as a tuple or closure, but fails
-  // when it encounters the : after ). This results in "Expected ')'" error.
-  REQUIRE(parsed.error().message.find("Expected") != std::string::npos);
+  // The parser correctly identifies this as a closure with a malformed body:
+  // after parsing the full signature (x: Float64): Float64 =, the body starts
+  // with '->' which is not a valid expression start.
+  REQUIRE(parsed.error().message.find("expected an expression") != std::string::npos);
   REQUIRE(parsed.error().hint.has_value());
 }
 

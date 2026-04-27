@@ -75,10 +75,15 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
             auto& closure = *closure_box;
 
             LocalTypes closure_locals = locals;
+            std::unordered_set<std::string> closure_generic_params = generic_params;
+            for (const auto& generic_param : closure.generic_params) {
+              closure_generic_params.insert(generic_param);
+            }
+
             FunctionSig closure_sig;
             closure_sig.params.reserve(closure.params.size());
             for (const auto& param : closure.params) {
-              Type param_type = rewrite_generic_type(from_ir_type(param.type), generic_params);
+              Type param_type = rewrite_generic_type(from_ir_type(param.type), closure_generic_params);
               closure_locals.insert_or_assign(param.name, param_type);
               closure_sig.params.push_back(ParamSig{
                   .name = param.name,
@@ -86,9 +91,9 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& 
                   .variadic = param.type.variadic,
               });
             }
-            closure_sig.return_type = rewrite_generic_type(from_ir_type(closure.return_type), generic_params);
+            closure_sig.return_type = rewrite_generic_type(from_ir_type(closure.return_type), closure_generic_params);
 
-            auto inferred_body = infer_expr(*closure.body, index, closure_locals, generic_params);
+            auto inferred_body = infer_expr(*closure.body, index, closure_locals, closure_generic_params);
             if (!inferred_body) { return tl::unexpected(inferred_body.error()); }
             if (!is_consistent(closure_sig.return_type, *inferred_body)) {
               return tl::unexpected(make_error("Type mismatch in function return.",

@@ -1,7 +1,10 @@
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/runtime/builtins_core.hpp"
 
 #include <cstring>
+#include <format>
+#include <iostream>
 #include <type_traits>
 
 namespace fleaux::bytecode {
@@ -23,7 +26,9 @@ void write_pod(std::vector<std::uint8_t>& buffer, const T& value) {
 
 template <typename T>
 auto read_pod(const std::vector<std::uint8_t>& buffer, std::size_t& offset, T& out) -> bool {
-  if (offset + sizeof(T) > buffer.size()) { return false; }
+  if (offset + sizeof(T) > buffer.size()) {
+    return false;
+  }
   std::memcpy(&out, &buffer[offset], sizeof(T));
   offset += sizeof(T);
   return true;
@@ -37,8 +42,12 @@ void write_string(std::vector<std::uint8_t>& buffer, const std::string& str) {
 
 auto read_string(const std::vector<std::uint8_t>& buffer, std::size_t& offset, std::string& out) -> bool {
   std::uint32_t len = 0;
-  if (!read_pod(buffer, offset, len)) { return false; }
-  if (offset + len > buffer.size()) { return false; }
+  if (!read_pod(buffer, offset, len)) {
+    return false;
+  }
+  if (offset + len > buffer.size()) {
+    return false;
+  }
   out = std::string(reinterpret_cast<const char*>(&buffer[offset]), len);
   offset += len;
   return true;
@@ -85,35 +94,47 @@ void write_const_value(std::vector<std::uint8_t>& buffer, const ConstValue& cv) 
 
 auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ConstValue& out) -> bool {
   std::uint8_t tag = 0;
-  if (!read_pod(buffer, offset, tag)) { return false; }
+  if (!read_pod(buffer, offset, tag)) {
+    return false;
+  }
   switch (tag) {
     case 0: {
       std::int64_t val = 0;
-      if (!read_pod(buffer, offset, val)) { return false; }
+      if (!read_pod(buffer, offset, val)) {
+        return false;
+      }
       out.data = val;
       return true;
     }
     case 1: {
       std::uint64_t val = 0;
-      if (!read_pod(buffer, offset, val)) { return false; }
+      if (!read_pod(buffer, offset, val)) {
+        return false;
+      }
       out.data = val;
       return true;
     }
     case 2: {
       double val = 0;
-      if (!read_pod(buffer, offset, val)) { return false; }
+      if (!read_pod(buffer, offset, val)) {
+        return false;
+      }
       out.data = val;
       return true;
     }
     case 3: {
       bool val = false;
-      if (!read_pod(buffer, offset, val)) { return false; }
+      if (!read_pod(buffer, offset, val)) {
+        return false;
+      }
       out.data = val;
       return true;
     }
     case 4: {
       std::string val;
-      if (!read_string(buffer, offset, val)) { return false; }
+      if (!read_string(buffer, offset, val)) {
+        return false;
+      }
       out.data = std::move(val);
       return true;
     }
@@ -179,12 +200,16 @@ void write_instruction_stream(std::vector<std::uint8_t>& buffer, const std::vect
 auto read_instruction_stream(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
                              std::vector<Instruction>& instructions) -> bool {
   std::uint32_t count = 0;
-  if (!read_pod(buffer, offset, count)) { return false; }
+  if (!read_pod(buffer, offset, count)) {
+    return false;
+  }
   instructions.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
     std::uint32_t opcode_val = 0;
     std::int64_t operand = 0;
-    if (!read_pod(buffer, offset, opcode_val) || !read_pod(buffer, offset, operand)) { return false; }
+    if (!read_pod(buffer, offset, opcode_val) || !read_pod(buffer, offset, operand)) {
+      return false;
+    }
     instructions.push_back({.opcode = static_cast<Opcode>(opcode_val), .operand = operand});
   }
   return true;
@@ -203,13 +228,17 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.dependencies.size());
     write_pod(buffer, count);
-    for (const auto& dependency : module.dependencies) { write_dependency(buffer, dependency); }
+    for (const auto& dependency : module.dependencies) {
+      write_dependency(buffer, dependency);
+    }
   }
 
   {
     const auto count = static_cast<std::uint32_t>(module.exports.size());
     write_pod(buffer, count);
-    for (const auto& symbol : module.exports) { write_export(buffer, symbol); }
+    for (const auto& symbol : module.exports) {
+      write_export(buffer, symbol);
+    }
   }
 
   write_instruction_stream(buffer, module.instructions);
@@ -217,7 +246,9 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.constants.size());
     write_pod(buffer, count);
-    for (const auto& cv : module.constants) { write_const_value(buffer, cv); }
+    for (const auto& cv : module.constants) {
+      write_const_value(buffer, cv);
+    }
   }
 
   {
@@ -356,6 +387,126 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
   }
 
   return deserialized;
+}
+
+auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected<void, ModuleDumpError> {
+  out << std::format(
+      "ModuleHeader:\n"
+      "  module_name:       {}\n"
+      "  source_path:       {}\n"
+      "  source_hash:       {}\n"
+      "  payload_checksum:  {}\n"
+      "  optimization_mode: {}\n",
+      module.header.module_name, module.header.source_path, module.header.source_hash, module.header.payload_checksum,
+      module.header.optimization_mode);
+
+  out << "Dependencies:\n";
+  for (const auto& [module_name, is_symbolic] : module.dependencies) {
+    out << std::format(
+        "  Dependency:\n"
+        "    module_name: {}\n"
+        "    is_symbolic: {}\n",
+        module_name, is_symbolic);
+  }
+
+  out << "Exports:\n";
+  for (const auto& [name, link_name, kind, index, builtin_name] : module.exports) {
+    out << std::format(
+        "  ExportedSymbol:\n"
+        "    name: {}\n"
+        "    link_name: {}\n"
+        "    kind: {}\n"
+        "    index: {}\n"
+        "    builtin_name: {}\n",
+        name, link_name, static_cast<std::uint8_t>(kind), index, builtin_name);
+  }
+
+  out << "Instructions:\n";
+  size_t instruction_index = 0;
+  for (const auto& [opcode, operand] : module.instructions) {
+    out << std::format(
+        "  Instruction {}:\n"
+        "    opcode: {}\n"
+        "    operand: {}\n",
+        instruction_index, stringify_opcode(opcode), operand);
+
+    // TODO: need to convert opcode to actual op name and for function calls, the name of the function being called
+
+    instruction_index++;
+  }
+
+  out << "Constants:\n";
+  size_t constant_index = 0;
+  for (const auto& [data] : module.constants) {
+    using VisitRType = std::pair<std::string, std::string>;
+
+    const auto [type, value] = std::visit(
+        common::overloaded{
+            [](const std::int64_t& val) -> VisitRType {
+              return {"int64_t", std::format("{}({:x})", val, val)};
+            },
+            [](const std::uint64_t& val) -> VisitRType {
+              return {"uint64_t", std::format("{}({:x})", val, val)};
+            },
+            [](const double& val) -> VisitRType {
+              return {"double", std::format("{}({:x})", val, std::bit_cast<std::uint64_t>(val))};
+            },
+            [](const bool& val) -> VisitRType { return {"bool", val ? "true" : "false"}; },
+            [](const std::string& val) -> VisitRType { return {"string", val}; },
+            [](const std::monostate&) -> VisitRType { return {"null", "null"}; }},
+        data);
+
+    out << std::format(
+        "  Constant: {}\n"
+        "    type: {}\n"
+        "    value: {}\n",
+        constant_index, type, value);
+
+    constant_index++;
+  }
+
+  out << "Functions:\n";
+  size_t func_index = 0;
+  for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions] : module.functions) {
+    out << std::format(
+        "  Function {}:\n"
+        "    name: {}\n"
+        "    arity: {}\n"
+        "    has_variadic_tail: {}\n"
+        "    is_import_placeholder: {}\n",
+        func_index, name, arity, has_variadic_tail, is_import_placeholder);
+
+    size_t func_instruction_index = 0;
+    for (const auto& [opcode, operand] : instructions) {
+      out << std::format(
+          "    Instruction {}:\n"
+          "      opcode: {}\n"
+          "      operand: {}\n",
+          instruction_index, stringify_opcode(opcode), operand);
+
+      // TODO: need to convert opcode to actual op name and for function calls, the name of the function being called
+
+      func_instruction_index++;
+    }
+
+    func_index++;
+  }
+
+  out << "Closures:\n";
+  size_t closure_index = 0;
+  for (const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] : module.closures) {
+    out << std::format(
+        "  Closure {}:\n"
+        "    function_index: {}\n"
+        "    capture_count: {}\n"
+        "    declared_arity: {}\n"
+        "    declared_has_variadic_tail: {}\n",
+        closure_index, function_index, capture_count, declared_arity, declared_has_variadic_tail);
+
+    closure_index++;
+  }
+
+  return {};
 }
 
 }  // namespace fleaux::bytecode

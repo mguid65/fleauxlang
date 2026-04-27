@@ -43,7 +43,7 @@ struct Instruction {
 // A typed constant stored in the constant pool.
 // All literal constants (including int64_t) are loaded via kPushConst.
 struct ConstValue {
-  std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> data;
+    std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> data;
 };
 
 // A compiled user-defined function.

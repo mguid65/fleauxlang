@@ -57,7 +57,7 @@ set(FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES
 add_library(fleaux_frontend_diagnostics STATIC)
 target_include_directories(fleaux_frontend_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
-target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected)
+target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected datatree)
 
 set(FLEAUX_FRONTEND_PARSER_SOURCES
         src/frontend/parser.cpp
@@ -66,7 +66,7 @@ set(FLEAUX_FRONTEND_PARSER_SOURCES
 add_library(fleaux_frontend_parser STATIC)
 target_include_directories(fleaux_frontend_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
-target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected)
+target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected datatree)
 
 set(FLEAUX_FRONTEND_LOWERING_SOURCES
         src/frontend/lowering.cpp
@@ -84,7 +84,7 @@ set(FLEAUX_FRONTEND_LOWERING_SOURCES
 add_library(fleaux_frontend_lowering STATIC)
 target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
-target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
+target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected datatree)
 
 if(BUILD_TESTING)
   find_package(Catch2 CONFIG REQUIRED)
@@ -125,7 +125,7 @@ set(FLEAUX_BYTECODE_SOURCES
 add_library(fleaux_bytecode STATIC)
 target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
-target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected)
+target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected datatree)
 
 if(FLEAUX_PCRE2_TARGET)
   add_library(fleaux_vm STATIC)

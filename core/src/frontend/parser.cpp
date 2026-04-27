@@ -20,15 +20,17 @@ namespace {
 template <typename T>
 using PResult = tl::expected<T, ParseError>;
 
-#define FLEAUX_TRY_ASSIGN(name, expr)                               \
-  auto name##_result = (expr);                                      \
-  if (!name##_result) return tl::unexpected(name##_result.error()); \
+#define FLEAUX_TRY_ASSIGN(name, expr)             \
+  auto name##_result = (expr);                    \
+  if (!name##_result)                             \
+    return tl::unexpected(name##_result.error()); \
   auto name = std::move(*name##_result)
 
-#define FLEAUX_TRYV(expr)                                               \
-  do {                                                                  \
-    auto _fleaux_result = (expr);                                       \
-    if (!_fleaux_result) return tl::unexpected(_fleaux_result.error()); \
+#define FLEAUX_TRYV(expr)                            \
+  do {                                               \
+    auto _fleaux_result = (expr);                    \
+    if (!_fleaux_result)                             \
+      return tl::unexpected(_fleaux_result.error()); \
   } while (false)
 
 enum class TokenKind {
@@ -67,7 +69,9 @@ auto is_ident_start(const char c) -> bool { return std::isalpha(static_cast<unsi
 auto is_ident_char(const char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
 auto starts_with(const std::string& source, const std::size_t index, const std::string& text) -> bool {
-  if (index + text.size() > source.size()) { return false; }
+  if (index + text.size() > source.size()) {
+    return false;
+  }
   return source.compare(index, text.size(), text) == 0;
 }
 
@@ -142,7 +146,9 @@ auto lex(const std::string& source, const std::string& source_name) -> PResult<s
         break;
       }
     }
-    if (matched_multi) { continue; }
+    if (matched_multi) {
+      continue;
+    }
 
     if (ch == '"') {
       const int start_line = line;
@@ -161,7 +167,9 @@ auto lex(const std::string& source, const std::string& source_name) -> PResult<s
           break;
         }
         if (str_ch == '\\') {
-          if (str_end + 1 >= source.size()) { break; }
+          if (str_end + 1 >= source.size()) {
+            break;
+          }
           switch (const char esc = source[str_end + 1]) {
             case 'n':
               decoded.push_back('\n');
@@ -186,7 +194,9 @@ auto lex(const std::string& source, const std::string& source_name) -> PResult<s
           local_col += 2;
           continue;
         }
-        if (str_ch == '\n') { break; }
+        if (str_ch == '\n') {
+          break;
+        }
         decoded.push_back(str_ch);
         ++str_end;
         ++local_col;
@@ -335,7 +345,9 @@ private:
 
   [[nodiscard]] static auto trim_copy(std::string_view text) -> std::string {
     const auto first = text.find_first_not_of(" \t\r");
-    if (first == std::string_view::npos) { return {}; }
+    if (first == std::string_view::npos) {
+      return {};
+    }
     const auto last = text.find_last_not_of(" \t\r");
     return std::string{text.substr(first, last - first + 1)};
   }
@@ -359,17 +371,25 @@ private:
         source_line_comment_.emplace_back(std::nullopt);
       }
 
-      if (newline == std::string::npos) { break; }
+      if (newline == std::string::npos) {
+        break;
+      }
       line_start = newline + 1;
     }
   }
 
   [[nodiscard]] auto doc_comments_for_line(const int line) const -> std::vector<std::string> {
-    if (line <= 1 || static_cast<std::size_t>(line) >= source_line_is_blank_.size()) { return {}; }
+    if (line <= 1 || static_cast<std::size_t>(line) >= source_line_is_blank_.size()) {
+      return {};
+    }
 
     int cursor = line - 1;
-    if (source_line_is_blank_[static_cast<std::size_t>(cursor)]) { return {}; }
-    if (!source_line_comment_[static_cast<std::size_t>(cursor)].has_value()) { return {}; }
+    if (source_line_is_blank_[static_cast<std::size_t>(cursor)]) {
+      return {};
+    }
+    if (!source_line_comment_[static_cast<std::size_t>(cursor)].has_value()) {
+      return {};
+    }
 
     std::vector<std::string> comments;
     while (cursor >= 1) {
@@ -394,12 +414,16 @@ private:
 
   [[nodiscard]] auto peek_ahead(const std::size_t offset) const -> const Token* {
     const std::size_t index = i_ + offset;
-    if (index >= tokens_.size()) { return nullptr; }
+    if (index >= tokens_.size()) {
+      return nullptr;
+    }
     return &tokens_[index];
   }
 
   [[nodiscard]] auto previous_token() const -> const Token& {
-    if (i_ == 0) { return tokens_.front(); }
+    if (i_ == 0) {
+      return tokens_.front();
+    }
     return tokens_[i_ - 1];
   }
 
@@ -454,7 +478,8 @@ private:
   // Lookahead to check if current position looks like a function type: (TypeList) =>
   // We need to scan ahead to find matching ) and then check for => (either as one token or = + >).
   [[nodiscard]] auto is_function_type_ahead() const -> bool {
-    if (!is_symbol("(")) return false;
+    if (!is_symbol("("))
+      return false;
 
     // Quick heuristic: scan forward for ) followed by => or = >
     std::size_t scan_pos = i_ + 1;
@@ -471,7 +496,9 @@ private:
             // Found the matching ). Check if next token is => (single token) or = > (two tokens)
             if (scan_pos + 1 < tokens_.size()) {
               const auto& next_tok = tokens_[scan_pos + 1];
-              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=>") { return true; }
+              if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=>") {
+                return true;
+              }
               // Check for = followed by >
               if (next_tok.kind == TokenKind::kSymbol && next_tok.value == "=" && scan_pos + 2 < tokens_.size()) {
                 const auto& after_eq = tokens_[scan_pos + 2];
@@ -492,6 +519,21 @@ private:
       const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
       return tl::unexpected(
           err(std::format("Expected '{}', got {}", symbol, got), tok, hint_for_expected_token(symbol, tok)));
+    }
+    return next();
+  }
+
+  template <typename... Symbols>
+  auto eat_one_of(Symbols&&... symbols) -> PResult<Token> {
+    if (const Token& tok = peek(); !(is_symbol(symbols) || ...)) {
+      const std::string got = tok.kind == TokenKind::kEof ? "end of input" : std::format("'{}'", tok.value);
+      const auto symbol_list_str = [&]() -> std::string {
+        std::string result;
+        ((result += (result.empty() ? "" : ", ") + std::format("'{}'", symbols)), ...);
+        return result;
+      }();
+
+      return tl::unexpected(err(std::format("Expected one of [{}], got {}", symbol_list_str, got), tok));
     }
     return next();
   }
@@ -539,12 +581,16 @@ private:
       parts.push_back(std::move(segment));
     }
 
-    if (parts.size() == 1U) { return head; }
+    if (parts.size() == 1U) {
+      return head;
+    }
 
     model::Qualifier q;
     q.qualifier.reserve(parts.size() * 2U);
     for (std::size_t idx = 0; idx + 1U < parts.size(); ++idx) {
-      if (idx > 0U) { q.qualifier += "."; }
+      if (idx > 0U) {
+        q.qualifier += ".";
+      }
       q.qualifier += parts[idx];
     }
     q.span = span_from_mark(start);
@@ -568,7 +614,9 @@ private:
     while (true) {
       FLEAUX_TRY_ASSIGN(param_name, ident());
       params.push_back(std::move(param_name));
-      if (!match_symbol(",")) { break; }
+      if (!match_symbol(",")) {
+        break;
+      }
       if (is_symbol(">")) {
         return tl::unexpected(err("Trailing comma in generic parameter list.", std::nullopt,
                                   "Remove the trailing comma or add another parameter name."));
@@ -591,7 +639,9 @@ private:
         while (true) {
           FLEAUX_TRY_ASSIGN(t, type());
           param_types.types.emplace_back(std::move(t));
-          if (!match_symbol(",")) { break; }
+          if (!match_symbol(",")) {
+            break;
+          }
         }
       }
       FLEAUX_TRYV(eat_symbol(")"));
@@ -622,7 +672,9 @@ private:
         while (true) {
           FLEAUX_TRY_ASSIGN(t, type());
           type_list.types.emplace_back(std::move(t));
-          if (!match_symbol(",")) { break; }
+          if (!match_symbol(",")) {
+            break;
+          }
         }
       }
       FLEAUX_TRYV(eat_symbol(")"));
@@ -645,7 +697,9 @@ private:
             while (true) {
               FLEAUX_TRY_ASSIGN(t, type());
               applied.args.types.emplace_back(std::move(t));
-              if (!match_symbol(",")) { break; }
+              if (!match_symbol(",")) {
+                break;
+              }
             }
           }
           FLEAUX_TRYV(eat_symbol(")"));
@@ -709,7 +763,9 @@ private:
     while (match_symbol("->")) {
       FLEAUX_TRY_ASSIGN(stage, primary());
       out.rhs.push_back(stage);
-      if (is_call_target_primary(stage)) { break; }
+      if (is_call_target_primary(stage)) {
+        break;
+      }
     }
 
     out.span = span_from_mark(start);
@@ -725,85 +781,100 @@ private:
     return out;
   }
 
-  auto try_parse_closure_after_open_paren(const std::size_t open_paren_index, model::Atom& out_atom,
-                                          const bool allow_ungrouped_closure_stage_split) -> bool {
-    const std::size_t checkpoint = i_;
+  auto parse_closure_after_open_paren(const std::size_t closure_start_index, const std::size_t open_paren_index,
+                                      std::vector<std::string> generic_params,
+                                      const bool allow_ungrouped_closure_stage_split,
+                                      bool& committed) -> PResult<model::Atom> {
+    model::Atom out_atom;
 
     std::vector<model::Parameter> params;
     if (!is_symbol(")")) {
       while (true) {
         if (peek().kind != TokenKind::kIdent) {
-          i_ = checkpoint;
-          return false;
+          return tl::unexpected(err("Expected closure parameter name", peek(),
+                                    "Closure parameters must be declared as name/type pairs, for example: (x: T)."));
         }
 
         const std::size_t param_start = i_;
         model::Parameter p;
         auto parsed_ident = ident();
         if (!parsed_ident) {
-          i_ = checkpoint;
-          return false;
+          return tl::unexpected(parsed_ident.error());
         }
         p.param_name = std::move(*parsed_ident);
         if (!match_symbol(":")) {
-          i_ = checkpoint;
-          return false;
+          return tl::unexpected(err("Expected ':' in closure parameter list", peek(),
+                                    "Declare parameters as name/type pairs, for example: (x: Float64)."));
         }
         auto parsed_type = type();
         if (!parsed_type) {
-          i_ = checkpoint;
-          return false;
+          return tl::unexpected(parsed_type.error());
         }
         p.type = std::move(*parsed_type);
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
 
-        if (!match_symbol(",")) { break; }
+        if (!match_symbol(",")) {
+          break;
+        }
       }
     }
 
-    if (!match_symbol(")")) {
-      i_ = checkpoint;
-      return false;
-    }
-    if (!match_symbol(":")) {
-      i_ = checkpoint;
-      return false;
-    }
+    FLEAUX_TRYV(eat_symbol(")"));
+    FLEAUX_TRYV(eat_symbol(":"));
 
     model::ClosureExpression closure;
+    closure.generic_params = std::move(generic_params);
     closure.params.params = std::move(params);
     closure.params.span = span_from_mark(open_paren_index);
     auto parsed_rtype = type();
     if (!parsed_rtype) {
-      i_ = checkpoint;
-      return false;
+      return tl::unexpected(parsed_rtype.error());
     }
     closure.rtype = std::move(*parsed_rtype);
 
-    if (!match_symbol("=")) {
-      i_ = checkpoint;
-      return false;
-    }
+    // Committed: we have parsed a full closure signature; any failure after this is a hard error.
+    committed = true;
+
+    FLEAUX_TRYV(eat_one_of("::", "="));
 
     if (allow_ungrouped_closure_stage_split) {
       auto parsed_body = closure_stage_expr();
       if (!parsed_body) {
-        i_ = checkpoint;
-        return false;
+        return tl::unexpected(parsed_body.error());
       }
       closure.body = std::move(*parsed_body);
     } else {
       auto parsed_body = expr();
       if (!parsed_body) {
-        i_ = checkpoint;
-        return false;
+        return tl::unexpected(parsed_body.error());
       }
       closure.body = std::move(*parsed_body);
     }
-    closure.span = span_from_mark(open_paren_index);
+    closure.span = span_from_mark(closure_start_index);
     out_atom.value = std::move(closure);
-    out_atom.span = span_from_mark(open_paren_index);
+    out_atom.span = span_from_mark(closure_start_index);
+    return out_atom;
+  }
+
+  // Returns true if a closure was parsed into out_atom, false if the token stream does not
+  // look like a closure (speculative mismatch), or an error if a closure signature was
+  // committed (params + ':' + rtype fully parsed) but the body separator or body was malformed.
+  auto try_parse_closure_after_open_paren(const std::size_t open_paren_index, model::Atom& out_atom,
+                                          const bool allow_ungrouped_closure_stage_split) -> PResult<bool> {
+    const std::size_t checkpoint = i_;
+    bool committed = false;
+    auto parsed = parse_closure_after_open_paren(open_paren_index, open_paren_index, {},
+                                                 allow_ungrouped_closure_stage_split, committed);
+    if (!parsed) {
+      if (committed) {
+        // Signature was complete; propagate the hard error rather than silently backtracking.
+        return tl::unexpected(parsed.error());
+      }
+      i_ = checkpoint;
+      return false;
+    }
+    out_atom = std::move(*parsed);
     return true;
   }
 
@@ -831,6 +902,17 @@ private:
 
   auto atom(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Atom> {
     const std::size_t start = i_;
+
+    if (is_symbol("<") && peek_ahead(1) != nullptr &&
+        (peek_ahead(1)->kind == TokenKind::kIdent || peek_ahead(1)->value == ">")) {
+      FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
+      FLEAUX_TRYV(eat_symbol("("));
+      bool committed_generic = true;  // already committed by consuming the generic param list
+      FLEAUX_TRY_ASSIGN(prefixed_closure, parse_closure_after_open_paren(start, i_ - 1, std::move(generic_params),
+                                                                         allow_ungrouped_closure_stage_split,
+                                                                         committed_generic));
+      return prefixed_closure;
+    }
 
     auto parse_number_constant = [&](const Token& num, const bool negate) -> PResult<model::Constant> {
       model::Constant c;
@@ -870,7 +952,9 @@ private:
 
     if (match_symbol("(")) {
       model::Atom closure_atom;
-      if (try_parse_closure_after_open_paren(start, closure_atom, allow_ungrouped_closure_stage_split)) {
+      FLEAUX_TRY_ASSIGN(is_closure,
+                        try_parse_closure_after_open_paren(start, closure_atom, allow_ungrouped_closure_stage_split));
+      if (is_closure) {
         return closure_atom;
       }
 
@@ -885,7 +969,9 @@ private:
       while (true) {
         FLEAUX_TRY_ASSIGN(item_expr, expr());
         inner.items.emplace_back(std::move(item_expr));
-        if (!match_symbol(",")) { break; }
+        if (!match_symbol(",")) {
+          break;
+        }
       }
       FLEAUX_TRYV(eat_symbol(")"));
       inner.span = span_from_mark(start);
@@ -989,12 +1075,16 @@ private:
       std::vector<Token> parts{next()};
       while (peek().kind == TokenKind::kNumeric || peek().kind == TokenKind::kIdent) {
         const Token nxt = peek();
-        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) { break; }
+        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) {
+          break;
+        }
         parts.push_back(next());
       }
 
       std::string name;
-      for (const auto& part : parts) { name += part.value; }
+      for (const auto& part : parts) {
+        name += part.value;
+      }
       return name;
     }
 
@@ -1031,7 +1121,9 @@ private:
         p.type = std::move(param_type);
         p.span = span_from_mark(param_start);
         params.push_back(std::move(p));
-        if (!match_symbol(",")) { break; }
+        if (!match_symbol(",")) {
+          break;
+        }
       }
     }
     FLEAUX_TRYV(eat_symbol(")"));
@@ -1043,11 +1135,7 @@ private:
     FLEAUX_TRY_ASSIGN(rtype, type());
     out.rtype = std::move(rtype);
 
-    if (!(match_symbol("::") || match_symbol("="))) {
-      return tl::unexpected(
-          err("Expected '::' or '='", std::nullopt,
-              "After the return type, use '=' for a normal body or ':: __builtin__' for runtime-provided functions."));
-    }
+    FLEAUX_TRYV(eat_one_of("::", "="));
 
     if (is_ident_value("__builtin__")) {
       next();
@@ -1073,7 +1161,9 @@ private:
       return stmt;
     }
 
-    if (is_ident_value("let")) { return let_stmt(); }
+    if (is_ident_value("let")) {
+      return let_stmt();
+    }
 
     const std::size_t start = i_;
     model::ExpressionStatement stmt;
@@ -1099,9 +1189,15 @@ private:
       if (tok.value == ")") {
         return "Unexpected ')'. Check for an extra closing parenthesis or a missing expression.";
       }
-      if (tok.value == ",") { return "Unexpected ','. A tuple element is missing before this comma."; }
-      if (tok.value == ";") { return "Unexpected ';'. Remove the extra semicolon or add an expression."; }
-      if (tok.value == ":") { return "Unexpected ':'. Type annotations must be inside parameter or let definitions."; }
+      if (tok.value == ",") {
+        return "Unexpected ','. A tuple element is missing before this comma.";
+      }
+      if (tok.value == ";") {
+        return "Unexpected ';'. Remove the extra semicolon or add an expression.";
+      }
+      if (tok.value == ":") {
+        return "Unexpected ':'. Type annotations must be inside parameter or let definitions.";
+      }
       if (tok.value == "=") {
         return "Unexpected '='. Assignment is not an expression; use '::' or '=' in a let definition.";
       }
@@ -1124,7 +1220,9 @@ private:
     }
 
     if (expected == ",") {
-      if (is_expression_start(got_tok)) { return "Add ',' between tuple elements or argument entries."; }
+      if (is_expression_start(got_tok)) {
+        return "Add ',' between tuple elements or argument entries.";
+      }
       return "Separate entries with ','.";
     }
 
@@ -1142,7 +1240,9 @@ private:
       return "Close the current tuple/parameter list with ')'.";
     }
 
-    if (expected == ":") { return "Add ':' before a type annotation (for example: x: Float64)."; }
+    if (expected == ":") {
+      return "Add ':' before a type annotation (for example: x: Float64).";
+    }
 
     if (expected == "IDENT") {
       if (prev_tok.kind == TokenKind::kSymbol && prev_tok.value == "->") {
@@ -1170,7 +1270,9 @@ private:
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) { return true; }
+    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) {
+      return true;
+    }
     return false;
   }
 };
@@ -1179,7 +1281,9 @@ private:
 
 auto Parser::parse_program(const std::string& source, const std::string& source_name) const -> ParseResult {
   auto tokens = lex(source, source_name);
-  if (!tokens) { return tl::unexpected(tokens.error()); }
+  if (!tokens) {
+    return tl::unexpected(tokens.error());
+  }
 
   ParserImpl impl(source, source_name, std::move(*tokens));
   return impl.parse();
