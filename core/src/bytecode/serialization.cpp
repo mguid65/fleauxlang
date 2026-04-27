@@ -1,7 +1,9 @@
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/runtime/builtins_core.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
 
+#include <bit>
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -240,6 +242,80 @@ auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offs
   return true;
 }
 
+auto valid_index(const std::int64_t operand, const std::size_t size) -> bool {
+  return operand >= 0 && static_cast<std::size_t>(operand) < size;
+}
+
+auto describe_operand(const Module& module, const std::vector<Instruction>& stream, const Instruction& instruction)
+    -> std::string {
+  const auto index_label = [](const std::int64_t operand, const std::size_t size, const std::string_view kind) -> std::string {
+    return std::format("invalid {} index {} (size={})", kind, operand, size);
+  };
+
+  switch (instruction.opcode) {
+    case Opcode::kPushConst: {
+      if (!valid_index(instruction.operand, module.constants.size())) {
+        return index_label(instruction.operand, module.constants.size(), "constant");
+      }
+      return std::format("const[{}]", instruction.operand);
+    }
+    case Opcode::kCallBuiltin:
+    case Opcode::kMakeBuiltinFuncRef: {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(instruction.operand);
+      if (!builtin_id.has_value()) {
+        return std::format("invalid builtin id {}", instruction.operand);
+      }
+      return std::format("builtin={}", fleaux::vm::builtin_name(*builtin_id));
+    }
+    case Opcode::kCallUserFunc:
+    case Opcode::kMakeUserFuncRef: {
+      if (!valid_index(instruction.operand, module.functions.size())) {
+        return index_label(instruction.operand, module.functions.size(), "function");
+      }
+      const auto& function = module.functions[static_cast<std::size_t>(instruction.operand)];
+      return std::format("function[{}]={}", instruction.operand, function.name);
+    }
+    case Opcode::kMakeClosureRef: {
+      if (!valid_index(instruction.operand, module.closures.size())) {
+        return index_label(instruction.operand, module.closures.size(), "closure");
+      }
+      const auto& closure = module.closures[static_cast<std::size_t>(instruction.operand)];
+      if (closure.function_index >= module.functions.size()) {
+        return std::format("closure[{}] -> invalid function index {} (size={})", instruction.operand,
+                           closure.function_index, module.functions.size());
+      }
+      return std::format("closure[{}] -> function[{}]={}", instruction.operand, closure.function_index,
+                         module.functions[closure.function_index].name);
+    }
+    case Opcode::kLoadLocal:
+      return std::format("local[{}]", instruction.operand);
+    case Opcode::kBuildTuple:
+      return std::format("tuple_size={}", instruction.operand);
+    case Opcode::kJump:
+    case Opcode::kJumpIf:
+    case Opcode::kJumpIfNot: {
+      if (!valid_index(instruction.operand, stream.size())) {
+        return std::format("invalid jump target {} (stream_size={})", instruction.operand, stream.size());
+      }
+      return std::format("target={}", instruction.operand);
+    }
+    default:
+      return {};
+  }
+}
+
+void print_instruction(std::ostream& out, const std::size_t instruction_index, const Module& module,
+                       const std::vector<Instruction>& stream, const Instruction& instruction,
+                       const std::string_view indent) {
+  const auto annotation = describe_operand(module, stream, instruction);
+  const auto operand_line = annotation.empty() ? std::format("{}operand: {}\n", indent, instruction.operand)
+                                               : std::format("{}operand: {} ({})\n", indent, instruction.operand,
+                                                             annotation);
+
+  out << std::format("{}Instruction {}:\n", indent.substr(0, indent.size() - 2), instruction_index)
+      << std::format("{}opcode: {}\n", indent, stringify_opcode(instruction.opcode)) << operand_line;
+}
+
 }  // namespace
 
 auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uint8_t>, SerializationError> {
@@ -455,13 +531,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "Instructions:\n";
   size_t instruction_index = 0;
   for (const auto& [opcode, operand] : module.instructions) {
-    out << std::format(
-        "  Instruction {}:\n"
-        "    opcode: {}\n"
-        "    operand: {}\n",
-        instruction_index, stringify_opcode(opcode), operand);
-
-    // TODO: need to convert opcode to actual op name and for function calls, the name of the function being called
+    print_instruction(out, instruction_index, module, module.instructions, Instruction{.opcode = opcode, .operand = operand},
+                      "    ");
 
     instruction_index++;
   }
@@ -521,13 +592,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
     size_t func_instruction_index = 0;
     for (const auto& [opcode, operand] : fn.instructions) {
-      out << std::format(
-          "    Instruction {}:\n"
-          "      opcode: {}\n"
-          "      operand: {}\n",
-          instruction_index, stringify_opcode(opcode), operand);
-
-      // TODO: need to convert opcode to actual op name and for function calls, the name of the function being called
+      print_instruction(out, func_instruction_index, module, fn.instructions,
+                        Instruction{.opcode = opcode, .operand = operand}, "      ");
 
       func_instruction_index++;
     }
