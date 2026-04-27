@@ -656,6 +656,14 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
     fn_def.name = link_name;
     fn_def.arity = static_cast<std::uint32_t>(let.params.size());
     fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
+    // Forward generic-type metadata so bytecode-only consumers can reconstruct
+    // typed import stubs and validate generic call sites without the source file.
+    fn_def.generic_params = let.generic_params;
+    fn_def.return_type_name = let.return_type.name;
+    fn_def.param_type_names.reserve(let.params.size());
+    for (const auto& param : let.params) {
+      fn_def.param_type_names.push_back(param.type.name);
+    }
     bytecode_module.functions.push_back(std::move(fn_def));
 
     // Register by full name (always).

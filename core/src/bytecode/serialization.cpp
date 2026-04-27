@@ -12,7 +12,7 @@ namespace fleaux::bytecode {
 namespace {
 
 constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
-constexpr std::uint32_t BYTECODE_VERSION = 5;
+constexpr std::uint32_t BYTECODE_VERSION = 6;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -215,6 +215,31 @@ auto read_instruction_stream(const std::vector<std::uint8_t>& buffer, std::size_
   return true;
 }
 
+void write_string_list(std::vector<std::uint8_t>& buffer, const std::vector<std::string>& list) {
+  const auto count = static_cast<std::uint32_t>(list.size());
+  write_pod(buffer, count);
+  for (const auto& s : list) {
+    write_string(buffer, s);
+  }
+}
+
+auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offset, std::vector<std::string>& out)
+    -> bool {
+  std::uint32_t count = 0;
+  if (!read_pod(buffer, offset, count)) {
+    return false;
+  }
+  out.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    std::string s;
+    if (!read_string(buffer, offset, s)) {
+      return false;
+    }
+    out.push_back(std::move(s));
+  }
+  return true;
+}
+
 }  // namespace
 
 auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uint8_t>, SerializationError> {
@@ -254,12 +279,15 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
-    for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions] : module.functions) {
-      write_string(buffer, name);
-      write_pod(buffer, arity);
-      write_pod(buffer, has_variadic_tail);
-      write_pod(buffer, is_import_placeholder);
-      write_instruction_stream(buffer, instructions);
+    for (const auto& fn : module.functions) {
+      write_string(buffer, fn.name);
+      write_pod(buffer, fn.arity);
+      write_pod(buffer, fn.has_variadic_tail);
+      write_pod(buffer, fn.is_import_placeholder);
+      write_instruction_stream(buffer, fn.instructions);
+      write_string_list(buffer, fn.generic_params);
+      write_string_list(buffer, fn.param_type_names);
+      write_string(buffer, fn.return_type_name);
     }
   }
 
@@ -362,7 +390,10 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
       FunctionDef fn;
       if (!read_string(buffer, offset, fn.name) || !read_pod(buffer, offset, fn.arity) ||
           !read_pod(buffer, offset, fn.has_variadic_tail) || !read_pod(buffer, offset, fn.is_import_placeholder) ||
-          !read_instruction_stream(buffer, offset, fn.instructions)) {
+          !read_instruction_stream(buffer, offset, fn.instructions) ||
+          !read_string_list(buffer, offset, fn.generic_params) ||
+          !read_string_list(buffer, offset, fn.param_type_names) ||
+          !read_string(buffer, offset, fn.return_type_name)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       deserialized.functions.push_back(std::move(fn));
@@ -467,17 +498,29 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
   out << "Functions:\n";
   size_t func_index = 0;
-  for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions] : module.functions) {
+  for (const auto& fn : module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
         "    arity: {}\n"
         "    has_variadic_tail: {}\n"
-        "    is_import_placeholder: {}\n",
-        func_index, name, arity, has_variadic_tail, is_import_placeholder);
+        "    is_import_placeholder: {}\n"
+        "    return_type_name: {}\n",
+        func_index, fn.name, fn.arity, fn.has_variadic_tail, fn.is_import_placeholder, fn.return_type_name);
+
+    if (!fn.generic_params.empty()) {
+      out << "    generic_params:";
+      for (const auto& gp : fn.generic_params) { out << " " << gp; }
+      out << "\n";
+    }
+    if (!fn.param_type_names.empty()) {
+      out << "    param_type_names:";
+      for (const auto& pt : fn.param_type_names) { out << " " << pt; }
+      out << "\n";
+    }
 
     size_t func_instruction_index = 0;
-    for (const auto& [opcode, operand] : instructions) {
+    for (const auto& [opcode, operand] : fn.instructions) {
       out << std::format(
           "    Instruction {}:\n"
           "      opcode: {}\n"

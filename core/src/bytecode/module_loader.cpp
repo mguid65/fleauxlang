@@ -306,6 +306,67 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     if (idx < imported_module_paths.size()) {
       const auto& [source, bytecode] = imported_module_paths[idx];
       if (!source.has_value()) {
+        // No source available – fall back to reconstructing typed-import stubs
+        // directly from bytecode metadata.  Only generic functions carry enough
+        // information to rebuild a meaningful stub; non-generic functions are
+        // skipped (the symbol is already registered in `imported_symbols`, so
+        // the type checker simply treats calls to them as Any-typed).
+        //
+        // Build a map from link_name → FunctionDef for quick lookup.
+        std::unordered_map<std::string, const FunctionDef*> fn_by_link_name;
+        for (const auto& fn : imported_module.functions) {
+          fn_by_link_name.emplace(fn.name, &fn);
+        }
+
+        for (const auto& exported : imported_module.exports) {
+          if (exported.kind != ExportKind::kFunction) {
+            continue;
+          }
+          const auto key = export_identity_key(exported);
+          if (!imported_typed_let_keys.insert(key).second) {
+            continue;  // already seeded by an earlier import with source
+          }
+
+          const auto fn_it = fn_by_link_name.find(key);
+          if (fn_it == fn_by_link_name.end()) {
+            continue;
+          }
+          const FunctionDef& fn = *fn_it->second;
+          if (fn.generic_params.empty()) {
+            continue;  // non-generic: no stub needed
+          }
+
+          // Decompose "Qualifier.Name" → qualifier + name.
+          fleaux::frontend::ir::IRLet stub;
+          const auto& full_name = exported.name;
+          const auto dot = full_name.rfind('.');
+          if (dot != std::string::npos) {
+            stub.qualifier = full_name.substr(0, dot);
+            stub.name     = full_name.substr(dot + 1);
+          } else {
+            stub.name = full_name;
+          }
+          stub.symbol_key    = key;
+          stub.generic_params = fn.generic_params;
+
+          // Reconstruct parameter list from the stored type names.
+          // For simple/named types (including TypeVar names like "T") this
+          // gives a fully accurate IRParam.  Complex structural types (whose
+          // outer name is e.g. "Function" or "Tuple") are reconstructed with
+          // the outer name only; inner TypeVar bindings are lost but the
+          // resulting type is treated permissively by the checker.
+          const bool have_type_names = fn.param_type_names.size() == static_cast<std::size_t>(fn.arity);
+          for (std::uint32_t p = 0; p < fn.arity; ++p) {
+            fleaux::frontend::ir::IRParam param;
+            param.name = "_p" + std::to_string(p);
+            param.type.name = have_type_names ? fn.param_type_names[p] : "Any";
+            param.type.variadic = (fn.has_variadic_tail && p + 1 == fn.arity);
+            stub.params.push_back(std::move(param));
+          }
+          stub.return_type.name = fn.return_type_name.empty() ? "Any" : fn.return_type_name;
+
+          imported_typed_lets.push_back(std::move(stub));
+        }
         continue;
       }
 
