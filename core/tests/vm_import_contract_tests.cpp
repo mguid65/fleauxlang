@@ -54,6 +54,16 @@ auto classify_message(const std::string& text) -> OutcomeClass {
   return OutcomeClass::kOther;
 }
 
+struct CurrentPathScope {
+  explicit CurrentPathScope(const std::filesystem::path& path) : previous(std::filesystem::current_path()) {
+    std::filesystem::current_path(path);
+  }
+
+  ~CurrentPathScope() { std::filesystem::current_path(previous); }
+
+  std::filesystem::path previous;
+};
+
 }  // namespace
 
 TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][imports][contract]") {
@@ -218,7 +228,16 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
 }
 
 
-TEST_CASE("RuntimeSession keeps REPL imports symbolic-only", "[vm][imports][contract][repl]") {
+TEST_CASE("RuntimeSession resolves normal imports relative to the working directory", "[vm][imports][contract][repl]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_repl_import_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  write_fixture_file(temp_dir / "custom_module.fleaux",
+                     "import Std;\n"
+                     "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
+
+  CurrentPathScope current_path_scope(temp_dir);
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
   std::ostringstream output;
@@ -232,11 +251,21 @@ TEST_CASE("RuntimeSession keeps REPL imports symbolic-only", "[vm][imports][cont
   if (!std_builtins_result) { INFO("StdBuiltins import error: " << std_builtins_result.error().message); }
   REQUIRE(std_builtins_result.has_value());
 
-  const auto nonsymbolic_result = session.run_snippet("import custom_module;\nlet Local(x: Float64): Float64 = x;\n", output);
-  REQUIRE_FALSE(nonsymbolic_result.has_value());
-  REQUIRE(nonsymbolic_result.error().message == "REPL only supports symbolic imports: Std, StdBuiltins.");
-  REQUIRE(nonsymbolic_result.error().hint.has_value());
-  REQUIRE(nonsymbolic_result.error().hint->find("run a file for module imports") != std::string::npos);
+  const auto import_result = session.run_snippet("import custom_module;\n(3) -> Add4 -> Std.Println;\n", output);
+  if (!import_result) { INFO("normal import error: " << import_result.error().message); }
+  REQUIRE(import_result.has_value());
+
+  const auto reuse_result = session.run_snippet("(5) -> Add4 -> Std.Println;\n", output);
+  if (!reuse_result) { INFO("reused imported let error: " << reuse_result.error().message); }
+  REQUIRE(reuse_result.has_value());
+  REQUIRE(output.str() == "7\n9\n");
+
+  const auto unresolved_result = session.run_snippet("import missing_dep;\n", output);
+  REQUIRE_FALSE(unresolved_result.has_value());
+  REQUIRE(unresolved_result.error().message.find("import-unresolved:") != std::string::npos);
+  REQUIRE(unresolved_result.error().message.find("missing_dep") != std::string::npos);
+  REQUIRE(unresolved_result.error().hint.has_value());
+  REQUIRE(unresolved_result.error().hint->find(temp_dir.string()) != std::string::npos);
 }
 
 

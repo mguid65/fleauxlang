@@ -12,11 +12,17 @@
 #error "FLEAUX_CORE_BIN_DIR must be defined by CMake for CLI tests."
 #endif
 
+#ifndef FLEAUX_REPO_ROOT
+#error "FLEAUX_REPO_ROOT must be defined by CMake for CLI tests."
+#endif
+
 namespace {
 
-std::filesystem::path fleaux_binary_path() { return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux"; }
+auto fleaux_binary_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux"; }
 
-std::string shell_quote(const std::string_view text) {
+auto repo_root_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_REPO_ROOT); }
+
+auto shell_quote(const std::string_view text) -> std::string {
   std::string quoted{"'"};
   for (const char ch : text) {
     if (ch == '\'') {
@@ -35,8 +41,8 @@ struct CommandResult {
   std::string stderr_text;
 };
 
-CommandResult run_cli(const std::string& arguments, const std::filesystem::path& working_dir,
-                      const std::string_view stdin_text = {}) {
+auto run_cli(const std::string& arguments, const std::filesystem::path& working_dir,
+                      const std::string_view stdin_text = {}) -> CommandResult {
   const auto input_path = working_dir / "stdin.txt";
   const auto output_path = working_dir / "stdout.txt";
   const auto error_path = working_dir / "stderr.txt";
@@ -113,8 +119,29 @@ TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
   REQUIRE(result.stderr_text.empty());
 }
 
-TEST_CASE("CLI REPL rejects non-symbolic imports", "[vm][cli][repl][imports]") {
+TEST_CASE("CLI REPL resolves normal imports relative to the working directory", "[vm][cli][repl][imports]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_import_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  write_source_file(temp_dir / "custom_module.fleaux",
+                    "import Std;\n"
+                    "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl", temp_dir,
+                              "import custom_module;\n"
+                              "(3) -> Add4 -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("7"));
+  REQUIRE(result.stderr_text.empty());
+}
+
+TEST_CASE("CLI REPL reports unresolved normal imports", "[vm][cli][repl][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_missing_import";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
@@ -125,10 +152,28 @@ TEST_CASE("CLI REPL rejects non-symbolic imports", "[vm][cli][repl][imports]") {
   INFO("stdout: " << result.stdout_text);
   INFO("stderr: " << result.stderr_text);
   REQUIRE(result.exit_code == 0);
-  REQUIRE_THAT(result.stderr_text,
-               Catch::Matchers::ContainsSubstring("REPL only supports symbolic imports: Std, StdBuiltins."));
-  REQUIRE_THAT(result.stderr_text,
-               Catch::Matchers::ContainsSubstring("Define helper lets inline, or run a file for module imports."));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("import-unresolved:"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("custom_module"));
+}
+
+TEST_CASE("CLI REPL Std.Help prints canonical std docs", "[vm][cli][repl][help]") {
+  const auto temp_dir = repo_root_path() / ".fleaux_vm_cli_repl_help_std";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl", temp_dir,
+                              "import Std;\n"
+                              "(\"Std.Add\") -> Std.Help -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
+  REQUIRE_THAT(result.stdout_text,
+               Catch::Matchers::ContainsSubstring("Add two numeric values of the same numeric kind."));
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Parameters:"));
+  REQUIRE(result.stderr_text.empty());
 }
 
 TEST_CASE("CLI vm mode writes bytecode cache by default", "[vm][cli]") {

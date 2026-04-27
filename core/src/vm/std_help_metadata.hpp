@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstdlib>
 #include <filesystem>
+#include <unordered_map>
 #include <optional>
 #include <sstream>
 #include <string>
 
 #include "fleaux/frontend/source_loader.hpp"
+#include "fleaux/frontend/stdlib_locator.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
 namespace fleaux::vm::detail {
@@ -50,29 +51,55 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
   });
 }
 
-[[nodiscard]] inline auto find_std_file() -> std::optional<std::filesystem::path> {
-  if (const char* env_path = std::getenv("FLEAUX_STD_PATH"); env_path != nullptr && *env_path != '\0') {
-    const std::filesystem::path candidate(env_path);
-    if (std::filesystem::exists(candidate)) { return std::filesystem::weakly_canonical(candidate); }
-  }
+[[nodiscard]] inline auto load_std_doc_comments_by_symbol(const std::filesystem::path& std_file)
+    -> std::unordered_map<std::string, std::vector<std::string>> {
+  std::unordered_map<std::string, std::vector<std::string>> docs_by_symbol;
 
-  std::filesystem::path cursor = std::filesystem::current_path();
-  while (true) {
-    if (const auto candidate = cursor / "Std.fleaux"; std::filesystem::exists(candidate)) {
-      return std::filesystem::weakly_canonical(candidate);
+  const auto source_text = frontend::source_loader::read_text_file(std_file);
+  if (source_text.empty()) { return docs_by_symbol; }
+
+  std::istringstream input(source_text);
+  std::string line;
+  std::vector<std::string> pending_comments;
+
+  const auto clear_pending = [&]() -> void { pending_comments.clear(); };
+  while (std::getline(input, line)) {
+    const std::string trimmed = fleaux::runtime::detail::trim_copy(line);
+    if (trimmed.empty()) {
+      clear_pending();
+      continue;
     }
-    if (cursor == cursor.root_path()) { break; }
-    cursor = cursor.parent_path();
+
+    if (std::string_view(trimmed).starts_with("//")) {
+      pending_comments.push_back(fleaux::runtime::detail::trim_copy(std::string_view(trimmed).substr(2)));
+      continue;
+    }
+
+    if (std::string_view(trimmed).starts_with("let ")) {
+      const std::string rest = fleaux::runtime::detail::trim_copy(std::string_view(trimmed).substr(4));
+      const auto generic_pos = rest.find('<');
+      const auto params_pos = rest.find('(');
+      const auto end_pos = std::min(generic_pos == std::string::npos ? rest.size() : generic_pos,
+                                    params_pos == std::string::npos ? rest.size() : params_pos);
+      const std::string symbol_name = fleaux::runtime::detail::trim_copy(rest.substr(0, end_pos));
+      if (!symbol_name.empty() && !pending_comments.empty()) { docs_by_symbol[symbol_name] = pending_comments; }
+      clear_pending();
+      continue;
+    }
+
+    clear_pending();
   }
 
-  return std::nullopt;
+  return docs_by_symbol;
 }
 
 inline auto preload_std_help_metadata() -> void {
-  const auto std_file = find_std_file();
+  const auto std_file = frontend::stdlib_locator::find_std_file(std::filesystem::current_path());
   if (!std_file.has_value()) { return; }
 
-  const auto parsed_std = frontend::source_loader::parse_file_to_ir<std::string>(
+  const auto docs_by_symbol = load_std_doc_comments_by_symbol(*std_file);
+
+  const auto parsed_std = frontend::source_loader::parse_file_to_lowered_ir<std::string>(
       *std_file,
       [](const std::string& message, const std::optional<std::string>& hint,
          const std::optional<frontend::diag::SourceSpan>&) -> std::string {
@@ -83,7 +110,13 @@ inline auto preload_std_help_metadata() -> void {
   for (const auto& let : parsed_std->lets) {
     if (!let.qualifier.has_value()) { continue; }
     if (!(let.qualifier.value() == "Std" || let.qualifier->starts_with("Std."))) { continue; }
-    register_help_for_let(let);
+
+    auto let_with_docs = let;
+    if (const auto it = docs_by_symbol.find(frontend::source_loader::symbol_key(let.qualifier, let.name));
+        it != docs_by_symbol.end()) {
+      let_with_docs.doc_comments = it->second;
+    }
+    register_help_for_let(let_with_docs);
   }
 }
 

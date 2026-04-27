@@ -33,7 +33,7 @@ inline auto register_help_metadata(HelpMetadata metadata) -> void {
 
 namespace detail {
 
-[[nodiscard]] inline auto trim_copy(std::string_view text) -> std::string {
+[[nodiscard]] inline auto trim_copy(const std::string_view text) -> std::string {
   const auto first = text.find_first_not_of(" \t\r\n");
   if (first == std::string_view::npos) { return {}; }
   const auto last = text.find_last_not_of(" \t\r\n");
@@ -44,6 +44,13 @@ namespace detail {
   if (line.size() < token.size()) { return false; }
   return std::string_view(line).starts_with(token);
 }
+
+// template <typename... Tokens>
+//   requires std::same_as<std::remove_cvref_t<Tokens>, std::string_view> && ...)
+// [[nodiscard]] inline auto starts_with_one_of(const std::string& line, const std::string_view token) -> bool {
+//   if (line.size() < token.size()) { return false; }
+//   return std::string_view(line).starts_with(token);
+// }
 
 struct ParsedDoc {
   std::string brief;
