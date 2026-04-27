@@ -6,14 +6,14 @@
 #include <sstream>
 #include <string>
 
+#include "fleaux/common/embedded_resource.hpp"
 #include "fleaux/frontend/source_loader.hpp"
-#include "fleaux/frontend/stdlib_locator.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
 namespace fleaux::vm::detail {
 
 [[nodiscard]] inline auto format_help_ir_type(const frontend::ir::IRSimpleType& type) -> std::string {
-  const auto append_variadic = [](std::string base, const bool variadic) {
+  const auto append_variadic = [](std::string base, const bool variadic) -> std::string {
     if (variadic) { base += "..."; }
     return base;
   };
@@ -51,14 +51,12 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
   });
 }
 
-[[nodiscard]] inline auto load_std_doc_comments_by_symbol(const std::filesystem::path& std_file)
+[[nodiscard]] inline auto load_std_doc_comments_by_symbol(const std::string_view source_text)
     -> std::unordered_map<std::string, std::vector<std::string>> {
   std::unordered_map<std::string, std::vector<std::string>> docs_by_symbol;
-
-  const auto source_text = frontend::source_loader::read_text_file(std_file);
   if (source_text.empty()) { return docs_by_symbol; }
 
-  std::istringstream input(source_text);
+  std::istringstream input{std::string(source_text)};
   std::string line;
   std::vector<std::string> pending_comments;
 
@@ -81,8 +79,8 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
       const auto params_pos = rest.find('(');
       const auto end_pos = std::min(generic_pos == std::string::npos ? rest.size() : generic_pos,
                                     params_pos == std::string::npos ? rest.size() : params_pos);
-      const std::string symbol_name = fleaux::runtime::detail::trim_copy(rest.substr(0, end_pos));
-      if (!symbol_name.empty() && !pending_comments.empty()) { docs_by_symbol[symbol_name] = pending_comments; }
+      if (const std::string symbol_name = fleaux::runtime::detail::trim_copy(rest.substr(0, end_pos));
+          !symbol_name.empty() && !pending_comments.empty()) { docs_by_symbol[symbol_name] = pending_comments; }
       clear_pending();
       continue;
     }
@@ -94,18 +92,21 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
 }
 
 inline auto preload_std_help_metadata() -> void {
-  const auto std_file = frontend::stdlib_locator::find_std_file(std::filesystem::current_path());
-  if (!std_file.has_value()) { return; }
+  std::filesystem::path std_source_name{"Std.fleaux"};
+  const auto embedded_std = fleaux::common::embedded_resource_text("Std.fleaux");
+  if (!embedded_std.has_value()) { return; }
 
-  const auto docs_by_symbol = load_std_doc_comments_by_symbol(*std_file);
-
-  const auto parsed_std = frontend::source_loader::parse_file_to_lowered_ir<std::string>(
-      *std_file,
+  const std::string source_text{*embedded_std};
+  const auto parsed_std = frontend::source_loader::parse_text_to_lowered_ir<std::string>(
+      source_text, std_source_name.string(),
       [](const std::string& message, const std::optional<std::string>& hint,
          const std::optional<frontend::diag::SourceSpan>&) -> std::string {
         return hint.has_value() ? message + " (" + *hint + ")" : message;
       });
+
   if (!parsed_std) { return; }
+
+  const auto docs_by_symbol = load_std_doc_comments_by_symbol(source_text);
 
   for (const auto& let : parsed_std->lets) {
     if (!let.qualifier.has_value()) { continue; }

@@ -2613,12 +2613,10 @@ TEST_CASE("FunctionIndex matrix: Stage-4b mixed imported symbol lookup", "[typec
 }
 
 TEST_CASE("Type checker matrix: Stage-4b symbolic qualifier ownership", "[typecheck][binding][stage4b]") {
-  SECTION("Std and StdBuiltins owned qualifiers remain symbolic") {
+  SECTION("Std owned qualifiers remain symbolic") {
     const std::string src =
         "(1) -> Std.Add4;\n"
-        "(1) -> Std.Tuple.Add4;\n"
-        "(1) -> StdBuiltins.Add4;\n"
-        "(1) -> StdBuiltins.Tuple.Add4;\n";
+        "(1) -> Std.Tuple.Add4;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage4b_symbolic_qualifier_owned_roots.fleaux");
@@ -2652,24 +2650,6 @@ TEST_CASE("Type checker matrix: Stage-4b symbolic qualifier ownership", "[typech
     REQUIRE(analyzed.error().hint->find("StdShadow.Add4") != std::string::npos);
   }
 
-  SECTION("StdBuiltins-prefixed lookalike qualifier is rejected") {
-    const std::string src = "(1) -> StdBuiltinsShadow.Add4;\n";
-
-    const fleaux::frontend::parse::Parser parser;
-    const auto parsed = parser.parse_program(src, "typecheck_stage4b_symbolic_qualifier_stdbuiltins_lookalike.fleaux");
-    REQUIRE(parsed.has_value());
-
-    const fleaux::frontend::lowering::Lowerer lowerer;
-    const auto lowered = lowerer.lower_only(parsed.value());
-    REQUIRE(lowered.has_value());
-
-    const std::unordered_set<std::string> imported_symbols;
-    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
-    REQUIRE_FALSE(analyzed.has_value());
-    REQUIRE(analyzed.error().message.find("Unresolved symbol") != std::string::npos);
-    REQUIRE(analyzed.error().hint.has_value());
-    REQUIRE(analyzed.error().hint->find("StdBuiltinsShadow.Add4") != std::string::npos);
-  }
 }
 
 TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[typecheck][binding][stage4g]") {

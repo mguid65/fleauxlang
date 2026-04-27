@@ -2,25 +2,22 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "vm_test_support.hpp"
+
 #ifndef FLEAUX_CORE_BIN_DIR
 #error "FLEAUX_CORE_BIN_DIR must be defined by CMake for CLI tests."
-#endif
-
-#ifndef FLEAUX_REPO_ROOT
-#error "FLEAUX_REPO_ROOT must be defined by CMake for CLI tests."
 #endif
 
 namespace {
 
 auto fleaux_binary_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux"; }
-
-auto repo_root_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_REPO_ROOT); }
 
 auto shell_quote(const std::string_view text) -> std::string {
   std::string quoted{"'"};
@@ -75,13 +72,6 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
   };
 }
 
-void write_source_file(const std::filesystem::path& path, const std::string_view source) {
-  std::ofstream out(path);
-  REQUIRE(out.good());
-  out.write(source.data(), static_cast<std::streamsize>(source.size()));
-  REQUIRE(out.good());
-}
-
 }  // namespace
 
 TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
@@ -124,9 +114,9 @@ TEST_CASE("CLI REPL resolves normal imports relative to the working directory", 
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
-  write_source_file(temp_dir / "custom_module.fleaux",
-                    "import Std;\n"
-                    "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
+  fleaux::tests::write_text_file(temp_dir / "custom_module.fleaux",
+                                 "import Std;\n"
+                                 "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli("--repl", temp_dir,
@@ -157,9 +147,11 @@ TEST_CASE("CLI REPL reports unresolved normal imports", "[vm][cli][repl][imports
 }
 
 TEST_CASE("CLI REPL Std.Help prints canonical std docs", "[vm][cli][repl][help]") {
-  const auto temp_dir = repo_root_path() / ".fleaux_vm_cli_repl_help_std";
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_help_std";
   std::filesystem::remove_all(temp_dir);
-  std::filesystem::create_directories(temp_dir);
+  const auto poisoned_fallbacks = fleaux::tests::write_poisoned_symbolic_std_fallbacks(temp_dir);
+
+  const fleaux::tests::ScopedEnvVar env_scope("FLEAUX_STD_PATH", poisoned_fallbacks.env_std_path.string());
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli("--repl", temp_dir,
@@ -183,7 +175,7 @@ TEST_CASE("CLI vm mode writes bytecode cache by default", "[vm][cli]") {
 
   const auto source_path = temp_dir / "entry.fleaux";
   const auto bytecode_path = temp_dir / "entry.fleaux.bc";
-  write_source_file(source_path, "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n");
+  fleaux::tests::write_text_file(source_path, "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n");
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli(shell_quote(source_path.string()), temp_dir);
@@ -201,7 +193,7 @@ TEST_CASE("CLI no-emit-bytecode disables bytecode cache writes", "[vm][cli]") {
 
   const auto source_path = temp_dir / "entry.fleaux";
   const auto bytecode_path = temp_dir / "entry.fleaux.bc";
-  write_source_file(source_path, "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n");
+  fleaux::tests::write_text_file(source_path, "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n");
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli("--no-emit-bytecode " + shell_quote(source_path.string()), temp_dir);

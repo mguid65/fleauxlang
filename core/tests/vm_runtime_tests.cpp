@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -17,6 +18,7 @@
 #include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
+#include "vm_test_support.hpp"
 
 namespace {
 
@@ -196,6 +198,14 @@ TEST_CASE("RuntimeSession type-checks Std imports using canonical stdlib declara
 }
 
 TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][help][stdlib]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_repl_help_embedded_std_only";
+  std::filesystem::remove_all(temp_dir);
+  const auto poisoned_fallbacks = fleaux::tests::write_poisoned_symbolic_std_fallbacks(temp_dir);
+
+  const fleaux::tests::CurrentPathScope current_path_scope(temp_dir);
+  const fleaux::tests::ScopedEnvVar env_scope("FLEAUX_STD_PATH", poisoned_fallbacks.env_std_path.string());
+
+  fleaux::runtime::clear_help_metadata_registry();
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
   std::ostringstream output;

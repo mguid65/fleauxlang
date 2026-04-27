@@ -265,8 +265,7 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
 
 [[nodiscard]] auto is_symbolic_qualifier(const std::optional<std::string>& qualifier) -> bool {
   if (!qualifier.has_value()) { return false; }
-  return *qualifier == "Std" || qualifier->starts_with("Std.") || *qualifier == "StdBuiltins" ||
-         qualifier->starts_with("StdBuiltins.");
+  return *qualifier == "Std" || qualifier->starts_with("Std.");
 }
 
 [[nodiscard]] auto is_removed_symbolic_alias(const std::optional<std::string>& qualifier, const std::string& name)

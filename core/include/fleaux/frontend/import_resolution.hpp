@@ -13,7 +13,7 @@ struct ResolvedModulePaths {
 };
 
 [[nodiscard]] inline auto is_symbolic_import(const std::string_view module_name) -> bool {
-  return module_name == "Std" || module_name == "StdBuiltins";
+  return module_name == "Std";
 }
 
 [[nodiscard]] inline auto path_exists(const std::filesystem::path& path) -> bool {

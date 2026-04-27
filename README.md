@@ -6,7 +6,7 @@ This repository contains:
 
 - `core/`: parser, analysis/lowering, VM compiler, VM, and CLIs
 - `samples/`: runnable `.fleaux` examples
-- `Std.fleaux`: standard library surface (builtins and helpers)
+- `stdlib/Std.fleaux`: standard library surface (builtins and helpers)
 - `fleaux-visual/`: React + TypeScript visual editor and WASM integration
 
 ## Documentation
