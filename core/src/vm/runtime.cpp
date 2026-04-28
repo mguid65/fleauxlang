@@ -71,6 +71,29 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
   }
 }
 
+auto make_tuple_value(std::vector<Value> values) -> Value {
+  Array out;
+  out.Reserve(values.size());
+  for (auto& value : values) { out.EmplaceBack(std::move(value)); }
+  return Value{std::move(out)};
+}
+
+void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t tuple_size) {
+  if (tuple_size == 0U) {
+    stack.emplace_back(Array{});
+    return;
+  }
+
+  Array out;
+  out.Reserve(tuple_size);
+  const auto base = stack.size() - tuple_size;
+  for (std::size_t element_index = 0; element_index < tuple_size; ++element_index) {
+    out.EmplaceBack(std::move(stack[base + element_index]));
+  }
+  stack[base] = Value{std::move(out)};
+  stack.resize(base + 1U);
+}
+
 struct CallFrame {
   const std::vector<bytecode::Instruction>* instructions = nullptr;
   std::size_t ip = 0;
@@ -111,11 +134,12 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
     }
 
     try {
-      const auto& arr = fleaux::runtime::as_array(arg);
+      auto& arr = fleaux::runtime::as_array(arg);
+      if (arr.Size() < arity) {
+        return tl::unexpected(RuntimeError{.message = "too few arguments for '" + fn_name + "'"});
+      }
       for (std::uint32_t arg_index = 0; arg_index < arity; ++arg_index) {
-        auto elem = arr.TryGet(arg_index);
-        if (!elem) { return tl::unexpected(RuntimeError{.message = "too few arguments for '" + fn_name + "'"}); }
-        locals.push_back(*elem);
+        locals.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
       }
       return locals;
     } catch (const std::exception& ex) {
@@ -136,16 +160,18 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
 
   const auto fixed_count = static_cast<std::size_t>(arity - 1U);
   try {
-    const auto& arr = fleaux::runtime::as_array(arg);
+    auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
       return tl::unexpected(RuntimeError{.message = "too few arguments for '" + fn_name + "'"});
     }
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) { locals.push_back(*arr.TryGet(arg_index)); }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      locals.emplace_back(std::move(arr[arg_index]));
+    }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
     for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
-      tail.PushBack(*arr.TryGet(arg_index));
+      tail.EmplaceBack(std::move(arr[arg_index]));
     }
     locals.emplace_back(std::move(tail));
     return locals;
@@ -169,11 +195,12 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
     }
 
     try {
-      const auto& arr = fleaux::runtime::as_array(arg);
+      auto& arr = fleaux::runtime::as_array(arg);
+      if (arr.Size() < declared_arity) {
+        return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+      }
       for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
-        auto elem = arr.TryGet(arg_index);
-        if (!elem) { return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"}); }
-        out.push_back(*elem);
+        out.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
       }
       return out;
     } catch (const std::exception& ex) {
@@ -189,16 +216,18 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
 
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
   try {
-    const auto& arr = fleaux::runtime::as_array(arg);
+    auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
       return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
     }
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) { out.push_back(*arr.TryGet(arg_index)); }
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      out.emplace_back(std::move(arr[arg_index]));
+    }
 
     Array tail;
     tail.Reserve(arr.Size() - fixed_count);
     for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
-      tail.PushBack(*arr.TryGet(arg_index));
+      tail.EmplaceBack(std::move(arr[arg_index]));
     }
     out.emplace_back(std::move(tail));
     return out;
@@ -210,10 +239,24 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
 auto pack_call_args(std::vector<Value> values) -> Value {
   if (values.empty()) { return Value{Array{}}; }
   if (values.size() == 1U) { return std::move(values[0]); }
+  return make_tuple_value(std::move(values));
+}
+
+auto pack_prefixed_call_args(const Value& prefix_args, std::vector<Value> suffix_args) -> Value {
+  const auto& prefix = fleaux::runtime::as_array(prefix_args);
+  if (prefix.Size() == 0U) { return pack_call_args(std::move(suffix_args)); }
+
+  if (suffix_args.empty()) {
+    if (prefix.Size() == 1U) { return *prefix.TryGet(0); }
+    return prefix_args;
+  }
 
   Array out;
-  out.Reserve(values.size());
-  for (auto& value : values) { out.PushBack(value); }
+  out.Reserve(prefix.Size() + suffix_args.size());
+  for (std::size_t element_index = 0; element_index < prefix.Size(); ++element_index) {
+    out.EmplaceBack(*prefix.TryGet(element_index));
+  }
+  for (auto& arg : suffix_args) { out.EmplaceBack(std::move(arg)); }
   return Value{std::move(out)};
 }
 
@@ -316,14 +359,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (stack.size() < tuple_size) {
           return tl::unexpected(RuntimeError{.message = "stack underflow on build_tuple"});
         }
-        Array arr;
-        arr.Reserve(tuple_size);
-        const auto base = stack.size() - tuple_size;
-        for (std::size_t element_index = 0; element_index < tuple_size; ++element_index) {
-          arr.PushBack(stack[base + element_index]);
-        }
-        stack.resize(base);
-        stack.emplace_back(std::move(arr));
+        collapse_stack_tail_into_tuple(stack, tuple_size);
         break;
       }
 
@@ -431,30 +467,20 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(RuntimeError{.message = "closure capture tuple size mismatch"});
         }
 
-        std::vector<Value> captured_values;
-        captured_values.reserve(capture_count);
-        for (std::size_t capture_index = 0; capture_index < capture_count; ++capture_index) {
-          captured_values.push_back(*capture_array.TryGet(capture_index));
-        }
+        auto captured_args = std::move(*captured_tuple);
 
         // Callable captures bytecode_module, builtins, and output by reference.
         // Same lifetime contract as kMakeUserFuncRef: valid for the duration of
         // the enclosing Runtime::execute() call. Callable-ref Values stay on the
         // execution stack and cannot outlive execute().
-        auto closure_callable = [&bytecode_module, function_index, capture_count, declared_arity,
-                                 declared_has_variadic_tail, captured_values = std::move(captured_values),
-                                 &output](Value call_arg) mutable -> Value {
+        auto closure_callable = [&bytecode_module, function_index, declared_arity, declared_has_variadic_tail,
+                                 captured_args = std::move(captured_args), &output](Value call_arg) -> Value {
           auto declared_args =
               unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
           if (!declared_args) { throw std::runtime_error(declared_args.error().message); }
 
-          std::vector<Value> full_args;
-          full_args.reserve(capture_count + declared_args->size());
-          for (const auto& captured : captured_values) { full_args.push_back(captured); }
-          for (auto& arg : *declared_args) { full_args.push_back(std::move(arg)); }
-
-          auto result =
-              run_user_function(bytecode_module, function_index, pack_call_args(std::move(full_args)), output);
+          auto result = run_user_function(bytecode_module, function_index,
+                                          pack_prefixed_call_args(captured_args, std::move(*declared_args)), output);
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };

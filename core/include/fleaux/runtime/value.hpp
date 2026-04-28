@@ -248,6 +248,55 @@ inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
 inline constexpr std::string_view k_handle_tag = "__fleaux_handle__";
 inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
 
+[[nodiscard]] inline auto tagged_token_number_as_uint(const Number& number_value) -> std::optional<UInt> {
+  return number_value.Visit(
+      [](const Int signed_value) -> std::optional<UInt> {
+        return signed_value >= 0 ? std::optional<UInt>(static_cast<UInt>(signed_value)) : std::nullopt;
+      },
+      [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
+      [](const Float float_value) -> std::optional<UInt> {
+        return float_value >= 0 && std::floor(float_value) == float_value
+                   ? std::optional<UInt>(static_cast<UInt>(float_value))
+                   : std::nullopt;
+      });
+}
+
+[[nodiscard]] inline auto make_tagged_registry_token(const std::string_view tag, const UInt slot, const UInt generation)
+    -> Value {
+  Array token;
+  token.Reserve(3);
+  token.EmplaceBack(String{tag});
+  token.EmplaceBack(slot);
+  token.EmplaceBack(generation);
+  return Value{std::move(token)};
+}
+
+[[nodiscard]] inline auto parse_tagged_registry_token(const Value& token, const std::string_view expected_tag,
+                                                      const bool allow_legacy_generationless = false)
+    -> std::optional<RegistryId> {
+  const auto& arr = token.TryGetArray();
+  if (!arr || (arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) { return std::nullopt; }
+
+  const auto& tag = arr->TryGet(0)->TryGetString();
+  if (!tag || *tag != expected_tag) { return std::nullopt; }
+
+  const auto& slot_num = arr->TryGet(1)->TryGetNumber();
+  if (!slot_num) { return std::nullopt; }
+  const auto slot = tagged_token_number_as_uint(*slot_num);
+  if (!slot) { return std::nullopt; }
+
+  UInt generation = 0;
+  if (arr->Size() == 3) {
+    const auto& generation_num = arr->TryGet(2)->TryGetNumber();
+    if (!generation_num) { return std::nullopt; }
+    const auto parsed_generation = tagged_token_number_as_uint(*generation_num);
+    if (!parsed_generation) { return std::nullopt; }
+    generation = *parsed_generation;
+  }
+
+  return RegistryId{.slot = *slot, .generation = generation};
+}
+
 // Legacy alias kept so external code using CallableId or RegistryId compiles.
 using CallableId = RegistryId;
 
@@ -410,14 +459,7 @@ public:
 
   explicit PinnedCallableRef(RuntimeCallable fn) {
     id_ = register_callable_pinned(std::move(fn));
-    ref_ = [&]() -> Value {
-      Array out;
-      out.Reserve(3);
-      out.PushBack(Value{String{k_callable_tag}});
-      out.PushBack(Value{id_.slot});
-      out.PushBack(Value{id_.generation});
-      return Value{std::move(out)};
-    }();
+    ref_ = make_tagged_registry_token(k_callable_tag, id_.slot, id_.generation);
     valid_ = true;
   }
 
@@ -471,14 +513,7 @@ template <typename F>
 
 [[nodiscard]] inline auto make_callable_ref(RuntimeCallable fn) -> Value {
   const auto [slot, generation] = register_callable(std::move(fn));
-
-  // Return simple array with type tag, slot, and generation for passing around.
-  Array out;
-  out.Reserve(3);
-  out.PushBack(Value{String{k_callable_tag}});
-  out.PushBack(Value{slot});
-  out.PushBack(Value{generation});
-  return Value{std::move(out)};
+  return make_tagged_registry_token(k_callable_tag, slot, generation);
 }
 
 template <typename F>
@@ -487,40 +522,7 @@ auto make_callable_ref(F&& fn) -> Value {
 }
 
 [[nodiscard]] inline auto callable_id_from_value(const Value& ref) -> std::optional<CallableId> {
-  const auto& arr = ref.TryGetArray();
-  if (!arr || (arr->Size() != 2 && arr->Size() != 3)) { return std::nullopt; }
-
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_callable_tag) { return std::nullopt; }
-
-  const auto as_uint = [](const Number& number_value) -> std::optional<UInt> {
-    return number_value.Visit(
-        [](const Int signed_value) -> std::optional<UInt> {
-          if (signed_value < 0) return std::nullopt;
-          return static_cast<UInt>(signed_value);
-        },
-        [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
-        [](const Float float_value) -> std::optional<UInt> {
-          if (float_value < 0.0 || std::floor(float_value) != float_value) return std::nullopt;
-          return static_cast<UInt>(float_value);
-        });
-  };
-
-  const auto& slot_num = arr->TryGet(1)->TryGetNumber();
-  if (!slot_num) { return std::nullopt; }
-  const auto slot = as_uint(*slot_num);
-  if (!slot) { return std::nullopt; }
-
-  UInt generation = 0;
-  if (arr->Size() == 3) {
-    const auto& generation_num = arr->TryGet(2)->TryGetNumber();
-    if (!generation_num) { return std::nullopt; }
-    const auto parsed_generation = as_uint(*generation_num);
-    if (!parsed_generation) { return std::nullopt; }
-    generation = *parsed_generation;
-  }
-
-  return CallableId{.slot = *slot, .generation = generation};
+  return parse_tagged_registry_token(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
 }
 
 // Overload of release_callable_ref that accepts a Value token (defined here after
@@ -604,36 +606,11 @@ inline void reset_value_registry_for_tests() {
     id = reg.insert(std::move(val), /*logged=*/true);
     telemetry.peak_active_count = std::max(telemetry.peak_active_count, reg.active_count);
   }
-  Array out;
-  out.Reserve(3);
-  out.PushBack(Value{String{k_value_ref_tag}});
-  out.PushBack(Value{id.slot});
-  out.PushBack(Value{id.generation});
-  return Value{std::move(out)};
+  return make_tagged_registry_token(k_value_ref_tag, id.slot, id.generation);
 }
 
 [[nodiscard]] inline auto value_ref_id_from_token(const Value& token) -> std::optional<RegistryId> {
-  const auto& arr = token.TryGetArray();
-  if (!arr || arr->Size() != 3) { return std::nullopt; }
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_value_ref_tag) { return std::nullopt; }
-  const auto as_uint = [](const Number& n) -> std::optional<UInt> {
-    return n.Visit(
-        [](const Int i) -> std::optional<UInt> {
-          return i >= 0 ? std::optional<UInt>(static_cast<UInt>(i)) : std::nullopt;
-        },
-        [](const UInt u) -> std::optional<UInt> { return u; },
-        [](const Float f) -> std::optional<UInt> {
-          return f >= 0 && std::floor(f) == f ? std::optional<UInt>(static_cast<UInt>(f)) : std::nullopt;
-        });
-  };
-  const auto& sn = arr->TryGet(1)->TryGetNumber();
-  const auto& gn = arr->TryGet(2)->TryGetNumber();
-  if (!sn || !gn) { return std::nullopt; }
-  const auto slot = as_uint(*sn);
-  const auto gen = as_uint(*gn);
-  if (!slot || !gen) { return std::nullopt; }
-  return RegistryId{.slot = *slot, .generation = *gen};
+  return parse_tagged_registry_token(token, k_value_ref_tag);
 }
 
 // Returns a copy of the stored value; throws if token is stale.
@@ -695,12 +672,7 @@ public:
       std::scoped_lock lock(value_registry_mutex());
       id = value_registry().insert(std::move(val), /*logged=*/false);
     }
-    Array out;
-    out.Reserve(3);
-    out.PushBack(Value{String{k_value_ref_tag}});
-    out.PushBack(Value{id.slot});
-    out.PushBack(Value{id.generation});
-    token_ = Value{std::move(out)};
+    token_ = make_tagged_registry_token(k_value_ref_tag, id.slot, id.generation);
     id_ = id;
     valid_ = true;
   }
@@ -900,39 +872,13 @@ struct HandleId {
 
   gen_node["handle_" + std::to_string(slot) + "_" + std::to_string(gen)] = Value{std::move(handle_entry)};
 
-  // Return array with type tag, slot, and gen for passing around
-  Array token;
-  token.Reserve(3);
-  token.PushBack(Value{String{k_handle_tag}});
-  token.PushBack(Value{slot});
-  token.PushBack(Value{gen});
-  return Value{std::move(token)};
+  return make_tagged_registry_token(k_handle_tag, slot, gen);
 }
 
 [[nodiscard]] inline auto handle_id_from_value(const Value& value) -> std::optional<HandleId> {
-  const auto& arr = value.TryGetArray();
-  if (!arr || arr->Size() != 3) return std::nullopt;
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_handle_tag) return std::nullopt;
-  const auto& sn = arr->TryGet(1)->TryGetNumber();
-  const auto& gn = arr->TryGet(2)->TryGetNumber();
-  if (!sn || !gn) return std::nullopt;
-  auto as_uint = [](const Number& number_value) -> std::optional<UInt> {
-    return number_value.Visit(
-        [](const Int signed_value) -> std::optional<UInt> {
-          return signed_value >= 0 ? std::optional<UInt>(static_cast<UInt>(signed_value)) : std::nullopt;
-        },
-        [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
-        [](const Float float_value) -> std::optional<UInt> {
-          return float_value >= 0 && std::floor(float_value) == float_value
-                     ? std::optional<UInt>(static_cast<UInt>(float_value))
-                     : std::nullopt;
-        });
-  };
-  const auto slot = as_uint(*sn);
-  const auto gen = as_uint(*gn);
-  if (!slot || !gen) return std::nullopt;
-  return HandleId{.slot = *slot, .gen = *gen};
+  const auto parsed = parse_tagged_registry_token(value, k_handle_tag);
+  if (!parsed) { return std::nullopt; }
+  return HandleId{.slot = parsed->slot, .gen = parsed->generation};
 }
 
 [[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
@@ -995,7 +941,7 @@ template <ValueLike... Values>
 auto make_tuple(Values&&... vals) -> Value {
   Array arr;
   arr.Reserve(sizeof...(Values));
-  (arr.PushBack(std::forward<Values>(vals)), ...);
+  (arr.EmplaceBack(std::forward<Values>(vals)), ...);
   return Value{std::move(arr)};
 }
 
@@ -1198,7 +1144,8 @@ auto make_tuple(Values&&... vals) -> Value {
 // the scalar value instead of a 1-tuple wrapper.
 [[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value {
   if (val.HasArray()) {
-    if (const auto& arr = as_array(val); arr.Size() == 1) { return *arr.TryGet(0); }
+    auto& arr = as_array(val);
+    if (arr.Size() == 1) { return std::move(arr[0]); }
   }
   return val;
 }
