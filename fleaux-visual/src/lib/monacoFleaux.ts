@@ -12,12 +12,17 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
 
   monaco.languages.setMonarchTokensProvider('fleaux', {
     keywords: ['import', 'let'],
-    typeKeywords: ['Float64', 'Int64', 'UInt64', 'String', 'Bool', 'Null', 'Any', 'Tuple'],
+    typeKeywords: [
+      'Float64', 'Int64', 'UInt64', 'String', 'Bool', 'Null', 'Any', 'Tuple',
+      'Never', 'TaskHandle', 'Result', 'Dict',
+    ],
     tokenizer: {
       root: [
         [/\/\/.*$/, 'comment'],
         [/"([^"\\]|\\.)*"/, 'string'],
         [/[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/, 'number'],
+        [/__builtin__/, 'keyword'],
+        [/[A-Z][A-Za-z0-9_.]*(?=\()/, 'type'],  // Parameterized types: Result(...), Dict(...)
         [/[A-Z][A-Za-z0-9_.]*/, {
           cases: {
             '@typeKeywords': 'type.identifier',
@@ -34,7 +39,7 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
         }],
         [/\./, 'delimiter'],
         [/[,;:()[\]{}]/, 'delimiter'],
-        [/\.\.\.|->|::|==|!=|>=|<=|&&|\|\||[\^/%*+\-<>!=|]/, 'operator'],
+        [/\.\.\.|->|::|=>|==|!=|>=|<=|&&|\|\||[\^/%*+\-<>!=|]/, 'operator'],
         [/\s+/, 'white'],
       ],
     },

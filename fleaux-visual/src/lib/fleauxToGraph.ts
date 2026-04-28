@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, UserFuncData } from './types';
+import type { ClosureData, FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, UserFuncData } from './types';
 import { formatFunctionDisplayName, matchesArity } from './functionSignatures';
 import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
@@ -33,6 +33,7 @@ type BuildContext = {
   userFunctions: Map<string, LetDef>;
   importedModules: Set<string>;
   letSourceRef?: { nodeId: string; paramIndexByName: Map<string, number> };
+  closureScopes: Array<{ nodeId: string; paramIndexByName: Map<string, number> }>;
 };
 
 const stdFunctionsByName = new Map<string, StdFunctionEntry[]>();
@@ -220,6 +221,78 @@ function parseParams(paramText: string): Param[] {
   });
 }
 
+type ClosureSyntax = { params: Param[]; returnType: string; body: string };
+
+/**
+ * If `text` is a closure expression `(params): ReturnType = body`, parse and return its parts.
+ * Returns null if the text doesn't match the closure pattern.
+ */
+function tryParseClosureSyntax(text: string): ClosureSyntax | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('(')) return null;
+
+  // Find the matching `)` at depth 0
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let closeIndex = -1;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escape) { escape = false; }
+      else if (ch === '\\') { escape = true; }
+      else if (ch === '"') { inString = false; }
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '(') { depth += 1; continue; }
+    if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) { closeIndex = i; break; }
+    }
+  }
+  if (closeIndex === -1) return null;
+
+  // After the closing `)` must come `: returnType = body`
+  const afterParen = trimmed.slice(closeIndex + 1).trimStart();
+  if (!afterParen.startsWith(':')) return null;
+  const afterColon = afterParen.slice(1).trimStart();
+
+  // Find the `=` separator (not `==`) at depth 0 to locate the body
+  let depth2 = 0;
+  let eqIndex = -1;
+  for (let i = 0; i < afterColon.length; i += 1) {
+    const ch = afterColon[i];
+    if (ch === '(') { depth2 += 1; continue; }
+    if (ch === ')') { depth2 = Math.max(0, depth2 - 1); continue; }
+    if (ch === '=' && depth2 === 0 && afterColon[i + 1] !== '=') {
+      eqIndex = i;
+      break;
+    }
+  }
+  if (eqIndex === -1) return null;
+
+  const returnType = afterColon.slice(0, eqIndex).trim();
+  const body = afterColon.slice(eqIndex + 1).trim();
+  if (!returnType || !body) return null;
+
+  // Validate the paren content looks like closure params (every comma-part has `:`)
+  const paramsText = trimmed.slice(1, closeIndex).trim();
+  if (paramsText) {
+    const parts = splitTopLevel(paramsText, ',');
+    if (!parts.every((part) => part.includes(':'))) return null;
+  }
+
+  let params: Param[];
+  try {
+    params = parseParams(paramsText);
+  } catch {
+    return null;
+  }
+
+  return { params, returnType, body };
+}
+
 function splitNameAndTypeParams(rawName: string): { name: string; typeParams: string[] } {
   const trimmed = rawName.trim();
   if (!trimmed.endsWith('>')) {
@@ -369,6 +442,15 @@ function resolveIdentifierAsSource(
     return pipelineSource;
   }
 
+  // Check innermost closure scope first (supports captures from multiple levels)
+  for (let i = ctx.closureScopes.length - 1; i >= 0; i -= 1) {
+    const scope = ctx.closureScopes[i];
+    const closureParamIndex = scope.paramIndexByName.get(token);
+    if (closureParamIndex !== undefined) {
+      return { nodeId: scope.nodeId, sourceHandle: `closure-param-${closureParamIndex}` };
+    }
+  }
+
   // Let parameter reference
   const paramIndex = ctx.letSourceRef?.paramIndexByName.get(token);
   if (paramIndex !== undefined && ctx.letSourceRef) {
@@ -487,6 +569,12 @@ function parseValueAsSource(
 
   const literal = parseLiteralToken(token);
   if (literal) return createLiteralNode(ctx, nextId('lit'), literal.valueType, literal.value);
+
+  // Check for closure expression before tuple: `(params): ReturnType = body`
+  const closureSyntax = tryParseClosureSyntax(token);
+  if (closureSyntax) {
+    return createClosureNodeFromSyntax(ctx, closureSyntax, nextId);
+  }
 
   if (isWrappedByParens(token)) {
     const inner = token.slice(1, -1).trim();
@@ -624,6 +712,56 @@ function parseTupleArgsIfPresent(
   return parts.map((part) => parseExpressionAsSource(ctx, part, nextId, pipelineSource));
 }
 
+/**
+ * Build a closure node from already-parsed closure syntax and wire its body.
+ */
+function createClosureNodeFromSyntax(
+  ctx: BuildContext,
+  closureSyntax: ClosureSyntax,
+  nextId: (prefix: string) => string,
+): SourceRef {
+  const { params, returnType, body } = closureSyntax;
+  const closureNodeId = nextId('closure');
+  const displayParams =
+    params.length === 0
+      ? '()'
+      : `(${params.map((p) => `${p.name}: ${p.type}`).join(', ')})`;
+
+  ctx.nodes.push({
+    id: closureNodeId,
+    type: 'closureNode',
+    position: { x: 380, y: 130 + ctx.nodes.length * 48 },
+    data: {
+      kind: 'closure',
+      params,
+      returnType,
+      label: `${displayParams}: ${returnType}`,
+    } as ClosureData,
+  });
+
+  // Push closure scope so body nodes can reference its params
+  const paramIndexByName = new Map<string, number>();
+  params.forEach((param, index) => paramIndexByName.set(param.name, index));
+  ctx.closureScopes.push({ nodeId: closureNodeId, paramIndexByName });
+
+  let bodySource: SourceRef;
+  try {
+    bodySource = parsePipelineExpression(body, ctx, nextId);
+  } finally {
+    ctx.closureScopes.pop();
+  }
+
+  // Wire body-root edge (from closure-body-anchor → body root node's closure-body-root handle)
+  addEdge(
+    ctx,
+    { nodeId: closureNodeId, sourceHandle: 'closure-body-anchor' },
+    bodySource.nodeId,
+    'closure-body-root',
+  );
+
+  return { nodeId: closureNodeId };
+}
+
 /** Push a call node (stdFunc or userFunc) and return its id. */
 function pushCallNode(
   ctx: BuildContext,
@@ -681,7 +819,16 @@ function parsePipelineExpression(
   ctx: BuildContext,
   nextId: (prefix: string) => string,
 ): SourceRef {
-  const parts = splitTopLevel(expression, '->');
+  const trimmed = expression.trim();
+
+  // Check if the entire expression is a closure BEFORE splitting by `->`
+  // This handles: let body = closure, and tuple-element closures with pipeline bodies.
+  const wholeExprClosure = tryParseClosureSyntax(trimmed);
+  if (wholeExprClosure) {
+    return createClosureNodeFromSyntax(ctx, wholeExprClosure, nextId);
+  }
+
+  const parts = splitTopLevel(trimmed, '->');
   if (parts.length === 0) throw new FleauxImportError('Empty expression.');
 
   if (parts.length === 1) {
@@ -773,7 +920,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
   const parsedLetsByStatement = new Map<string, LetDef>();
   const importedModules = new Set<string>();
 
-  const ctx: BuildContext = { nodes, edges, userFunctions, importedModules };
+  const ctx: BuildContext = { nodes, edges, userFunctions, importedModules, closureScopes: [] };
 
   const statements = splitStatements(stripLineComments(sourceText));
 

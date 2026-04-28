@@ -170,6 +170,8 @@ export function Toolbar() {
         className="text-xs font-mono border border-teal-600 text-teal-300 hover:bg-teal-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Import</button>
       <button onClick={() => addPrimitive({ type: 'letNode', data: { kind: 'let', name: 'MyFunc', params: [], returnType: 'Any', label: 'let MyFunc' } })}
         className="text-xs font-mono border border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Let</button>
+      <button onClick={() => addPrimitive({ type: 'closureNode', data: { kind: 'closure', params: [{ name: 'x', type: 'Any' }], returnType: 'Any', label: '(x: Any): Any' } })}
+        className="text-xs font-mono border border-violet-600 text-violet-300 hover:bg-violet-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Closure</button>
       <button onClick={() => addPrimitive({ type: 'tupleNode', data: { kind: 'tuple', arity: 2, label: '( _, _ )' } })}
         className="text-xs font-mono border border-orange-600 text-orange-300 hover:bg-orange-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Tuple</button>
       <button onClick={() => addPrimitive({ type: 'literalNode', data: { kind: 'literal', valueType: 'String', value: '', label: '""' } })}

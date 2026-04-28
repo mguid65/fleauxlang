@@ -5,6 +5,7 @@ import type { Edge } from '@xyflow/react';
 export type FleauxNodeKind =
   | 'literal'   // A constant value: number, string, bool, null
   | 'let'       // let FunctionName(params): ReturnType = expr
+  | 'closure'   // (params): ReturnType = expr — inline anonymous function
   | 'import'    // import ModuleName
   | 'tuple'     // (a, b, c) — argument grouping
   | 'stdValue'  // A concrete Std constant/value symbol
@@ -82,6 +83,12 @@ export interface UserFuncData extends FleauxNodeDataBase {
   isReference?: boolean;
 }
 
+export interface ClosureData extends FleauxNodeDataBase {
+  kind: 'closure';
+  params: { name: string; type: string }[];
+  returnType: string;
+}
+
 export type FleauxNodeData =
   | LiteralData
   | LetData
@@ -89,7 +96,8 @@ export type FleauxNodeData =
   | TupleData
   | StdValueData
   | StdFuncData
-  | UserFuncData;
+  | UserFuncData
+  | ClosureData;
 
 //  Fleaux-specific edge types
 

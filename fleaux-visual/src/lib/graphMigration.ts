@@ -24,6 +24,14 @@ export function migrateGraphNodes(
       };
     }
 
+    // Closure nodes pass through — no migration needed
+    if (data.kind === 'closure') {
+      return {
+        ...node,
+        data: data as FleauxNodeData,
+      };
+    }
+
     // Check if this is an old-style std namespace node
     if (data.kind === 'std' && typeof data.namespace === 'string') {
       // Convert to a stdFunc node using Std.Apply as a sensible default

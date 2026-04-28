@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react';
 import type {
+  ClosureData,
   FleauxEdge,
   FleauxNodeData,
   LetData,
@@ -39,6 +40,7 @@ type LetContext = {
 };
 
 const LET_BODY_ROOT_HANDLE = 'let-body-root';
+const CLOSURE_BODY_ROOT_HANDLE = 'closure-body-root';
 
 function buildGraphContext(
   nodes: Node<FleauxNodeData>[],
@@ -200,6 +202,22 @@ function resolveEdgeSourceExpression(
     return param.name;
   }
 
+  // Closure node: its param handles provide the parameter names to the body graph.
+  if (sourceNode.data.kind === 'closure') {
+    const paramIndex = parseIndexedHandle(edge.sourceHandle, 'closure-param-');
+    if (paramIndex !== null) {
+      const closureData = sourceNode.data as ClosureData;
+      const param = closureData.params[paramIndex];
+      if (!param) {
+        throw new GraphSerializationError(
+          `Closure node does not have parameter index ${paramIndex}.`,
+        );
+      }
+      return param.name;
+    }
+    // Otherwise fall through to serialize the closure expression itself
+  }
+
   return serializeNodeExpression(edge.source, ctx, letCtx, visiting);
 }
 
@@ -231,6 +249,8 @@ function serializeNodeExpression(
         return serializeCallNode(node as Node<StdFuncData>, ctx, letCtx, visiting, 'stdfunc-in-');
       case 'userFunc':
         return serializeCallNode(node as Node<UserFuncData>, ctx, letCtx, visiting, 'userfunc-in-');
+      case 'closure':
+        return serializeClosureNode(node as Node<ClosureData>, ctx, letCtx, visiting);
       case 'import':
         throw new GraphSerializationError(`Import node '${node.data.label}' cannot be used as an expression.`);
       case 'let':
@@ -241,6 +261,35 @@ function serializeNodeExpression(
   } finally {
     visiting.delete(nodeId);
   }
+}
+
+function getClosureBodyRootEdge(closureNodeId: string, ctx: GraphContext): FleauxEdge | null {
+  const candidates = (ctx.outgoingBySource.get(closureNodeId) ?? []).filter(
+    (edge) => edge.targetHandle === CLOSURE_BODY_ROOT_HANDLE,
+  );
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    throw new GraphSerializationError(
+      `Closure node '${closureNodeId}' must have exactly one '${CLOSURE_BODY_ROOT_HANDLE}' marker edge; found ${candidates.length}.`,
+    );
+  }
+  return null;
+}
+
+function serializeClosureNode(
+  node: Node<ClosureData>,
+  ctx: GraphContext,
+  letCtx: LetContext | null,
+  visiting: Set<string>,
+): string {
+  const paramText = node.data.params.map((p) => `${p.name}: ${p.type}`).join(', ');
+  const bodyRootEdge = getClosureBodyRootEdge(node.id, ctx);
+  if (!bodyRootEdge) {
+    // Empty/stub closure — emit a placeholder
+    return `(${paramText}): ${node.data.returnType} = null`;
+  }
+  const bodyExpr = serializeNodeExpression(bodyRootEdge.target, ctx, letCtx, visiting);
+  return `(${paramText}): ${node.data.returnType} = ${bodyExpr}`;
 }
 
 function serializeTupleNode(
@@ -515,7 +564,21 @@ function collectDependencyNodeIds(rootNodeId: string, letNodeId: string, ctx: Gr
       if (edge.targetHandle === LET_BODY_ROOT_HANDLE) {
         continue;
       }
+      if (edge.targetHandle === CLOSURE_BODY_ROOT_HANDLE) {
+        // Don't follow body-root edges backwards (they would lead back to the closure node)
+        continue;
+      }
       pending.push(edge.source);
+    }
+
+    // If this node is a closure, also include its body sub-graph
+    const node = ctx.nodesById.get(nodeId);
+    if (node?.data.kind === 'closure') {
+      for (const edge of ctx.outgoingBySource.get(nodeId) ?? []) {
+        if (edge.targetHandle === CLOSURE_BODY_ROOT_HANDLE) {
+          pending.push(edge.target);
+        }
+      }
     }
   }
 
@@ -592,7 +655,11 @@ export function serializeGraphToFleaux(
     }
 
     const outgoing = ctx.outgoingBySource.get(node.id) ?? [];
-    if (outgoing.length > 0) {
+    // For closure nodes, ignore the body-anchor edge when checking if the node is "consumed"
+    const dataOutgoing = node.data.kind === 'closure'
+      ? outgoing.filter((e) => e.sourceHandle !== 'closure-body-anchor' && e.targetHandle !== CLOSURE_BODY_ROOT_HANDLE)
+      : outgoing;
+    if (dataOutgoing.length > 0) {
       continue;
     }
 
