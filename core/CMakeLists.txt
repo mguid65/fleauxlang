@@ -206,6 +206,7 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       tl_expected)
 
   if(TARGET fleaux_vm)
+    target_sources(fleaux_wasm_coordinator PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
     target_link_libraries(fleaux_wasm_coordinator PRIVATE fleaux_vm)
     target_compile_definitions(fleaux_wasm_coordinator PRIVATE FLEAUX_WASM_HAS_RUNTIME=1)
   else()
