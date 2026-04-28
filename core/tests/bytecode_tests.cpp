@@ -95,7 +95,7 @@ auto make_task_spawn_tuple_literal(const std::vector<int>& values) -> std::strin
 }
 
 auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string> {
-  std::ifstream in(repo_root_path() / "Std.fleaux");
+  std::ifstream in(repo_root_path() / "stdlib" / "Std.fleaux");
   REQUIRE(in.good());
 
   std::set<std::string> names;
@@ -147,7 +147,7 @@ auto vm_catalog_constant_names() -> std::set<std::string> {
 
 }  // namespace
 
-TEST_CASE("VM builtin catalog stays in sync with Std.fleaux", "[bytecode]") {
+TEST_CASE("VM builtin catalog stays in sync with stdlib/Std.fleaux", "[bytecode]") {
   REQUIRE(vm_catalog_builtin_names() == parse_std_declared_names(true));
   REQUIRE(vm_catalog_constant_names() == parse_std_declared_names(false));
 }

@@ -1,5 +1,4 @@
 #include <filesystem>
-#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -11,58 +10,9 @@
 
 #include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/vm/runtime.hpp"
+#include "vm_test_support.hpp"
 
 namespace {
-
-enum class OutcomeClass {
-  kSuccess,
-  kImportUnresolved,
-  kImportCycle,
-  kTypeMismatch,
-  kUnresolvedSymbol,
-  kOther,
-};
-
-struct FixtureFile {
-  std::string name;
-  std::string source;
-};
-
-struct ContractCase {
-  std::string name;
-  std::string entry_file;
-  std::vector<FixtureFile> files;
-  OutcomeClass expected_outcome;
-  std::vector<std::string> expected_fragments;
-  bool execute_vm{false};
-};
-
-void write_fixture_file(const std::filesystem::path& path, const std::string& source) {
-  std::ofstream out(path);
-  REQUIRE(out.good());
-  out << source;
-  REQUIRE(out.good());
-}
-
-auto classify_message(const std::string& text) -> OutcomeClass {
-  if (text.find("import-unresolved:") != std::string::npos) { return OutcomeClass::kImportUnresolved; }
-  if (text.find("import-cycle:") != std::string::npos) { return OutcomeClass::kImportCycle; }
-  if (text.find("Type mismatch in call target arguments") != std::string::npos) {
-    return OutcomeClass::kTypeMismatch;
-  }
-  if (text.find("Unresolved symbol") != std::string::npos) { return OutcomeClass::kUnresolvedSymbol; }
-  return OutcomeClass::kOther;
-}
-
-struct CurrentPathScope {
-  explicit CurrentPathScope(const std::filesystem::path& path) : previous(std::filesystem::current_path()) {
-    std::filesystem::current_path(path);
-  }
-
-  ~CurrentPathScope() { std::filesystem::current_path(previous); }
-
-  std::filesystem::path previous;
-};
 
 }  // namespace
 
@@ -71,110 +21,110 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
-  const std::vector<ContractCase> cases = {
-      ContractCase{
+  const std::vector<fleaux::tests::ImportContractCase> cases = {
+      fleaux::tests::ImportContractCase{
           .name = "import_unresolved",
           .entry_file = "entry_unresolved.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "entry_unresolved.fleaux",
                   .source = "import missing_dep;\n"
                             "let Main(x: Float64): Float64 = x;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kImportUnresolved,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kImportUnresolved,
           .expected_fragments = {"missing_dep", "Import not found"},
       },
-      ContractCase{
+      fleaux::tests::ImportContractCase{
           .name = "import_cycle",
           .entry_file = "a.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "a.fleaux",
                   .source = "import b;\n"
                             "let A(x: Float64): Float64 = x;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "b.fleaux",
                   .source = "import a;\n"
                             "let B(x: Float64): Float64 = x;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kImportCycle,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kImportCycle,
                   .expected_fragments = {"Import cycle detected"},
       },
-      ContractCase{
+      fleaux::tests::ImportContractCase{
           .name = "import_type_mismatch",
           .entry_file = "typed_entry.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_dep.fleaux",
                   .source = "let Add4(x: String): Int64 = 4;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_entry.fleaux",
                   .source = "import Std;\n"
                             "import typed_dep;\n"
                             "(1) -> Add4 -> Std.Println;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kTypeMismatch,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kTypeMismatch,
           .expected_fragments = {"Add4 expects argument 0"},
       },
-      ContractCase{
+      fleaux::tests::ImportContractCase{
           .name = "direct_import_visibility",
           .entry_file = "a.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "c.fleaux",
                   .source = "import Std;\n"
                             "let CFn(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "b.fleaux",
                   .source = "import c;\n"
                             "let BFn(x: Float64): Float64 = (x) -> CFn;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "a.fleaux",
                   .source = "import Std;\n"
                             "import b;\n"
                             "(1.0) -> CFn -> Std.Println;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kUnresolvedSymbol,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kUnresolvedSymbol,
           .expected_fragments = {"CFn"},
       },
-      ContractCase{
+      fleaux::tests::ImportContractCase{
           .name = "qualified_export_unresolved",
           .entry_file = "typed_entry_qualified.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_dep_qualified.fleaux",
                   .source = "import Std;\n"
                             "let MyMath.Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_entry_qualified.fleaux",
                   .source = "import Std;\n"
                             "import typed_dep_qualified;\n"
                             "(1.0) -> WrongMath.Add4 -> Std.Println;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kUnresolvedSymbol,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kUnresolvedSymbol,
           .expected_fragments = {"WrongMath.Add4"},
       },
-      ContractCase{
+      fleaux::tests::ImportContractCase{
           .name = "qualified_overload_success",
           .entry_file = "typed_entry_overloads.fleaux",
           .files = {
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_dep_overloads.fleaux",
                   .source = "import Std;\n"
                             "let MyMath.Echo(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
                             "let MyMath.Echo(x: String): String = x;\n",
               },
-              FixtureFile{
+              fleaux::tests::ImportContractFixtureFile{
                   .name = "typed_entry_overloads.fleaux",
                   .source = "import Std;\n"
                             "import typed_dep_overloads;\n"
@@ -182,7 +132,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
                             "(\"ok\") -> MyMath.Echo -> Std.Println;\n",
               },
           },
-          .expected_outcome = OutcomeClass::kSuccess,
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kSuccess,
           .expected_fragments = {},
           .execute_vm = true,
       },
@@ -194,7 +144,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
     std::filesystem::create_directories(case_dir);
 
     for (const auto& file : contract_case.files) {
-      write_fixture_file(case_dir / file.name, file.source);
+      fleaux::tests::write_text_file(case_dir / file.name, file.source);
     }
 
     const auto entry_path = case_dir / contract_case.entry_file;
@@ -202,7 +152,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
 
     INFO("contract case: " << contract_case.name);
 
-    if (contract_case.expected_outcome == OutcomeClass::kSuccess) {
+    if (contract_case.expected_outcome == fleaux::tests::ImportContractOutcomeClass::kSuccess) {
       if (!vm_load_result) { INFO("vm load error: " << vm_load_result.error().message); }
       REQUIRE(vm_load_result.has_value());
 
@@ -219,7 +169,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
 
     const auto vm_text = vm_load_result.error().message;
     INFO("vm text: " << vm_text);
-    REQUIRE(classify_message(vm_text) == contract_case.expected_outcome);
+    REQUIRE(fleaux::tests::classify_import_contract_message(vm_text) == contract_case.expected_outcome);
 
     for (const auto& fragment : contract_case.expected_fragments) {
       REQUIRE(vm_text.find(fragment) != std::string::npos);
@@ -233,11 +183,11 @@ TEST_CASE("RuntimeSession resolves normal imports relative to the working direct
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
-  write_fixture_file(temp_dir / "custom_module.fleaux",
-                     "import Std;\n"
-                     "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
+  fleaux::tests::write_text_file(temp_dir / "custom_module.fleaux",
+                                 "import Std;\n"
+                                 "let Add4(x: Int64): Int64 = ((x, 4) -> Std.Add) -> Std.ToInt64;\n");
 
-  CurrentPathScope current_path_scope(temp_dir);
+  fleaux::tests::CurrentPathScope current_path_scope(temp_dir);
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
   std::ostringstream output;
@@ -246,10 +196,10 @@ TEST_CASE("RuntimeSession resolves normal imports relative to the working direct
   if (!std_result) { INFO("Std import error: " << std_result.error().message); }
   REQUIRE(std_result.has_value());
 
-  const auto std_builtins_result =
-      session.run_snippet("import StdBuiltins;\nlet Keep(x: Float64): Float64 = x;\n", output);
-  if (!std_builtins_result) { INFO("StdBuiltins import error: " << std_builtins_result.error().message); }
-  REQUIRE(std_builtins_result.has_value());
+  const auto std_builtins_result = session.run_snippet("import StdBuiltins;\n", output);
+  REQUIRE_FALSE(std_builtins_result.has_value());
+  REQUIRE(std_builtins_result.error().message.find("import-unresolved:") != std::string::npos);
+  REQUIRE(std_builtins_result.error().message.find("StdBuiltins") != std::string::npos);
 
   const auto import_result = session.run_snippet("import custom_module;\n(3) -> Add4 -> Std.Println;\n", output);
   if (!import_result) { INFO("normal import error: " << import_result.error().message); }

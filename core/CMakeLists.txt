@@ -20,9 +20,12 @@ endforeach()
 include(CTest)
 include(GNUInstallDirs)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 option(FLEAUX_BUILD_WASM_COORDINATOR "Build browser-facing Fleaux WASM coordinator" OFF)
 option(FLEAUX_INSTALL_VISUAL_ASSETS "Install prebuilt fleaux-visual assets if available" OFF)
 set(FLEAUX_VISUAL_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/dist" CACHE PATH "Path to prebuilt fleaux-visual dist directory")
+set(FLEAUX_STD_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/Std.fleaux" CACHE FILEPATH "Canonical Std.fleaux source file to embed")
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
@@ -49,6 +52,25 @@ target_include_directories(tl_expected INTERFACE ${THIRD_PARTY}/tl/include)
 add_library(datatree INTERFACE)
 target_include_directories(datatree INTERFACE ${THIRD_PARTY}/datatree/include)
 target_link_libraries(datatree INTERFACE tl_expected)
+
+set(FLEAUX_COMMON_SOURCES
+        src/common/embedded_resource.cpp
+)
+
+add_library(fleaux_common STATIC)
+target_include_directories(fleaux_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_sources(fleaux_common PRIVATE ${FLEAUX_COMMON_SOURCES})
+
+set(FLEAUX_GENERATED_RESOURCE_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_resources.cpp")
+add_custom_command(
+    OUTPUT ${FLEAUX_GENERATED_RESOURCE_CPP}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_embedded_resources.py
+            --output ${FLEAUX_GENERATED_RESOURCE_CPP}
+            --resource Std.fleaux=${FLEAUX_STD_SOURCE}
+    DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_embedded_resources.py
+            ${FLEAUX_STD_SOURCE}
+    VERBATIM)
 
 set(FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES
         src/frontend/diagnostics.cpp
@@ -90,6 +112,15 @@ if(BUILD_TESTING)
   find_package(Catch2 CONFIG REQUIRED)
   include(Catch)
 
+  add_executable(fleaux_common_tests
+      tests/test_main.cpp
+      tests/embedded_resource_tests.cpp)
+  target_link_libraries(fleaux_common_tests PRIVATE Catch2::Catch2 fleaux_common)
+
+  catch_discover_tests(fleaux_common_tests
+      TEST_PREFIX "fleaux_common_tests::"
+      EXTRA_ARGS --reporter compact)
+
   add_executable(fleaux_core_tests
       tests/test_main.cpp
       tests/diagnostics_tests.cpp
@@ -98,12 +129,15 @@ if(BUILD_TESTING)
       tests/lowering_tests.cpp
       tests/typecheck_tests.cpp
       tests/runtime_builtins_tests.cpp
+      tests/embedded_resource_integration_tests.cpp
       tests/repl_line_editor_tests.cpp
-      src/cli/line_editor.cpp)
+      src/cli/line_editor.cpp
+      ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_compile_definitions(fleaux_core_tests PRIVATE
       FLEAUX_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
   target_link_libraries(fleaux_core_tests PRIVATE
       Catch2::Catch2
+      fleaux_common
       fleaux_frontend_diagnostics
       fleaux_frontend_parser
       fleaux_frontend_lowering
@@ -138,7 +172,7 @@ if(FLEAUX_PCRE2_TARGET)
   )
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
-  target_link_libraries(fleaux_vm PUBLIC fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
+  target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
 
   set(FLEAUX_MAIN_SOURCES
           src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
@@ -147,6 +181,7 @@ if(FLEAUX_PCRE2_TARGET)
   )
 
   add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
+  target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_link_libraries(fleaux PRIVATE fleaux_vm)
 elseif(EMSCRIPTEN)
   message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm and fleaux targets")
@@ -223,7 +258,7 @@ if(FLEAUX_INSTALL_TARGETS)
 endif()
 
 install(FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../Std.fleaux
+    ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/Std.fleaux
     DESTINATION ${CMAKE_INSTALL_DATADIR}/fleaux
     COMPONENT Runtime)
 

@@ -1,4 +1,3 @@
-import StdBuiltins;
 
 // Mathematical constants derived from boost::math::constants
 let Std.Half(): Float64 :: 0.5000000000000000000000000000000000000e-01;

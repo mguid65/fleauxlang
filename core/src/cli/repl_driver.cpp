@@ -202,7 +202,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
               << "  - End statements with ';'\n"
               << "  - Multiline input is supported until a complete statement is formed\n"
               << "  - Normal imports resolve relative to the current working directory\n"
-              << "  - Std and StdBuiltins remain symbolic imports\n";
+              << "  - Std remains a symbolic import\n";
   };
 
   std::cout << "Fleaux REPL\n"

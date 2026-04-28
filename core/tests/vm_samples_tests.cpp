@@ -20,6 +20,7 @@
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 #include "fleaux/vm/runtime.hpp"
+#include "vm_test_support.hpp"
 
 #ifndef FLEAUX_REPO_ROOT
 #error "FLEAUX_REPO_ROOT must be defined by CMake for sample tests."
@@ -178,6 +179,13 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
 TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help registry state", "[vm][help][contract]") {
   const auto sample_path = samples_dir_path() / "34_help.fleaux";
   REQUIRE(std::filesystem::exists(sample_path));
+
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_help_embedded_std_only";
+  std::filesystem::remove_all(temp_dir);
+  const auto poisoned_fallbacks = fleaux::tests::write_poisoned_symbolic_std_fallbacks(temp_dir);
+
+  const fleaux::tests::CurrentPathScope current_path_scope(temp_dir);
+  const fleaux::tests::ScopedEnvVar env_scope("FLEAUX_STD_PATH", poisoned_fallbacks.env_std_path.string());
 
   const auto analyzed = load_ir_program(sample_path);
   REQUIRE(analyzed.has_value());

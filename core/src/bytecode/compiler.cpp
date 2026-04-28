@@ -123,7 +123,7 @@ auto target_symbol_name(const IRNameRef& name_ref) -> std::string {
 }
 
 auto is_symbolic_import(const std::string& module_name) -> bool {
-  return module_name == "Std" || module_name == "StdBuiltins";
+  return module_name == "Std";
 }
 
 auto let_belongs_to_module(const IRLet& let, const CompileOptions& options) -> bool {

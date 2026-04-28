@@ -11,10 +11,10 @@
 
 #include <tl/expected.hpp>
 
+#include "fleaux/common/embedded_resource.hpp"
 #include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/source_loader.hpp"
-#include "fleaux/frontend/stdlib_locator.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
 namespace fleaux::vm::detail {
@@ -213,10 +213,17 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     (void)span;
     if (module_name != "Std") { continue; }
 
-    const auto std_file = frontend::stdlib_locator::find_std_file(source_path);
-    if (!std_file.has_value()) { continue; }
+    const std::filesystem::path std_source_name{"Std.fleaux"};
+    const auto embedded_std = fleaux::common::embedded_resource_text("Std.fleaux");
+    if (!embedded_std.has_value()) {
+      return tl::unexpected(make_repl_session_error(
+          "Failed to read source file.", std::optional<std::string>{"Embedded symbolic module 'Std' is unavailable."},
+          std::nullopt));
+    }
 
-    auto std_program = frontend::source_loader::parse_file_to_lowered_ir<ReplSessionError>(*std_file, make_repl_session_error);
+    const auto std_program = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(
+        std::string(*embedded_std), std_source_name.string(), make_repl_session_error);
+
     if (!std_program) { return tl::unexpected(std_program.error()); }
 
     std::unordered_set<std::string> imported_typed_keys;
@@ -226,7 +233,7 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     }
 
     for (const auto& std_let : std_program->lets) {
-      if (!frontend::source_loader::let_declared_in_source(std_let, *std_file)) { continue; }
+      if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) { continue; }
       imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
       if (const auto key = frontend::source_loader::let_identity_key(std_let); imported_typed_keys.insert(key).second) {
         imported_typed_lets.push_back(std_let);

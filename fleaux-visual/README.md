@@ -103,7 +103,7 @@ Important note:
   - `tuple`
   - `std` (explicit Std namespace nodes)
     - `literal` (`String` / `Int64|UInt64|Float64` / `Bool` / `Null`)
-- Std namespace nodes (from `Std.fleaux`) available in toolbar:
+- Std namespace nodes (from `stdlib/Std.fleaux`) available in toolbar:
   - `Std`, `Std.Exp`, `Std.String`, `Std.String.Regex`, `Std.Tuple`, `Std.Math`, `Std.Path`, `Std.File`, `Std.Dir`, `Std.OS`, `Std.Dict`
 - Quick add toolbar for creating nodes
 - Dark theme suitable for large graph editing

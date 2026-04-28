@@ -1,6 +1,6 @@
 import Std;
 
-// Mathematical constants defined in Std.fleaux.
+// Mathematical constants defined in stdlib/Std.fleaux.
 // All zero-parameter functions - call with ().
 
 () -> Std.Pi -> Std.Println;                   // 3.14159265358979...

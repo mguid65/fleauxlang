@@ -5,7 +5,7 @@ This guide helps contributors identify exactly where to implement a feature in `
 
 ## Scope
 - Core implementation: `core/`
-- Language standard surface: `Std.fleaux`
+- Language standard surface: `stdlib/Std.fleaux`
 - Integration fixtures: `samples/*.fleaux`
 
 ## High-level architecture
@@ -80,7 +80,7 @@ Tests:
 
 ### 4) New builtin or builtin signature change
 Touch all relevant layers:
-- `Std.fleaux` (language signature)
+- `stdlib/Std.fleaux` (language signature)
 - `core/include/fleaux/vm/builtin_catalog.hpp`
 - `core/src/vm/runtime.cpp`
 - `core/src/vm/builtin_map.hpp`
@@ -155,7 +155,7 @@ Tests:
 - Keep VM loader and VM runtime semantics aligned for imports and callable resolution.
 - For import changes, verify both VM stages: `bytecode::load_linked_module` and `fleaux::vm::Runtime` execution when applicable.
 - For cross-module type contracts, verify direct-import seeding and qualifier/symbol-key behavior.
-- REPL imports are intentionally symbolic-only (`Std`, `StdBuiltins`) unless explicitly redesigned.
+- REPL imports are intentionally symbolic-only (`Std`) unless explicitly redesigned.
 
 ## Test matrix by change type
 - Parser and grammar: `parser_tests`, `parser_type_syntax_tests`, `lowering_tests`
@@ -166,7 +166,7 @@ Tests:
 
 ## Contributor checklist
 - Implement in canonical sources (avoid generated artifacts)
-- Update `Std.fleaux` when builtin signatures or constants change
+- Update `stdlib/Std.fleaux` when builtin signatures or constants change
 - Add tests in the owning suite and one VM-oriented sample or runtime suite
 - Run focused tests for touched areas, then broader VM regression runs
 
