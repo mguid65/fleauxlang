@@ -201,7 +201,8 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
               << "Tips:\n"
               << "  - End statements with ';'\n"
               << "  - Multiline input is supported until a complete statement is formed\n"
-              << "  - REPL imports are symbolic only: Std, StdBuiltins\n";
+              << "  - Normal imports resolve relative to the current working directory\n"
+              << "  - Std and StdBuiltins remain symbolic imports\n";
   };
 
   std::cout << "Fleaux REPL\n"

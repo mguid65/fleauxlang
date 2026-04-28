@@ -1,0 +1,121 @@
+import Std;
+
+// Grid: a 2-D array represented as a Tuple of row-Tuples.
+// All rows are assumed to have equal length.
+
+let Int.Abs(x: Int64): Int64 =
+    ((x, 0) -> Std.GreaterOrEqual, x, (0, x) -> Std.Subtract) -> Std.Select;
+
+let Grid.MakeFlat(size: Int64, fill: String): Tuple(String...) =
+    ((0, size) -> Std.Tuple.Range,
+     (_: Int64): String = fill) -> Std.Tuple.Map;
+
+// Create - build a rows x cols grid where every cell contains fill
+let Grid.Create(rows: Int64, cols: Int64, fill: String): Tuple(Tuple(String...)...) =
+    (((rows, cols) -> Std.Multiply, fill) -> Grid.MakeFlat,
+     rows, cols) -> Std.Array.Reshape;
+
+// NumRows / NumCols - query grid dimensions
+let Grid.NumRows(grid: Tuple(Tuple(String...)...)): Int64 =
+    (grid) -> Std.Array.Shape -> (_, 0) -> Std.Array.GetAt;
+
+let Grid.NumCols(grid: Tuple(Tuple(String...)...)): Int64 =
+    (grid) -> Std.Array.Shape -> (_, 1) -> Std.Array.GetAt;
+
+// Get - value at (row, col)
+let Grid.Get(grid: Tuple(Tuple(String...)...), row: Int64, col: Int64): String =
+    (grid, (row, col)) -> Std.Array.GetAtND;
+
+// Set - native 2D update avoids nested tuple slicing/copying per point update.
+let Grid.Set(grid: Tuple(Tuple(String...)...), row: Int64, col: Int64, val: String): Tuple(Tuple(String...)...) =
+    (grid, row, col, val) -> Std.Array.SetAt2D;
+
+// Print - display each row as a single joined string
+let Grid.PrintRow(row: Tuple(String...)): Tuple(Any...) =
+    ("", row) -> Std.String.Join -> Std.Println;
+
+let Grid.Print(grid: Tuple(Tuple(String...)...)): Tuple(Tuple(Any...)...) =
+    (grid, Grid.PrintRow) -> Std.Tuple.Map;
+
+// Bresenham's line algorithm
+//
+// Loop state tuple layout (indices 0-9):
+//   0:x  1:y  2:x1  3:y1  4:dx  5:dy  6:sx  7:sy  8:err  9:grid
+//
+// dx = |x1-x0|,  dy = -|y1-y0|  (Bresenham convention: dy is negative)
+// sx/sy = step directions (+1 or -1)
+// err = dx + dy   (initial error)
+
+// Helpers that compute each initial-state component from the two endpoints
+let LB_Dx(x0: Int64, y0: Int64, x1: Int64, y1: Int64): Int64 =
+    ((x1, x0) -> Std.Subtract) -> Int.Abs;
+
+let LB_Dy(x0: Int64, y0: Int64, x1: Int64, y1: Int64): Int64 =
+    (0, ((y1, y0) -> Std.Subtract) -> Int.Abs) -> Std.Subtract;
+
+let LB_Sx(x0: Int64, y0: Int64, x1: Int64, y1: Int64): Int64 =
+    ((x0, x1) -> Std.LessThan, 1, -1) -> Std.Select;
+
+let LB_Sy(x0: Int64, y0: Int64, x1: Int64, y1: Int64): Int64 =
+    ((y0, y1) -> Std.LessThan, 1, -1) -> Std.Select;
+
+// Build the full initial state tuple for the loop
+let LB_InitState(grid: Tuple(Tuple(String...)...), x0: Int64, y0: Int64, x1: Int64, y1: Int64): Tuple(Any...) =
+    (x0, y0, x1, y1,
+     (x0, y0, x1, y1) -> LB_Dx,
+     (x0, y0, x1, y1) -> LB_Dy,
+     (x0, y0, x1, y1) -> LB_Sx,
+     (x0, y0, x1, y1) -> LB_Sy,
+     ((x0, y0, x1, y1) -> LB_Dx, (x0, y0, x1, y1) -> LB_Dy) -> Std.Add,
+     grid);
+
+// Continue while current position has not yet reached the endpoint
+let LB_Continue(x: Int64, y: Int64, x1: Int64, y1: Int64, dx: Int64, dy: Int64,
+                sx: Int64, sy: Int64, err: Int64, grid: Tuple(Tuple(String...)...)): Bool =
+    ((x, x1) -> Std.Equal, (y, y1) -> Std.Equal) -> Std.And -> Std.Not;
+
+// Step helpers - each recomputes e2 = 2*err inline from the current state
+
+// Advance x by sx when e2 >= dy
+let LB_NewX(x: Int64, y: Int64, x1: Int64, y1: Int64, dx: Int64, dy: Int64,
+            sx: Int64, sy: Int64, err: Int64, grid: Tuple(Tuple(String...)...)): Int64 =
+    (((err, 2) -> Std.Multiply, dy) -> Std.GreaterOrEqual,
+     (x, sx) -> Std.Add, x) -> Std.Select;
+
+// Advance y by sy when e2 <= dx
+let LB_NewY(x: Int64, y: Int64, x1: Int64, y1: Int64, dx: Int64, dy: Int64,
+            sx: Int64, sy: Int64, err: Int64, grid: Tuple(Tuple(String...)...)): Int64 =
+    (((err, 2) -> Std.Multiply, dx) -> Std.LessOrEqual,
+     (y, sy) -> Std.Add, y) -> Std.Select;
+
+// err += dy if e2 >= dy,  err += dx if e2 <= dx  (both use the original e2)
+let LB_NewErr(x: Int64, y: Int64, x1: Int64, y1: Int64, dx: Int64, dy: Int64,
+              sx: Int64, sy: Int64, err: Int64, grid: Tuple(Tuple(String...)...)): Int64 =
+    ((err,
+      (((err, 2) -> Std.Multiply, dy) -> Std.GreaterOrEqual, dy, 0) -> Std.Select)
+         -> Std.Add,
+     (((err, 2) -> Std.Multiply, dx) -> Std.LessOrEqual, dx, 0) -> Std.Select)
+         -> Std.Add;
+
+// Full step: plot current (x,y) on the grid, then compute the next state
+let LB_Step(x: Int64, y: Int64, x1: Int64, y1: Int64, dx: Int64, dy: Int64,
+            sx: Int64, sy: Int64, err: Int64, grid: Tuple(Tuple(String...)...)): Tuple(Any...) =
+    ((x, y, x1, y1, dx, dy, sx, sy, err, grid) -> LB_NewX,
+     (x, y, x1, y1, dx, dy, sx, sy, err, grid) -> LB_NewY,
+     x1, y1, dx, dy, sx, sy,
+     (x, y, x1, y1, dx, dy, sx, sy, err, grid) -> LB_NewErr,
+     (grid, y, x, "#") -> Grid.Set);
+
+// LineBresenham: draw a line from (x0,y0) to (x1,y1) on grid.
+// The loop plots every pixel except the endpoint; one final Grid.Set adds it.
+let LineBresenham(grid: Tuple(Tuple(String...)...), x0: Int64, y0: Int64, x1: Int64, y1: Int64): Tuple(Tuple(String...)...) =
+    ((grid, x0, y0, x1, y1) -> LB_InitState,
+     LB_Continue, LB_Step, 100000) -> Std.LoopN
+        -> (_, 9) -> Std.ElementAt        // pull the grid out of the final state
+        -> (_, y1, x1, "#") -> Grid.Set;  // plant the final endpoint pixel
+
+// Demo: draw an X made of two diagonal lines on a 100 x 100 canvas
+(100, 100, ".") -> Grid.Create
+    -> (_, 0, 0, 99, 99) -> LineBresenham
+    -> (_, 0, 99, 99, 0) -> LineBresenham
+    -> Grid.Print;

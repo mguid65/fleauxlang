@@ -1220,7 +1220,8 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
 }  // namespace
 
 struct RuntimeSession::Impl {
-  explicit Impl(const std::vector<std::string>& process_args) {
+  explicit Impl(const std::vector<std::string>& process_args)
+      : source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
     std::vector<std::string> args_storage;
     args_storage.reserve(process_args.size() + 1U);
     args_storage.emplace_back("<repl>");
@@ -1232,6 +1233,7 @@ struct RuntimeSession::Impl {
     fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   }
 
+  std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
 };
 
@@ -1239,17 +1241,19 @@ RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args)
     : impl_(std::make_shared<Impl>(process_args)) {}
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
-  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, "<repl>", impl_->lets);
+  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets);
   if (!analyzed) {
     return tl::unexpected(make_runtime_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
 
-  auto merged_lets = detail::merge_repl_session_lets(impl_->lets, analyzed->lets);
+  auto merged_lets = detail::merge_repl_session_lets(impl_->lets, analyzed->lets, impl_->source_path);
   auto program_to_execute = analyzed.value();
   program_to_execute.lets = merged_lets;
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   auto compiled = compiler.compile(program_to_execute, fleaux::bytecode::CompileOptions{
+                                                           .source_path = impl_->source_path,
+                                                           .source_text = snippet_text,
                                                            .module_name = std::string{"repl"},
                                                        });
   if (!compiled) {

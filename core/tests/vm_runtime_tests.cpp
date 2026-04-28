@@ -182,6 +182,32 @@ TEST_CASE("RuntimeSession exact overload redefinition replaces only the matching
   REQUIRE(string_output.str() == "FuncA: x: String\n");
 }
 
+TEST_CASE("RuntimeSession type-checks Std imports using canonical stdlib declarations", "[vm][repl][type][stdlib]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto mismatch_result = session.run_snippet("import Std;\n((1, 2, 3), 1.5) -> Std.Array.GetAt;\n", output);
+  REQUIRE_FALSE(mismatch_result.has_value());
+  REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
+  REQUIRE(mismatch_result.error().hint.has_value());
+  REQUIRE_THAT(*mismatch_result.error().hint,
+               Catch::Matchers::ContainsSubstring("Std.Array.GetAt expects argument 1 to match declared type"));
+}
+
+TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][help][stdlib]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto help_result = session.run_snippet("import Std;\n(\"Std.Add\") -> Std.Help -> Std.Println;\n", output);
+  if (!help_result.has_value()) { INFO("repl help error: " << help_result.error().message); }
+  REQUIRE(help_result.has_value());
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Add two numeric values of the same numeric kind."));
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Parameters:"));
+}
+
 TEST_CASE("VM executes value-ref opcodes round-trip", "[vm][lifetime][value_ref]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
@@ -238,7 +264,7 @@ TEST_CASE("RuntimeSession run_snippet reclaims transient callable refs across ru
 
   const std::string snippet =
       "import Std;\n"
-      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
       "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
 
   for (int iter = 0; iter < 25; ++iter) {

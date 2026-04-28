@@ -1,6 +1,7 @@
 #pragma once
 
 #include <charconv>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,6 +14,7 @@
 #include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/source_loader.hpp"
+#include "fleaux/frontend/stdlib_locator.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
 namespace fleaux::vm::detail {
@@ -147,11 +149,11 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
   };
 
   for (const auto& prior_let : prior_session_lets) {
-    auto& symbol_slots = reserve_slot(prior_let);
+    auto& [signature_to_ordinal, next_ordinal] = reserve_slot(prior_let);
     const auto signature_key = repl_signature_key(prior_let);
-    const auto ordinal = repl_let_ordinal(prior_let).value_or(symbol_slots.next_ordinal);
-    symbol_slots.signature_to_ordinal[signature_key] = ordinal;
-    symbol_slots.next_ordinal = std::max(symbol_slots.next_ordinal, ordinal + 1U);
+    const auto ordinal = repl_let_ordinal(prior_let).value_or(next_ordinal);
+    signature_to_ordinal[signature_key] = ordinal;
+    next_ordinal = std::max(next_ordinal, ordinal + 1U);
   }
 
   std::unordered_map<std::string, std::size_t> last_definition_index;
@@ -170,14 +172,14 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
   for (std::size_t index = 0; index < program.lets.size(); ++index) {
     auto let = std::move(program.lets[index]);
     const std::string public_symbol = repl_let_key(let.qualifier, let.name);
-    const std::string dedupe_key = public_symbol + "\n" + let_signatures[index];
-    if (last_definition_index.at(dedupe_key) != index) { continue; }
+    if (const std::string dedupe_key = public_symbol + "\n" + let_signatures[index];
+        last_definition_index.at(dedupe_key) != index) { continue; }
 
-    auto& symbol_slots = slots_by_symbol[public_symbol];
-    const auto existing = symbol_slots.signature_to_ordinal.find(let_signatures[index]);
+    auto& [signature_to_ordinal, next_ordinal] = slots_by_symbol[public_symbol];
+    const auto existing = signature_to_ordinal.find(let_signatures[index]);
     const std::size_t ordinal =
-        existing != symbol_slots.signature_to_ordinal.end() ? existing->second : symbol_slots.next_ordinal++;
-    symbol_slots.signature_to_ordinal[let_signatures[index]] = ordinal;
+        existing != signature_to_ordinal.end() ? existing->second : next_ordinal++;
+    signature_to_ordinal[let_signatures[index]] = ordinal;
     let.symbol_key = public_symbol + "#" + std::to_string(ordinal);
     normalized_lets.push_back(std::move(let));
   }
@@ -185,27 +187,12 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
   program.lets = std::move(normalized_lets);
 }
 
-inline auto ensure_repl_imports_supported(const frontend::ir::IRProgram& program)
-    -> tl::expected<void, ReplSessionError> {
-  for (const auto& [module_name, span] : program.imports) {
-    if (module_name == "Std" || module_name == "StdBuiltins") { continue; }
-    return tl::unexpected(make_repl_session_error("REPL only supports symbolic imports: Std, StdBuiltins.",
-                                                  "Define helper lets inline, or run a file for module imports.",
-                                                  span));
-  }
-  return {};
-}
-
-inline auto parse_and_analyze_repl_text(const std::string& source_text, const std::string& source_name,
+inline auto parse_and_analyze_repl_text(const std::string& source_text, const std::filesystem::path& source_path,
                                         const std::vector<frontend::ir::IRLet>& prior_session_lets)
     -> tl::expected<frontend::ir::IRProgram, ReplSessionError> {
-  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(source_text, source_name,
+  auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(source_text, source_path.string(),
                                                                                      make_repl_session_error);
   if (!lowered) { return tl::unexpected(lowered.error()); }
-
-  if (auto imports_ok = ensure_repl_imports_supported(*lowered); !imports_ok) {
-    return tl::unexpected(imports_ok.error());
-  }
 
   assign_repl_stable_symbol_keys(*lowered, prior_session_lets);
 
@@ -220,30 +207,87 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     imported_typed_lets.push_back(prior_let);
   }
 
-  const std::unordered_set<std::string> imported_symbols;
-  const auto analyzed = frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
+  std::unordered_set<std::string> imported_symbols;
+  std::vector<frontend::ir::IRLet> symbolic_imported_lets;
+  for (const auto& [module_name, span] : lowered->imports) {
+    (void)span;
+    if (module_name != "Std") { continue; }
+
+    const auto std_file = frontend::stdlib_locator::find_std_file(source_path);
+    if (!std_file.has_value()) { continue; }
+
+    auto std_program = frontend::source_loader::parse_file_to_lowered_ir<ReplSessionError>(*std_file, make_repl_session_error);
+    if (!std_program) { return tl::unexpected(std_program.error()); }
+
+    std::unordered_set<std::string> imported_typed_keys;
+    imported_typed_keys.reserve(imported_typed_lets.size());
+    for (const auto& imported_let : imported_typed_lets) {
+      imported_typed_keys.insert(frontend::source_loader::let_identity_key(imported_let));
+    }
+
+    for (const auto& std_let : std_program->lets) {
+      if (!frontend::source_loader::let_declared_in_source(std_let, *std_file)) { continue; }
+      imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
+      if (const auto key = frontend::source_loader::let_identity_key(std_let); imported_typed_keys.insert(key).second) {
+        imported_typed_lets.push_back(std_let);
+      }
+      symbolic_imported_lets.push_back(std_let);
+    }
+  }
+
+  const auto analyzed = frontend::source_loader::analyze_lowered_program_with_imports<ReplSessionError>(
+      *lowered, source_path, make_repl_session_error, imported_symbols, imported_typed_lets,
+      "Cyclic import detected.", std::optional<std::string>{"Break the cycle by moving shared definitions into a third module."});
   if (!analyzed) {
     return tl::unexpected(
         make_repl_session_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
 
-  return analyzed.value();
+  auto result = analyzed.value();
+  if (!symbolic_imported_lets.empty()) {
+    std::unordered_set<std::string> seen;
+    seen.reserve(result.lets.size() + symbolic_imported_lets.size());
+    for (const auto& let : result.lets) { seen.insert(frontend::source_loader::let_identity_key(let)); }
+
+    std::vector<frontend::ir::IRLet> merged_lets;
+    merged_lets.reserve(result.lets.size() + symbolic_imported_lets.size());
+    for (const auto& imported_let : symbolic_imported_lets) {
+      if (const auto key = frontend::source_loader::let_identity_key(imported_let); seen.insert(key).second) {
+        merged_lets.push_back(imported_let);
+      }
+    }
+    merged_lets.insert(merged_lets.end(), result.lets.begin(), result.lets.end());
+    result.lets = std::move(merged_lets);
+  }
+
+  return result;
 }
 
 inline auto merge_repl_session_lets(const std::vector<frontend::ir::IRLet>& prior_session_lets,
-                                    const std::vector<frontend::ir::IRLet>& snippet_lets)
+                                    const std::vector<frontend::ir::IRLet>& snippet_lets,
+                                    const std::filesystem::path& snippet_source)
     -> std::vector<frontend::ir::IRLet> {
   std::unordered_set<std::string> replaced_keys;
   replaced_keys.reserve(snippet_lets.size());
-  for (const auto& let : snippet_lets) { replaced_keys.insert(repl_let_internal_key(let)); }
+  for (const auto& let : snippet_lets) {
+    if (!frontend::source_loader::let_declared_in_source(let, snippet_source)) { continue; }
+    replaced_keys.insert(repl_let_internal_key(let));
+  }
 
   std::vector<frontend::ir::IRLet> merged_lets;
   merged_lets.reserve(prior_session_lets.size() + snippet_lets.size());
+  std::unordered_set<std::string> seen_keys;
+  seen_keys.reserve(prior_session_lets.size() + snippet_lets.size());
   for (const auto& prior_let : prior_session_lets) {
     if (replaced_keys.contains(repl_let_internal_key(prior_let))) { continue; }
+    seen_keys.insert(repl_let_internal_key(prior_let));
     merged_lets.push_back(prior_let);
   }
-  merged_lets.insert(merged_lets.end(), snippet_lets.begin(), snippet_lets.end());
+  for (const auto& snippet_let : snippet_lets) {
+    if (const auto key = repl_let_internal_key(snippet_let); seen_keys.insert(key).second) {
+      merged_lets.push_back(snippet_let);
+    }
+  }
   return merged_lets;
 }
 

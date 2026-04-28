@@ -109,18 +109,22 @@ template <typename ErrorT, typename ErrorFactory>
 }
 
 template <typename ErrorT, typename ErrorFactory>
-[[nodiscard]] auto load_ir_program(const std::filesystem::path& source_file, ErrorFactory&& make_error,
-                                   const std::string_view cycle_message = "Cyclic import detected.",
-                                   const std::optional<std::string>& cycle_hint = std::nullopt)
-    -> tl::expected<ir::IRProgram, ErrorT> {
+[[nodiscard]] auto analyze_lowered_program_with_imports(
+    const ir::IRProgram& current_program, const std::filesystem::path& current_source, ErrorFactory&& make_error,
+    const std::unordered_set<std::string>& extra_imported_symbols = {},
+    const std::vector<ir::IRLet>& extra_imported_typed_lets = {},
+    const std::string_view cycle_message = "Cyclic import detected.",
+    const std::optional<std::string>& cycle_hint = std::nullopt) -> tl::expected<ir::IRProgram, ErrorT> {
   using IRProgram = ir::IRProgram;
   using IRExprStatement = ir::IRExprStatement;
   using IRLet = ir::IRLet;
 
-  const auto collect_program = [&](const auto& self, const std::filesystem::path& current_source,
+  const auto entry_source = import_resolution::normalized_path(current_source);
+
+  const auto collect_program = [&](const auto& self, const std::filesystem::path& source_path, const bool is_entry,
                                    std::unordered_map<std::string, IRProgram>& cache,
                                    std::unordered_set<std::string>& in_progress) -> tl::expected<IRProgram, ErrorT> {
-    const std::string key = std::filesystem::weakly_canonical(current_source).string();
+    const std::string key = is_entry ? entry_source.string() : std::filesystem::weakly_canonical(source_path).string();
     if (cache.contains(key)) { return cache.at(key); }
 
     if (in_progress.contains(key)) {
@@ -129,15 +133,24 @@ template <typename ErrorT, typename ErrorFactory>
     }
 
     in_progress.insert(key);
-    auto current = parse_file_to_lowered_ir<ErrorT>(current_source, make_error);
+
+    tl::expected<IRProgram, ErrorT> current = is_entry ? tl::expected<IRProgram, ErrorT>{current_program}
+                                                       : parse_file_to_lowered_ir<ErrorT>(source_path, make_error);
     if (!current) {
       in_progress.erase(key);
       return tl::unexpected(current.error());
     }
 
-    std::unordered_set<std::string> direct_imported_symbols;
+    std::unordered_set<std::string> direct_imported_symbols = extra_imported_symbols;
     std::vector<IRLet> direct_imported_typed_lets;
+    direct_imported_typed_lets.reserve(extra_imported_typed_lets.size());
     std::unordered_set<std::string> direct_imported_typed_let_keys;
+    direct_imported_typed_let_keys.reserve(extra_imported_typed_lets.size());
+    for (const auto& imported_let : extra_imported_typed_lets) {
+      if (const auto typed_key = let_identity_key(imported_let); direct_imported_typed_let_keys.insert(typed_key).second) {
+        direct_imported_typed_lets.push_back(imported_let);
+      }
+    }
 
     IRProgram merged = current.value();
     std::unordered_set<std::string> seen;
@@ -147,24 +160,23 @@ template <typename ErrorT, typename ErrorFactory>
     std::vector<IRExprStatement> imported_exprs;
     for (const auto& [module_name, span] : current->imports) {
       if (import_resolution::is_symbolic_import(module_name)) { continue; }
-      const auto import_source = resolve_import_source(current_source, module_name);
+      const auto import_source = resolve_import_source(source_path, module_name);
       if (import_source.empty()) {
         in_progress.erase(key);
         return tl::unexpected(
             make_error("import-unresolved: Import not found: '" + module_name + "'",
                        std::optional<std::string>{"Checked relative to '" +
-                                                  std::filesystem::weakly_canonical(current_source).string() +
+                                                  import_resolution::normalized_path(source_path).string() +
                                                   "'. Verify module name and file location."},
                        span));
       }
 
-      auto imported = self(self, import_source, cache, in_progress);
+      auto imported = self(self, import_source, false, cache, in_progress);
       if (!imported) {
         in_progress.erase(key);
         return tl::unexpected(imported.error());
       }
 
-      // Seed only direct module declarations for current-module type checking.
       for (const auto& imported_let : imported->lets) {
         if (!let_declared_in_source(imported_let, import_source)) { continue; }
         direct_imported_symbols.insert(symbol_key(imported_let.qualifier, imported_let.name));
@@ -182,8 +194,7 @@ template <typename ErrorT, typename ErrorFactory>
       imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
     }
 
-    auto analyzed_current =
-        type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
+    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
     if (!analyzed_current) {
       in_progress.erase(key);
       return tl::unexpected(
@@ -201,7 +212,20 @@ template <typename ErrorT, typename ErrorFactory>
 
   std::unordered_map<std::string, IRProgram> cache;
   std::unordered_set<std::string> in_progress;
-  return collect_program(collect_program, source_file, cache, in_progress);
+  return collect_program(collect_program, entry_source, true, cache, in_progress);
+}
+
+template <typename ErrorT, typename ErrorFactory>
+[[nodiscard]] auto load_ir_program(const std::filesystem::path& source_file, ErrorFactory&& make_error,
+                                   const std::string_view cycle_message = "Cyclic import detected.",
+                                   const std::optional<std::string>& cycle_hint = std::nullopt)
+    -> tl::expected<ir::IRProgram, ErrorT> {
+  auto current = parse_file_to_lowered_ir<ErrorT>(source_file, make_error);
+  if (!current) { return tl::unexpected(current.error()); }
+
+  return analyze_lowered_program_with_imports<ErrorT>(current.value(), source_file,
+                                                      std::forward<ErrorFactory>(make_error), {}, {},
+                                                      cycle_message, cycle_hint);
 }
 
 }  // namespace fleaux::frontend::source_loader
