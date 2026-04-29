@@ -1007,6 +1007,7 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
 
   SECTION("SetAt2D updates one cell without mutating others") {
     const Value out = ArraySetAt2D(make_tuple(grid, make_int(1), make_int(2), make_int(99)));
+    REQUIRE(to_double(array_at(array_at(grid, 1), 2)) == 6.0);
     REQUIRE(to_double(array_at(array_at(out, 0), 0)) == 1.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 1)) == 5.0);
     REQUIRE(to_double(array_at(array_at(out, 1), 2)) == 99.0);

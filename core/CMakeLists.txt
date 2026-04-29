@@ -24,10 +24,43 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 option(FLEAUX_BUILD_WASM_COORDINATOR "Build browser-facing Fleaux WASM coordinator" OFF)
 option(FLEAUX_INSTALL_VISUAL_ASSETS "Install prebuilt fleaux-visual assets if available" OFF)
+option(FLEAUX_ENABLE_ASAN "Build native targets with AddressSanitizer" OFF)
+option(FLEAUX_ENABLE_TSAN "Build native targets with ThreadSanitizer" OFF)
+option(FLEAUX_ENABLE_UBSAN "Build native targets with UndefinedBehaviorSanitizer" OFF)
 set(FLEAUX_VISUAL_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/dist" CACHE PATH "Path to prebuilt fleaux-visual dist directory")
 set(FLEAUX_STD_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/Std.fleaux" CACHE FILEPATH "Canonical Std.fleaux source file to embed")
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
+
+set(FLEAUX_SANITIZERS)
+if(FLEAUX_ENABLE_ASAN)
+  list(APPEND FLEAUX_SANITIZERS address)
+endif()
+if(FLEAUX_ENABLE_TSAN)
+  list(APPEND FLEAUX_SANITIZERS thread)
+endif()
+if(FLEAUX_ENABLE_UBSAN)
+  list(APPEND FLEAUX_SANITIZERS undefined)
+endif()
+
+if(FLEAUX_SANITIZERS)
+  if(EMSCRIPTEN)
+    message(FATAL_ERROR "Sanitizers are only supported for native Fleaux builds")
+  endif()
+
+  if(FLEAUX_ENABLE_TSAN AND (FLEAUX_ENABLE_ASAN OR FLEAUX_ENABLE_UBSAN))
+    message(FATAL_ERROR "ThreadSanitizer cannot be combined with AddressSanitizer or UndefinedBehaviorSanitizer")
+  endif()
+
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    message(FATAL_ERROR "Sanitizer options are currently supported only with GCC- and Clang-compatible compilers")
+  endif()
+
+  list(JOIN FLEAUX_SANITIZERS "," FLEAUX_SANITIZER_FLAG)
+  add_compile_options(-fno-omit-frame-pointer -fsanitize=${FLEAUX_SANITIZER_FLAG})
+  add_link_options(-fno-omit-frame-pointer -fsanitize=${FLEAUX_SANITIZER_FLAG})
+  message(STATUS "Fleaux native sanitizers enabled: ${FLEAUX_SANITIZER_FLAG}")
+endif()
 
 if(EMSCRIPTEN)
   find_package(PCRE2 QUIET)

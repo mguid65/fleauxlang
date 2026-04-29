@@ -200,25 +200,27 @@ inline void flatten_into(const Value& value, Array& out) {
         std::format("ArraySetAt2D: col {} out of range for row size {}", col_idx, target_row.Size()));
   }
 
-  Array out_grid;
-  out_grid.Reserve(grid.Size());
+  Value out_grid{Array{}};
+  auto& out_grid_array = as_array(out_grid);
+  out_grid_array.Reserve(grid.Size());
   for (std::size_t row_index = 0; row_index < grid.Size(); ++row_index) {
     const auto& row_val = *grid.TryGet(row_index);
     const auto& row = as_array(row_val);
     if (row_index != row_idx) {
-      out_grid.PushBack(row_val);
+      out_grid_array.PushBack(row_val);
       continue;
     }
 
-    Array new_row;
-    new_row.Reserve(row.Size());
+    Value new_row{Array{}};
+    auto& new_row_array = as_array(new_row);
+    new_row_array.Reserve(row.Size());
     for (std::size_t column_index = 0; column_index < row.Size(); ++column_index) {
-      new_row.PushBack(column_index == col_idx ? new_val : *row.TryGet(column_index));
+      new_row_array.PushBack(column_index == col_idx ? new_val : *row.TryGet(column_index));
     }
-    out_grid.PushBack(Value{std::move(new_row)});
+    out_grid_array.PushBack(std::move(new_row));
   }
 
-  return Value{std::move(out_grid)};
+  return out_grid;
 }
 
 // arg = [tuple, start_index, length, value]
