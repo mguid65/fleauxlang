@@ -6,20 +6,64 @@
 #include <cstddef>
 #include <iostream>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include <sys/select.h>
-#include <termios.h>
-#include <unistd.h>
+#ifdef _WIN32
+  #include <windows.h>
+  #include <conio.h>
+#else
+  #include <sys/select.h>
+  #include <termios.h>
+  #include <unistd.h>
+#endif
 
 namespace fleaux::cli {
 namespace {
 
-constexpr int kEscapeSequenceTimeoutMs = 40;
+#ifdef _WIN32
+
+class ScopedRawMode {
+public:
+  ScopedRawMode() {
+    const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
+    if (stdin_handle == INVALID_HANDLE_VALUE) { return; }
+
+    if (!::GetConsoleMode(stdin_handle, &original_mode_)) { return; }
+
+    // Enable processed input and mouse input, but disable line input and echo
+    DWORD new_mode = original_mode_;
+    new_mode |= ENABLE_PROCESSED_INPUT;
+    new_mode |= ENABLE_MOUSE_INPUT;
+    new_mode &= ~ENABLE_LINE_INPUT;
+    new_mode &= ~ENABLE_ECHO_INPUT;
+
+    if (::SetConsoleMode(stdin_handle, new_mode)) {
+      stdin_handle_ = stdin_handle;
+      enabled_ = true;
+    }
+  }
+
+  ScopedRawMode(const ScopedRawMode&) = delete;
+  auto operator=(const ScopedRawMode&) -> ScopedRawMode& = delete;
+
+  ~ScopedRawMode() {
+    if (enabled_ && stdin_handle_ != INVALID_HANDLE_VALUE) {
+      static_cast<void>(::SetConsoleMode(stdin_handle_, original_mode_));
+    }
+  }
+
+  [[nodiscard]] auto enabled() const -> bool { return enabled_; }
+
+private:
+  HANDLE stdin_handle_ = INVALID_HANDLE_VALUE;
+  DWORD original_mode_ = 0;
+  bool enabled_ = false;
+};
+
+#else
 
 class ScopedRawMode {
 public:
@@ -51,35 +95,9 @@ private:
   bool enabled_ = false;
 };
 
-auto read_byte() -> std::optional<unsigned char> {
-  unsigned char value = 0;
-  while (true) {
-    const auto bytes_read = ::read(STDIN_FILENO, &value, 1);
-    if (bytes_read == 1) { return value; }
-    if (bytes_read == 0) { return std::nullopt; }
-    if (errno == EINTR) { continue; }
-    return std::nullopt;
-  }
-}
+#endif
 
-auto read_byte_with_timeout(const int timeout_ms) -> std::optional<unsigned char> {
-  while (true) {
-    fd_set read_fds;
-    FD_ZERO(&read_fds);
-    FD_SET(STDIN_FILENO, &read_fds);
-
-    timeval timeout{};
-    timeout.tv_sec = timeout_ms / 1000;
-    timeout.tv_usec = (timeout_ms % 1000) * 1000;
-
-    const auto ready = ::select(STDIN_FILENO + 1, &read_fds, nullptr, nullptr, &timeout);
-    if (ready > 0) { return read_byte(); }
-    if (ready == 0) { return std::nullopt; }
-    if (errno == EINTR) { continue; }
-    return std::nullopt;
-  }
-}
-
+// Platform-independent helper functions
 auto is_token_word_char(const char ch) -> bool {
   const auto uch = static_cast<unsigned char>(ch);
   return std::isalnum(uch) != 0 || ch == '_';
@@ -114,6 +132,113 @@ auto decode_csi_with_params(const std::string& params, const char final_char) ->
   if (final_char == 'F') { return {.key = InputKey::kEnd}; }
 
   return {};
+}
+
+#ifdef _WIN32
+
+auto read_input_event() -> std::optional<InputEvent> {
+  const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
+  if (stdin_handle == INVALID_HANDLE_VALUE) { return std::nullopt; }
+
+  INPUT_RECORD input_record;
+  DWORD num_events_read = 0;
+
+  if (!::ReadConsoleInput(stdin_handle, &input_record, 1, &num_events_read)) { return std::nullopt; }
+
+  if (num_events_read == 0) { return std::nullopt; }
+
+  if (input_record.EventType == KEY_EVENT) {
+    const auto& key_event = input_record.Event.KeyEvent;
+    if (!key_event.bKeyDown) { return InputEvent{}; }
+
+    const auto vk = key_event.wVirtualKeyCode;
+    const auto ch = key_event.uChar.AsciiChar;
+
+    // Handle Ctrl+C
+    if ((vk == 'C' || ch == 3) && (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))) {
+      return InputEvent{.key = InputKey::kCtrlC};
+    }
+
+    // Handle Ctrl+D
+    if ((vk == 'D' || ch == 4) && (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))) {
+      return InputEvent{.key = InputKey::kCtrlD};
+    }
+
+    // Handle Ctrl+W (token backspace)
+    if ((vk == 'W' || ch == 23) && (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))) {
+      return InputEvent{.key = InputKey::kTokenBackspace};
+    }
+
+    // Handle regular character input
+    if (ch != 0 && std::isprint(static_cast<unsigned char>(ch)) != 0) {
+      return InputEvent::character(ch);
+    }
+
+    // Handle function keys
+    switch (vk) {
+      case VK_RETURN:
+        return InputEvent{.key = InputKey::kEnter};
+      case VK_BACK:
+        return InputEvent{.key = InputKey::kBackspace};
+      case VK_DELETE:
+        return InputEvent{.key = InputKey::kDelete};
+      case VK_LEFT:
+        if (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+          return InputEvent{.key = InputKey::kTokenLeft};
+        }
+        return InputEvent{.key = InputKey::kArrowLeft};
+      case VK_RIGHT:
+        if (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+          return InputEvent{.key = InputKey::kTokenRight};
+        }
+        return InputEvent{.key = InputKey::kArrowRight};
+      case VK_UP:
+        return InputEvent{.key = InputKey::kArrowUp};
+      case VK_DOWN:
+        return InputEvent{.key = InputKey::kArrowDown};
+      case VK_HOME:
+        return InputEvent{.key = InputKey::kHome};
+      case VK_END:
+        return InputEvent{.key = InputKey::kEnd};
+      default:
+        break;
+    }
+  }
+
+  return InputEvent{};
+}
+
+#else
+
+constexpr int kEscapeSequenceTimeoutMs = 40;
+
+auto read_byte() -> std::optional<unsigned char> {
+  unsigned char value = 0;
+  while (true) {
+    const auto bytes_read = ::read(STDIN_FILENO, &value, 1);
+    if (bytes_read == 1) { return value; }
+    if (bytes_read == 0) { return std::nullopt; }
+    if (errno == EINTR) { continue; }
+    return std::nullopt;
+  }
+}
+
+auto read_byte_with_timeout(const int timeout_ms) -> std::optional<unsigned char> {
+  while (true) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(STDIN_FILENO, &read_fds);
+
+    timeval timeout{};
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+    const auto ready = ::select(STDIN_FILENO + 1, &read_fds, nullptr, nullptr, &timeout);
+    if (ready > 0) { return read_byte(); }
+    if (ready == 0) { return std::nullopt; }
+    if (errno == EINTR) { continue; }
+    return std::nullopt;
+  }
 }
 
 auto decode_escape_sequence() -> InputEvent {
@@ -178,7 +303,7 @@ auto decode_escape_sequence() -> InputEvent {
   return {};
 }
 
-auto read_input_event() -> std::optional<InputEvent> {
+auto read_input_event_unix() -> std::optional<InputEvent> {
   const auto byte = read_byte();
   if (!byte.has_value()) { return std::nullopt; }
 
@@ -229,6 +354,112 @@ auto ansi_code_for_token_class(const TokenClass token_class) -> std::string_view
   return "\x1b[0m";
 }
 
+#endif
+
+#ifdef _WIN32
+
+auto get_console_color_for_token_class(const TokenClass token_class) -> WORD {
+  switch (token_class) {
+    case TokenClass::kKeyword:
+      return FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY;  // Cyan
+    case TokenClass::kString:
+      return FOREGROUND_GREEN;
+    case TokenClass::kNumber:
+      return FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY;  // Magenta
+    case TokenClass::kOperator:
+      return FOREGROUND_RED | FOREGROUND_GREEN;  // Yellow (without intensity)
+    case TokenClass::kError:
+      return FOREGROUND_RED | FOREGROUND_INTENSITY;
+    case TokenClass::kPlain:
+    case TokenClass::kIdentifier:
+    default:
+      return FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+  }
+}
+
+void render_with_styles(const std::string_view buffer, const StyleSpanProvider& style_provider) {
+  if (!style_provider) {
+    std::cout << buffer;
+    return;
+  }
+
+  const auto spans = normalize_style_spans(buffer.size(), style_provider(buffer));
+  if (spans.empty()) {
+    std::cout << buffer;
+    return;
+  }
+
+  const auto stdout_handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+  if (stdout_handle == INVALID_HANDLE_VALUE) {
+    std::cout << buffer;
+    return;
+  }
+
+  CONSOLE_SCREEN_BUFFER_INFO buffer_info;
+  if (!::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
+    std::cout << buffer;
+    return;
+  }
+
+  const auto default_color = buffer_info.wAttributes;
+  std::size_t cursor = 0;
+
+  for (const auto& [start, length, token_class] : spans) {
+    if (cursor < start) {
+      const auto text = buffer.substr(cursor, start - cursor);
+      ::SetConsoleTextAttribute(stdout_handle, default_color);
+      std::cout << text;
+    }
+
+    const auto color = get_console_color_for_token_class(token_class);
+    ::SetConsoleTextAttribute(stdout_handle, color);
+    std::cout << buffer.substr(start, length);
+    cursor = start + length;
+  }
+
+  if (cursor < buffer.size()) {
+    ::SetConsoleTextAttribute(stdout_handle, default_color);
+    std::cout << buffer.substr(cursor);
+  }
+
+  ::SetConsoleTextAttribute(stdout_handle, default_color);
+}
+
+void render_line(const std::string_view prompt, const LineEditor& editor) {
+  const auto stdout_handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+
+  if (stdout_handle != INVALID_HANDLE_VALUE) {
+    CONSOLE_SCREEN_BUFFER_INFO buffer_info;
+    if (::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
+      COORD home{0, buffer_info.dwCursorPosition.Y};
+      ::SetConsoleCursorPosition(stdout_handle, home);
+
+      DWORD chars_written = 0;
+      ::FillConsoleOutputCharacter(stdout_handle, ' ', buffer_info.dwSize.X, home, &chars_written);
+      ::SetConsoleCursorPosition(stdout_handle, home);
+    }
+  }
+
+  std::cout << prompt;
+  render_with_styles(editor.buffer(), editor.config().style_span_provider);
+
+  if (const auto tail_size = editor.buffer().size() - editor.cursor(); tail_size > 0) {
+    if (stdout_handle != INVALID_HANDLE_VALUE) {
+      CONSOLE_SCREEN_BUFFER_INFO buffer_info;
+      if (::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
+        SHORT col = static_cast<SHORT>(
+            std::max(0L, static_cast<LONG>(buffer_info.dwCursorPosition.X) - static_cast<LONG>(tail_size)));
+        COORD new_pos{col, buffer_info.dwCursorPosition.Y};
+        ::SetConsoleCursorPosition(stdout_handle, new_pos);
+      }
+    }
+  }
+
+  std::cout.flush();
+}
+
+#else
+
 void render_with_styles(const std::string_view buffer, const StyleSpanProvider& style_provider) {
   if (!style_provider) {
     std::cout << buffer;
@@ -265,6 +496,8 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
   }
   std::cout.flush();
 }
+
+#endif
 
 auto read_fallback_line(std::string_view prompt) -> InteractiveReadResult {
   std::cout << prompt;
@@ -484,7 +717,14 @@ auto LineEditor::restore_history_entry(const std::size_t index) -> LineEditorRes
   return {.needs_redraw = true};
 }
 
-auto stdin_is_interactive() -> bool { return ::isatty(STDIN_FILENO) != 0; }
+auto stdin_is_interactive() -> bool {
+#ifdef _WIN32
+  const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
+  return stdin_handle != INVALID_HANDLE_VALUE && stdin_handle != nullptr;
+#else
+  return ::isatty(STDIN_FILENO) != 0;
+#endif
+}
 
 auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> InteractiveReadResult {
   editor.reset();
@@ -496,7 +736,11 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
   render_line(prompt, editor);
   while (true) {
+#ifdef _WIN32
     const auto event = read_input_event();
+#else
+    const auto event = read_input_event_unix();
+#endif
     if (!event.has_value()) {
       std::cout << "\r\n";
       return {.action = LineEditorAction::kEndOfInput};

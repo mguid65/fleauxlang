@@ -2839,7 +2839,18 @@ TEST_CASE("VM kCallBuiltin executes Std.Path and Std.OS helpers through primary 
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
-  REQUIRE(output.str() == "/tmp/file.txt\nfile.txt\n.txt\nfile\nTrue\nTrue\nTrue\n/tmp/file.log\n/tmp/other.bin\n");
+  const auto expected_joined = (std::filesystem::path("/tmp") / "file.txt").string();
+  auto expected_with_ext = std::filesystem::path("/tmp/file.txt");
+  expected_with_ext.replace_extension(".log");
+  auto expected_with_basename = std::filesystem::path("/tmp/file.txt");
+  expected_with_basename.replace_filename("other.bin");
+#if defined(__linux__)
+  constexpr auto kExpectedLinuxFlag = "True";
+#else
+  constexpr auto kExpectedLinuxFlag = "False";
+#endif
+  REQUIRE(output.str() == expected_joined + "\nfile.txt\n.txt\nfile\nTrue\nTrue\n" + kExpectedLinuxFlag + "\n" +
+                              expected_with_ext.string() + "\n" + expected_with_basename.string() + "\n");
 }
 
 TEST_CASE("VM executes Std.String and Std.Path builtins through primary builtin dispatch", "[vm]") {
@@ -2878,7 +2889,9 @@ TEST_CASE("VM executes Std.String and Std.Path builtins through primary builtin 
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
-  REQUIRE(output.str() == "ABC\n/tmp/file.log\n");
+  auto expected_with_ext = std::filesystem::path("/tmp/file.txt");
+  expected_with_ext.replace_extension(".log");
+  REQUIRE(output.str() == "ABC\n" + expected_with_ext.string() + "\n");
 }
 
 TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary builtin dispatch", "[vm]") {
@@ -2889,7 +2902,9 @@ TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary 
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
   const auto cKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  constexpr auto kOSIsLinuxBuiltin = builtin(fleaux::vm::BuiltinId::OSIsLinux);
+  [[maybe_unused]] constexpr auto kOSIsLinuxBuiltin = builtin(fleaux::vm::BuiltinId::OSIsLinux);
+  [[maybe_unused]] constexpr auto kOSIsWindowsBuiltin = builtin(fleaux::vm::BuiltinId::OSIsWindows);
+  [[maybe_unused]] constexpr auto kOSIsMacOSBuiltin = builtin(fleaux::vm::BuiltinId::OSIsMacOS);
   constexpr auto kTupleAppendBuiltin = builtin(fleaux::vm::BuiltinId::TupleAppend);
   constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
   constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
@@ -2898,7 +2913,13 @@ TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary 
 
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+#ifdef _WIN32
+      {.opcode  = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsWindowsBuiltin},
+#elif defined(__linux__)
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsLinuxBuiltin},
+#else
+      {.opcode  = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsMacOSBuiltin},
+#endif
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -3422,10 +3443,12 @@ TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct
 
   const auto joined = fleaux::runtime::PathJoin(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("file.txt")));
-  REQUIRE(fleaux::runtime::as_string(joined) == "/tmp/file.txt");
+  REQUIRE(fleaux::runtime::as_string(joined) == (std::filesystem::path("/tmp") / "file.txt").string());
   const auto with_ext = fleaux::runtime::PathWithExtension(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp/file.txt"), fleaux::runtime::make_string("log")));
-  REQUIRE(fleaux::runtime::as_string(with_ext) == "/tmp/file.log");
+  auto expected_with_ext = std::filesystem::path("/tmp/file.txt");
+  expected_with_ext.replace_extension(".log");
+  REQUIRE(fleaux::runtime::as_string(with_ext) == expected_with_ext.string());
 
   const auto created_dir = fleaux::runtime::DirCreate(fleaux::runtime::make_string(dir_path));
   REQUIRE(fleaux::runtime::as_string(created_dir) == dir_path);

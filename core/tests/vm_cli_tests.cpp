@@ -17,13 +17,45 @@
 
 namespace {
 
-auto fleaux_binary_path() -> std::filesystem::path { return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux"; }
+auto fleaux_binary_path() -> std::filesystem::path {
+#ifdef _WIN32
+  return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux.exe";
+#else
+  return std::filesystem::path(FLEAUX_CORE_BIN_DIR) / "fleaux";
+#endif
+}
 
 auto shell_quote(const std::string_view text) -> std::string {
+#ifdef _WIN32
+  std::string quoted{"\""};
+  for (const char ch : text) {
+    if (ch == '"') {
+      quoted += "\\\"";
+    } else {
+      quoted.push_back(ch);
+    }
+  }
+  quoted.push_back('"');
+  return quoted;
+#else
   std::string quoted{"'"};
   for (const char ch : text) {
     if (ch == '\'') {
       quoted += "'\\''";
+    } else {
+      quoted.push_back(ch);
+    }
+  }
+  quoted.push_back('\'');
+  return quoted;
+#endif
+}
+
+auto powershell_quote(const std::string_view text) -> std::string {
+  std::string quoted{"'"};
+  for (const char ch : text) {
+    if (ch == '\'') {
+      quoted += "''";
     } else {
       quoted.push_back(ch);
     }
@@ -48,11 +80,26 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
     in.write(stdin_text.data(), static_cast<std::streamsize>(stdin_text.size()));
   }
 
-  std::string command =
-      "cd " + shell_quote(working_dir.string()) + " && " + shell_quote(fleaux_binary_path().string()) + " " +
-      arguments;
+  std::string command;
+#ifdef _WIN32
+  std::string powershell_script =
+      "& { $process = Start-Process -FilePath " + powershell_quote(fleaux_binary_path().string()) +
+      " -ArgumentList " + powershell_quote(arguments) +
+      " -WorkingDirectory " + powershell_quote(working_dir.string()) +
+      " -RedirectStandardOutput " + powershell_quote(output_path.string()) +
+      " -RedirectStandardError " + powershell_quote(error_path.string()) + " -PassThru -Wait";
+  if (!stdin_text.empty()) {
+    powershell_script += " -RedirectStandardInput " + powershell_quote(input_path.string());
+  }
+  powershell_script += "; exit $process.ExitCode }";
+  command = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
+            powershell_script + "\"";
+#else
+  command = "cd " + shell_quote(working_dir.string()) + " && " + shell_quote(fleaux_binary_path().string());
+  if (!arguments.empty()) { command += " " + arguments; }
   if (!stdin_text.empty()) { command += " <" + shell_quote(input_path.string()); }
   command += " >" + shell_quote(output_path.string()) + " 2>" + shell_quote(error_path.string());
+#endif
 
   const int exit_code = std::system(command.c_str());
 
