@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -10,6 +11,271 @@
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/type_check.hpp"
 #include "fleaux/frontend/type_system/function_index.hpp"
+#include "fleaux/frontend/type_system/type.hpp"
+
+TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typecheck][types]") {
+  using fleaux::frontend::ir::IRSimpleType;
+  using fleaux::frontend::type_system::Type;
+  using fleaux::frontend::type_system::TypeKind;
+  using fleaux::frontend::type_system::from_ir_type;
+  using fleaux::frontend::type_system::is_integer_like;
+  using fleaux::frontend::type_system::normalize_type;
+
+  SECTION("normalize_type flattens, sorts, and deduplicates union members") {
+    Type union_type{.kind = TypeKind::kUnion,
+                    .union_members = {
+                        Type{.kind = TypeKind::kFloat64},
+                        Type{.kind = TypeKind::kInt64},
+                        Type{.kind = TypeKind::kUnion,
+                             .union_members = {Type{.kind = TypeKind::kUInt64}, Type{.kind = TypeKind::kInt64}}},
+                    }};
+
+    const auto normalized = normalize_type(std::move(union_type));
+    REQUIRE(normalized.kind == TypeKind::kUnion);
+    REQUIRE(normalized.union_members.size() == 3);
+    REQUIRE(normalized.union_members[0].kind == TypeKind::kInt64);
+    REQUIRE(normalized.union_members[1].kind == TypeKind::kUInt64);
+    REQUIRE(normalized.union_members[2].kind == TypeKind::kFloat64);
+  }
+
+  SECTION("normalize_type collapses a single remaining union member") {
+    Type union_type{.kind = TypeKind::kUnion,
+                    .union_members = {
+                        Type{.kind = TypeKind::kInt64},
+                        Type{.kind = TypeKind::kUnion, .union_members = {Type{.kind = TypeKind::kInt64}}},
+                    }};
+
+    const auto normalized = normalize_type(std::move(union_type));
+    REQUIRE(normalized.kind == TypeKind::kInt64);
+  }
+
+  SECTION("normalize_type orders mixed structured members through the internal sort keys") {
+    Type variadic_item{.kind = TypeKind::kString, .variadic = true};
+    Type variadic_param{.kind = TypeKind::kString, .variadic = true};
+    Type union_type{.kind = TypeKind::kUnion,
+                    .union_members = {
+                        Type{.kind = TypeKind::kFunction, .function_params = {variadic_param}},
+                        Type{.kind = TypeKind::kTuple, .items = {variadic_item}},
+                        Type{.kind = TypeKind::kApplied,
+                             .applied_name = "Box",
+                             .applied_args = {Type{.kind = TypeKind::kInt64}}},
+                        Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
+                        Type{.kind = TypeKind::kBool},
+                        Type{.kind = TypeKind::kUnknown},
+                        Type{.kind = TypeKind::kUnion,
+                             .union_members = {Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kNull}}},
+                    }};
+
+    const auto normalized = normalize_type(std::move(union_type));
+    REQUIRE(normalized.kind == TypeKind::kUnion);
+    REQUIRE(normalized.union_members.size() == 8);
+    REQUIRE(std::ranges::any_of(normalized.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kUnknown; }));
+    REQUIRE(std::ranges::any_of(normalized.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kBool; }));
+    REQUIRE(std::ranges::any_of(normalized.union_members, [](const Type& member) {
+      return member.kind == TypeKind::kTypeVar && member.nominal_name == "T";
+    }));
+    REQUIRE(std::ranges::any_of(normalized.union_members, [](const Type& member) {
+      return member.kind == TypeKind::kApplied && member.applied_name == "Box" && member.applied_args.size() == 1 &&
+             member.applied_args[0].kind == TypeKind::kInt64;
+    }));
+    REQUIRE(std::ranges::any_of(normalized.union_members, [](const Type& member) {
+      return member.kind == TypeKind::kTuple && member.items.size() == 1 && member.items[0].variadic;
+    }));
+    REQUIRE(std::ranges::any_of(normalized.union_members, [](const Type& member) {
+      return member.kind == TypeKind::kFunction && member.function_params.size() == 1 &&
+             member.function_params[0].variadic && !member.function_return.has_value();
+    }));
+    REQUIRE(std::ranges::any_of(normalized.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kString; }));
+    REQUIRE(std::ranges::any_of(normalized.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kNull; }));
+  }
+
+  SECTION("from_ir_type converts structured union, function, applied, and nominal types") {
+    IRSimpleType callable_type;
+    callable_type.function_sig = IRSimpleType::FunctionSignature{
+        .param_types = {
+            IRSimpleType{.name = "Int64"},
+            IRSimpleType{.name = "String", .variadic = true},
+        },
+        .return_type = fleaux::frontend::make_box<IRSimpleType>(IRSimpleType{
+            .name = "Dict",
+            .type_args = {
+                IRSimpleType{.name = "String"},
+                IRSimpleType{.name = "Float64"},
+            },
+        }),
+    };
+
+    IRSimpleType union_type;
+    union_type.alternative_types = {
+        IRSimpleType{.name = "UInt64"},
+        IRSimpleType{.name = "Int64"},
+        IRSimpleType{.name = "UInt64"},
+    };
+
+    const auto callable = from_ir_type(callable_type);
+    const auto structured_union = from_ir_type(union_type);
+    const auto nominal = from_ir_type(IRSimpleType{.name = "Widget"});
+
+    REQUIRE(callable.kind == TypeKind::kFunction);
+    REQUIRE(callable.function_params.size() == 2);
+    REQUIRE(callable.function_params[0].kind == TypeKind::kInt64);
+    REQUIRE(callable.function_params[1].kind == TypeKind::kString);
+    REQUIRE(callable.function_params[1].variadic);
+    REQUIRE(callable.function_return.has_value());
+    REQUIRE((**callable.function_return).kind == TypeKind::kApplied);
+    REQUIRE((**callable.function_return).applied_name == "Dict");
+    REQUIRE((**callable.function_return).applied_args.size() == 2);
+    REQUIRE((**callable.function_return).applied_args[0].kind == TypeKind::kString);
+    REQUIRE((**callable.function_return).applied_args[1].kind == TypeKind::kFloat64);
+
+    REQUIRE(structured_union.kind == TypeKind::kUnion);
+    REQUIRE(structured_union.union_members.size() == 2);
+    REQUIRE(structured_union.union_members[0].kind == TypeKind::kInt64);
+    REQUIRE(structured_union.union_members[1].kind == TypeKind::kUInt64);
+
+    REQUIRE(nominal.kind == TypeKind::kNominal);
+    REQUIRE(nominal.nominal_name == "Widget");
+  }
+
+  SECTION("from_ir_type converts named alternatives through builtin and nominal names") {
+    IRSimpleType named_union;
+    named_union.alternatives = {"Function", "Tuple", "Bool", "Custom", "Any", "Never"};
+
+    const auto converted = from_ir_type(named_union);
+    REQUIRE(converted.kind == TypeKind::kUnion);
+    REQUIRE(converted.union_members.size() == 6);
+    REQUIRE(std::ranges::any_of(converted.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kNever; }));
+    REQUIRE(std::ranges::any_of(converted.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kAny; }));
+    REQUIRE(std::ranges::any_of(converted.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kBool; }));
+    REQUIRE(std::ranges::any_of(converted.union_members, [](const Type& member) {
+      return member.kind == TypeKind::kNominal && member.nominal_name == "Custom";
+    }));
+    REQUIRE(std::ranges::any_of(converted.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kTuple; }));
+    REQUIRE(std::ranges::any_of(converted.union_members,
+                                [](const Type& member) { return member.kind == TypeKind::kFunction; }));
+  }
+
+  SECTION("is_integer_like recognizes only Int64 and UInt64") {
+    REQUIRE(is_integer_like(Type{.kind = TypeKind::kInt64}));
+    REQUIRE(is_integer_like(Type{.kind = TypeKind::kUInt64}));
+    REQUIRE_FALSE(is_integer_like(Type{.kind = TypeKind::kFloat64}));
+    REQUIRE_FALSE(is_integer_like(Type{.kind = TypeKind::kNominal, .nominal_name = "Int64"}));
+  }
+}
+
+TEST_CASE("Type consistency handles unions tuples applied names and function signatures", "[typecheck][types]") {
+  using fleaux::frontend::type_system::Type;
+  using fleaux::frontend::type_system::TypeKind;
+  using fleaux::frontend::type_system::is_consistent;
+
+  const auto mk_function = [](std::vector<Type> params, std::optional<Type> return_type) -> Type {
+    Type out{.kind = TypeKind::kFunction, .function_params = std::move(params)};
+    if (return_type.has_value()) { out.function_return = fleaux::frontend::make_box<Type>(std::move(*return_type)); }
+    return out;
+  };
+
+  SECTION("Any and Never follow the top and bottom consistency rules") {
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kAny}, Type{.kind = TypeKind::kString}));
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kAny}));
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kNever}));
+    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kNever}, Type{.kind = TypeKind::kString}));
+  }
+
+  SECTION("union consistency handles subsets and empty unions") {
+    const Type expected_union{.kind = TypeKind::kUnion,
+                              .union_members = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kString}}};
+    const Type actual_union{.kind = TypeKind::kUnion,
+                            .union_members = {Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kInt64}}};
+    const Type smaller_union{.kind = TypeKind::kUnion, .union_members = {Type{.kind = TypeKind::kInt64}}};
+    const Type empty_union{.kind = TypeKind::kUnion};
+
+    REQUIRE(is_consistent(expected_union, actual_union));
+    REQUIRE(is_consistent(expected_union, smaller_union));
+    REQUIRE(is_consistent(expected_union, Type{.kind = TypeKind::kInt64}));
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kInt64}, smaller_union));
+    REQUIRE_FALSE(is_consistent(expected_union, empty_union));
+    REQUIRE_FALSE(is_consistent(empty_union, Type{.kind = TypeKind::kInt64}));
+  }
+
+  SECTION("tuple consistency enforces variadic placement and repeated item matching") {
+    Type repeated_string{.kind = TypeKind::kString, .variadic = true};
+    const Type variadic_tuple{.kind = TypeKind::kTuple,
+                              .items = {Type{.kind = TypeKind::kInt64}, repeated_string}};
+    const Type matching_actual{.kind = TypeKind::kTuple,
+                               .items = {Type{.kind = TypeKind::kInt64},
+                                         Type{.kind = TypeKind::kString},
+                                         Type{.kind = TypeKind::kString}}};
+    const Type too_short_actual{.kind = TypeKind::kTuple};
+
+    Type invalid_variadic_head{.kind = TypeKind::kString, .variadic = true};
+    const Type invalid_expected{.kind = TypeKind::kTuple,
+                                .items = {invalid_variadic_head, Type{.kind = TypeKind::kInt64}}};
+
+    REQUIRE(is_consistent(variadic_tuple, matching_actual));
+    REQUIRE_FALSE(is_consistent(variadic_tuple, too_short_actual));
+    REQUIRE_FALSE(is_consistent(invalid_expected, matching_actual));
+    REQUIRE_FALSE(is_consistent(variadic_tuple, Type{.kind = TypeKind::kInt64}));
+  }
+
+  SECTION("applied, type-variable, and nominal consistency require matching identities") {
+    const Type dict_int_string{.kind = TypeKind::kApplied,
+                               .applied_name = "Dict",
+                               .applied_args = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kString}}};
+    const Type dict_int_float{.kind = TypeKind::kApplied,
+                              .applied_name = "Dict",
+                              .applied_args = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kFloat64}}};
+    const Type maybe_int{.kind = TypeKind::kApplied,
+                         .applied_name = "Maybe",
+                         .applied_args = {Type{.kind = TypeKind::kInt64}}};
+
+    REQUIRE(is_consistent(dict_int_string, dict_int_string));
+    REQUIRE_FALSE(is_consistent(dict_int_string, dict_int_float));
+    REQUIRE_FALSE(is_consistent(dict_int_string, maybe_int));
+    REQUIRE_FALSE(is_consistent(dict_int_string, Type{.kind = TypeKind::kInt64}));
+
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
+                          Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"}));
+    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
+                                Type{.kind = TypeKind::kTypeVar, .nominal_name = "U"}));
+
+    REQUIRE(is_consistent(Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"},
+                          Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"}));
+    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"},
+                                Type{.kind = TypeKind::kNominal, .nominal_name = "Gadget"}));
+  }
+
+  SECTION("function consistency handles missing returns and exact symmetric signatures") {
+    const Type missing_return_expected =
+        mk_function({Type{.kind = TypeKind::kInt64}}, std::nullopt);
+    const Type mismatched_actual =
+        mk_function({Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kString}}, Type{.kind = TypeKind::kBool});
+
+    Type variadic_string{.kind = TypeKind::kString, .variadic = true};
+    const Type variadic_fn = mk_function({variadic_string}, Type{.kind = TypeKind::kInt64});
+    const Type non_variadic_fn = mk_function({Type{.kind = TypeKind::kString}}, Type{.kind = TypeKind::kInt64});
+    const Type short_fn = mk_function({}, Type{.kind = TypeKind::kInt64});
+
+    const Type named_widget_fn = mk_function({Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"}},
+                                             Type{.kind = TypeKind::kInt64});
+    const Type named_gadget_fn = mk_function({Type{.kind = TypeKind::kNominal, .nominal_name = "Gadget"}},
+                                             Type{.kind = TypeKind::kInt64});
+
+    REQUIRE(is_consistent(missing_return_expected, mismatched_actual));
+    REQUIRE_FALSE(is_consistent(variadic_fn, non_variadic_fn));
+    REQUIRE_FALSE(is_consistent(named_widget_fn, short_fn));
+    REQUIRE(is_consistent(named_widget_fn, named_widget_fn));
+    REQUIRE_FALSE(is_consistent(named_widget_fn, named_gadget_fn));
+    REQUIRE_FALSE(is_consistent(named_widget_fn, Type{.kind = TypeKind::kInt64}));
+  }
+}
 
 TEST_CASE("Type checker infers builtin generic return type at call sites", "[typecheck][generics]") {
   const std::string src =
@@ -686,6 +952,38 @@ TEST_CASE("Type checker matrix: Stage-3h Array 1-D generic tightening", "[typech
     const fleaux::frontend::lowering::Lowerer lowerer;
     const auto lowered = lowerer.lower(parsed.value());
     REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Array.GetAt accepts integer indices through builtin contract") {
+    const std::string src =
+        "let Std.Array.GetAt<T>(array: Tuple(T...), index: Any): T :: __builtin__;\n"
+        "let NeedsInt(x: Int64): Int64 = x;\n"
+        "((1, 2, 3), 1) -> Std.Array.GetAt -> NeedsInt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3h_array_getat_integer_contract_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Array.GetAt rejects fractional index with builtin contract hint") {
+    const std::string src =
+        "let Std.Array.GetAt<T>(array: Tuple(T...), index: Any): T :: __builtin__;\n"
+        "((1, 2, 3), 1.5) -> Std.Array.GetAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage3h_array_getat_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
   }
 
   SECTION("Std.Array.SetAt rejects replacement value type mismatch") {
@@ -1758,6 +2056,56 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
     REQUIRE(lowered.error().hint->find("expects all index tuple elements to be Int64 or UInt64") !=
             std::string::npos);
   }
+
+  SECTION("Builtin contract diagnostics preserve tuple-index shape hints") {
+    const std::string src =
+        "let Std.Array.GetAtND(value: Any, indices: Any): Any :: __builtin__;\n"
+        "(((1, 2), (3, 4)), 1) -> Std.Array.GetAtND;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_builtin_contract_tuple_shape_hint.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects tuple indices") != std::string::npos);
+  }
+
+  SECTION("Builtin numeric contracts reject implicit Float64 promotion") {
+    const std::string src =
+        "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
+        "(1.0, 2) -> Std.Add;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_builtin_contract_float_promotion_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.ToFloat64") != std::string::npos);
+  }
+
+  SECTION("Builtin numeric return refinement preserves Float64 flow") {
+    const std::string src =
+        "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
+        "let NeedsFloat(x: Float64): Float64 = x;\n"
+        "(1.0, 2.0) -> Std.Add -> NeedsFloat;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_builtin_contract_float64_refine_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
 }
 
 TEST_CASE("Type checker matrix: Stage-4c Std.Exit surface contract", "[typecheck][stage4c][exit]") {
@@ -1946,6 +2294,23 @@ TEST_CASE("Type checker matrix: Stage-4c structural Shape and Indices contract",
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
+  }
+
+  SECTION("Std.Array.ReshapeND preserves tuple-shape contract hint for non-tuple shapes") {
+    const std::string src =
+        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Any): Any :: __builtin__;\n"
+        "((1, 2, 3, 4), 2) -> Std.Array.ReshapeND;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4c_array_reshapend_tuple_shape_hint.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects tuple indices") != std::string::npos);
   }
 }
 

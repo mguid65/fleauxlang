@@ -24,6 +24,13 @@ namespace fleaux::cli {
 namespace {
 
 #ifdef _WIN32
+[[nodiscard]] auto windows_stdin_is_interactive_impl(const bool has_valid_handle,
+                                                     const bool get_console_mode_succeeded) -> bool {
+  return has_valid_handle && get_console_mode_succeeded;
+}
+#endif
+
+#ifdef _WIN32
 
 class ScopedRawMode {
 public:
@@ -720,7 +727,12 @@ auto LineEditor::restore_history_entry(const std::size_t index) -> LineEditorRes
 auto stdin_is_interactive() -> bool {
 #ifdef _WIN32
   const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
-  return stdin_handle != INVALID_HANDLE_VALUE && stdin_handle != nullptr;
+  if (stdin_handle == INVALID_HANDLE_VALUE || stdin_handle == nullptr) {
+    return false;
+  }
+
+  DWORD console_mode = 0;
+  return windows_stdin_is_interactive_impl(true, ::GetConsoleMode(stdin_handle, &console_mode) != 0);
 #else
   return ::isatty(STDIN_FILENO) != 0;
 #endif
@@ -848,6 +860,13 @@ auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent 
 }
 
 }  // namespace fleaux::cli
+
+#ifdef _WIN32
+auto fleaux::cli::detail::windows_stdin_is_interactive_for_testing(const bool has_valid_handle,
+                                                                   const bool get_console_mode_succeeded) -> bool {
+  return windows_stdin_is_interactive_impl(has_valid_handle, get_console_mode_succeeded);
+}
+#endif
 
 auto fleaux::cli::detail::decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent {
   return decode_escape_bytes_for_testing_impl(bytes);

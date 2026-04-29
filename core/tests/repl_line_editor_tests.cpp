@@ -11,6 +11,8 @@ using fleaux::cli::InputEvent;
 using fleaux::cli::InputKey;
 using fleaux::cli::LineEditor;
 using fleaux::cli::LineEditorAction;
+using fleaux::cli::LineEditorConfig;
+using fleaux::cli::TokenClass;
 
 void submit_line(LineEditor& editor, const std::string& line) {
   for (const char ch : line) {
@@ -107,6 +109,108 @@ TEST_CASE("LineEditor ctrl-d ends input only on an empty line", "[repl][line-edi
   REQUIRE(editor.buffer() == "x");
 }
 
+TEST_CASE("LineEditor supports token-wise navigation, deletion, and home/end", "[repl][line-editor]") {
+  LineEditor editor;
+  for (const char ch : std::string{"alpha + beta"}) {
+    REQUIRE(editor.handle_event(InputEvent::character(ch)).needs_redraw);
+  }
+
+  auto result = editor.handle_event({.key = InputKey::kTokenLeft});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 8);
+
+  result = editor.handle_event({.key = InputKey::kTokenLeft});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 6);
+
+  result = editor.handle_event({.key = InputKey::kTokenLeft});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 0);
+
+  result = editor.handle_event({.key = InputKey::kArrowRight});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 1);
+
+  result = editor.handle_event({.key = InputKey::kHome});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 0);
+
+  result = editor.handle_event({.key = InputKey::kTokenRight});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 5);
+
+  result = editor.handle_event({.key = InputKey::kTokenRight});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == 7);
+
+  result = editor.handle_event({.key = InputKey::kEnd});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.cursor() == editor.buffer().size());
+
+  result = editor.handle_event({.key = InputKey::kTokenBackspace});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(editor.buffer() == "alpha + ");
+  REQUIRE(editor.cursor() == 8);
+}
+
+TEST_CASE("LineEditor returns no redraw for boundary and unknown events", "[repl][line-editor]") {
+  LineEditor editor;
+
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kBackspace}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kDelete}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kArrowLeft}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kArrowRight}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kArrowUp}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kArrowDown}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kTokenLeft}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kTokenRight}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kTokenBackspace}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kHome}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kEnd}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kUnknown}).needs_redraw);
+
+  editor.handle_event(InputEvent::character('x'));
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kDelete}).needs_redraw);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kEnd}).needs_redraw);
+}
+
+TEST_CASE("LineEditor reset clears transient state and preserves history", "[repl][line-editor]") {
+  LineEditor editor(LineEditorConfig{.style_span_provider = [](const std::string_view text) -> std::vector<fleaux::cli::StyleSpan> {
+    return {{.start = 0, .length = text.empty() ? 0U : 1U, .token_class = TokenClass::kKeyword}};
+  }});
+
+  const auto empty_submit = editor.handle_event({.key = InputKey::kEnter});
+  REQUIRE(empty_submit.action == LineEditorAction::kSubmit);
+  REQUIRE(empty_submit.submitted_line == std::string{});
+  REQUIRE(editor.history().empty());
+
+  submit_line(editor, "saved");
+  REQUIRE(editor.history().size() == 1);
+  REQUIRE(editor.config().style_span_provider("alpha").size() == 1);
+
+  editor.handle_event(InputEvent::character('d'));
+  editor.handle_event(InputEvent::character('r'));
+  editor.handle_event(InputEvent::character('a'));
+  editor.handle_event(InputEvent::character('f'));
+  editor.handle_event(InputEvent::character('t'));
+  REQUIRE(editor.handle_event({.key = InputKey::kArrowUp}).needs_redraw);
+  REQUIRE(editor.buffer() == "saved");
+
+  editor.reset();
+  REQUIRE(editor.buffer().empty());
+  REQUIRE(editor.cursor() == 0);
+  REQUIRE(editor.history().size() == 1);
+  REQUIRE_FALSE(editor.handle_event({.key = InputKey::kArrowDown}).needs_redraw);
+}
+
+#ifdef _WIN32
+TEST_CASE("Windows stdin interactivity requires a console-capable handle", "[repl][line-editor][windows]") {
+  REQUIRE_FALSE(fleaux::cli::detail::windows_stdin_is_interactive_for_testing(false, false));
+  REQUIRE_FALSE(fleaux::cli::detail::windows_stdin_is_interactive_for_testing(true, false));
+  REQUIRE(fleaux::cli::detail::windows_stdin_is_interactive_for_testing(true, true));
+}
+#endif
+
 TEST_CASE("LineEditor stores non-empty submissions in deduplicated adjacent history", "[repl][line-editor]") {
   LineEditor editor;
 
@@ -149,3 +253,37 @@ TEST_CASE("normalize_style_spans sorts by start and removes overlaps", "[repl][l
   REQUIRE(normalized[2].start == 6);
   REQUIRE(normalized[2].length == 1);
 }
+
+TEST_CASE("decode_escape_bytes_for_testing recognizes common escape sequences", "[repl][line-editor]") {
+  using fleaux::cli::detail::decode_escape_bytes_for_testing;
+
+  SECTION("arrow and navigation keys") {
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[A").key == InputKey::kArrowUp);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[B").key == InputKey::kArrowDown);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[C").key == InputKey::kArrowRight);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[D").key == InputKey::kArrowLeft);
+    REQUIRE(decode_escape_bytes_for_testing("\x1bOH").key == InputKey::kHome);
+    REQUIRE(decode_escape_bytes_for_testing("\x1bOF").key == InputKey::kEnd);
+  }
+
+  SECTION("csi parameter variants") {
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[3~").key == InputKey::kDelete);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[1~").key == InputKey::kHome);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[4~").key == InputKey::kEnd);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[1;5D").key == InputKey::kTokenLeft);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[1;5C").key == InputKey::kTokenRight);
+  }
+
+  SECTION("alt-style token movement and backspace") {
+    REQUIRE(decode_escape_bytes_for_testing("\x1b" "b").key == InputKey::kTokenLeft);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b" "f").key == InputKey::kTokenRight);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b\x7f").key == InputKey::kTokenBackspace);
+  }
+
+  SECTION("unknown and truncated sequences stay unknown") {
+    REQUIRE(decode_escape_bytes_for_testing("").key == InputKey::kUnknown);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[").key == InputKey::kUnknown);
+    REQUIRE(decode_escape_bytes_for_testing("\x1b[99").key == InputKey::kUnknown);
+  }
+}
+
