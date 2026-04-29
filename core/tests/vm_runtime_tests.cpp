@@ -1111,6 +1111,58 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
   REQUIRE(output.str() == "-10\n");
 }
 
+TEST_CASE("VM nested callable refs preserve local state across reused invocation scratch", "[vm][closure]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  fleaux::bytecode::FunctionDef inner;
+  inner.name = "InnerDouble";
+  inner.arity = 1;
+  inner.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+
+  fleaux::bytecode::FunctionDef outer;
+  outer.name = "OuterApplyThenAdd";
+  outer.arity = 1;
+  outer.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+
+  bytecode_module.functions.push_back(std::move(inner));
+  bytecode_module.functions.push_back(std::move(outer));
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "41\n");
+}
+
 TEST_CASE("VM executes native kLoopCall opcode", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
@@ -2112,6 +2164,63 @@ TEST_CASE("VM kCallBuiltin preserves capture-prefix order for inline closures", 
   if (!result.has_value()) { INFO(result.error().message); }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
+}
+
+TEST_CASE("VM kCallBuiltin preserves captured prefix and variadic tail for inline closures", "[vm][closure][variadic]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  const auto c11 = push_i64_const(bytecode_module, 11);
+  const auto c13 = push_i64_const(bytecode_module, 13);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+
+  fleaux::bytecode::FunctionDef closure_fn;
+  closure_fn.name = "__closure_capture_variadic_tail";
+  closure_fn.arity = 3;
+  closure_fn.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ElementAt)},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(closure_fn));
+  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
+      .function_index = 0,
+      .capture_count = 1,
+      .declared_arity = 2,
+      .declared_has_variadic_tail = true,
+  });
+
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c11},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c13},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kMakeClosureRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "23\n");
 }
 
 TEST_CASE("VM kCallBuiltin executes Std.Apply for two-argument inline closure callables", "[vm]") {

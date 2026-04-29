@@ -2,6 +2,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -71,14 +72,6 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
   }
 }
 
-auto make_tuple_value(std::vector<Value> values) -> Value {
-  Value tuple{Array{}};
-  auto& out = fleaux::runtime::as_array(tuple);
-  out.Reserve(values.size());
-  for (auto& value : values) { out.EmplaceBack(std::move(value)); }
-  return tuple;
-}
-
 void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t tuple_size) {
   if (tuple_size == 0U) {
     stack.emplace_back(Array{});
@@ -107,10 +100,88 @@ auto make_array_tail_value(Array& source, const std::size_t first_index) -> Valu
   return tail;
 }
 
+void append_array_copy(Array& out, const Array& source) {
+  for (std::size_t element_index = 0; element_index < source.Size(); ++element_index) {
+    out.EmplaceBack(*source.TryGet(element_index));
+  }
+}
+
 struct CallFrame {
   const std::vector<bytecode::Instruction>* instructions = nullptr;
   std::size_t ip = 0;
   std::vector<Value> locals;
+};
+
+struct CallFrameStack {
+  std::vector<CallFrame> storage;
+  std::size_t active_size = 0U;
+
+  [[nodiscard]] auto empty() const -> bool { return active_size == 0U; }
+
+  [[nodiscard]] auto back() -> CallFrame& { return storage[active_size - 1U]; }
+
+  [[nodiscard]] auto back() const -> const CallFrame& { return storage[active_size - 1U]; }
+
+  auto push(const std::vector<bytecode::Instruction>* instructions) -> CallFrame& {
+    if (active_size == storage.size()) { storage.emplace_back(); }
+    auto& frame = storage[active_size++];
+    frame.instructions = instructions;
+    frame.ip = 0;
+    frame.locals.clear();
+    return frame;
+  }
+
+  void pop() {
+    auto& frame = storage[active_size - 1U];
+    frame.instructions = nullptr;
+    frame.ip = 0;
+    frame.locals.clear();
+    --active_size;
+  }
+
+  void clear_active() {
+    while (!empty()) { pop(); }
+  }
+
+  void reserve(const std::size_t capacity) { storage.reserve(capacity); }
+};
+
+struct InvocationScratch {
+  std::vector<Value> stack;
+  CallFrameStack frames;
+};
+
+thread_local std::deque<InvocationScratch> g_invocation_scratch_pool;
+thread_local std::size_t g_invocation_scratch_depth = 0U;
+
+class ScopedInvocationScratch {
+public:
+  ScopedInvocationScratch(const std::size_t operand_stack_capacity, const std::size_t frame_stack_capacity)
+      : depth_index_(g_invocation_scratch_depth++) {
+    if (depth_index_ == g_invocation_scratch_pool.size()) { g_invocation_scratch_pool.emplace_back(); }
+    scratch().stack.clear();
+    scratch().frames.clear_active();
+    scratch().stack.reserve(operand_stack_capacity);
+    scratch().frames.reserve(frame_stack_capacity);
+  }
+
+  ScopedInvocationScratch(const ScopedInvocationScratch&) = delete;
+  auto operator=(const ScopedInvocationScratch&) -> ScopedInvocationScratch& = delete;
+
+  ~ScopedInvocationScratch() {
+    scratch().stack.clear();
+    scratch().frames.clear_active();
+    g_invocation_scratch_depth = depth_index_;
+  }
+
+  [[nodiscard]] auto stack() -> std::vector<Value>& { return scratch().stack; }
+
+  [[nodiscard]] auto frames() -> CallFrameStack& { return scratch().frames; }
+
+private:
+  [[nodiscard]] auto scratch() -> InvocationScratch& { return g_invocation_scratch_pool[depth_index_]; }
+
+  std::size_t depth_index_ = 0U;
 };
 
 // Loop exit type
@@ -139,22 +210,22 @@ auto constant_builtin_value(const fleaux::vm::BuiltinId builtin_id) -> std::opti
 }
 
 // Forward declarations.
-auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
 
 auto dispatch_builtin(fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
 
-auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t arity, const bool has_variadic_tail,
-                               Value arg) -> tl::expected<std::vector<Value>, RuntimeError> {
-  std::vector<Value> locals;
+auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn_name, const std::uint32_t arity,
+                               const bool has_variadic_tail, Value arg) -> tl::expected<void, RuntimeError> {
+  locals.clear();
   locals.reserve(arity);
 
-  if (arity == 0U) { return locals; }
+  if (arity == 0U) { return {}; }
 
   if (!has_variadic_tail) {
     if (arity == 1U) {
       locals.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
-      return locals;
+      return {};
     }
 
     try {
@@ -165,7 +236,7 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
       for (std::uint32_t arg_index = 0; arg_index < arity; ++arg_index) {
         locals.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
       }
-      return locals;
+      return {};
     } catch (const std::exception& ex) {
       return tl::unexpected(
           RuntimeError{.message = std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
@@ -179,7 +250,7 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
     } else {
       locals.push_back(fleaux::runtime::make_tuple(std::move(arg)));
     }
-    return locals;
+    return {};
   }
 
   const auto fixed_count = static_cast<std::size_t>(arity - 1U);
@@ -193,33 +264,32 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
     }
 
     locals.emplace_back(make_array_tail_value(arr, fixed_count));
-    return locals;
+    return {};
   } catch (const std::exception& ex) {
     return tl::unexpected(
         RuntimeError{.message = std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
   }
 }
 
-auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, const bool declared_has_variadic_tail)
-    -> tl::expected<std::vector<Value>, RuntimeError> {
-  std::vector<Value> out;
-  out.reserve(declared_arity);
-
-  if (declared_arity == 0U) { return out; }
+auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, const bool declared_has_variadic_tail)
+    -> tl::expected<Value, RuntimeError> {
+  if (declared_arity == 0U) { return Value{Array{}}; }
 
   if (!declared_has_variadic_tail) {
-    if (declared_arity == 1U) {
-      out.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
-      return out;
-    }
+    if (declared_arity == 1U) { return fleaux::runtime::unwrap_singleton_arg(std::move(arg)); }
 
     try {
       auto& arr = fleaux::runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
         return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
       }
+      if (arr.Size() == declared_arity) { return std::move(arg); }
+
+      Value out{Array{}};
+      auto& out_array = fleaux::runtime::as_array(out);
+      out_array.Reserve(declared_arity);
       for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
-        out.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
+        out_array.EmplaceBack(std::move(arr[static_cast<std::size_t>(arg_index)]));
       }
       return out;
     } catch (const std::exception& ex) {
@@ -229,7 +299,77 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
   }
 
   if (declared_arity == 1U) {
-    out.push_back(arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg)));
+    return arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg));
+  }
+
+  const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
+  try {
+    auto& arr = fleaux::runtime::as_array(arg);
+    if (arr.Size() < fixed_count) {
+      return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+    }
+
+    Value out{Array{}};
+    auto& out_array = fleaux::runtime::as_array(out);
+    out_array.Reserve(declared_arity);
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      out_array.EmplaceBack(std::move(arr[arg_index]));
+    }
+    out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
+    return out;
+  } catch (const std::exception& ex) {
+    return tl::unexpected(RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+  }
+}
+
+auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uint32_t declared_arity,
+                             const bool declared_has_variadic_tail) -> tl::expected<Value, RuntimeError> {
+  const auto& prefix = fleaux::runtime::as_array(prefix_args);
+  if (prefix.Size() == 0U) {
+    return pack_declared_call_args(std::move(arg), declared_arity, declared_has_variadic_tail);
+  }
+
+  if (declared_arity == 0U) {
+    if (prefix.Size() == 1U) { return *prefix.TryGet(0); }
+    return prefix_args;
+  }
+
+  if (!declared_has_variadic_tail) {
+    try {
+      Value out{Array{}};
+      auto& out_array = fleaux::runtime::as_array(out);
+
+      if (declared_arity == 1U) {
+        out_array.Reserve(prefix.Size() + 1U);
+        append_array_copy(out_array, prefix);
+        out_array.EmplaceBack(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
+        return out;
+      }
+
+      auto& arr = fleaux::runtime::as_array(arg);
+      if (arr.Size() < declared_arity) {
+        return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+      }
+
+      out_array.Reserve(prefix.Size() + declared_arity);
+      append_array_copy(out_array, prefix);
+      for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
+        out_array.EmplaceBack(std::move(arr[static_cast<std::size_t>(arg_index)]));
+      }
+      return out;
+    } catch (const std::exception& ex) {
+      return tl::unexpected(
+          RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+    }
+  }
+
+  Value out{Array{}};
+  auto& out_array = fleaux::runtime::as_array(out);
+  out_array.Reserve(prefix.Size() + declared_arity);
+  append_array_copy(out_array, prefix);
+
+  if (declared_arity == 1U) {
+    out_array.EmplaceBack(arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg)));
     return out;
   }
 
@@ -239,40 +379,15 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
     if (arr.Size() < fixed_count) {
       return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
     }
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-      out.emplace_back(std::move(arr[arg_index]));
-    }
 
-    out.emplace_back(make_array_tail_value(arr, fixed_count));
+    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
+      out_array.EmplaceBack(std::move(arr[arg_index]));
+    }
+    out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
     return tl::unexpected(RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
   }
-}
-
-auto pack_call_args(std::vector<Value> values) -> Value {
-  if (values.empty()) { return Value{Array{}}; }
-  if (values.size() == 1U) { return std::move(values[0]); }
-  return make_tuple_value(std::move(values));
-}
-
-auto pack_prefixed_call_args(const Value& prefix_args, std::vector<Value> suffix_args) -> Value {
-  const auto& prefix = fleaux::runtime::as_array(prefix_args);
-  if (prefix.Size() == 0U) { return pack_call_args(std::move(suffix_args)); }
-
-  if (suffix_args.empty()) {
-    if (prefix.Size() == 1U) { return *prefix.TryGet(0); }
-    return prefix_args;
-  }
-
-  Value out{Array{}};
-  auto& out_array = fleaux::runtime::as_array(out);
-  out_array.Reserve(prefix.Size() + suffix_args.size());
-  for (std::size_t element_index = 0; element_index < prefix.Size(); ++element_index) {
-    out_array.EmplaceBack(*prefix.TryGet(element_index));
-  }
-  for (auto& arg : suffix_args) { out_array.EmplaceBack(std::move(arg)); }
-  return out;
 }
 
 auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg, std::ostream& output)
@@ -306,22 +421,17 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
   const auto has_variadic_tail = function.has_variadic_tail;
   const auto& instructions = function.instructions;
 
-  std::vector<Value> inner_stack;
-  std::vector<CallFrame> inner_frames;
-  inner_stack.reserve(suggested_operand_stack_capacity(instructions.size()));
-  inner_frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
+  ScopedInvocationScratch scratch{suggested_operand_stack_capacity(instructions.size()),
+                                  suggested_frame_stack_capacity(bytecode_module.functions.size())};
 
-  CallFrame frame;
-  frame.instructions = &instructions;
-  frame.ip = 0;
+  auto& frame = scratch.frames().push(&instructions);
 
-  auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(arg));
-  if (!bound_locals) { return tl::unexpected(bound_locals.error()); }
-  frame.locals = std::move(*bound_locals);
+  if (auto bound_locals = bind_user_function_locals(frame.locals, name, arity, has_variadic_tail, std::move(arg));
+      !bound_locals) {
+    return tl::unexpected(bound_locals.error());
+  }
 
-  inner_frames.push_back(std::move(frame));
-
-  auto loop_result = run_loop(bytecode_module, inner_stack, inner_frames, output);
+  auto loop_result = run_loop(bytecode_module, scratch.stack(), scratch.frames(), output);
   if (!loop_result) return tl::unexpected(loop_result.error());
 
   if (std::get_if<std::monostate>(&*loop_result) != nullptr) {
@@ -333,7 +443,7 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
 
 // run_loop
 
-auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, std::vector<CallFrame>& frames,
+auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult {
   while (!frames.empty()) {
     const std::size_t curr_ip = frames.back().ip;
@@ -423,15 +533,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         const auto arity = function.arity;
         const auto has_variadic_tail = function.has_variadic_tail;
         const auto& instructions = function.instructions;
-        CallFrame new_frame;
-        new_frame.instructions = &instructions;
-        new_frame.ip = 0;
-
-        auto bound_locals = bind_user_function_locals(name, arity, has_variadic_tail, std::move(*arg));
-        if (!bound_locals) { return tl::unexpected(bound_locals.error()); }
-        new_frame.locals = std::move(*bound_locals);
-
-        frames.push_back(std::move(new_frame));
+        auto& new_frame = frames.push(&instructions);
+        auto bound_locals = bind_user_function_locals(new_frame.locals, name, arity, has_variadic_tail, std::move(*arg));
+        if (!bound_locals) {
+          frames.pop();
+          return tl::unexpected(bound_locals.error());
+        }
         break;
       }
 
@@ -492,12 +599,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         // execution stack and cannot outlive execute().
         auto closure_callable = [&bytecode_module, function_index, declared_arity, declared_has_variadic_tail,
                                  captured_args = std::move(captured_args), &output](Value call_arg) -> Value {
-          auto declared_args =
-              unpack_declared_call_args(std::move(call_arg), declared_arity, declared_has_variadic_tail);
-          if (!declared_args) { throw std::runtime_error(declared_args.error().message); }
+          auto packed_args =
+              pack_prefixed_call_args(captured_args, std::move(call_arg), declared_arity, declared_has_variadic_tail);
+          if (!packed_args) { throw std::runtime_error(packed_args.error().message); }
 
-          auto result = run_user_function(bytecode_module, function_index,
-                                          pack_prefixed_call_args(captured_args, std::move(*declared_args)), output);
+          auto result = run_user_function(bytecode_module, function_index, std::move(*packed_args), output);
           if (!result) { throw std::runtime_error(result.error().message); }
           return std::move(*result);
         };
@@ -509,7 +615,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kReturn: {
         auto ret_val = pop_stack(stack, "return");
         if (!ret_val) return tl::unexpected(ret_val.error());
-        frames.pop_back();
+        frames.pop();
         if (frames.empty()) {
           // Standalone function execution: the result IS the return value.
           return LoopExit{std::move(*ret_val)};
@@ -1329,10 +1435,10 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
   fleaux::runtime::RuntimeOutputStreamScope output_scope(output);
 
   std::vector<Value> stack;
-  std::vector<CallFrame> frames;
+  CallFrameStack frames;
   stack.reserve(suggested_operand_stack_capacity(bytecode_module.instructions.size()));
   frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
-  frames.push_back(CallFrame{.instructions = &bytecode_module.instructions, .ip = 0, .locals = {}});
+  (void)frames.push(&bytecode_module.instructions);
 
   auto loop_result = run_loop(bytecode_module, stack, frames, output);
   if (!loop_result) return tl::unexpected(loop_result.error());
