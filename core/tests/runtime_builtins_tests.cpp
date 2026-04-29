@@ -188,7 +188,12 @@ TEST_CASE("Runtime builtins: math helpers", "[runtime]") {
 }
 
 TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
+#if defined(_WIN32)
+  const Value result =
+      make_string("powershell.exe -NoProfile -NonInteractive -Command \"[Console]::Write('fleaux_exec_ok')\"") | OSExec;
+#else
   const Value result = make_string("printf 'fleaux_exec_ok'") | OSExec;
+#endif
   REQUIRE(as_array(result).Size() == 2);
   REQUIRE(to_double(array_at(result, 0)) == 0.0);
   REQUIRE(as_string(array_at(result, 1)) == "fleaux_exec_ok");

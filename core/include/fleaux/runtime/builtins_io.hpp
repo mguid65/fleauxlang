@@ -146,6 +146,20 @@ inline void set_web_env_value(std::string key, std::string value) {
 }
 
 inline void ensure_runtime_filesystem_ready() {}
+
+#if defined(_WIN32)
+inline void close_runtime_handles_for_path(const std::filesystem::path& target_path) {
+  auto& registry = handle_registry();
+  std::scoped_lock lock(registry.mtx);
+  const auto normalized_target = target_path.lexically_normal();
+  for (auto& entry : registry.entries) {
+    if (entry.closed) { continue; }
+    if (std::filesystem::path(entry.path).lexically_normal() != normalized_target) { continue; }
+    entry.stream.close();
+    entry.closed = true;
+  }
+}
+#endif
 #endif
 
 }  // namespace detail
@@ -269,8 +283,18 @@ inline void ensure_runtime_filesystem_ready() {}
 
 [[nodiscard]] inline auto FileDelete(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
+  const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
   std::error_code ec;
-  const bool removed = std::filesystem::remove(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
+  bool removed = std::filesystem::remove(path, ec);
+#if defined(_WIN32)
+  if (!removed && ec) {
+    // Windows refuses to unlink files that are still held open by this process.
+    // Retry after closing any Fleaux-managed handles targeting the same path.
+    detail::close_runtime_handles_for_path(path);
+    ec.clear();
+    removed = std::filesystem::remove(path, ec);
+  }
+#endif
   throw_if_filesystem_error(ec, "FileDelete");
   return make_bool(removed);
 }
