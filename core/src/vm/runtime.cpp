@@ -72,10 +72,11 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
 }
 
 auto make_tuple_value(std::vector<Value> values) -> Value {
-  Array out;
+  Value tuple{Array{}};
+  auto& out = fleaux::runtime::as_array(tuple);
   out.Reserve(values.size());
   for (auto& value : values) { out.EmplaceBack(std::move(value)); }
-  return Value{std::move(out)};
+  return tuple;
 }
 
 void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t tuple_size) {
@@ -84,14 +85,26 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
     return;
   }
 
-  Array out;
-  out.Reserve(tuple_size);
   const auto base = stack.size() - tuple_size;
-  for (std::size_t element_index = 0; element_index < tuple_size; ++element_index) {
+  Value first_element = std::move(stack[base]);
+  stack[base] = Value{Array{}};
+  auto& out = fleaux::runtime::as_array(stack[base]);
+  out.Reserve(tuple_size);
+  out.EmplaceBack(std::move(first_element));
+  for (std::size_t element_index = 1; element_index < tuple_size; ++element_index) {
     out.EmplaceBack(std::move(stack[base + element_index]));
   }
-  stack[base] = Value{std::move(out)};
   stack.resize(base + 1U);
+}
+
+auto make_array_tail_value(Array& source, const std::size_t first_index) -> Value {
+  Value tail{Array{}};
+  auto& out = fleaux::runtime::as_array(tail);
+  out.Reserve(source.Size() - first_index);
+  for (std::size_t element_index = first_index; element_index < source.Size(); ++element_index) {
+    out.EmplaceBack(std::move(source[element_index]));
+  }
+  return tail;
 }
 
 struct CallFrame {
@@ -106,6 +119,17 @@ struct CallFrame {
 
 using LoopExit = std::variant<std::monostate, Value>;
 using LoopResult = tl::expected<LoopExit, RuntimeError>;
+
+constexpr std::size_t k_min_stack_capacity = 16U;
+constexpr std::size_t k_min_frame_capacity = 4U;
+
+[[nodiscard]] auto suggested_operand_stack_capacity(const std::size_t instruction_count) -> std::size_t {
+  return std::max(k_min_stack_capacity, instruction_count);
+}
+
+[[nodiscard]] auto suggested_frame_stack_capacity(const std::size_t function_count) -> std::size_t {
+  return std::max(k_min_frame_capacity, function_count + 1U);
+}
 
 auto constant_builtin_value(const fleaux::vm::BuiltinId builtin_id) -> std::optional<double> {
   for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
@@ -168,12 +192,7 @@ auto bind_user_function_locals(const std::string& fn_name, const std::uint32_t a
       locals.emplace_back(std::move(arr[arg_index]));
     }
 
-    Array tail;
-    tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
-      tail.EmplaceBack(std::move(arr[arg_index]));
-    }
-    locals.emplace_back(std::move(tail));
+    locals.emplace_back(make_array_tail_value(arr, fixed_count));
     return locals;
   } catch (const std::exception& ex) {
     return tl::unexpected(
@@ -224,12 +243,7 @@ auto unpack_declared_call_args(Value arg, const std::uint32_t declared_arity, co
       out.emplace_back(std::move(arr[arg_index]));
     }
 
-    Array tail;
-    tail.Reserve(arr.Size() - fixed_count);
-    for (std::size_t arg_index = fixed_count; arg_index < arr.Size(); ++arg_index) {
-      tail.EmplaceBack(std::move(arr[arg_index]));
-    }
-    out.emplace_back(std::move(tail));
+    out.emplace_back(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
     return tl::unexpected(RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
@@ -251,13 +265,14 @@ auto pack_prefixed_call_args(const Value& prefix_args, std::vector<Value> suffix
     return prefix_args;
   }
 
-  Array out;
-  out.Reserve(prefix.Size() + suffix_args.size());
+  Value out{Array{}};
+  auto& out_array = fleaux::runtime::as_array(out);
+  out_array.Reserve(prefix.Size() + suffix_args.size());
   for (std::size_t element_index = 0; element_index < prefix.Size(); ++element_index) {
-    out.EmplaceBack(*prefix.TryGet(element_index));
+    out_array.EmplaceBack(*prefix.TryGet(element_index));
   }
-  for (auto& arg : suffix_args) { out.EmplaceBack(std::move(arg)); }
-  return Value{std::move(out)};
+  for (auto& arg : suffix_args) { out_array.EmplaceBack(std::move(arg)); }
+  return out;
 }
 
 auto run_user_function(const bytecode::Module& bytecode_module, std::size_t fn_idx, Value arg, std::ostream& output)
@@ -293,6 +308,8 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
 
   std::vector<Value> inner_stack;
   std::vector<CallFrame> inner_frames;
+  inner_stack.reserve(suggested_operand_stack_capacity(instructions.size()));
+  inner_frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
 
   CallFrame frame;
   frame.instructions = &instructions;
@@ -1313,6 +1330,8 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
 
   std::vector<Value> stack;
   std::vector<CallFrame> frames;
+  stack.reserve(suggested_operand_stack_capacity(bytecode_module.instructions.size()));
+  frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
   frames.push_back(CallFrame{.instructions = &bytecode_module.instructions, .ip = 0, .locals = {}});
 
   auto loop_result = run_loop(bytecode_module, stack, frames, output);
