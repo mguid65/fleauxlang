@@ -15,6 +15,7 @@
   #include <windows.h>
   #include <conio.h>
 #else
+  #include <sys/ioctl.h>
   #include <sys/select.h>
   #include <termios.h>
   #include <unistd.h>
@@ -144,6 +145,82 @@ auto decode_csi_with_params(const std::string& params, const char final_char) ->
   if (final_char == 'F') { return {.key = InputKey::kEnd}; }
 
   return {};
+}
+
+auto completion_lines_for_width(std::span<const std::string> suggestions, std::size_t terminal_width)
+    -> std::vector<std::string> {
+  if (suggestions.empty()) { return {}; }
+
+  constexpr std::size_t kColumnSpacing = 2;
+  if (terminal_width == 0) { terminal_width = 80; }
+
+  const std::size_t count = suggestions.size();
+  std::size_t best_columns = 1;
+  std::size_t best_rows = count;
+  std::vector<std::size_t> best_widths(1, 0);
+
+  for (std::size_t columns = count; columns >= 1; --columns) {
+    const std::size_t rows = (count + columns - 1) / columns;
+    std::vector<std::size_t> widths(columns, 0);
+
+    for (std::size_t row = 0; row < rows; ++row) {
+      for (std::size_t col = 0; col < columns; ++col) {
+        const std::size_t idx = row * columns + col;
+        if (idx >= count) { break; }
+        widths[col] = std::max(widths[col], suggestions[idx].size());
+      }
+    }
+
+    std::size_t total_width = 0;
+    for (std::size_t col = 0; col < columns; ++col) {
+      total_width += widths[col];
+      if (col + 1 < columns) { total_width += kColumnSpacing; }
+    }
+
+    if (total_width <= terminal_width || columns == 1) {
+      best_columns = columns;
+      best_rows = rows;
+      best_widths = std::move(widths);
+      break;
+    }
+  }
+
+  std::vector<std::string> lines;
+  lines.reserve(best_rows);
+  for (std::size_t row = 0; row < best_rows; ++row) {
+    std::string line;
+    for (std::size_t col = 0; col < best_columns; ++col) {
+      const std::size_t idx = row * best_columns + col;
+      if (idx >= count) { break; }
+
+      const std::string& text = suggestions[idx];
+      line += text;
+
+      const std::size_t next_idx = row * best_columns + (col + 1);
+      if ((col + 1) < best_columns && next_idx < count) {
+        const std::size_t pad = (best_widths[col] - text.size()) + kColumnSpacing;
+        line.append(pad, ' ');
+      }
+    }
+    lines.push_back(std::move(line));
+  }
+
+  return lines;
+}
+
+auto terminal_width_chars() -> std::size_t {
+#ifdef _WIN32
+  const auto stdout_handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+  if (stdout_handle == INVALID_HANDLE_VALUE) { return 80; }
+
+  CONSOLE_SCREEN_BUFFER_INFO buffer_info;
+  if (!::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) { return 80; }
+  return static_cast<std::size_t>(buffer_info.srWindow.Right - buffer_info.srWindow.Left + 1);
+#else
+  winsize ws{};
+  if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) { return 80; }
+  return static_cast<std::size_t>(ws.ws_col);
+#endif
 }
 
 #ifdef _WIN32
@@ -802,9 +879,10 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
     const auto [action, needs_redraw, submitted_line_opt, completion_suggestions] = editor.handle_event(*event);
     if (!completion_suggestions.empty()) {
+      const auto lines = completion_lines_for_width(completion_suggestions, terminal_width_chars());
       std::cout << "\r\n";
-      for (const auto& suggestion : completion_suggestions) {
-        std::cout << suggestion << "\r\n";
+      for (const auto& line : lines) {
+        std::cout << line << "\r\n";
       }
       render_line(prompt, editor);
       continue;
@@ -922,3 +1000,10 @@ auto fleaux::cli::detail::windows_stdin_is_interactive_for_testing(const bool ha
 auto fleaux::cli::detail::decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent {
   return decode_escape_bytes_for_testing_impl(bytes);
 }
+
+auto fleaux::cli::detail::format_completion_suggestions_for_testing(std::span<const std::string> suggestions,
+                                                                    const std::size_t terminal_width)
+    -> std::vector<std::string> {
+  return completion_lines_for_width(suggestions, terminal_width);
+}
+
