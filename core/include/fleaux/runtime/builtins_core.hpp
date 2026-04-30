@@ -278,7 +278,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   // Prints the value, returns it unchanged.
   auto& output = runtime_output_stream();
   print_value_varargs(output, arg);
-  output << '\n';
+  output << std::endl;
   return arg;
 }
 

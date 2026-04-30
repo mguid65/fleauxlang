@@ -12,6 +12,7 @@
 
 #include "fleaux/cli/line_editor.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
 #include <algorithm>
 
@@ -178,13 +179,94 @@ auto make_repl_style_provider() -> StyleSpanProvider {
   };
 }
 
+constexpr std::array<std::string_view, 11> kReplKeywords = {
+    "import",
+    "let",
+    "__builtin__",
+    "Int64",
+    "UInt64",
+    "Float64",
+    "String",
+    "Bool",
+    "Null",
+    "Any",
+    "Tuple",
+};
+
+auto seed_completion_symbols(CompletionHandler& completion) -> void {
+  for (const auto keyword : kReplKeywords) {
+    completion.load_symbols({keyword});
+  }
+
+  std::vector<std::string> builtins;
+  builtins.reserve(fleaux::vm::all_builtin_specs().size());
+  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
+    builtins.emplace_back(spec.name);
+  }
+  completion.load_symbols(builtins);
+}
+
+auto extract_declared_functions(std::string_view snippet) -> std::vector<std::string> {
+  auto is_ident_start = [](const char ch) -> bool {
+    const auto uch = static_cast<unsigned char>(ch);
+    return std::isalpha(uch) != 0 || ch == '_';
+  };
+  auto is_ident_char = [](const char ch) -> bool {
+    const auto uch = static_cast<unsigned char>(ch);
+    return std::isalnum(uch) != 0 || ch == '_';
+  };
+  auto skip_whitespace = [&](std::size_t idx) -> std::size_t {
+    while (idx < snippet.size() && std::isspace(static_cast<unsigned char>(snippet[idx])) != 0) { ++idx; }
+    return idx;
+  };
+  auto is_boundary = [&](std::size_t idx) -> bool {
+    if (idx >= snippet.size()) { return true; }
+    return !is_ident_char(snippet[idx]);
+  };
+
+  std::vector<std::string> names;
+  for (std::size_t idx = 0; idx + 3 <= snippet.size(); ++idx) {
+    if (snippet.substr(idx, 3) != "let") { continue; }
+    if ((idx > 0 && !is_boundary(idx - 1)) || !is_boundary(idx + 3)) { continue; }
+
+    std::size_t cursor = skip_whitespace(idx + 3);
+    if (cursor >= snippet.size() || !is_ident_start(snippet[cursor])) { continue; }
+
+    const std::size_t name_start = cursor;
+    while (cursor < snippet.size()) {
+      if (is_ident_char(snippet[cursor])) {
+        ++cursor;
+        continue;
+      }
+      if (snippet[cursor] == '.' && cursor + 1 < snippet.size() && is_ident_start(snippet[cursor + 1])) {
+        ++cursor;
+        continue;
+      }
+      break;
+    }
+
+    const std::size_t after_name = skip_whitespace(cursor);
+    if (after_name >= snippet.size() || snippet[after_name] != '(') { continue; }
+
+    const auto symbol = std::string(snippet.substr(name_start, cursor - name_start));
+    if (std::ranges::find(names, symbol) == names.end()) { names.push_back(symbol); }
+  }
+
+  return names;
+}
+
 }  // namespace
 
 auto ReplDriver::run(const std::vector<std::string>& process_args, const bool color_enabled) const -> int {
   const bool interactive_stdin = stdin_is_interactive();
   const bool use_color = repl_color_enabled(color_enabled);
+  CompletionHandler completion_handler;
+  seed_completion_symbols(completion_handler);
   LineEditor line_editor(
-      LineEditorConfig{.style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{}});
+      LineEditorConfig{
+          .style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{},
+          .completion_handler = &completion_handler,
+      });
   constexpr fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session(process_args);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
@@ -256,6 +338,10 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
     if (const auto error = run_snippet(buffer); error.has_value()) {
       std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", error->message, error->span, error->hint)
                 << '\n';
+    } else {
+      for (const auto& symbol : extract_declared_functions(buffer)) {
+        completion_handler.load_symbols({std::string_view{symbol}});
+      }
     }
     buffer.clear();
   }
