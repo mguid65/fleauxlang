@@ -286,7 +286,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (no_run) {
-    std::cout << "[vm] skipped run (--no-run): " << *source_path << '\n';
+    std::cout << "[vm] skipped run (--no-run): " << source_path->string() << '\n';
     return 0;
   }
 

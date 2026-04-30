@@ -82,9 +82,11 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
   std::string command;
 #ifdef _WIN32
   std::string powershell_script =
-      "& { $process = Start-Process -FilePath " + powershell_quote(fleaux_binary_path().string()) +
-      " -ArgumentList " + powershell_quote(arguments) +
-      " -WorkingDirectory " + powershell_quote(working_dir.string()) +
+      "& { $process = Start-Process -FilePath " + powershell_quote(fleaux_binary_path().string());
+  if (!arguments.empty()) {
+    powershell_script += " -ArgumentList " + powershell_quote(arguments);
+  }
+  powershell_script += " -WorkingDirectory " + powershell_quote(working_dir.string()) +
       " -RedirectStandardOutput " + powershell_quote(output_path.string()) +
       " -RedirectStandardError " + powershell_quote(error_path.string()) + " -PassThru -Wait";
   if (!stdin_text.empty()) {
