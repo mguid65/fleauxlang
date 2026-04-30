@@ -20,7 +20,7 @@ Fleaux programs are expression-based and commonly use the pipeline operator `->`
 
 ### Hello world
 
-```fleaux
+```f#
 import Std;
 
 ("Hello, World!") -> Std.Println;
@@ -29,7 +29,7 @@ import Std;
 
 ### Function definitions and calls
 
-```fleaux
+```f#
 import Std;
 
 let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
@@ -44,7 +44,7 @@ let Average(a: Float64, b: Float64): Float64 =
 
 `lib.fleaux`
 
-```fleaux
+```f#
 import Std;
 
 let Add4(x: Float64): Float64 = (4, x) -> Std.Add;
@@ -52,7 +52,7 @@ let Add4(x: Float64): Float64 = (4, x) -> Std.Add;
 
 `main.fleaux`
 
-```fleaux
+```f#
 import lib;
 
 (4) -> Add4 -> Std.Println;
