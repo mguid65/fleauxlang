@@ -320,3 +320,24 @@ TEST_CASE("decode_escape_bytes_for_testing recognizes common escape sequences", 
   }
 }
 
+TEST_CASE("format_completion_suggestions_for_testing keeps one line when width allows", "[repl][line-editor]") {
+  const std::vector<std::string> suggestions = {"alpha", "beta", "gamma"};
+  const auto lines = fleaux::cli::detail::format_completion_suggestions_for_testing(suggestions, 40);
+
+  REQUIRE(lines == std::vector<std::string>{"alpha  beta  gamma"});
+}
+
+TEST_CASE("format_completion_suggestions_for_testing uses minimal rows with aligned columns", "[repl][line-editor]") {
+  const std::vector<std::string> suggestions = {"aaa", "bbbb", "cc", "dddd"};
+  const auto lines = fleaux::cli::detail::format_completion_suggestions_for_testing(suggestions, 12);
+
+  REQUIRE(lines == std::vector<std::string>{"aaa  bbbb", "cc   dddd"});
+}
+
+TEST_CASE("format_completion_suggestions_for_testing falls back to one-per-line when narrow", "[repl][line-editor]") {
+  const std::vector<std::string> suggestions = {"longer", "x"};
+  const auto lines = fleaux::cli::detail::format_completion_suggestions_for_testing(suggestions, 4);
+
+  REQUIRE(lines == std::vector<std::string>{"longer", "x"});
+}
+

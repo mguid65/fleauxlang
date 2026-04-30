@@ -147,6 +147,8 @@ namespace detail {
     -> bool;
 #endif
 [[nodiscard]] auto decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent;
+[[nodiscard]] auto format_completion_suggestions_for_testing(std::span<const std::string> suggestions,
+                                                             std::size_t terminal_width) -> std::vector<std::string>;
 }  // namespace detail
 
 }  // namespace fleaux::cli
