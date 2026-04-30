@@ -3,9 +3,12 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "fleaux/common/trie.hpp"
 
 namespace fleaux::cli {
 
@@ -25,6 +28,7 @@ enum class InputKey {
   kEnd,
   kCtrlC,
   kCtrlD,
+  kTab,
   kUnknown,
 };
 
@@ -53,6 +57,34 @@ struct StyleSpan {
   TokenClass token_class = TokenClass::kPlain;
 };
 
+struct CompletionHandler {
+  // Loads a brace-enclosed list of symbol name literals.
+  // Example: handler.load_symbols({"let", "import", "print"});
+  void load_symbols(std::initializer_list<std::string_view> symbols) {
+    for (const auto sym : symbols) { m_trie.insert(sym); }
+  }
+
+  // Loads symbols from any contiguous range of std::string (e.g. std::vector<std::string>).
+  void load_symbols(std::span<const std::string> symbols) {
+    for (const auto& sym : symbols) { m_trie.insert(sym); }
+  }
+
+  // Returns all previously loaded symbols that begin with partial_symbol.
+  // An empty partial_symbol returns every symbol in the handler.
+  [[nodiscard]] auto get_completions(const std::string_view partial_symbol) const -> std::vector<std::string> {
+    return m_trie.completions(partial_symbol);
+  }
+
+  // Removes all loaded symbols.
+  void clear() { m_trie.clear(); }
+
+  // Returns true when no symbols have been loaded.
+  [[nodiscard]] auto empty() const -> bool { return m_trie.empty(); }
+
+private:
+  common::Trie m_trie;
+};
+
 [[nodiscard]] auto normalize_style_spans(std::size_t buffer_size, const std::vector<StyleSpan>& spans)
     -> std::vector<StyleSpan>;
 
@@ -60,6 +92,7 @@ using StyleSpanProvider = std::function<std::vector<StyleSpan>(std::string_view)
 
 struct LineEditorConfig {
   StyleSpanProvider style_span_provider;
+  CompletionHandler* completion_handler = nullptr;
 };
 
 enum class LineEditorAction {
@@ -73,6 +106,7 @@ struct LineEditorResult {
   LineEditorAction action = LineEditorAction::kContinue;
   bool needs_redraw = false;
   std::optional<std::string> submitted_line;
+  std::vector<std::string> completion_suggestions;
 };
 
 class LineEditor {

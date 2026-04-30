@@ -117,6 +117,11 @@ auto token_class_for_char(const char ch) -> int {
   return is_token_word_char(ch) ? 1 : 2;
 }
 
+auto is_completion_symbol_char(const char ch) -> bool {
+  const auto uch = static_cast<unsigned char>(ch);
+  return std::isalnum(uch) != 0 || ch == '_' || ch == '.';
+}
+
 auto decode_csi_with_params(const std::string& params, const char final_char) -> InputEvent {
   if (final_char == '~') {
     if (params == "1" || params == "7") { return {.key = InputKey::kHome}; }
@@ -183,6 +188,8 @@ auto read_input_event() -> std::optional<InputEvent> {
 
     // Handle function keys
     switch (vk) {
+      case VK_TAB:
+        return InputEvent{.key = InputKey::kTab};
       case VK_RETURN:
         return InputEvent{.key = InputKey::kEnter};
       case VK_BACK:
@@ -315,6 +322,8 @@ auto read_input_event_unix() -> std::optional<InputEvent> {
   if (!byte.has_value()) { return std::nullopt; }
 
   switch (*byte) {
+    case '\t':
+      return InputEvent{.key = InputKey::kTab};
     case '\r':
     case '\n':
       return InputEvent{.key = InputKey::kEnter};
@@ -599,6 +608,36 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
     return true;
   };
 
+  const auto apply_completion = [this]() -> LineEditorResult {
+    if (config_.completion_handler == nullptr || config_.completion_handler->empty()) { return {}; }
+
+    std::size_t start = cursor_;
+    while (start > 0 && is_completion_symbol_char(buffer_[start - 1])) { --start; }
+    std::size_t end = cursor_;
+    while (end < buffer_.size() && is_completion_symbol_char(buffer_[end])) { ++end; }
+    if (start == cursor_) { return {}; }
+
+    const std::string_view partial(buffer_.data() + static_cast<std::ptrdiff_t>(start), cursor_ - start);
+    auto completions = config_.completion_handler->get_completions(partial);
+    if (completions.empty()) { return {}; }
+
+    std::ranges::sort(completions);
+    if (completions.size() > 1) {
+      return {.completion_suggestions = std::move(completions)};
+    }
+
+    const std::string& replacement = completions.front();
+
+    if (buffer_.compare(start, end - start, replacement) == 0) {
+      cursor_ = start + replacement.size();
+      return {};
+    }
+
+    buffer_.replace(start, end - start, replacement);
+    cursor_ = start + replacement.size();
+    return {.needs_redraw = true};
+  };
+
   switch (event.key) {
     case InputKey::kCharacter:
       buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), event.ch);
@@ -665,6 +704,9 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       if (cursor_ == buffer_.size()) { return {}; }
       cursor_ = buffer_.size();
       return {.needs_redraw = true};
+
+    case InputKey::kTab:
+      return apply_completion();
 
     case InputKey::kEnter: {
       auto submitted_line = buffer_;
@@ -758,7 +800,16 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
       return {.action = LineEditorAction::kEndOfInput};
     }
 
-    const auto [action, needs_redraw, submitted_line_opt] = editor.handle_event(*event);
+    const auto [action, needs_redraw, submitted_line_opt, completion_suggestions] = editor.handle_event(*event);
+    if (!completion_suggestions.empty()) {
+      std::cout << "\r\n";
+      for (const auto& suggestion : completion_suggestions) {
+        std::cout << suggestion << "\r\n";
+      }
+      render_line(prompt, editor);
+      continue;
+    }
+
     if (action == LineEditorAction::kContinue) {
       if (needs_redraw) { render_line(prompt, editor); }
       continue;
