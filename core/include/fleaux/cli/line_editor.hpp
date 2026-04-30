@@ -108,6 +108,10 @@ struct InteractiveReadResult {
 auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> InteractiveReadResult;
 
 namespace detail {
+#ifdef _WIN32
+[[nodiscard]] auto windows_stdin_is_interactive_for_testing(bool has_valid_handle, bool get_console_mode_succeeded)
+    -> bool;
+#endif
 [[nodiscard]] auto decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent;
 }  // namespace detail
 

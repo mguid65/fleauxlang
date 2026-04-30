@@ -177,6 +177,7 @@ if(BUILD_TESTING)
       datatree)
 
   catch_discover_tests(fleaux_core_tests
+      TEST_SPEC ~[benchmark]
       TEST_PREFIX "fleaux_core_tests::"
       EXTRA_ARGS --reporter compact)
 endif()
@@ -267,6 +268,7 @@ endif()
 if(BUILD_TESTING AND TARGET fleaux_vm)
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
+      tests/opcode_stringify_tests.cpp
       tests/vm_cli_tests.cpp
       tests/vm_import_contract_tests.cpp
       tests/vm_boundary_matrix_tests.cpp

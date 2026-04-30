@@ -83,6 +83,7 @@ struct CompileState {
   auto register_public_function_name(const std::string& name, const std::uint32_t fn_idx) -> void {
     if (ambiguous_function_names.contains(name)) { return; }
     if (const auto existing = function_idx.find(name); existing != function_idx.end()) {
+      if (existing->second == fn_idx) { return; }
       function_idx.erase(existing);
       ambiguous_function_names.insert(name);
       return;

@@ -231,10 +231,6 @@ auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError>
     });
   }
 
-  if (!options.repl && !options.source.has_value()) {
-    options.source = std::filesystem::path("test.fleaux");
-  }
-
   return options;
 }
 }  // namespace
@@ -279,6 +275,14 @@ auto main(int argc, char** argv) -> int {
     }
     constexpr fleaux::cli::ReplDriver repl_driver;
     return repl_driver.run(process_args, !no_color);
+  }
+
+  if (!source_path.has_value()) {
+    return print_diag_and_return("vm-run", CliError{
+                                               .message = "vm mode requires a module path",
+                                               .hint = "Pass a .fleaux file, a .fleaux.bc file, or use --repl.",
+                                               .span = std::nullopt,
+                                           });
   }
 
   if (no_run) {

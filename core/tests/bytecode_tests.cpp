@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
+#include "fleaux/bytecode/escape_analyzer.hpp"
 #include "fleaux/bytecode/module.hpp"
 #include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/opcode.hpp"
@@ -40,6 +41,57 @@ auto lower_source_to_ir(const std::string& source_text, const std::string& sourc
   const auto lowered = lowerer.lower(parsed.value());
   REQUIRE(lowered.has_value());
   return lowered.value();
+}
+
+auto make_test_span(const std::string& source_name) -> std::optional<fleaux::frontend::diag::SourceSpan> {
+  return fleaux::frontend::diag::SourceSpan{
+      .source_name = source_name,
+      .source_text = {},
+      .line = 1,
+      .col = 1,
+      .end_line = 1,
+      .end_col = 1,
+  };
+}
+
+auto make_ir_expr(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
+                              fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
+                              fleaux::frontend::ir::IRClosureExprBox>
+                     node,
+                 std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExpr {
+  return fleaux::frontend::ir::IRExpr{.node = std::move(node), .span = std::move(span)};
+}
+
+auto make_ir_box(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
+                             fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
+                             fleaux::frontend::ir::IRClosureExprBox>
+                    node,
+                std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
+  return fleaux::frontend::make_box<fleaux::frontend::ir::IRExpr>(make_ir_expr(std::move(node), std::move(span)));
+}
+
+auto make_int_constant_box(const std::int64_t value) -> fleaux::frontend::ir::IRExprBox {
+  return make_ir_box(fleaux::frontend::ir::IRConstant{.val = value, .span = std::nullopt});
+}
+
+auto make_bool_constant_box(const bool value) -> fleaux::frontend::ir::IRExprBox {
+  return make_ir_box(fleaux::frontend::ir::IRConstant{.val = value, .span = std::nullopt});
+}
+
+auto make_string_constant_box(std::string value) -> fleaux::frontend::ir::IRExprBox {
+  return make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::move(value), .span = std::nullopt});
+}
+
+auto make_name_ref_box(std::optional<std::string> qualifier, std::string name,
+                       std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
+  return make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::move(qualifier),
+                                                     .name = std::move(name),
+                                                     .resolved_symbol_key = std::move(resolved_symbol_key),
+                                                     .span = std::nullopt});
+}
+
+auto make_simple_type(std::string name) -> fleaux::frontend::ir::IRSimpleType {
+  return fleaux::frontend::ir::IRSimpleType{.name = std::move(name)};
 }
 
 void require_copy_vs_auto_byref_equivalent(const std::string& source_text, const std::string& source_name,
@@ -457,6 +509,349 @@ TEST_CASE("Bytecode compiler keeps copy semantics when parameter flows through S
   REQUIRE_FALSE(saw_deref_value_ref);
 }
 
+TEST_CASE("Bytecode compiler keeps copy semantics when parameter is captured by a nested closure",
+          "[bytecode][value_ref][auto]") {
+  const auto ir_program = lower_source_to_ir(
+      "let Capture(v: String): Any = (): String = v;\n"
+      "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+      " -> Capture -> Std.Println;\n",
+      "bytecode_value_ref_nested_closure_capture.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .enable_value_ref_gate = true,
+                                                       .enable_auto_value_ref = true,
+                                                       .value_ref_byte_cutoff = 32,
+                                                   });
+  REQUIRE(result.has_value());
+
+  bool saw_make_value_ref = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+      saw_make_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_make_value_ref);
+
+  const auto capture_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                       [](const auto& fn) { return fn.name == "Capture#0"; });
+  REQUIRE(capture_it != result->functions.end());
+
+  bool saw_deref_value_ref = false;
+  for (const auto& ins : capture_it->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kDerefValueRef) {
+      saw_deref_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE_FALSE(saw_deref_value_ref);
+}
+
+TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resolves unique short names",
+          "[bytecode][value_ref][analyzer]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.lets = {
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Process",
+          .symbol_key = "Process#0",
+          .generic_params = {},
+          .params = {
+              fleaux::frontend::ir::IRParam{.name = "head", .type = make_simple_type("String"), .span = std::nullopt},
+              fleaux::frontend::ir::IRParam{.name = "tail", .type = make_simple_type("String"), .span = std::nullopt},
+              fleaux::frontend::ir::IRParam{.name = "anything", .type = make_simple_type("Any"), .span = std::nullopt},
+              fleaux::frontend::ir::IRParam{.name = "rest",
+                                            .type = fleaux::frontend::ir::IRSimpleType{.name = "String", .variadic = true},
+                                            .span = std::nullopt},
+          },
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "head",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+  };
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_string_constant_box(std::string(80, 'a')),
+                            make_string_constant_box("tiny"),
+                            make_string_constant_box(std::string(80, 'b')),
+                            make_string_constant_box(std::string(80, 'c'))},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Process",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const auto analysis = fleaux::bytecode::analyze_auto_value_ref_params(
+      ir_program, fleaux::bytecode::AutoValueRefAnalysisOptions{.enabled = true, .byte_cutoff = 32});
+
+  REQUIRE(analysis.size() == 1);
+  const auto process_it = analysis.find("Process#0");
+  REQUIRE(process_it != analysis.end());
+  REQUIRE(process_it->second.size() == 1);
+  REQUIRE(process_it->second.contains(0));
+  REQUIRE_FALSE(process_it->second.contains(1));
+  REQUIRE_FALSE(process_it->second.contains(2));
+  REQUIRE_FALSE(process_it->second.contains(3));
+}
+
+TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argument shapes",
+          "[bytecode][value_ref][analyzer]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.lets = {
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Dup",
+          .symbol_key = "Dup#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "x",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Dup",
+          .symbol_key = "Dup#1",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "x",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "NeedPair",
+          .symbol_key = "NeedPair#0",
+          .generic_params = {},
+          .params = {
+              fleaux::frontend::ir::IRParam{.name = "lhs", .type = make_simple_type("String"), .span = std::nullopt},
+              fleaux::frontend::ir::IRParam{.name = "rhs", .type = make_simple_type("String"), .span = std::nullopt},
+          },
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "lhs",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "NeedSized",
+          .symbol_key = "NeedSized#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "value", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "value",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Caller",
+          .symbol_key = "Caller#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "payload", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("String"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_name_ref_box(std::nullopt, "payload"),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "NeedSized",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+  };
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_string_constant_box(std::string(80, 'd')),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Dup",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_string_constant_box(std::string(80, 'e'))},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "NeedPair",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_string_constant_box(std::string(80, 'f')),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Caller",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_int_constant_box(1), make_int_constant_box(2)},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IROperatorRef{.op = "+", .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const auto analysis = fleaux::bytecode::analyze_auto_value_ref_params(
+      ir_program, fleaux::bytecode::AutoValueRefAnalysisOptions{.enabled = true, .byte_cutoff = 32});
+
+  REQUIRE(analysis.size() == 1);
+  REQUIRE_FALSE(analysis.contains("Dup#0"));
+  REQUIRE_FALSE(analysis.contains("Dup#1"));
+  REQUIRE_FALSE(analysis.contains("NeedPair#0"));
+  REQUIRE_FALSE(analysis.contains("NeedSized#0"));
+  const auto caller_it = analysis.find("Caller#0");
+  REQUIRE(caller_it != analysis.end());
+  REQUIRE(caller_it->second.size() == 1);
+  REQUIRE(caller_it->second.contains(0));
+}
+
+TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtins reached through recursive bodies",
+          "[bytecode][value_ref][analyzer]") {
+  auto nested_capture = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+      .generic_params = {},
+      .params = {},
+      .return_type = make_simple_type("String"),
+      .body = make_name_ref_box(std::nullopt, "v"),
+      .captures = {"v"},
+      .span = std::nullopt,
+  });
+  auto nested_escape = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+      .generic_params = {},
+      .params = {},
+      .return_type = make_simple_type("String"),
+      .body = make_ir_box(fleaux::frontend::ir::IRFlowExpr{
+          .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+              .items = {make_name_ref_box(std::nullopt, "v"), make_name_ref_box(std::nullopt, "Echo")},
+              .span = std::nullopt,
+          }),
+          .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
+                                                .name = "Apply",
+                                                .resolved_symbol_key = std::string{"Std.Apply"},
+                                                .span = std::nullopt},
+          .span = std::nullopt,
+      }),
+      .captures = {},
+      .span = std::nullopt,
+  });
+
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.lets = {
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Captured",
+          .symbol_key = "Captured#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("Any"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRTupleExpr{
+              .items = {make_ir_box(fleaux::frontend::ir::IRClosureExprBox{std::move(nested_capture)})},
+              .span = std::nullopt,
+          }),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Escaped",
+          .symbol_key = "Escaped#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
+          .return_type = make_simple_type("Any"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRTupleExpr{
+              .items = {make_ir_box(fleaux::frontend::ir::IRClosureExprBox{std::move(nested_escape)})},
+              .span = std::nullopt,
+          }),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+  };
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_string_constant_box(std::string(80, 'g')),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Captured",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_string_constant_box(std::string(80, 'h')),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Escaped",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const auto analysis = fleaux::bytecode::analyze_auto_value_ref_params(
+      ir_program, fleaux::bytecode::AutoValueRefAnalysisOptions{.enabled = true, .byte_cutoff = 32});
+
+  REQUIRE(analysis.empty());
+}
+
 TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task escape builtins",
           "[bytecode][value_ref][auto][concurrency]") {
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -780,6 +1175,130 @@ TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", 
   REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
+TEST_CASE("Bytecode compiler emits native opcode for non-tuple unary operator shorthand", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir("True -> ! -> Std.Println;\n", "bytecode_native_not_non_tuple.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+
+  const auto& instr = result->instructions;
+  REQUIRE(instr.size() == 5);
+  REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
+  REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kNot);
+  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[2].operand)) == "Std.Println");
+  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
+}
+
+TEST_CASE("Bytecode compiler falls back to builtin dispatch when operator shorthand cannot use a native opcode",
+          "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IROperatorRef{.op = "+", .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+
+  bool found_native_add = false;
+  bool found_build_tuple = false;
+  bool found_builtin_add = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kAdd) { found_native_add = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) { found_build_tuple = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Add") { found_builtin_add = true; }
+    }
+  }
+
+  REQUIRE_FALSE(found_native_add);
+  REQUIRE(found_build_tuple);
+  REQUIRE(found_builtin_add);
+}
+
+TEST_CASE("Bytecode compiler reports unsupported operator shorthand", "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_int_constant_box(5),
+              .rhs = fleaux::frontend::ir::IROperatorRef{.op = "??", .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message == std::string{"Unsupported operator in bytecode compiler: '"} + "??" + "'.");
+}
+
+TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                               .name = "MissingValue",
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = std::nullopt}),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message ==
+          "Name 'MissingValue' used as a value is not supported in the bytecode compiler.");
+}
+
+TEST_CASE("Bytecode compiler rejects closure captures that are unavailable in the enclosing locals", "[bytecode]") {
+  auto closure = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+      .generic_params = {},
+      .params = {},
+      .return_type = make_simple_type("Int64"),
+      .body = make_int_constant_box(42),
+      .captures = {"missing_capture"},
+      .span = std::nullopt,
+  });
+
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRClosureExprBox{std::move(closure)}),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message ==
+          "Unsupported closure capture in bytecode compiler: 'missing_capture'.");
+}
+
 TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
   const auto ir_program =
       lower_source_to_ir("(True, 10, 20) -> Std.Select -> Std.Println;\n", "bytecode_native_select.fleaux");
@@ -795,6 +1314,76 @@ TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
     if (ins.opcode == fleaux::bytecode::Opcode::kSelect) { found_select = true; }
   }
   REQUIRE(found_select);
+}
+
+TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are user function refs", "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.lets = {
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Inc",
+          .symbol_key = "Inc#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
+          .return_type = make_simple_type("Int64"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{1}, .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "Dec",
+          .symbol_key = "Dec#0",
+          .generic_params = {},
+          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
+          .return_type = make_simple_type("Int64"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{0}, .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+  };
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_bool_constant_box(true),
+                            make_name_ref_box(std::nullopt, "Inc", "Inc#0"),
+                            make_name_ref_box(std::nullopt, "Dec", "Dec#0")},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
+                                                    .name = "Select",
+                                                    .resolved_symbol_key = std::string{"Std.Select"},
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+
+  bool found_native_select = false;
+  bool found_builtin_select = false;
+  bool found_user_function_ref = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) { found_native_select = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef) { found_user_function_ref = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Select") { found_builtin_select = true; }
+    }
+  }
+
+  REQUIRE_FALSE(found_native_select);
+  REQUIRE(found_builtin_select);
+  REQUIRE(found_user_function_ref);
 }
 
 TEST_CASE("Bytecode compiler emits kLoopCall for Std.Loop", "[bytecode]") {
@@ -1023,6 +1612,263 @@ let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
 
   REQUIRE_FALSE(found_branch_call);
   REQUIRE(found_builtin_branch);
+}
+
+TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases from imported modules", "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_int_constant_box(5),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Identity",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_int_constant_box(5),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+                                                    .name = "Neg",
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_int_constant_box(5), make_name_ref_box(std::nullopt, "Identity")},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
+                                                    .name = "Apply",
+                                                    .resolved_symbol_key = std::string{"Std.Apply"},
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_int_constant_box(5), make_name_ref_box(std::nullopt, "Neg")},
+                  .span = std::nullopt,
+              }),
+              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
+                                                    .name = "Apply",
+                                                    .resolved_symbol_key = std::string{"Std.Apply"},
+                                                    .span = std::nullopt},
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  fleaux::bytecode::Module imported_module;
+  imported_module.functions.push_back(fleaux::bytecode::FunctionDef{
+      .name = "Foreign.Identity#0",
+      .arity = 1,
+      .has_variadic_tail = false,
+      .is_import_placeholder = false,
+      .instructions = {},
+  });
+  imported_module.exports = {
+      fleaux::bytecode::ExportedSymbol{
+          .name = "Identity",
+          .link_name = {},
+          .kind = fleaux::bytecode::ExportKind::kFunction,
+          .index = 0,
+          .builtin_name = {},
+      },
+      fleaux::bytecode::ExportedSymbol{
+          .name = "AliasIdentity",
+          .link_name = "Identity",
+          .kind = fleaux::bytecode::ExportKind::kFunction,
+          .index = 0,
+          .builtin_name = {},
+      },
+      fleaux::bytecode::ExportedSymbol{
+          .name = "Neg",
+          .link_name = {},
+          .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+          .index = 0,
+          .builtin_name = "Std.UnaryMinus",
+      },
+      fleaux::bytecode::ExportedSymbol{
+          .name = "Broken",
+          .link_name = "Missing",
+          .kind = fleaux::bytecode::ExportKind::kFunction,
+          .index = 99,
+          .builtin_name = {},
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                       .imported_modules = {imported_module},
+                                                   });
+
+  REQUIRE(result.has_value());
+  const auto identity_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                        [](const fleaux::bytecode::FunctionDef& fn) -> bool {
+                                          return fn.name == "Identity";
+                                        });
+  REQUIRE(identity_it != result->functions.end());
+  REQUIRE(identity_it->arity == 1);
+  REQUIRE(identity_it->is_import_placeholder);
+  const auto identity_index = static_cast<std::int64_t>(std::distance(result->functions.begin(), identity_it));
+  REQUIRE(std::none_of(result->functions.begin(), result->functions.end(),
+                       [](const fleaux::bytecode::FunctionDef& fn) -> bool {
+                         return fn.name == "AliasIdentity" || fn.name == "Missing";
+                       }));
+
+  bool found_import_call = false;
+  bool found_builtin_alias_call = false;
+  bool found_import_ref = false;
+  bool found_builtin_alias_ref = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc) {
+      found_import_call = true;
+      REQUIRE(ins.operand == identity_index);
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef) {
+      found_import_ref = true;
+      REQUIRE(ins.operand == identity_index);
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") { found_builtin_alias_call = true; }
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeBuiltinFuncRef) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") { found_builtin_alias_ref = true; }
+    }
+  }
+
+  REQUIRE(found_import_call);
+  REQUIRE(found_builtin_alias_call);
+  REQUIRE(found_import_ref);
+  REQUIRE(found_builtin_alias_ref);
+}
+
+TEST_CASE("Bytecode compiler exports only lets from the current source module", "[bytecode]") {
+  const auto local_span = make_test_span("main.fleaux");
+  const auto foreign_span = make_test_span("dependency.fleaux");
+
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.lets = {
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::string{"Std"},
+          .name = "LocalBuiltin",
+          .symbol_key = "Std.LocalBuiltin",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Any"),
+          .doc_comments = {},
+          .body = std::nullopt,
+          .is_builtin = true,
+          .span = local_span,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::string{"Std"},
+          .name = "ForeignBuiltin",
+          .symbol_key = "Std.ForeignBuiltin",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Any"),
+          .doc_comments = {},
+          .body = std::nullopt,
+          .is_builtin = true,
+          .span = foreign_span,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "LocalFn",
+          .symbol_key = "LocalFn#0",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Int64"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{7}, .span = local_span}, local_span),
+          .is_builtin = false,
+          .span = local_span,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "ForeignFn",
+          .symbol_key = "ForeignFn#0",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Int64"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{9}, .span = foreign_span}, foreign_span),
+          .is_builtin = false,
+          .span = foreign_span,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::string{"Std"},
+          .name = "NoSpanBuiltin",
+          .symbol_key = "Std.NoSpanBuiltin",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Any"),
+          .doc_comments = {},
+          .body = std::nullopt,
+          .is_builtin = true,
+          .span = std::nullopt,
+      },
+      fleaux::frontend::ir::IRLet{
+          .qualifier = std::nullopt,
+          .name = "NoSpanFn",
+          .symbol_key = "NoSpanFn#0",
+          .generic_params = {},
+          .params = {},
+          .return_type = make_simple_type("Int64"),
+          .doc_comments = {},
+          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{11}, .span = std::nullopt}),
+          .is_builtin = false,
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto filtered = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
+                                                         .source_path = std::filesystem::path("main.fleaux"),
+                                                     });
+  const auto unfiltered = compiler.compile(ir_program);
+
+  REQUIRE(filtered.has_value());
+  REQUIRE(unfiltered.has_value());
+  REQUIRE(filtered->functions.size() == 3);
+
+  REQUIRE(filtered->exports.size() == 4);
+  REQUIRE(filtered->exports[0].name == "Std.LocalBuiltin");
+  REQUIRE(filtered->exports[0].kind == fleaux::bytecode::ExportKind::kBuiltinAlias);
+  REQUIRE(filtered->exports[1].name == "LocalFn");
+  REQUIRE(filtered->exports[1].kind == fleaux::bytecode::ExportKind::kFunction);
+  REQUIRE(filtered->exports[2].name == "Std.NoSpanBuiltin");
+  REQUIRE(filtered->exports[2].kind == fleaux::bytecode::ExportKind::kBuiltinAlias);
+  REQUIRE(filtered->exports[3].name == "NoSpanFn");
+  REQUIRE(filtered->exports[3].kind == fleaux::bytecode::ExportKind::kFunction);
+
+  REQUIRE(unfiltered->exports.size() == 6);
+  REQUIRE(std::any_of(unfiltered->exports.begin(), unfiltered->exports.end(),
+                      [](const fleaux::bytecode::ExportedSymbol& export_symbol) {
+                        return export_symbol.name == "Std.ForeignBuiltin" &&
+                               export_symbol.kind == fleaux::bytecode::ExportKind::kBuiltinAlias;
+                      }));
+  REQUIRE(std::any_of(unfiltered->exports.begin(), unfiltered->exports.end(),
+                      [](const fleaux::bytecode::ExportedSymbol& export_symbol) {
+                        return export_symbol.name == "ForeignFn" &&
+                               export_symbol.kind == fleaux::bytecode::ExportKind::kFunction;
+                      }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1940,8 +2786,51 @@ TEST_CASE("Bytecode module loader accepts qualified imported exports when typed 
   REQUIRE(output.str().find('5') != std::string::npos);
 }
 
+TEST_CASE("Bytecode module loader reconstructs generic typed import seeds from cached bytecode",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_generic_seed";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "generic_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "generic_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "generic_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "generic_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "let Identity<T>(x: T): T = x;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "let NeedsInt(x: Int64): Int64 = x;\n"
+           "import generic_dep;\n"
+           "(1) -> Identity -> NeedsInt;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  std::filesystem::remove(dependency_path);
+  std::filesystem::remove(entry_bytecode_path);
+  REQUIRE_FALSE(std::filesystem::exists(dependency_path));
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
+
+  const auto cached_dependency_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(cached_dependency_load.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*cached_dependency_load);
+  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+}
+
 TEST_CASE("Bytecode module loader can start from a serialized entry module", "[bytecode][serialization][imports]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_serialized_entry";
+  std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
 
   const auto dependency_path = temp_dir / "20_export.fleaux";
@@ -1977,6 +2866,112 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
   const auto runtime_result = runtime.execute(bytecode_only_load.value());
   if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
   REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader reports bytecode-only entry corruption when source is unavailable",
+          "[bytecode][serialization][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_serialized_entry_corrupt";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "20_export.fleaux";
+  const auto entry_path = temp_dir / "21_import.fleaux";
+  const auto entry_bytecode_path = temp_dir / "21_import.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import 20_export;\n"
+           "(4.0) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  std::vector<std::uint8_t> entry_bytes;
+  {
+    std::ifstream in(entry_bytecode_path, std::ios::binary);
+    REQUIRE(in.good());
+    entry_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  REQUIRE(entry_bytes.size() > 16U);
+  entry_bytes.back() ^= 0x01U;
+
+  {
+    std::ofstream out(entry_bytecode_path, std::ios::binary | std::ios::trunc);
+    REQUIRE(out.good());
+    out.write(reinterpret_cast<const char*>(entry_bytes.data()), static_cast<std::streamsize>(entry_bytes.size()));
+    REQUIRE(out.good());
+  }
+
+  std::filesystem::remove(entry_path);
+  std::filesystem::remove(dependency_path);
+  REQUIRE_FALSE(std::filesystem::exists(entry_path));
+  REQUIRE_FALSE(std::filesystem::exists(dependency_path));
+
+  const auto bytecode_only_load = fleaux::bytecode::load_linked_module(entry_bytecode_path);
+  REQUIRE_FALSE(bytecode_only_load.has_value());
+  REQUIRE(bytecode_only_load.error().message.find("checksum") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch without rewriting cache",
+          "[bytecode][serialization][imports][options]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_cache_mode_mismatch";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "entry.fleaux.bc";
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "(1, 2) -> Std.Add -> Std.Println;\n";
+  }
+
+  const auto baseline_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(baseline_load.has_value());
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+  REQUIRE(baseline_load->header.optimization_mode ==
+          static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
+
+  std::vector<std::uint8_t> baseline_bytes;
+  {
+    std::ifstream in(entry_bytecode_path, std::ios::binary);
+    REQUIRE(in.good());
+    baseline_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  const auto baseline_deserialized = fleaux::bytecode::deserialize_module(baseline_bytes);
+  REQUIRE(baseline_deserialized.has_value());
+  REQUIRE(baseline_deserialized->header.optimization_mode ==
+          static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
+
+  const auto extended_load = fleaux::bytecode::load_linked_module(
+      entry_path,
+      fleaux::bytecode::ModuleLoadOptions{
+          .mode = fleaux::bytecode::OptimizationMode::kExtended,
+          .write_bytecode_cache = false,
+      });
+  REQUIRE(extended_load.has_value());
+  REQUIRE(extended_load->header.optimization_mode ==
+          static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kExtended));
+
+  std::vector<std::uint8_t> cache_bytes_after_extended_load;
+  {
+    std::ifstream in(entry_bytecode_path, std::ios::binary);
+    REQUIRE(in.good());
+    cache_bytes_after_extended_load.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  const auto cached_after_extended = fleaux::bytecode::deserialize_module(cache_bytes_after_extended_load);
+  REQUIRE(cached_after_extended.has_value());
+  REQUIRE(cached_after_extended->header.optimization_mode ==
+          static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
 }
 
 TEST_CASE("Bytecode module loader handles diamond dependencies with serialized fallback",
