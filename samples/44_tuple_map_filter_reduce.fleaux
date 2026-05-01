@@ -1,0 +1,23 @@
+import Std;
+
+// Python:
+// nums = [1, 2, 3, 4, 5]
+// mapped = [x * 2 for x in nums]
+// filtered = [x for x in mapped if x > 5]
+// total = sum(filtered)
+
+let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;
+let GreaterThanFive(x: Int64): Bool = (x, 5) -> Std.GreaterThan;
+let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
+
+(1, 2, 3, 4, 5) -> (_, Double) -> Std.Tuple.Map -> Std.Println;
+(1, 2, 3, 4, 5)
+    -> (_, Double) -> Std.Tuple.Map
+    -> (_, GreaterThanFive) -> Std.Tuple.Filter
+    -> Std.Println;
+(1, 2, 3, 4, 5)
+    -> (_, Double) -> Std.Tuple.Map
+    -> (_, GreaterThanFive) -> Std.Tuple.Filter
+    -> (_, 0, Add) -> Std.Tuple.Reduce
+    -> Std.Println;
+

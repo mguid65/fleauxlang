@@ -1,0 +1,28 @@
+import Std;
+
+// Python:
+// ops = {
+//     "double": lambda x: x * 2.0,
+//     "square": lambda x: x * x,
+// }
+// func = ops.get(name, lambda x: x)
+// print(func(value))
+
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+let Identity(x: Float64): Float64 = x;
+
+let BuildOps(): Dict(String, (Float64) => Float64) =
+    () -> Std.Dict.Create
+    -> (_, "double", Double) -> Std.Dict.Set
+    -> (_, "square", Square) -> Std.Dict.Set;
+
+let ApplyNamedOp(name: String, value: Float64): Float64 =
+    () -> BuildOps
+    -> (_, name, Identity) -> Std.Dict.GetDefault
+    -> (value, _) -> Std.Apply;
+
+("double", 5.0) -> ApplyNamedOp -> Std.Println;
+("square", 5.0) -> ApplyNamedOp -> Std.Println;
+("unknown", 5.0) -> ApplyNamedOp -> Std.Println;
+
