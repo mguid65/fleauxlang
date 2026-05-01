@@ -1,0 +1,30 @@
+import Std;
+
+// Python:
+// def describe_temperature(x):
+//     if x < 0:
+//         return "freezing"
+//     elif x < 10:
+//         return "cold"
+//     elif x < 20:
+//         return "mild"
+//     else:
+//         return "warm"
+
+let BelowZero(x: Float64): Bool = (x, 0.0) -> Std.LessThan;
+let BelowTen(x: Float64): Bool = (x, 10.0) -> Std.LessThan;
+let BelowTwenty(x: Float64): Bool = (x, 20.0) -> Std.LessThan;
+
+let DescribeTemperature(x: Float64): String =
+    (x,
+     (BelowZero, (): String = "freezing"),
+     (BelowTen, (): String = "cold"),
+     (BelowTwenty, (): String = "mild"),
+     (_, (): String = "warm")
+    ) -> Std.Match;
+
+(-5.0) -> DescribeTemperature -> Std.Println;
+(5.0) -> DescribeTemperature -> Std.Println;
+(15.0) -> DescribeTemperature -> Std.Println;
+(25.0) -> DescribeTemperature -> Std.Println;
+

@@ -1,0 +1,21 @@
+import Std;
+
+// Python:
+// def parse_port(text, default):
+//     try:
+//         return int(text)
+//     except Exception:
+//         return default
+
+let TryParsePort(text: String): Result(Int64, String) =
+    ((text), Std.String.ParseInt64) -> Std.Try;
+
+let UseDefault(result: Result(Int64, String), fallback: Int64): Int64 =
+    ((result) -> Std.Result.IsOk,
+     (True, (): Int64 = (result) -> Std.Result.Unwrap),
+     (_, (): Int64 = fallback)
+    ) -> Std.Match;
+
+("8080") -> TryParsePort -> (_, 80) -> UseDefault -> Std.Println;
+("oops") -> TryParsePort -> (_, 80) -> UseDefault -> Std.Println;
+

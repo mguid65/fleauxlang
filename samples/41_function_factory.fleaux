@@ -1,0 +1,23 @@
+import Std;
+
+// Python:
+// def make_scaler(factor):
+//     def scale(x):
+//         return x * factor
+//     return scale
+//
+// scaler = make_scaler(10.0 if use_big else 2.0)
+// print(scaler(3.0))
+
+let MakeScaler(factor: Float64): (Float64) => Float64 =
+    (x: Float64): Float64 = (x, factor) -> Std.Multiply;
+
+let ChooseScaler(use_big: Bool): (Float64) => Float64 =
+    (use_big,
+     (True, (): (Float64) => Float64 = (10.0) -> MakeScaler),
+     (_, (): (Float64) => Float64 = (2.0) -> MakeScaler)
+    ) -> Std.Match;
+
+(True) -> ChooseScaler -> (3.0, _) -> Std.Apply -> Std.Println;
+(False) -> ChooseScaler -> (3.0, _) -> Std.Apply -> Std.Println;
+

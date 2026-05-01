@@ -105,7 +105,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 38> kExpectedSamples = {
+constexpr std::array<std::string_view, 45> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -144,6 +144,13 @@ constexpr std::array<std::string_view, 38> kExpectedSamples = {
     "36_parallel_options_and_empty_inputs.fleaux",
     "37_parallel_error_paths.fleaux",
     "38_parallel_inline_closures.fleaux",
+    "39_if_else_match.fleaux",
+    "40_recursion.fleaux",
+    "41_function_factory.fleaux",
+    "42_dict_dispatch.fleaux",
+    "43_accumulator_loops.fleaux",
+    "44_tuple_map_filter_reduce.fleaux",
+    "45_result_recovery.fleaux",
 };
 
 }  // namespace
@@ -983,6 +990,13 @@ FLEAUX_VM_SAMPLE_TEST("35_concurrency_tasks.fleaux")
 FLEAUX_VM_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
 FLEAUX_VM_SAMPLE_TEST("37_parallel_error_paths.fleaux")
 FLEAUX_VM_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
+FLEAUX_VM_SAMPLE_TEST("39_if_else_match.fleaux")
+FLEAUX_VM_SAMPLE_TEST("40_recursion.fleaux")
+FLEAUX_VM_SAMPLE_TEST("41_function_factory.fleaux")
+FLEAUX_VM_SAMPLE_TEST("42_dict_dispatch.fleaux")
+FLEAUX_VM_SAMPLE_TEST("43_accumulator_loops.fleaux")
+FLEAUX_VM_SAMPLE_TEST("44_tuple_map_filter_reduce.fleaux")
+FLEAUX_VM_SAMPLE_TEST("45_result_recovery.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1021,6 +1035,13 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("35_concurrency_tasks.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("36_parallel_options_and_empty_inputs.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("37_parallel_error_paths.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("38_parallel_inline_closures.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("39_if_else_match.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("40_recursion.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("41_function_factory.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("42_dict_dispatch.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("43_accumulator_loops.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("44_tuple_map_filter_reduce.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("45_result_recovery.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST
