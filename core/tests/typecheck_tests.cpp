@@ -389,6 +389,20 @@ TEST_CASE("Type checker accepts prefix-generic inline closure with local type va
   REQUIRE(lowered.has_value());
 }
 
+TEST_CASE("Type checker accepts zero-arg inline closure pipeline sugar", "[typecheck][closures]") {
+  const std::string src =
+      "import Std;\n"
+      "() -> (): Any = (\"Empty Closure\") -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_zero_arg_inline_closure_pipeline.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
 TEST_CASE("Type checker infers user generic variadic tail argument type", "[typecheck][generics][stage_g3c]") {
   const std::string src =
       "let FirstOf<T>(head: T, tail: T...): T = head;\n"

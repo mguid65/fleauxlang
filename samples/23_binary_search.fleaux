@@ -1,43 +1,39 @@
 import Std;
 
-let SearchLeftAt0(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 0) -> Std.ElementAt, target) -> Std.Equal,
-     0,
-     -1) -> Std.Select;
+let Mid(lo: Int64, hi: Int64): Int64 =
+    ((lo, hi) -> Std.Add, 1) -> Std.Bit.ShiftRight;
 
-let SearchLeftHalf(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 1) -> Std.ElementAt, target) -> Std.Equal,
-     1,
-     ((arr, target) -> SearchLeftAt0)) -> Std.Select;
+let MidValue<T>(arr: Tuple(T...), lo: Int64, hi: Int64): T =
+    (arr, (lo, hi) -> Mid) -> Std.ElementAt;
 
-let SearchRightAt5(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 5) -> Std.ElementAt, target) -> Std.Equal,
-     5,
-     -1) -> Std.Select;
+let BinarySearchNext<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+    (((arr, lo, hi) -> MidValue, less_than_target) -> Std.Apply,
+     (True, (): Int64 = (arr, target, less_than_target, ((lo, hi) -> Mid, 1) -> Std.Add, hi) -> BinarySearchRange),
+     (_, (): Int64 = (arr, target, less_than_target, lo, ((lo, hi) -> Mid, 1) -> Std.Subtract) -> BinarySearchRange)
+    ) -> Std.Match;
 
-let SearchRightHalf(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 4) -> Std.ElementAt, target) -> Std.Equal,
-     4,
-     ((arr, target) -> SearchRightAt5)) -> Std.Select;
+let BinarySearchStep<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+    (((arr, lo, hi) -> MidValue, target) -> Std.Equal,
+     (True, (): Int64 = (lo, hi) -> Mid),
+     (_, (): Int64 = (arr, target, less_than_target, lo, hi) -> BinarySearchNext)
+    ) -> Std.Match;
 
-let SearchUpperMiddle(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 3) -> Std.ElementAt, target) -> Std.Equal,
-     3,
-     -1) -> Std.Select;
+let BinarySearchRange<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+    ((lo, hi) -> Std.GreaterThan,
+     (True, (): Int64 = -1),
+     (_, (): Int64 = (arr, target, less_than_target, lo, hi) -> BinarySearchStep)
+    ) -> Std.Match;
 
-let SearchRightSide(arr: Tuple(Int64...), target: Int64): Int64 =
-    ((((arr, target) -> SearchUpperMiddle, -1) -> Std.NotEqual,
-      (arr, target) -> SearchUpperMiddle,
-      (arr, target) -> SearchRightHalf) -> Std.Select);
+let BinarySearchIndex<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool): Int64 =
+    (arr, target, less_than_target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract) -> BinarySearchRange;
 
-let BinarySearchIndex(arr: Tuple(Int64...), target: Int64): Int64 =
-    (((arr, 2) -> Std.ElementAt, target) -> Std.Equal,
-     2,
-     ((((arr, 2) -> Std.ElementAt, target) -> Std.LessThan,
-       ((arr, target) -> SearchRightSide),
-       ((arr, target) -> SearchLeftHalf)) -> Std.Select)) -> Std.Select;
+let MakeInt64LessThanTarget(target: Int64): (Int64) => Bool =
+    (candidate: Int64): Bool = (candidate, target) -> Std.LessThan;
 
-((1, 3, 5, 7, 9, 11), 7) -> BinarySearchIndex -> Std.Println;
-((1, 3, 5, 7, 9, 11), 4) -> BinarySearchIndex -> Std.Println;
+let SearchInt64(arr: Tuple(Int64...), target: Int64): Int64 =
+    (arr, target, (target) -> MakeInt64LessThanTarget) -> BinarySearchIndex;
+
+((1, 3, 5, 7, 9, 11), 7) -> SearchInt64 -> Std.Println;
+((1, 3, 5, 7, 9, 11), 4) -> SearchInt64 -> Std.Println;
 
 

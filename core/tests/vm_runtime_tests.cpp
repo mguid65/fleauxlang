@@ -207,6 +207,17 @@ TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][
   REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
 }
 
+TEST_CASE("RuntimeSession executes zero-arg inline closure pipeline sugar", "[vm][repl][closure]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet("import Std;\n() -> (): Any = (\"Empty Closure\") -> Std.Println;\n", output);
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "Empty Closure\n");
+}
+
 TEST_CASE("RuntimeSession preserves overloads across snippets", "[vm][repl][type][overload]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
