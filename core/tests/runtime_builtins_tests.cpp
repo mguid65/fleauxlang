@@ -1235,7 +1235,23 @@ TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
   SECTION("conversion helpers") {
     REQUIRE(as_string(ToString(make_int(42))) == "42");
     REQUIRE(to_double(ToNum(make_tuple(make_string("42.5")))) == 42.5);
+    REQUIRE(to_double(ToNum(make_tuple(make_string("\t +1.25e2")))) == 125.0);
     REQUIRE_THROWS_WITH(ToNum(make_tuple(make_string("42xyz"))), Catch::Matchers::ContainsSubstring("trailing characters"));
+
+    REQUIRE(as_int_value(StringParseInt64(make_tuple(make_string("  +42")))) == 42);
+    REQUIRE(as_int_value(StringParseInt64(make_tuple(make_string("-42")))) == -42);
+    REQUIRE_THROWS_WITH(StringParseInt64(make_tuple(make_string("9223372036854775808"))),
+                        Catch::Matchers::ContainsSubstring("out of range"));
+
+    REQUIRE(is_uint_number(StringParseUInt64(make_tuple(make_string("18446744073709551615")))));
+    REQUIRE_THROWS_WITH(StringParseUInt64(make_tuple(make_string("-1"))),
+                        Catch::Matchers::ContainsSubstring("invalid numeric input"));
+    REQUIRE_THROWS_WITH(StringParseUInt64(make_tuple(make_string("18446744073709551616"))),
+                        Catch::Matchers::ContainsSubstring("out of range"));
+
+    REQUIRE(to_double(StringParseFloat64(make_tuple(make_string(" +6.022e2")))) == 602.2);
+    REQUIRE_THROWS_WITH(StringParseFloat64(make_tuple(make_string(""))),
+                        Catch::Matchers::ContainsSubstring("invalid numeric input"));
   }
 
   SECTION("case conversion and trimming") {

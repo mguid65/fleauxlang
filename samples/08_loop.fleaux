@@ -8,16 +8,20 @@ let CountStep(n: Float64): Float64   = (n, 1.0) -> Std.Subtract;
 (10.0, CountContinue, CountStep) -> Std.Loop -> Std.Println;      // 0
 // -- Accumulate: sum 1..N --
 // state = (counter, accumulator)
-let SumContinue(n: Float64, acc: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
-let SumStep(n: Float64, acc: Float64): Tuple(Float64, Float64) =
-    ((n, 1.0) -> Std.Subtract, (acc, n) -> Std.Add);
+let SumContinue(state: Tuple(Float64, Float64)): Bool =
+    ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
+let SumStep(state: Tuple(Float64, Float64)): Tuple(Float64, Float64) =
+    (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
+     ((state, 1) -> Std.ElementAt, (state, 0) -> Std.ElementAt) -> Std.Add);
 (10.0, 0.0) -> (_, SumContinue, SumStep) -> Std.Loop -> Std.Println; // (0, 55)
 // -- Fibonacci: iterate until index reaches 0 --
 // state = (remaining_steps, a, b)
-let FibContinue(steps: Float64, a: Float64, b: Float64): Bool =
-    (steps, 0.0) -> Std.GreaterThan;
-let FibStep(steps: Float64, a: Float64, b: Float64): Tuple(Float64, Float64, Float64) =
-    ((steps, 1.0) -> Std.Subtract, b, (a, b) -> Std.Add);
+let FibContinue(state: Tuple(Float64, Float64, Float64)): Bool =
+    ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
+let FibStep(state: Tuple(Float64, Float64, Float64)): Tuple(Float64, Float64, Float64) =
+    (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
+     (state, 2) -> Std.ElementAt,
+     ((state, 1) -> Std.ElementAt, (state, 2) -> Std.ElementAt) -> Std.Add);
 // Compute fib(10): start (10, 0, 1), extract second element of result
 let Fib(n: Float64): Float64 =
     ((n, 0.0, 1.0), FibContinue, FibStep) -> Std.Loop -> (_, 1) -> Std.ElementAt;
@@ -25,22 +29,21 @@ let Fib(n: Float64): Float64 =
 (0.0)  -> Fib -> Std.Println;                                     // 0
 
 // -- Loop with inline closures: no named continue/step helpers needed --
-// Countdown from 5, printing each value.
 // state = (n, acc); continue while n > 0; step decrements n and adds to acc.
 ((5.0, 0.0),
- (state: Any): Bool = ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
- (state: Any): Any  = (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
-                        ((state, 1) -> Std.ElementAt, (state, 0) -> Std.ElementAt) -> Std.Add)
+ (state: Tuple(Float64, Float64)): Bool = ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
+ (state: Tuple(Float64, Float64)): Tuple(Float64, Float64) =
+     (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
+      ((state, 1) -> Std.ElementAt, (state, 0) -> Std.ElementAt) -> Std.Add)
 ) -> Std.Loop -> (_, 1) -> Std.ElementAt -> Std.Println;          // 15 (5+4+3+2+1)
 
-// -- LoopN with inline closures: collect powers of 2 up to 2^7 --
-// state = (exponent, accumulator_tuple)
-((0.0, ()),
- (state: Any): Bool = ((state, 0) -> Std.ElementAt, 8.0) -> Std.LessThan,
- (state: Any): Any  =
-     (((state, 0) -> Std.ElementAt, 1.0) -> Std.Add,
-      ((state, 1) -> Std.ElementAt,
-       (2.0, (state, 0) -> Std.ElementAt) -> Std.Pow) -> Std.Tuple.Append),
+// -- LoopN with inline closures: double a value exactly 8 times --
+// state = (remaining_iters, current_value)
+((8.0, 1.0),
+ (state: Tuple(Float64, Float64)): Bool = ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
+ (state: Tuple(Float64, Float64)): Tuple(Float64, Float64) =
+     (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
+      ((state, 1) -> Std.ElementAt, 2.0) -> Std.Multiply),
  10
-) -> Std.LoopN -> (_, 1) -> Std.ElementAt -> Std.Println;        // (1, 2, 4, 8, 16, 32, 64, 128)
+) -> Std.LoopN -> (_, 1) -> Std.ElementAt -> Std.Println;        // 256
 

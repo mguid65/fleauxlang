@@ -146,7 +146,6 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Loc
           return tl::unexpected(
               make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
         }
-        if (is_symbolic_qualifier(name_ref->qualifier)) { return Type{.kind = TypeKind::kAny}; }
         if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) { return Type{.kind = TypeKind::kAny}; }
         return tl::unexpected(
             make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));

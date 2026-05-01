@@ -23,8 +23,8 @@ import Std;
 (42) -> Std.ToString -> ("", (_, " items")) -> Std.String.Join -> (_, "42", "many") -> Std.String.Replace -> Std.Println;
 // -- Building a sentence from parts --
 let Greet(name: String): String =
-    ("Hello, ", name) -> Std.String.Join -> (_, ("", ("Hello, ", name, "!"))) -> Std.String.Join;
+    ("", ("Hello, ", name)) -> Std.String.Join -> ("", (_, "!")) -> Std.String.Join;
 // Simpler:
 let Greet2(name: String): String =
-    ("Hello, ", name, "!") -> Std.String.Join;
+    ("", ("Hello, ", name, "!")) -> Std.String.Join;
 (",", ("Hello, ", "World", "!")) -> Std.String.Join -> Std.Println;

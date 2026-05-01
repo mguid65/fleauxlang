@@ -1313,6 +1313,12 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
         return fleaux::runtime::ToString(std::move(arg));
       case BuiltinId::ToNum:
         return fleaux::runtime::ToNum(std::move(arg));
+      case BuiltinId::StringParseInt64:
+        return fleaux::runtime::StringParseInt64(std::move(arg));
+      case BuiltinId::StringParseUInt64:
+        return fleaux::runtime::StringParseUInt64(std::move(arg));
+      case BuiltinId::StringParseFloat64:
+        return fleaux::runtime::StringParseFloat64(std::move(arg));
       case BuiltinId::StringUpper:
         return fleaux::runtime::StringUpper(std::move(arg));
       case BuiltinId::StringLower:

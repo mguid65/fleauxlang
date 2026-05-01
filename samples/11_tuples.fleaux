@@ -6,7 +6,7 @@ import Std;
 // -- Take, Drop, Slice --
 ((1, 2, 3, 4, 5), 3) -> Std.Take -> Std.Println;                 // (1, 2, 3)
 ((1, 2, 3, 4, 5), 2) -> Std.Drop -> Std.Println;                 // (3, 4, 5)
-((1, 2, 3, 4, 5), 1, 4) -> Std.Slice -> Std.Println;             // (2, 3, 4)
+((1, 2, 3, 4, 5), 1) -> Std.Drop -> (_, 3) -> Std.Take -> Std.Println;   // (2, 3, 4)
 // -- Append, Prepend, Reverse --
 ((1, 2, 3), 4) -> Std.Tuple.Append -> Std.Println;               // (1, 2, 3, 4)
 ((1, 2, 3), 0) -> Std.Tuple.Prepend -> Std.Println;              // (0, 1, 2, 3)

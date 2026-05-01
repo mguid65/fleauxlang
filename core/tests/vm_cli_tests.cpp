@@ -157,6 +157,24 @@ TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {
   REQUIRE(result.stderr_text.empty());
 }
 
+TEST_CASE("CLI REPL requires import Std before Std symbols can be used", "[vm][cli][repl][imports][stdlib]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_std_import_required";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl", temp_dir,
+                              "(1, 2) -> Std.Add -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Fleaux REPL"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("Unresolved symbol."));
+  REQUIRE((result.stderr_text.find("Std.Add") != std::string::npos ||
+           result.stderr_text.find("Std.Println") != std::string::npos));
+}
+
 TEST_CASE("CLI REPL resolves normal imports relative to the working directory", "[vm][cli][repl][imports]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_repl_import_contract";
   std::filesystem::remove_all(temp_dir);
@@ -168,6 +186,7 @@ TEST_CASE("CLI REPL resolves normal imports relative to the working directory", 
 
   REQUIRE(std::filesystem::exists(fleaux_binary_path()));
   const auto result = run_cli("--repl", temp_dir,
+                              "import Std;\n"
                               "import custom_module;\n"
                               "(3) -> Add4 -> Std.Println;\n"
                               ":quit\n");

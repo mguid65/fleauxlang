@@ -15,7 +15,7 @@ let Transform(x: Float64): Float64 =
 (4.0) -> Transform -> Std.Println;                                // 8
 (-4.0) -> Transform -> Std.Println;                               // 4
 // -- Higher-order: pass a function as a pipeline argument --
-let ApplyTwice(x: Float64, f: Any): Float64 =
+let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 =
     (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
 (3.0, Double) -> ApplyTwice -> Std.Println;                       // 12
 (2.0, Square) -> ApplyTwice -> Std.Println;                       // 16

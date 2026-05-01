@@ -1,163 +1,37 @@
 import Std;
 
-// Grammar-stress sample: load a Fleaux source file, tokenize it, split statements,
-// and emit a structural AST-like representation.
+// Parser-oriented sample: load a Fleaux source file, strip comment-only lines,
+// split it into statements, and print the surviving statement text blocks.
 
-let IsNotEmpty(tok: Any): Bool =
-    (tok, "") -> Std.NotEqual;
-
-let TupleSlice(tokens: Tuple(Any...), start: Int64, stop: Int64): Tuple(Any...) =
-    ((tokens, start) -> Std.Drop, (stop, start) -> Std.Subtract) -> Std.Take;
-
-let KeepLine(line: String): String =
-    line;
-
-let DropLine(line: String): String =
-    "";
+let IsNotEmpty(line: String): Bool =
+    (line, "") -> Std.NotEqual;
 
 let StripCommentLine(line: String): String =
     (((line) -> Std.String.TrimStart, "//") -> Std.String.StartsWith,
-     line,
-     DropLine,
-     KeepLine) -> Std.Branch;
+     "",
+     line) -> Std.Select;
 
-let NormalizeForTokens(src: String): String =
+let NormalizeForStatements(src: String): String =
     (src, "\n") -> Std.String.Split
     -> (_, StripCommentLine) -> Std.Tuple.Map
-    -> ("\n", _) -> Std.String.Join
-    -> (_, "\n") -> StrCat;
-
-let StrCat(lhs: String, rhs: String): String =
-    ("", (lhs, rhs)) -> Std.String.Join;
-
-let EscapeEscapedQuote(src: String): String =
-    (src, "\\\"", "__FLEAUX_ESCAPED_QUOTE__") -> Std.String.Replace;
-
-let UnescapeEscapedQuote(src: String): String =
-    (src, "__FLEAUX_ESCAPED_QUOTE__", "\\\"") -> Std.String.Replace;
-
-let EscapeEllipsis(src: String): String =
-    (src, "...", "__FLEAUX_ELLIPSIS__") -> Std.String.Replace;
-
-let UnescapeEllipsis(src: String): String =
-    (src, "__FLEAUX_ELLIPSIS__", " ... ") -> Std.String.Replace;
-
-let NormalizeOutsideSegment(seg: String): String =
-    (seg) -> EscapeEllipsis
-    -> (_, "\n", " ") -> Std.String.Replace
-    -> (_, "\t", " ") -> Std.String.Replace
-    -> (_, "->", " -> ") -> Std.String.Replace
-    -> (_, "==", " == ") -> Std.String.Replace
-    -> (_, "!=", " != ") -> Std.String.Replace
-    -> (_, ">=", " >= ") -> Std.String.Replace
-    -> (_, "<=", " <= ") -> Std.String.Replace
-    -> (_, "&&", " && ") -> Std.String.Replace
-    -> (_, "||", " || ") -> Std.String.Replace
-    -> (_, "::", " :: ") -> Std.String.Replace
-    -> (_, "(", " ( ") -> Std.String.Replace
-    -> (_, ")", " ) ") -> Std.String.Replace
-    -> (_, ",", " , ") -> Std.String.Replace
-    -> (_, ":", " : ") -> Std.String.Replace
-    -> (_, ".", " . ") -> Std.String.Replace
-    -> (_, "+", " + ") -> Std.String.Replace
-    -> (_, "*", " * ") -> Std.String.Replace
-    -> (_, "/", " / ") -> Std.String.Replace
-    -> (_, "%", " % ") -> Std.String.Replace
-    -> (_, "^", " ^ ") -> Std.String.Replace
-    -> (_, "=", " = ") -> Std.String.Replace
-    -> UnescapeEllipsis;
-
-let TokenizeOutside(seg: String): Tuple(Any...) =
-    (seg) -> UnescapeEscapedQuote
-    -> NormalizeOutsideSegment
-    -> (_, " ") -> Std.String.Split
-    -> (_, IsNotEmpty) -> Std.Tuple.Filter;
-
-let AppendAllContinue(items: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Bool =
-    (idx, (items) -> Std.Length) -> Std.LessThan;
-
-let AppendAllStep(items: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Tuple(Any, Int64, Tuple(Any...)) =
-    (items,
-     (idx, 1) -> Std.Add,
-     (out, (items, idx) -> Std.ElementAt) -> Std.Tuple.Append);
-
-let AppendAllFinalize(state: Tuple(Any...)): Tuple(Any...) =
-    (state, 2) -> Std.ElementAt;
-
-let AppendAll(out: Tuple(Any...), items: Tuple(Any...)): Tuple(Any...) =
-    ((items, 0, out), AppendAllContinue, AppendAllStep, 100000)
-    -> Std.LoopN
-    -> AppendAllFinalize;
-
-let QuoteWrap(seg: String): String =
-    ("", ("\"", (seg) -> UnescapeEscapedQuote, "\"")) -> Std.String.Join;
-
-let TokenizePartsContinue(parts: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Bool =
-    (idx, (parts) -> Std.Length) -> Std.LessThan;
-
-let TokenizePartsStep(parts: Tuple(Any...), idx: Int64, out: Tuple(Any...)): Tuple(Any, Int64, Tuple(Any...)) =
-    (((idx, 2) -> Std.Mod, 1) -> Std.Equal,
-      (parts,
-       (idx, 1) -> Std.Add,
-       (out, ((parts, idx) -> Std.ElementAt) -> QuoteWrap) -> Std.Tuple.Append),
-      (parts,
-       (idx, 1) -> Std.Add,
-       (out, ((parts, idx) -> Std.ElementAt) -> TokenizeOutside) -> AppendAll)) -> Std.Select;
-
-let TokenizePartsFinalize(state: Tuple(Any...)): Tuple(Any...) =
-    (state, 2) -> Std.ElementAt;
-
-let Tokenize(src: String): Tuple(Any...) =
-    (((src) -> EscapeEscapedQuote, "\"") -> Std.String.Split, 0, ())
-    -> (_, TokenizePartsContinue, TokenizePartsStep, 100000) -> Std.LoopN
-    -> TokenizePartsFinalize;
+    -> ("\n", _) -> Std.String.Join;
 
 let SplitStatements(src: String): Tuple(Any...) =
     (src, ";\n") -> Std.String.Split
     -> (_, Std.String.Trim) -> Std.Tuple.Map
     -> (_, IsNotEmpty) -> Std.Tuple.Filter;
 
-let ParseStatementEmpty(stmt: Tuple(Any...)): Any =
-    ("Empty");
+let DemoSource(): String =
+    ("", ("import Std;\n",
+          "let AddOne(x: Int64): Int64 = (x, 1) -> Std.Add;\n",
+          "(41) -> AddOne -> Std.Println;\n")) -> Std.String.Join;
 
-let ParseStatementNonEmpty(stmt: Tuple(Any...)): Any =
-    (((stmt, 0) -> Std.ElementAt, "import") -> Std.Equal,
-      ("Import", (stmt, 1) -> Std.Drop),
-      ((((stmt, 0) -> Std.ElementAt, "let") -> Std.Equal,
-        ("Let", stmt),
-        ("ExprStmt", stmt)) -> Std.Select)) -> Std.Select;
-
-let ParseStatement(stmt: Tuple(Any...)): Any =
-    (((stmt) -> Std.Length, 0) -> Std.Equal,
-     stmt,
-     ParseStatementEmpty,
-     ParseStatementNonEmpty) -> Std.Branch;
-
-let ParseStatementText(stmt_text: String): Any =
-    (stmt_text) -> Tokenize -> ParseStatement;
-
-let ParseProgram(src: String): Any =
-    ("Program", (src) -> SplitStatements -> (_, ParseStatementText) -> Std.Tuple.Map);
-
-let FilePathArg1(args: Tuple(Any...)): String =
-    (args, 1) -> Std.ElementAt;
-
-let FilePathArg0(args: Tuple(Any...)): String =
-    (args, 0) -> Std.ElementAt;
-
-let FilePathFromArgs(args: Tuple(Any...)): String =
-    (((args) -> Std.Length, 2) -> Std.GreaterOrEqual,
-     args,
-     FilePathArg1,
-     FilePathArg0) -> Std.Branch;
-
-let ParseFile(path: String): Any =
-    (path) -> Std.File.ReadText -> NormalizeForTokens -> ParseProgram;
+let ParsePreview(src: String): Tuple(Any...) =
+    (src) -> NormalizeForStatements -> SplitStatements;
 
 let main(): Any =
-    () -> Std.GetArgs
-    -> FilePathFromArgs
-    -> ParseFile
+    () -> DemoSource
+    -> ParsePreview
     -> Std.Println;
 
 () -> main;

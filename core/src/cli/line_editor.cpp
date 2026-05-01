@@ -12,21 +12,21 @@
 #include <vector>
 
 #ifdef _WIN32
-  #include <windows.h>
-  #include <conio.h>
+#include <conio.h>
+#include <windows.h>
 #else
-  #include <sys/ioctl.h>
-  #include <sys/select.h>
-  #include <termios.h>
-  #include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <termios.h>
+#include <unistd.h>
 #endif
 
 namespace fleaux::cli {
 namespace {
 
 #ifdef _WIN32
-[[nodiscard]] auto windows_stdin_is_interactive_impl(const bool has_valid_handle,
-                                                     const bool get_console_mode_succeeded) -> bool {
+[[nodiscard]] auto windows_stdin_is_interactive_impl(const bool has_valid_handle, const bool get_console_mode_succeeded)
+    -> bool {
   return has_valid_handle && get_console_mode_succeeded;
 }
 #endif
@@ -37,9 +37,13 @@ class ScopedRawMode {
 public:
   ScopedRawMode() {
     const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
-    if (stdin_handle == INVALID_HANDLE_VALUE) { return; }
+    if (stdin_handle == INVALID_HANDLE_VALUE) {
+      return;
+    }
 
-    if (!::GetConsoleMode(stdin_handle, &original_mode_)) { return; }
+    if (!::GetConsoleMode(stdin_handle, &original_mode_)) {
+      return;
+    }
 
     // Enable processed input and mouse input, but disable line input and echo
     DWORD new_mode = original_mode_;
@@ -76,7 +80,9 @@ private:
 class ScopedRawMode {
 public:
   ScopedRawMode() {
-    if (::tcgetattr(STDIN_FILENO, &original_) != 0) { return; }
+    if (::tcgetattr(STDIN_FILENO, &original_) != 0) {
+      return;
+    }
 
     termios raw = original_;
     raw.c_iflag &= static_cast<tcflag_t>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
@@ -86,14 +92,18 @@ public:
     raw.c_cc[VMIN] = 1;
     raw.c_cc[VTIME] = 0;
 
-    if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == 0) { enabled_ = true; }
+    if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == 0) {
+      enabled_ = true;
+    }
   }
 
   ScopedRawMode(const ScopedRawMode&) = delete;
   auto operator=(const ScopedRawMode&) -> ScopedRawMode& = delete;
 
   ~ScopedRawMode() {
-    if (enabled_) { static_cast<void>(::tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_)); }
+    if (enabled_) {
+      static_cast<void>(::tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_));
+    }
   }
 
   [[nodiscard]] auto enabled() const -> bool { return enabled_; }
@@ -114,7 +124,9 @@ auto is_token_word_char(const char ch) -> bool {
 auto is_token_space_char(const char ch) -> bool { return std::isspace(static_cast<unsigned char>(ch)) != 0; }
 
 auto token_class_for_char(const char ch) -> int {
-  if (is_token_space_char(ch)) { return 0; }
+  if (is_token_space_char(ch)) {
+    return 0;
+  }
   return is_token_word_char(ch) ? 1 : 2;
 }
 
@@ -125,34 +137,56 @@ auto is_completion_symbol_char(const char ch) -> bool {
 
 auto decode_csi_with_params(const std::string& params, const char final_char) -> InputEvent {
   if (final_char == '~') {
-    if (params == "1" || params == "7") { return {.key = InputKey::kHome}; }
-    if (params == "3") { return {.key = InputKey::kDelete}; }
-    if (params == "4" || params == "8") { return {.key = InputKey::kEnd}; }
+    if (params == "1" || params == "7") {
+      return {.key = InputKey::kHome};
+    }
+    if (params == "3") {
+      return {.key = InputKey::kDelete};
+    }
+    if (params == "4" || params == "8") {
+      return {.key = InputKey::kEnd};
+    }
     return {};
   }
 
   if (final_char == 'D') {
-    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") { return {.key = InputKey::kTokenLeft}; }
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
+      return {.key = InputKey::kTokenLeft};
+    }
     return {.key = InputKey::kArrowLeft};
   }
   if (final_char == 'C') {
-    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") { return {.key = InputKey::kTokenRight}; }
+    if (params == "1;5" || params == "1;3" || params == "5" || params == "3") {
+      return {.key = InputKey::kTokenRight};
+    }
     return {.key = InputKey::kArrowRight};
   }
-  if (final_char == 'A') { return {.key = InputKey::kArrowUp}; }
-  if (final_char == 'B') { return {.key = InputKey::kArrowDown}; }
-  if (final_char == 'H') { return {.key = InputKey::kHome}; }
-  if (final_char == 'F') { return {.key = InputKey::kEnd}; }
+  if (final_char == 'A') {
+    return {.key = InputKey::kArrowUp};
+  }
+  if (final_char == 'B') {
+    return {.key = InputKey::kArrowDown};
+  }
+  if (final_char == 'H') {
+    return {.key = InputKey::kHome};
+  }
+  if (final_char == 'F') {
+    return {.key = InputKey::kEnd};
+  }
 
   return {};
 }
 
 auto completion_lines_for_width(std::span<const std::string> suggestions, std::size_t terminal_width)
     -> std::vector<std::string> {
-  if (suggestions.empty()) { return {}; }
+  if (suggestions.empty()) {
+    return {};
+  }
 
   constexpr std::size_t kColumnSpacing = 2;
-  if (terminal_width == 0) { terminal_width = 80; }
+  if (terminal_width == 0) {
+    terminal_width = 80;
+  }
 
   const std::size_t count = suggestions.size();
   std::size_t best_columns = 1;
@@ -166,7 +200,9 @@ auto completion_lines_for_width(std::span<const std::string> suggestions, std::s
     for (std::size_t row = 0; row < rows; ++row) {
       for (std::size_t col = 0; col < columns; ++col) {
         const std::size_t idx = row * columns + col;
-        if (idx >= count) { break; }
+        if (idx >= count) {
+          break;
+        }
         widths[col] = std::max(widths[col], suggestions[idx].size());
       }
     }
@@ -174,7 +210,9 @@ auto completion_lines_for_width(std::span<const std::string> suggestions, std::s
     std::size_t total_width = 0;
     for (std::size_t col = 0; col < columns; ++col) {
       total_width += widths[col];
-      if (col + 1 < columns) { total_width += kColumnSpacing; }
+      if (col + 1 < columns) {
+        total_width += kColumnSpacing;
+      }
     }
 
     if (total_width <= terminal_width || columns == 1) {
@@ -191,7 +229,9 @@ auto completion_lines_for_width(std::span<const std::string> suggestions, std::s
     std::string line;
     for (std::size_t col = 0; col < best_columns; ++col) {
       const std::size_t idx = row * best_columns + col;
-      if (idx >= count) { break; }
+      if (idx >= count) {
+        break;
+      }
 
       const std::string& text = suggestions[idx];
       line += text;
@@ -211,14 +251,20 @@ auto completion_lines_for_width(std::span<const std::string> suggestions, std::s
 auto terminal_width_chars() -> std::size_t {
 #ifdef _WIN32
   const auto stdout_handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
-  if (stdout_handle == INVALID_HANDLE_VALUE) { return 80; }
+  if (stdout_handle == INVALID_HANDLE_VALUE) {
+    return 80;
+  }
 
   CONSOLE_SCREEN_BUFFER_INFO buffer_info;
-  if (!::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) { return 80; }
+  if (!::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
+    return 80;
+  }
   return static_cast<std::size_t>(buffer_info.srWindow.Right - buffer_info.srWindow.Left + 1);
 #else
   winsize ws{};
-  if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) { return 80; }
+  if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) {
+    return 80;
+  }
   return static_cast<std::size_t>(ws.ws_col);
 #endif
 }
@@ -227,18 +273,26 @@ auto terminal_width_chars() -> std::size_t {
 
 auto read_input_event() -> std::optional<InputEvent> {
   const auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
-  if (stdin_handle == INVALID_HANDLE_VALUE) { return std::nullopt; }
+  if (stdin_handle == INVALID_HANDLE_VALUE) {
+    return std::nullopt;
+  }
 
   INPUT_RECORD input_record;
   DWORD num_events_read = 0;
 
-  if (!::ReadConsoleInput(stdin_handle, &input_record, 1, &num_events_read)) { return std::nullopt; }
+  if (!::ReadConsoleInput(stdin_handle, &input_record, 1, &num_events_read)) {
+    return std::nullopt;
+  }
 
-  if (num_events_read == 0) { return std::nullopt; }
+  if (num_events_read == 0) {
+    return std::nullopt;
+  }
 
   if (input_record.EventType == KEY_EVENT) {
     const auto& key_event = input_record.Event.KeyEvent;
-    if (!key_event.bKeyDown) { return InputEvent{}; }
+    if (!key_event.bKeyDown) {
+      return InputEvent{};
+    }
 
     const auto vk = key_event.wVirtualKeyCode;
     const auto ch = key_event.uChar.AsciiChar;
@@ -307,9 +361,15 @@ auto read_byte() -> std::optional<unsigned char> {
   unsigned char value = 0;
   while (true) {
     const auto bytes_read = ::read(STDIN_FILENO, &value, 1);
-    if (bytes_read == 1) { return value; }
-    if (bytes_read == 0) { return std::nullopt; }
-    if (errno == EINTR) { continue; }
+    if (bytes_read == 1) {
+      return value;
+    }
+    if (bytes_read == 0) {
+      return std::nullopt;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
     return std::nullopt;
   }
 }
@@ -325,23 +385,35 @@ auto read_byte_with_timeout(const int timeout_ms) -> std::optional<unsigned char
     timeout.tv_usec = (timeout_ms % 1000) * 1000;
 
     const auto ready = ::select(STDIN_FILENO + 1, &read_fds, nullptr, nullptr, &timeout);
-    if (ready > 0) { return read_byte(); }
-    if (ready == 0) { return std::nullopt; }
-    if (errno == EINTR) { continue; }
+    if (ready > 0) {
+      return read_byte();
+    }
+    if (ready == 0) {
+      return std::nullopt;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
     return std::nullopt;
   }
 }
 
 auto decode_escape_sequence() -> InputEvent {
   const auto first = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
-  if (!first.has_value()) { return {}; }
+  if (!first.has_value()) {
+    return {};
+  }
 
   // Alt-modified keys are commonly encoded as an extra ESC prefix.
-  if (*first == 27) { return decode_escape_sequence(); }
+  if (*first == 27) {
+    return decode_escape_sequence();
+  }
 
   if (*first == '[') {
     const auto second = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
-    if (!second.has_value()) { return {}; }
+    if (!second.has_value()) {
+      return {};
+    }
 
     switch (*second) {
       case 'A':
@@ -364,7 +436,9 @@ auto decode_escape_sequence() -> InputEvent {
       std::string params(1, static_cast<char>(*second));
       while (true) {
         const auto next = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
-        if (!next.has_value()) { return {}; }
+        if (!next.has_value()) {
+          return {};
+        }
         if ((*next >= '0' && *next <= '9') || *next == ';') {
           params.push_back(static_cast<char>(*next));
           continue;
@@ -378,25 +452,47 @@ auto decode_escape_sequence() -> InputEvent {
 
   if (*first == 'O') {
     const auto second = read_byte_with_timeout(kEscapeSequenceTimeoutMs);
-    if (!second.has_value()) { return {}; }
-    if (*second == 'A') { return {.key = InputKey::kArrowUp}; }
-    if (*second == 'B') { return {.key = InputKey::kArrowDown}; }
-    if (*second == 'C') { return {.key = InputKey::kArrowRight}; }
-    if (*second == 'D') { return {.key = InputKey::kArrowLeft}; }
-    if (*second == 'H') { return {.key = InputKey::kHome}; }
-    if (*second == 'F') { return {.key = InputKey::kEnd}; }
+    if (!second.has_value()) {
+      return {};
+    }
+    if (*second == 'A') {
+      return {.key = InputKey::kArrowUp};
+    }
+    if (*second == 'B') {
+      return {.key = InputKey::kArrowDown};
+    }
+    if (*second == 'C') {
+      return {.key = InputKey::kArrowRight};
+    }
+    if (*second == 'D') {
+      return {.key = InputKey::kArrowLeft};
+    }
+    if (*second == 'H') {
+      return {.key = InputKey::kHome};
+    }
+    if (*second == 'F') {
+      return {.key = InputKey::kEnd};
+    }
   }
 
-  if (*first == 'b' || *first == 'B') { return {.key = InputKey::kTokenLeft}; }
-  if (*first == 'f' || *first == 'F') { return {.key = InputKey::kTokenRight}; }
-  if (*first == 127 || *first == 8) { return {.key = InputKey::kTokenBackspace}; }
+  if (*first == 'b' || *first == 'B') {
+    return {.key = InputKey::kTokenLeft};
+  }
+  if (*first == 'f' || *first == 'F') {
+    return {.key = InputKey::kTokenRight};
+  }
+  if (*first == 127 || *first == 8) {
+    return {.key = InputKey::kTokenBackspace};
+  }
 
   return {};
 }
 
 auto read_input_event_unix() -> std::optional<InputEvent> {
   const auto byte = read_byte();
-  if (!byte.has_value()) { return std::nullopt; }
+  if (!byte.has_value()) {
+    return std::nullopt;
+  }
 
   switch (*byte) {
     case '\t':
@@ -423,7 +519,9 @@ auto read_input_event_unix() -> std::optional<InputEvent> {
       break;
   }
 
-  if (std::isprint(*byte) != 0) { return InputEvent::character(static_cast<char>(*byte)); }
+  if (std::isprint(*byte) != 0) {
+    return InputEvent::character(static_cast<char>(*byte));
+  }
   return InputEvent{};
 }
 
@@ -575,7 +673,9 @@ void render_with_styles(const std::string_view buffer, const StyleSpanProvider& 
     cursor = start + length;
   }
 
-  if (cursor < buffer.size()) { std::cout << ansi_code_for_token_class(TokenClass::kPlain) << buffer.substr(cursor); }
+  if (cursor < buffer.size()) {
+    std::cout << ansi_code_for_token_class(TokenClass::kPlain) << buffer.substr(cursor);
+  }
 
   std::cout << "\x1b[0m";
 }
@@ -610,13 +710,17 @@ auto normalize_style_spans(const std::size_t buffer_size, const std::vector<Styl
   cleaned.reserve(spans.size());
 
   for (const auto& [start, length, token_class] : spans) {
-    if (length == 0 || start >= buffer_size) { continue; }
+    if (length == 0 || start >= buffer_size) {
+      continue;
+    }
     const auto clamped_length = std::min(length, buffer_size - start);
     cleaned.push_back(StyleSpan{.start = start, .length = clamped_length, .token_class = token_class});
   }
 
   std::ranges::sort(cleaned, [](const StyleSpan& lhs, const StyleSpan& rhs) -> bool {
-    if (lhs.start != rhs.start) { return lhs.start < rhs.start; }
+    if (lhs.start != rhs.start) {
+      return lhs.start < rhs.start;
+    }
     return lhs.length < rhs.length;
   });
 
@@ -624,7 +728,9 @@ auto normalize_style_spans(const std::size_t buffer_size, const std::vector<Styl
   merged.reserve(cleaned.size());
   std::size_t next_free = 0;
   for (const auto& span : cleaned) {
-    if (span.start < next_free) { continue; }
+    if (span.start < next_free) {
+      continue;
+    }
     merged.push_back(span);
     next_free = span.start + span.length;
   }
@@ -635,50 +741,74 @@ LineEditor::LineEditor(LineEditorConfig config) : config_(std::move(config)) {}
 
 auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
   const auto move_token_left = [this]() -> bool {
-    if (cursor_ == 0) { return false; }
+    if (cursor_ == 0) {
+      return false;
+    }
 
     std::size_t idx = cursor_;
-    while (idx > 0 && is_token_space_char(buffer_[idx - 1])) { --idx; }
+    while (idx > 0 && is_token_space_char(buffer_[idx - 1])) {
+      --idx;
+    }
     if (idx == 0) {
       cursor_ = 0;
       return true;
     }
 
     const auto cls = token_class_for_char(buffer_[idx - 1]);
-    while (idx > 0 && token_class_for_char(buffer_[idx - 1]) == cls) { --idx; }
-    if (idx == cursor_) { return false; }
+    while (idx > 0 && token_class_for_char(buffer_[idx - 1]) == cls) {
+      --idx;
+    }
+    if (idx == cursor_) {
+      return false;
+    }
     cursor_ = idx;
     return true;
   };
 
   const auto move_token_right = [this]() -> bool {
-    if (cursor_ >= buffer_.size()) { return false; }
+    if (cursor_ >= buffer_.size()) {
+      return false;
+    }
 
     std::size_t idx = cursor_;
-    while (idx < buffer_.size() && is_token_space_char(buffer_[idx])) { ++idx; }
+    while (idx < buffer_.size() && is_token_space_char(buffer_[idx])) {
+      ++idx;
+    }
     if (idx >= buffer_.size()) {
       cursor_ = buffer_.size();
       return true;
     }
 
     const auto cls = token_class_for_char(buffer_[idx]);
-    while (idx < buffer_.size() && token_class_for_char(buffer_[idx]) == cls) { ++idx; }
-    if (idx == cursor_) { return false; }
+    while (idx < buffer_.size() && token_class_for_char(buffer_[idx]) == cls) {
+      ++idx;
+    }
+    if (idx == cursor_) {
+      return false;
+    }
     cursor_ = idx;
     return true;
   };
 
   const auto delete_token_left = [this]() -> bool {
-    if (cursor_ == 0) { return false; }
-
-    std::size_t start = cursor_;
-    while (start > 0 && is_token_space_char(buffer_[start - 1])) { --start; }
-    if (start > 0) {
-      const auto cls = token_class_for_char(buffer_[start - 1]);
-      while (start > 0 && token_class_for_char(buffer_[start - 1]) == cls) { --start; }
+    if (cursor_ == 0) {
+      return false;
     }
 
-    if (start == cursor_) { return false; }
+    std::size_t start = cursor_;
+    while (start > 0 && is_token_space_char(buffer_[start - 1])) {
+      --start;
+    }
+    if (start > 0) {
+      const auto cls = token_class_for_char(buffer_[start - 1]);
+      while (start > 0 && token_class_for_char(buffer_[start - 1]) == cls) {
+        --start;
+      }
+    }
+
+    if (start == cursor_) {
+      return false;
+    }
     buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(start),
                   buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
     cursor_ = start;
@@ -686,21 +816,53 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
   };
 
   const auto apply_completion = [this]() -> LineEditorResult {
-    if (config_.completion_handler == nullptr || config_.completion_handler->empty()) { return {}; }
+    if (config_.completion_handler == nullptr || config_.completion_handler->empty()) {
+      return {};
+    }
 
     std::size_t start = cursor_;
-    while (start > 0 && is_completion_symbol_char(buffer_[start - 1])) { --start; }
+    while (start > 0 && is_completion_symbol_char(buffer_[start - 1])) {
+      --start;
+    }
     std::size_t end = cursor_;
-    while (end < buffer_.size() && is_completion_symbol_char(buffer_[end])) { ++end; }
-    if (start == cursor_) { return {}; }
+    while (end < buffer_.size() && is_completion_symbol_char(buffer_[end])) {
+      ++end;
+    }
+    if (start == cursor_) {
+      return {};
+    }
 
     const std::string_view partial(buffer_.data() + static_cast<std::ptrdiff_t>(start), cursor_ - start);
     auto completions = config_.completion_handler->get_completions(partial);
-    if (completions.empty()) { return {}; }
+    if (completions.empty()) {
+      return {};
+    }
 
     std::ranges::sort(completions);
     if (completions.size() > 1) {
-      return {.completion_suggestions = std::move(completions)};
+      // if all completion options share a common prefix,
+      // then set the cursor to the common prefix before returning suggestions
+      if (const auto partial_replacement = [&]() -> std::optional<std::string> {
+            const auto& shortest = completions.front();
+            const auto& longest = completions.back();
+
+            auto idx{0};
+            for (; idx < longest.length(); ++idx) {
+              if (shortest[idx] != longest[idx]) {
+                break;
+              }
+            }
+            if (idx != 0) {
+              return {longest.substr(0, idx)};
+            }
+            return std::nullopt;
+          }();
+          partial_replacement.has_value()) {
+        buffer_.replace(start, end - start, *partial_replacement);
+        cursor_ = start + partial_replacement->size();
+      }
+
+      return { .needs_redraw = true, .completion_suggestions = std::move(completions)};
     }
 
     const std::string& replacement = completions.front();
@@ -722,28 +884,38 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       return {.needs_redraw = true};
 
     case InputKey::kBackspace:
-      if (cursor_ == 0) { return {}; }
+      if (cursor_ == 0) {
+        return {};
+      }
       buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_ - 1));
       --cursor_;
       return {.needs_redraw = true};
 
     case InputKey::kDelete:
-      if (cursor_ >= buffer_.size()) { return {}; }
+      if (cursor_ >= buffer_.size()) {
+        return {};
+      }
       buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
       return {.needs_redraw = true};
 
     case InputKey::kArrowLeft:
-      if (cursor_ == 0) { return {}; }
+      if (cursor_ == 0) {
+        return {};
+      }
       --cursor_;
       return {.needs_redraw = true};
 
     case InputKey::kArrowRight:
-      if (cursor_ >= buffer_.size()) { return {}; }
+      if (cursor_ >= buffer_.size()) {
+        return {};
+      }
       ++cursor_;
       return {.needs_redraw = true};
 
     case InputKey::kArrowUp:
-      if (history_.empty()) { return {}; }
+      if (history_.empty()) {
+        return {};
+      }
       if (!history_index_.has_value()) {
         history_edit_buffer_ = buffer_;
         history_index_ = history_.size() - 1;
@@ -753,7 +925,9 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       return restore_history_entry(*history_index_);
 
     case InputKey::kArrowDown:
-      if (!history_index_.has_value()) { return {}; }
+      if (!history_index_.has_value()) {
+        return {};
+      }
       if (*history_index_ + 1 < history_.size()) {
         ++(*history_index_);
         return restore_history_entry(*history_index_);
@@ -773,12 +947,16 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       return {.needs_redraw = delete_token_left()};
 
     case InputKey::kHome:
-      if (cursor_ == 0) { return {}; }
+      if (cursor_ == 0) {
+        return {};
+      }
       cursor_ = 0;
       return {.needs_redraw = true};
 
     case InputKey::kEnd:
-      if (cursor_ == buffer_.size()) { return {}; }
+      if (cursor_ == buffer_.size()) {
+        return {};
+      }
       cursor_ = buffer_.size();
       return {.needs_redraw = true};
 
@@ -806,7 +984,9 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       return {.action = LineEditorAction::kClearBuffer};
 
     case InputKey::kCtrlD:
-      if (buffer_.empty()) { return {.action = LineEditorAction::kEndOfInput}; }
+      if (buffer_.empty()) {
+        return {.action = LineEditorAction::kEndOfInput};
+      }
       return {};
 
     case InputKey::kUnknown:
@@ -832,8 +1012,12 @@ void LineEditor::reset() {
 }
 
 void LineEditor::push_history_entry(const std::string& entry) {
-  if (entry.empty()) { return; }
-  if (!history_.empty() && history_.back() == entry) { return; }
+  if (entry.empty()) {
+    return;
+  }
+  if (!history_.empty() && history_.back() == entry) {
+    return;
+  }
   history_.push_back(entry);
 }
 
@@ -860,10 +1044,14 @@ auto stdin_is_interactive() -> bool {
 auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> InteractiveReadResult {
   editor.reset();
 
-  if (!stdin_is_interactive()) { return read_fallback_line(prompt); }
+  if (!stdin_is_interactive()) {
+    return read_fallback_line(prompt);
+  }
 
   const ScopedRawMode raw_mode;
-  if (!raw_mode.enabled()) { return read_fallback_line(prompt); }
+  if (!raw_mode.enabled()) {
+    return read_fallback_line(prompt);
+  }
 
   render_line(prompt, editor);
   while (true) {
@@ -889,7 +1077,9 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
     }
 
     if (action == LineEditorAction::kContinue) {
-      if (needs_redraw) { render_line(prompt, editor); }
+      if (needs_redraw) {
+        render_line(prompt, editor);
+      }
       continue;
     }
 
@@ -918,14 +1108,20 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent {
   std::size_t cursor = 0;
   const auto parse = [&](const auto& self) -> InputEvent {
-    if (cursor >= bytes.size()) { return {}; }
+    if (cursor >= bytes.size()) {
+      return {};
+    }
 
     const auto first = static_cast<unsigned char>(bytes[cursor++]);
 
-    if (first == 27U) { return self(self); }
+    if (first == 27U) {
+      return self(self);
+    }
 
     if (first == static_cast<unsigned char>('[')) {
-      if (cursor >= bytes.size()) { return {}; }
+      if (cursor >= bytes.size()) {
+        return {};
+      }
       const auto second = static_cast<unsigned char>(bytes[cursor++]);
 
       switch (second) {
@@ -963,14 +1159,28 @@ auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent 
     }
 
     if (first == static_cast<unsigned char>('O')) {
-      if (cursor >= bytes.size()) { return {}; }
+      if (cursor >= bytes.size()) {
+        return {};
+      }
       const auto second = static_cast<unsigned char>(bytes[cursor++]);
-      if (second == 'A') { return {.key = InputKey::kArrowUp}; }
-      if (second == 'B') { return {.key = InputKey::kArrowDown}; }
-      if (second == 'C') { return {.key = InputKey::kArrowRight}; }
-      if (second == 'D') { return {.key = InputKey::kArrowLeft}; }
-      if (second == 'H') { return {.key = InputKey::kHome}; }
-      if (second == 'F') { return {.key = InputKey::kEnd}; }
+      if (second == 'A') {
+        return {.key = InputKey::kArrowUp};
+      }
+      if (second == 'B') {
+        return {.key = InputKey::kArrowDown};
+      }
+      if (second == 'C') {
+        return {.key = InputKey::kArrowRight};
+      }
+      if (second == 'D') {
+        return {.key = InputKey::kArrowLeft};
+      }
+      if (second == 'H') {
+        return {.key = InputKey::kHome};
+      }
+      if (second == 'F') {
+        return {.key = InputKey::kEnd};
+      }
       return {};
     }
 
@@ -980,7 +1190,9 @@ auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent 
     if (first == static_cast<unsigned char>('f') || first == static_cast<unsigned char>('F')) {
       return {.key = InputKey::kTokenRight};
     }
-    if (first == 127U || first == 8U) { return {.key = InputKey::kTokenBackspace}; }
+    if (first == 127U || first == 8U) {
+      return {.key = InputKey::kTokenBackspace};
+    }
 
     return {};
   };
@@ -1006,4 +1218,3 @@ auto fleaux::cli::detail::format_completion_suggestions_for_testing(std::span<co
     -> std::vector<std::string> {
   return completion_lines_for_width(suggestions, terminal_width);
 }
-

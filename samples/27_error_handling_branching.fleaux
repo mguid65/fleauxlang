@@ -1,41 +1,25 @@
 import Std;
 
-// Prototype: verbose error handling with plain values + branching.
-// Result is represented as tuple: ("Ok", value) or ("Err", message)
+// Prototype: verbose error handling with explicit branching over typed Result values.
 
-let Ok(value: Any): Any =
-    ("Ok", value);
+let ReciprocalOk(x: Float64): Result(Float64, String) =
+    (1.0, x) -> Std.Divide -> Std.Result.Ok;
 
-let Err(message: String): Any =
-    ("Err", message);
+let ReciprocalErr(x: Float64): Result(Float64, String) =
+    ("division by zero") -> Std.Result.Err;
 
-let ResultTag(result: Any): Any =
-    (result, 0) -> Std.ElementAt;
+let SafeReciprocalResult(x: Float64): Result(Float64, String) =
+    ((x, 0.0) -> Std.Equal, ReciprocalErr, ReciprocalOk) -> Std.Select -> (x, _) -> Std.Apply;
 
-let ResultPayload(result: Any): Any =
-    (result, 1) -> Std.ElementAt;
+let PrintOk(result: Result(Float64, String)): Any =
+    ("OK: {}", (result) -> Std.Result.Unwrap) -> Std.String.Format -> Std.Println;
 
-let IsOk(result: Any): Bool =
-    ((result) -> ResultTag, "Ok") -> Std.Equal;
+let PrintErr(result: Result(Float64, String)): Any =
+    ("ERROR: {}", (result) -> Std.Result.UnwrapErr) -> Std.String.Format -> Std.Println;
 
-let ReciprocalOk(x: Float64): Any =
-    (1.0, x) -> Std.Divide -> Ok;
-
-let ReciprocalErr(x: Float64): Any =
-    ("division by zero") -> Err;
-
-let SafeReciprocalResult(x: Float64): Any =
-    ((x, 0.0) -> Std.Equal, x, ReciprocalErr, ReciprocalOk) -> Std.Branch;
-
-let PrintOk(result: Any): Any =
-    ("OK: {}", (result) -> ResultPayload) -> Std.String.Format -> Std.Println;
-
-let PrintErr(result: Any): Any =
-    ("ERROR: {}", (result) -> ResultPayload) -> Std.String.Format -> Std.Println;
-
-// Explicit branch on the Result-like value.
-let HandleResult(result: Any): Any =
-    ((result) -> IsOk, result, PrintOk, PrintErr) -> Std.Branch;
+// Explicit branch on the Result value by selecting the handler first, then applying it.
+let HandleResult(result: Result(Float64, String)): Any =
+    ((result) -> Std.Result.IsOk, PrintOk, PrintErr) -> Std.Select -> (result, _) -> Std.Apply;
 
 (4.0) -> SafeReciprocalResult -> HandleResult;
 (0.0) -> SafeReciprocalResult -> HandleResult;

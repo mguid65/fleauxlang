@@ -20,6 +20,8 @@
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/source_loader.hpp"
+#include "fleaux/frontend/type_check.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
 
@@ -33,14 +35,39 @@ auto repo_root_path() -> std::filesystem::path { return std::filesystem::path(FL
 
 auto lower_source_to_ir(const std::string& source_text, const std::string& source_name)
     -> fleaux::frontend::ir::IRProgram {
+  std::string effective_source = source_text;
+  if (effective_source.find("Std.") != std::string::npos && effective_source.find("import Std;") == std::string::npos &&
+      effective_source.find("let Std.") == std::string::npos) {
+    effective_source = "import Std;\n" + effective_source;
+  }
+
   constexpr fleaux::frontend::parse::Parser parser;
-  const auto parsed = parser.parse_program(source_text, source_name);
+  const auto parsed = parser.parse_program(effective_source, source_name);
   REQUIRE(parsed.has_value());
 
   constexpr fleaux::frontend::lowering::Lowerer lowerer;
-  const auto lowered = lowerer.lower(parsed.value());
+  const auto lowered = lowerer.lower_only(parsed.value());
   REQUIRE(lowered.has_value());
-  return lowered.value();
+
+  auto make_error = [](const std::string& message, const std::optional<std::string>& hint,
+                       const std::optional<fleaux::frontend::diag::SourceSpan>& span)
+      -> fleaux::frontend::type_check::AnalysisError {
+    return fleaux::frontend::type_check::AnalysisError{
+        .message = message,
+        .hint = hint,
+        .span = span,
+    };
+  };
+
+  std::unordered_set<std::string> imported_symbols;
+  std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
+  const auto seeded = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<
+      fleaux::frontend::type_check::AnalysisError>(*lowered, make_error, imported_symbols, imported_typed_lets);
+  REQUIRE(seeded.has_value());
+
+  const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
+  REQUIRE(analyzed.has_value());
+  return analyzed.value();
 }
 
 auto make_test_span(const std::string& source_name) -> std::optional<fleaux::frontend::diag::SourceSpan> {
@@ -472,7 +499,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics when parameter flows through S
           "[bytecode][value_ref][auto]") {
   const auto ir_program = lower_source_to_ir(
       "let Echo(x: String): String = x;\n"
-      "let IndirectApply(f: Any, v: String): String = (v, f) -> Std.Apply;\n"
+      "let IndirectApply(f: (String) => String, v: String): String = (v, f) -> Std.Apply;\n"
       "(Echo, "
       "\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
       " -> IndirectApply -> Std.Println;\n",
@@ -893,7 +920,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Map") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v), Echo) -> "
+        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) -> "
         "Std.Parallel.Map;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelMap -> Std.Result.Unwrap -> Std.Println;\n",
@@ -904,7 +931,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
         "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
-        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v), Echo, "
+        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo, "
         "() -> BuildOptions) -> Std.Parallel.WithOptions;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelWithOptions -> Std.Result.Unwrap -> Std.Println;\n",
@@ -914,7 +941,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.ForEach") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelForEach(v: String): Result(Tuple(), Tuple(Int64, String)) = ((v), Echo) -> "
+        "let EscapeViaParallelForEach(v: String): Result(Tuple(), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) -> "
         "Std.Parallel.ForEach;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelForEach -> Std.Result.IsOk -> Std.Println;\n",
@@ -923,8 +950,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
 
   SECTION("Std.Parallel.Reduce") {
     assert_no_value_ref_opcodes(
-        "let Merge(acc: String, x: String): String = (acc, x) -> Std.Add;\n"
-        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v), \"\", Merge) -> "
+        "let Merge(acc: String, x: String): String = (\"\", (acc, x)) -> Std.String.Join;\n"
+        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v) -> Std.Wrap, \"\", Merge) -> "
         "Std.Parallel.Reduce;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelReduce -> Std.Result.Unwrap -> Std.Println;\n",
@@ -1456,7 +1483,7 @@ let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
 }
 
 TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value call", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir("(5, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
+  const auto ir_program = lower_source_to_ir("(5.0, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
                                              "bytecode_builtin_callable_apply.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -1479,7 +1506,7 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs", "[bytecode]") {
   const auto ir_program =
-      lower_source_to_ir("(True, 10, Std.UnaryMinus, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
+      lower_source_to_ir("(True, 10.0, Std.UnaryMinus, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
                          "bytecode_builtin_callable_branch.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -1514,7 +1541,7 @@ TEST_CASE("Bytecode compiler emits closure materialization for inline closure li
 
 TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(
-      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
       "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n",
       "bytecode_captured_closure.fleaux");
 
@@ -1544,9 +1571,11 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
 }
 
 TEST_CASE("Bytecode compiler emits variadic metadata for inline closures", "[bytecode]") {
-  const auto ir_program =
-      lower_source_to_ir("(10.0, ((head: Float64, tail: Any...): Float64 = head)) -> Std.Apply -> Std.Println;\n",
-                         "bytecode_variadic_inline_closure.fleaux");
+  const auto ir_program = lower_source_to_ir(
+      "let MakeHeadPicker(): (Float64, Any...) => Float64 =\n"
+      "    (head: Float64, tail: Any...): Float64 = head;\n"
+      "(1.0) -> Std.Println;\n",
+      "bytecode_variadic_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
@@ -1583,7 +1612,7 @@ TEST_CASE("Bytecode compiler keeps Std.Branch as builtin for callable locals", "
   const auto ir_program = lower_source_to_ir(R"(
 let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
 let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
-let ChooseApply(x: Float64, tf: Any, ff: Any): Float64 =
+let ChooseApply(x: Float64, tf: (Float64) => Float64, ff: (Float64) => Float64): Float64 =
     ((x, 0.0) -> Std.GreaterThan, x, tf, ff) -> Std.Branch;
 (10.0, Inc, Dec) -> ChooseApply -> Std.Println;
 )",
@@ -2516,7 +2545,8 @@ TEST_CASE("Bytecode module loader imports serialized dependency modules", "[byte
 
   {
     std::ofstream out(entry_path);
-    out << "import 20_export;\n"
+    out << "import Std;\n"
+           "import 20_export;\n"
            "(4.0) -> Add4 -> Std.Println;\n";
   }
 
@@ -2846,7 +2876,8 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
 
   {
     std::ofstream out(entry_path);
-    out << "import 20_export;\n"
+    out << "import Std;\n"
+           "import 20_export;\n"
            "(4.0) -> Add4 -> Std.Println;\n";
   }
 
@@ -2886,7 +2917,8 @@ TEST_CASE("Bytecode module loader reports bytecode-only entry corruption when so
 
   {
     std::ofstream out(entry_path);
-    out << "import 20_export;\n"
+    out << "import Std;\n"
+           "import 20_export;\n"
            "(4.0) -> Add4 -> Std.Println;\n";
   }
 
@@ -3006,7 +3038,8 @@ TEST_CASE("Bytecode module loader handles diamond dependencies with serialized f
 
   {
     std::ofstream out(root_path);
-    out << "import left;\n"
+    out << "import Std;\n"
+           "import left;\n"
            "import right;\n"
            "(4) -> Left -> Right -> Std.Println;\n";
   }

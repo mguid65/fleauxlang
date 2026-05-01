@@ -263,86 +263,15 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
-[[nodiscard]] auto is_symbolic_qualifier(const std::optional<std::string>& qualifier) -> bool {
-  if (!qualifier.has_value()) { return false; }
-  return *qualifier == "Std" || qualifier->starts_with("Std.");
-}
-
 [[nodiscard]] auto is_removed_symbolic_alias(const std::optional<std::string>& qualifier, const std::string& name)
     -> bool {
   return qualifier.has_value() && *qualifier == "Std" && name == "TypeOf";
 }
 
-[[nodiscard]] auto make_type_var(const std::string& name) -> Type {
-  return Type{
-      .kind = TypeKind::kTypeVar,
-      .nominal_name = name,
-  };
-}
-
-[[nodiscard]] auto make_applied_type(const std::string& name, std::vector<Type> args) -> Type {
-  return Type{
-      .kind = TypeKind::kApplied,
-      .applied_name = name,
-      .applied_args = std::move(args),
-  };
-}
-
-[[nodiscard]] auto symbolic_builtin_overloads(const std::optional<std::string>& qualifier, const std::string& name)
-    -> const FunctionOverloadSet* {
-  if (!is_symbolic_qualifier(qualifier)) { return nullptr; }
-
-  static const FunctionOverloadSet kStdDictCreateOverloads = [] {
-    FunctionOverloadSet overloads;
-    overloads.push_back(FunctionSig{
-        .resolved_symbol_key = "Std.Dict.Create#0",
-        .generic_params = {},
-        .params = {},
-        .return_type = make_applied_type("Dict", {Type{.kind = TypeKind::kAny}, Type{.kind = TypeKind::kAny}}),
-        .is_builtin = true,
-    });
-    overloads.push_back(FunctionSig{
-        .resolved_symbol_key = "Std.Dict.Create#1",
-        .generic_params = {"K", "V"},
-        .params = {{.name = "dict",
-                    .type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}),
-                    .variadic = false}},
-        .return_type = make_applied_type("Dict", {make_type_var("K"), make_type_var("V")}),
-        .is_builtin = true,
-    });
-    return overloads;
-  }();
-
-  static const FunctionOverloadSet kStdExitOverloads = [] {
-    FunctionOverloadSet overloads;
-    overloads.push_back(FunctionSig{
-        .resolved_symbol_key = "Std.Exit#0",
-        .generic_params = {},
-        .params = {},
-        .return_type = Type{.kind = TypeKind::kNever},
-        .is_builtin = true,
-    });
-    overloads.push_back(FunctionSig{
-        .resolved_symbol_key = "Std.Exit#1",
-        .generic_params = {},
-        .params = {{.name = "code", .type = Type{.kind = TypeKind::kInt64}, .variadic = false}},
-        .return_type = Type{.kind = TypeKind::kNever},
-        .is_builtin = true,
-    });
-    return overloads;
-  }();
-
-  const auto full_name = qualified_symbol_name(qualifier, name);
-  if (full_name == "Std.Dict.Create") { return &kStdDictCreateOverloads; }
-  if (full_name == "Std.Exit") { return &kStdExitOverloads; }
-  return nullptr;
-}
-
 [[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index,
                                                     const std::optional<std::string>& qualifier,
                                                     const std::string& name) -> const FunctionOverloadSet* {
-  if (const auto* overloads = index.resolve_name(qualifier, name); overloads != nullptr) { return overloads; }
-  return symbolic_builtin_overloads(qualifier, name);
+  return index.resolve_name(qualifier, name);
 }
 
 [[nodiscard]] auto target_name(const ir::IRCallTarget& target) -> std::optional<std::string> {
