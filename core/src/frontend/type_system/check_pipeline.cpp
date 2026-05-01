@@ -10,6 +10,12 @@ auto is_std_match_target(const ir::IRCallTarget& target) -> bool {
          name_ref->name == "Match";
 }
 
+auto is_std_apply_target(const ir::IRCallTarget& target) -> bool {
+  const auto* name_ref = std::get_if<ir::IRNameRef>(&target);
+  return name_ref != nullptr && name_ref->qualifier.has_value() && *name_ref->qualifier == "Std" &&
+         name_ref->name == "Apply";
+}
+
 auto is_match_wildcard_pattern(const ir::IRExpr& expr) -> bool {
   const auto* constant = std::get_if<ir::IRConstant>(&expr.node);
   return constant != nullptr && std::holds_alternative<std::string>(constant->val) &&
@@ -130,10 +136,41 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   return result_type.value_or(Type{.kind = TypeKind::kAny});
 }
 
+auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const LocalTypes& locals,
+                          const std::unordered_set<std::string>& generic_params)
+    -> std::optional<tl::expected<Type, type_check::AnalysisError>> {
+  auto* apply_args = std::get_if<ir::IRTupleExpr>(&flow.lhs->node);
+  if (apply_args == nullptr || apply_args->items.size() != 2U) { return std::nullopt; }
+
+  auto value_type = infer_expr(*apply_args->items[0], index, locals, generic_params);
+  if (!value_type) { return tl::unexpected(value_type.error()); }
+
+  auto func_type = infer_expr(*apply_args->items[1], index, locals, generic_params);
+  if (!func_type) { return tl::unexpected(func_type.error()); }
+
+  const bool value_is_empty_tuple = value_type->kind == TypeKind::kTuple && value_type->items.empty();
+  if (!value_is_empty_tuple) { return std::nullopt; }
+
+  if (is_deferred_callable_type(*func_type)) { return Type{.kind = TypeKind::kAny}; }
+
+  if (func_type->kind == TypeKind::kFunction && callable_has_fixed_arity(*func_type, 0U) &&
+      func_type->function_return.has_value()) {
+    return **func_type->function_return;
+  }
+
+  return std::nullopt;
+}
+
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const LocalTypes& locals,
                      const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (is_std_match_target(flow.rhs)) { return infer_std_match_expr(flow, index, locals, generic_params); }
+
+  if (is_std_apply_target(flow.rhs)) {
+    if (auto zero_arg_apply = infer_std_apply_expr(flow, index, locals, generic_params); zero_arg_apply.has_value()) {
+      return *zero_arg_apply;
+    }
+  }
 
   auto lhs_type = infer_expr(*flow.lhs, index, locals, generic_params);
   if (!lhs_type) { return tl::unexpected(lhs_type.error()); }

@@ -17,7 +17,7 @@ let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n)
 ((1.0, 2.0, 3.0), (x: Float64): Float64 = (x, 2.0) -> Std.Multiply) -> Std.Tuple.Map -> Std.Println;
 
 // No params
-((), (_: Tuple()): Any = ("Empty Closure") -> Std.Println) -> Std.Apply;
+() -> (): Any = ("Empty Closure") -> Std.Println;
 
 
 

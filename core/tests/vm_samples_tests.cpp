@@ -702,7 +702,8 @@ TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
            "(10.0, (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Apply -> Std.Println;\n"
            "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n"
            "let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-           "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
+           "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n"
+           "() -> (): Any = (\"Empty Closure\") -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
