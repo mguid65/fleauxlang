@@ -176,6 +176,30 @@ TEST_CASE("Qualified Std symbols are not callable unqualified", "[vm][samples]")
   REQUIRE_FALSE(analyzed.has_value());
 }
 
+TEST_CASE("Qualified Std symbols require an explicit Std import", "[vm][samples][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_std_import_required";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "missing_std_import.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "(1, 2) -> Std.Add -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("Unresolved symbol") != std::string::npos);
+  REQUIRE((analyzed.error().find("Std.Add") != std::string::npos ||
+           analyzed.error().find("Std.Println") != std::string::npos));
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(source_path);
+  REQUIRE_FALSE(vm_load_result.has_value());
+  REQUIRE(vm_load_result.error().message.find("Unresolved symbol") != std::string::npos);
+  REQUIRE((vm_load_result.error().message.find("Std.Add") != std::string::npos ||
+           vm_load_result.error().message.find("Std.Println") != std::string::npos));
+}
+
 TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help registry state", "[vm][help][contract]") {
   const auto sample_path = samples_dir_path() / "34_help.fleaux";
   REQUIRE(std::filesystem::exists(sample_path));
@@ -431,8 +455,9 @@ TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samp
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let MakeLookup(d: Any): Any = (k: Any): Any = (d, k, 0) -> Std.Dict.GetDefault;\n"
-           "let MakeDict(): Any = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+           "let MakeLookup(d: Dict(String, Int64)): (String) => Int64 =\n"
+           "    (k: String): Int64 = (d, k, 0) -> Std.Dict.GetDefault;\n"
+           "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
            "() -> MakeDict -> MakeLookup -> (\"a\", _) -> Std.Apply -> "
            "Std.Println;\n"
            "((1.0, 2.0, 3.0, 4.0), (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
@@ -537,8 +562,8 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let Collect(rest: Any...): Any = rest;\n"
-           "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
+           "let Collect(rest: Any...): Tuple(Any...) = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Tuple(Any...) = rest;\n"
            "(1) -> Collect -> Std.Length -> Std.Println;\n"
            "((10.0, 20.0, 30.0)) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
@@ -564,7 +589,7 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let HeadTail(head: Float64, rest: Any...): Any = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Tuple(Any...) = rest;\n"
            "() -> HeadTail -> Std.Println;\n";
   }
 
@@ -676,7 +701,7 @@ TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
     out << "import Std;\n"
            "(10.0, (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Apply -> Std.Println;\n"
            "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n"
-           "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+           "let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
            "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
   }
 

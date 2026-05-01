@@ -185,7 +185,7 @@ TEST_CASE("RuntimeSession resolves normal imports relative to the working direct
 
   fleaux::tests::write_text_file(temp_dir / "custom_module.fleaux",
                                  "import Std;\n"
-                                 "let Add4(x: Int64): Int64 = ((x, 4) -> Std.Add) -> Std.ToInt64;\n");
+                                 "let Add4(x: Int64): Int64 = (x, 4) -> Std.Add;\n");
 
   fleaux::tests::CurrentPathScope current_path_scope(temp_dir);
   const fleaux::vm::Runtime runtime;

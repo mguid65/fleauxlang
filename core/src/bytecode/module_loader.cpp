@@ -415,6 +415,12 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     }
   }
 
+  if (auto symbolic_seed = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<ModuleLoadError>(
+          *ir_program, make_parse_error, imported_symbols, imported_typed_lets);
+      !symbolic_seed) {
+    return finish(tl::unexpected(symbolic_seed.error()));
+  }
+
   const auto analyzed =
       fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets);
   if (!analyzed) {

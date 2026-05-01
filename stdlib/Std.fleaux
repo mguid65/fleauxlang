@@ -438,6 +438,21 @@ let Std.UnaryMinus(val: Float64) : Float64 :: __builtin__;
 // @return A value of type String.
 let Std.ToString(val: Any) : String :: __builtin__;
 
+// @brief Parse a string into an Int64 value.
+// @param s Input string. Type: String.
+// @return A value of type Int64.
+let Std.String.ParseInt64(s: String) : Int64 :: __builtin__;
+
+// @brief Parse a string into a UInt64 value.
+// @param s Input string. Type: String.
+// @return A value of type UInt64.
+let Std.String.ParseUInt64(s: String) : UInt64 :: __builtin__;
+
+// @brief Parse a string into a Float64 value.
+// @param s Input string. Type: String.
+// @return A value of type Float64.
+let Std.String.ParseFloat64(s: String) : Float64 :: __builtin__;
+
 
 // Math builtins
 // @brief Compute the square root of a Float64 value.

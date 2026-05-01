@@ -173,6 +173,9 @@ enum class BuiltinId : std::uint16_t {
   Slice,
   ToString,
   ToNum,
+  StringParseInt64,
+  StringParseUInt64,
+  StringParseFloat64,
   StringUpper,
   StringLower,
   StringTrim,
@@ -445,6 +448,9 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{BuiltinId::Slice, "Std.Slice"},
     BuiltinSpec{BuiltinId::ToString, "Std.ToString"},
     BuiltinSpec{BuiltinId::ToNum, "Std.ToNum"},
+    BuiltinSpec{BuiltinId::StringParseInt64, "Std.String.ParseInt64"},
+    BuiltinSpec{BuiltinId::StringParseUInt64, "Std.String.ParseUInt64"},
+    BuiltinSpec{BuiltinId::StringParseFloat64, "Std.String.ParseFloat64"},
     BuiltinSpec{BuiltinId::StringUpper, "Std.String.Upper"},
     BuiltinSpec{BuiltinId::StringLower, "Std.String.Lower"},
     BuiltinSpec{BuiltinId::StringTrim, "Std.String.Trim"},
@@ -644,6 +650,11 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
   for (const auto& spec : kBuiltinSpecs) {
     const auto effective_symbol_key = spec.symbol_key.empty() ? spec.name : spec.symbol_key;
     if (effective_symbol_key == symbol_key) { return spec.id; }
+  }
+  const auto hash_pos = symbol_key.rfind('#');
+  if (hash_pos != std::string_view::npos) {
+    const auto base_symbol_key = symbol_key.substr(0, hash_pos);
+    if (const auto base_id = builtin_id_from_symbol_key(base_symbol_key); base_id.has_value()) { return base_id; }
   }
   return builtin_id_from_name(symbol_key);
 }

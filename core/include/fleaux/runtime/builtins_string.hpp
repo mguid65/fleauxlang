@@ -1,7 +1,10 @@
 #pragma once
 // String, conversion, and math helper builtins.
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
+#include "fleaux/frontend/parser.hpp"
+#include <charconv>
 #include <memory>
+#include <string_view>
 #if defined(__has_include)
 #if __has_include(<pcre2.h>)
 #ifndef PCRE2_CODE_UNIT_WIDTH
@@ -21,17 +24,73 @@ namespace fleaux::runtime {
 
 namespace detail {
 
+[[nodiscard]] inline auto skip_ascii_leading_whitespace(const std::string_view input) -> std::string_view {
+  std::size_t start = 0;
+  while (start < input.size()) {
+    switch (input[start]) {
+      case ' ':
+      case '\f':
+      case '\n':
+      case '\r':
+      case '\t':
+      case '\v':
+        ++start;
+        break;
+      default:
+        return input.substr(start);
+    }
+  }
+
+  return input.substr(start);
+}
+
+template <typename Number>
+[[nodiscard]] inline auto parse_decimal_or_throw(std::string_view input, const char* builtin_name) -> Number {
+  input = skip_ascii_leading_whitespace(input);
+  if (input.empty()) { throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"}; }
+
+  if (input.front() == '+') {
+    input.remove_prefix(1);
+    if (input.empty()) { throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"}; }
+  }
+
+  Number parsed_value{};
+  const char* const begin = input.data();
+  const char* const end = begin + input.size();
+
+  std::from_chars_result result{};
+  if constexpr (std::is_floating_point_v<Number>) {
+    result = std::from_chars(begin, end, parsed_value, std::chars_format::general);
+  } else {
+    result = std::from_chars(begin, end, parsed_value, 10);
+  }
+
+  if (result.ec == std::errc::invalid_argument || result.ptr == begin) {
+    throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+  }
+  if (result.ec == std::errc::result_out_of_range) {
+    throw std::out_of_range{std::string{builtin_name} + ": value out of range"};
+  }
+  if (result.ptr != end) { throw std::invalid_argument{std::string{builtin_name} + ": trailing characters in input"}; }
+
+  return parsed_value;
+}
+
 #if FLEAUX_HAS_PCRE2
 
 struct RegexCodeDeleter {
   void operator()(pcre2_code* code) const {
-    if (code != nullptr) { pcre2_code_free(code); }
+    if (code != nullptr) {
+      pcre2_code_free(code);
+    }
   }
 };
 
 struct RegexMatchDataDeleter {
   void operator()(pcre2_match_data* data) const {
-    if (data != nullptr) { pcre2_match_data_free(data); }
+    if (data != nullptr) {
+      pcre2_match_data_free(data);
+    }
   }
 };
 
@@ -54,7 +113,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 
 [[nodiscard]] inline auto regex_match_data_or_throw(const pcre2_code* code) -> RegexMatchDataPtr {
   pcre2_match_data* data = pcre2_match_data_create_from_pattern(code, nullptr);
-  if (data == nullptr) { throw std::runtime_error{"Regex: failed to allocate match data"}; }
+  if (data == nullptr) {
+    throw std::runtime_error{"Regex: failed to allocate match data"};
+  }
   return RegexMatchDataPtr{data};
 }
 
@@ -70,10 +131,31 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 [[nodiscard]] inline auto ToNum(Value arg) -> Value {
   const Value string_value = unwrap_singleton_arg(std::move(arg));
   const std::string& str = as_string(string_value);
-  std::size_t consumed = 0;
-  const double parsed_number = std::stod(str, &consumed);
-  if (consumed != str.size()) { throw std::invalid_argument{"ToNum: trailing characters in input"}; }
+  const auto parsed_number = detail::parse_decimal_or_throw<double>(str, "ToNum");
   return num_result(parsed_number);
+}
+
+[[nodiscard]] inline auto StringParseInt64(Value arg) -> Value {
+  const Value string_value = unwrap_singleton_arg(std::move(arg));
+  const std::string& str = as_string(string_value);
+
+  const auto parsed_number = detail::parse_decimal_or_throw<std::int64_t>(str, "ParseInt64");
+  return make_int(parsed_number);
+}
+
+[[nodiscard]] inline auto StringParseUInt64(Value arg) -> Value {
+  const Value string_value = unwrap_singleton_arg(std::move(arg));
+  const std::string& str = as_string(string_value);
+
+  const auto parsed_number = detail::parse_decimal_or_throw<std::uint64_t>(str, "ParseUInt64");
+  return make_uint(parsed_number);
+}
+
+[[nodiscard]] inline auto StringParseFloat64(Value arg) -> Value {
+  const Value string_value = unwrap_singleton_arg(std::move(arg));
+  const std::string& str = as_string(string_value);
+  const auto parsed_number = detail::parse_decimal_or_throw<double>(str, "ParseFloat64");
+  return make_float(parsed_number);
 }
 
 [[nodiscard]] inline auto StringUpper(Value arg) -> Value {
@@ -109,7 +191,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   const auto& args = require_args(arg, 2, "StringSplit");
   const std::string input = to_string(*args.TryGet(0));
   const std::string sep = to_string(*args.TryGet(1));
-  if (sep.empty()) { throw std::invalid_argument{"StringSplit separator cannot be empty"}; }
+  if (sep.empty()) {
+    throw std::invalid_argument{"StringSplit separator cannot be empty"};
+  }
 
   Array out;
   std::size_t pos = 0;
@@ -133,7 +217,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   if (parts_v.HasArray()) {
     const auto& parts = as_array(parts_v);
     for (std::size_t part_index = 0; part_index < parts.Size(); ++part_index) {
-      if (part_index > 0) { oss << sep; }
+      if (part_index > 0) {
+        oss << sep;
+      }
       oss << to_string(*parts.TryGet(part_index));
     }
     return make_string(oss.str());
@@ -142,7 +228,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   // Python parity: joining over a non-tuple second arg iterates its string form.
   const std::string str = to_string(parts_v);
   for (std::size_t char_index = 0; char_index < str.size(); ++char_index) {
-    if (char_index > 0) { oss << sep; }
+    if (char_index > 0) {
+      oss << sep;
+    }
     oss << str[char_index];
   }
   return make_string(oss.str());
@@ -153,7 +241,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   std::string str = to_string(*args.TryGet(0));
   const std::string old_s = to_string(*args.TryGet(1));
   const std::string new_s = to_string(*args.TryGet(2));
-  if (old_s.empty()) { return make_string(std::move(str)); }
+  if (old_s.empty()) {
+    return make_string(std::move(str));
+  }
   std::size_t pos = 0;
   while ((pos = str.find(old_s, pos)) != std::string::npos) {
     str.replace(pos, old_s.size(), new_s);
@@ -180,7 +270,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   const auto& args = require_args(arg, 2, "StringEndsWith");
   const std::string str = to_string(*args.TryGet(0));
   const std::string suffix = to_string(*args.TryGet(1));
-  if (suffix.size() > str.size()) { return make_bool(false); }
+  if (suffix.size() > str.size()) {
+    return make_bool(false);
+  }
   return make_bool(str.ends_with(suffix));
 }
 
@@ -194,14 +286,18 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   const auto& args = require_args(arg, 2, "StringCharAt");
   const std::string str = to_string(*args.TryGet(0));
   const std::size_t idx = as_index_strict(*args.TryGet(1), "StringCharAt index");
-  if (idx >= str.size()) { return make_string(""); }
+  if (idx >= str.size()) {
+    return make_string("");
+  }
   return make_string(str.substr(idx, 1));
 }
 
 // arg = [str, stop] | [str, start, stop]
 [[nodiscard]] inline auto StringSlice(Value arg) -> Value {
   const auto& args = as_array(arg);
-  if (args.Size() != 2 && args.Size() != 3) { throw std::invalid_argument{"StringSlice expects 2 or 3 arguments"}; }
+  if (args.Size() != 2 && args.Size() != 3) {
+    throw std::invalid_argument{"StringSlice expects 2 or 3 arguments"};
+  }
   const std::string str = to_string(*args.TryGet(0));
   std::size_t start = 0;
   std::size_t stop = 0;
@@ -211,23 +307,34 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     start = as_index_strict(*args.TryGet(1), "StringSlice start");
     stop = as_index_strict(*args.TryGet(2), "StringSlice stop");
   }
-  if (start > str.size()) start = str.size();
-  if (stop > str.size()) stop = str.size();
-  if (stop < start) stop = start;
+  if (start > str.size())
+    start = str.size();
+  if (stop > str.size())
+    stop = str.size();
+  if (stop < start)
+    stop = start;
   return make_string(str.substr(start, stop - start));
 }
 
 // arg = [str, needle] | [str, needle, start]
 [[nodiscard]] inline auto StringFind(Value arg) -> Value {
   const auto& args = as_array(arg);
-  if (args.Size() != 2 && args.Size() != 3) { throw std::invalid_argument{"StringFind expects 2 or 3 arguments"}; }
+  if (args.Size() != 2 && args.Size() != 3) {
+    throw std::invalid_argument{"StringFind expects 2 or 3 arguments"};
+  }
   const std::string str = to_string(*args.TryGet(0));
   const std::string needle = to_string(*args.TryGet(1));
   std::size_t start = 0;
-  if (args.Size() == 3) { start = as_index_strict(*args.TryGet(2), "StringFind start"); }
-  if (start > str.size()) { return make_int(-1); }
+  if (args.Size() == 3) {
+    start = as_index_strict(*args.TryGet(2), "StringFind start");
+  }
+  if (start > str.size()) {
+    return make_int(-1);
+  }
   const auto pos = str.find(needle, start);
-  if (pos == std::string::npos) { return make_int(-1); }
+  if (pos == std::string::npos) {
+    return make_int(-1);
+  }
   return make_int(static_cast<Int>(pos));
 }
 
@@ -235,11 +342,15 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 // Returns the formatted string without printing.
 [[nodiscard]] inline auto StringFormat(Value arg) -> Value {
   const auto& args = as_array(arg);
-  if (args.Size() < 1) { throw std::invalid_argument{"String.Format expects at least 1 argument"}; }
+  if (args.Size() < 1) {
+    throw std::invalid_argument{"String.Format expects at least 1 argument"};
+  }
   const std::string fmt = to_string(*args.TryGet(0));
   std::vector<Value> values;
   values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-  for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) { values.push_back(*args.TryGet(arg_index)); }
+  for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
+    values.push_back(*args.TryGet(arg_index));
+  }
   return make_string(format_values(fmt, values));
 }
 
@@ -253,8 +364,12 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   const auto match_data = detail::regex_match_data_or_throw(code.get());
   const int rc =
       pcre2_match(code.get(), reinterpret_cast<PCRE2_SPTR>(str.c_str()), str.size(), 0, 0, match_data.get(), nullptr);
-  if (rc == PCRE2_ERROR_NOMATCH) { return make_bool(false); }
-  if (rc < 0) { throw std::runtime_error{"StringRegexIsMatch: match failed with code " + std::to_string(rc)}; }
+  if (rc == PCRE2_ERROR_NOMATCH) {
+    return make_bool(false);
+  }
+  if (rc < 0) {
+    throw std::runtime_error{"StringRegexIsMatch: match failed with code " + std::to_string(rc)};
+  }
   return make_bool(true);
 #else
   (void)arg;
@@ -272,8 +387,12 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   const auto match_data = detail::regex_match_data_or_throw(code.get());
   const int rc =
       pcre2_match(code.get(), reinterpret_cast<PCRE2_SPTR>(str.c_str()), str.size(), 0, 0, match_data.get(), nullptr);
-  if (rc == PCRE2_ERROR_NOMATCH) { return make_int(-1); }
-  if (rc < 0) { throw std::runtime_error{"StringRegexFind: match failed with code " + std::to_string(rc)}; }
+  if (rc == PCRE2_ERROR_NOMATCH) {
+    return make_int(-1);
+  }
+  if (rc < 0) {
+    throw std::runtime_error{"StringRegexFind: match failed with code " + std::to_string(rc)};
+  }
   const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
   return make_int(static_cast<Int>(ovector[0]));
 #else
@@ -298,8 +417,12 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   while (search_from <= str.size()) {
     const int rc = pcre2_match(code.get(), reinterpret_cast<PCRE2_SPTR>(str.c_str()), str.size(), search_from, 0,
                                match_data.get(), nullptr);
-    if (rc == PCRE2_ERROR_NOMATCH) { break; }
-    if (rc < 0) { throw std::runtime_error{"StringRegexReplace: match failed with code " + std::to_string(rc)}; }
+    if (rc == PCRE2_ERROR_NOMATCH) {
+      break;
+    }
+    if (rc < 0) {
+      throw std::runtime_error{"StringRegexReplace: match failed with code " + std::to_string(rc)};
+    }
 
     const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
     const auto begin = static_cast<std::size_t>(ovector[0]);
@@ -311,7 +434,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     out += repl;
     copy_from = end;
     if (end == begin) {
-      if (search_from >= str.size()) { break; }
+      if (search_from >= str.size()) {
+        break;
+      }
       search_from += 1;
     } else {
       search_from = end;
@@ -340,8 +465,12 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   while (search_from <= str.size()) {
     const int rc = pcre2_match(code.get(), reinterpret_cast<PCRE2_SPTR>(str.c_str()), str.size(), search_from, 0,
                                match_data.get(), nullptr);
-    if (rc == PCRE2_ERROR_NOMATCH) { break; }
-    if (rc < 0) { throw std::runtime_error{"StringRegexSplit: match failed with code " + std::to_string(rc)}; }
+    if (rc == PCRE2_ERROR_NOMATCH) {
+      break;
+    }
+    if (rc < 0) {
+      throw std::runtime_error{"StringRegexSplit: match failed with code " + std::to_string(rc)};
+    }
 
     const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
     const auto begin = static_cast<std::size_t>(ovector[0]);
@@ -352,7 +481,9 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     out.PushBack(make_string(str.substr(copy_from, begin - copy_from)));
     copy_from = end;
     if (end == begin) {
-      if (search_from >= str.size()) { break; }
+      if (search_from >= str.size()) {
+        break;
+      }
       search_from += 1;
     } else {
       search_from = end;

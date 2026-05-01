@@ -169,6 +169,28 @@ TEST_CASE("RuntimeSession preserves typed lets across snippets", "[vm][repl][typ
   REQUIRE(output.str() == "3\n");
 }
 
+TEST_CASE("RuntimeSession requires Std import before Std symbols are available", "[vm][repl][imports][stdlib]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto missing_import_result = session.run_snippet("(1, 2) -> Std.Add -> Std.Println;\n", output);
+  REQUIRE_FALSE(missing_import_result.has_value());
+  REQUIRE(missing_import_result.error().message == "Unresolved symbol.");
+  REQUIRE(missing_import_result.error().hint.has_value());
+  REQUIRE(((*missing_import_result.error().hint).find("Std.Add") != std::string::npos ||
+           (*missing_import_result.error().hint).find("Std.Println") != std::string::npos));
+
+  const auto import_result = session.run_snippet("import Std;\n", output);
+  if (!import_result.has_value()) { INFO(import_result.error().message); }
+  REQUIRE(import_result.has_value());
+
+  const auto use_result = session.run_snippet("(1, 2) -> Std.Add -> Std.Println;\n", output);
+  if (!use_result.has_value()) { INFO(use_result.error().message); }
+  REQUIRE(use_result.has_value());
+  REQUIRE(output.str() == "3\n");
+}
+
 TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][repl][type]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
@@ -257,6 +279,24 @@ TEST_CASE("RuntimeSession type-checks Std imports using canonical stdlib declara
   REQUIRE(mismatch_result.error().hint.has_value());
   REQUIRE_THAT(*mismatch_result.error().hint,
                Catch::Matchers::ContainsSubstring("Std.Array.GetAt expects argument 1 to match declared type"));
+}
+
+TEST_CASE("RuntimeSession resolves Std.String parse builtins from canonical stdlib declarations",
+          "[vm][repl][type][stdlib]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "(\"-42\") -> Std.String.ParseInt64 -> Std.Println;\n"
+      "(\"42\") -> Std.String.ParseUInt64 -> Std.Println;\n"
+      "(\"6.25e1\") -> Std.String.ParseFloat64 -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "-42\n42\n62.5\n");
 }
 
 TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][help][stdlib]") {
@@ -2934,6 +2974,12 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
   const auto c3 = push_i64_const(bytecode_module, 3);
   const auto c4 = push_i64_const(bytecode_module, 4);
   const auto c5 = push_i64_const(bytecode_module, 5);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"  +42"}});
+  const auto cParseInt = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"42"}});
+  const auto cParseUInt = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{" +6.25e1"}});
+  const auto cParseFloat = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"hElLo"}});
   const auto cHello = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"MiXeD"}});
@@ -2970,6 +3016,9 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
   const auto cFormat = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
   constexpr auto kToStringBuiltin = builtin(fleaux::vm::BuiltinId::ToString);
+  constexpr auto kStringParseInt64Builtin = builtin(fleaux::vm::BuiltinId::StringParseInt64);
+  constexpr auto kStringParseUInt64Builtin = builtin(fleaux::vm::BuiltinId::StringParseUInt64);
+  constexpr auto kStringParseFloat64Builtin = builtin(fleaux::vm::BuiltinId::StringParseFloat64);
   constexpr auto kStringUpperBuiltin = builtin(fleaux::vm::BuiltinId::StringUpper);
   constexpr auto kStringLowerBuiltin = builtin(fleaux::vm::BuiltinId::StringLower);
   constexpr auto kStringTrimBuiltin = builtin(fleaux::vm::BuiltinId::StringTrim);
@@ -2991,6 +3040,27 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c42},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kToStringBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cParseInt},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kStringParseInt64Builtin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cParseUInt},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kStringParseUInt64Builtin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cParseFloat},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kStringParseFloat64Builtin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -3128,7 +3198,7 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() ==
-          "42\nHELLO\nmixed\ntrim me\na b c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\nb\nbcd\n4\n2 + 3 = 5\n");
+          "42\n42\n42\n62.5\nHELLO\nmixed\ntrim me\na b c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\nb\nbcd\n4\n2 + 3 = 5\n");
 }
 
 TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through primary builtin dispatch", "[vm]") {
@@ -3642,6 +3712,9 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.Math.Clamp") == fleaux::vm::BuiltinId::MathClamp);
   REQUIRE(require_builtin("Std.ToString") == fleaux::vm::BuiltinId::ToString);
   REQUIRE(require_builtin("Std.ToNum") == fleaux::vm::BuiltinId::ToNum);
+  REQUIRE(require_builtin("Std.String.ParseInt64") == fleaux::vm::BuiltinId::StringParseInt64);
+  REQUIRE(require_builtin("Std.String.ParseUInt64") == fleaux::vm::BuiltinId::StringParseUInt64);
+  REQUIRE(require_builtin("Std.String.ParseFloat64") == fleaux::vm::BuiltinId::StringParseFloat64);
   REQUIRE(require_builtin("Std.String.Upper") == fleaux::vm::BuiltinId::StringUpper);
   REQUIRE(require_builtin("Std.String.Regex.Find") == fleaux::vm::BuiltinId::StringRegexFind);
 
@@ -3713,6 +3786,15 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto try_result = fleaux::runtime::Try(fleaux::runtime::make_tuple(fleaux::runtime::make_int(41), add_one));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultIsOk(try_result)));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::ResultUnwrap(try_result)) == 42.0);
+
+  REQUIRE(fleaux::runtime::as_int_value(
+              fleaux::runtime::StringParseInt64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("-42")))) ==
+          -42);
+  REQUIRE(fleaux::runtime::is_uint_number(
+      fleaux::runtime::StringParseUInt64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("42")))));
+  REQUIRE(fleaux::runtime::to_double(
+              fleaux::runtime::StringParseFloat64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("6.25e1")))) ==
+          62.5);
 
   const auto mapped = fleaux::runtime::ParallelMap(fleaux::runtime::make_tuple(
       fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2), fleaux::runtime::make_int(3)),

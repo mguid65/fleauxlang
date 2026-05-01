@@ -805,6 +805,7 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
 TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "[typecheck][stage3f][generics]") {
   SECTION("Std.Dict.Get propagates value type") {
     const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
         "let Std.Dict.Get<K, V>(dict: Dict(K, V), key: K): V :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
         "let Lookup(d: Dict(String, Int64)): Int64 = (d, \"a\") -> Std.Dict.Get;\n"
@@ -821,6 +822,7 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
 
   SECTION("Std.Dict.Get rejects key-type mismatch") {
     const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
         "let Std.Dict.Get<K, V>(dict: Dict(K, V), key: K): V :: __builtin__;\n"
         "let Lookup(d: Dict(String, Int64)): Int64 = (d, 1) -> Std.Dict.Get;\n"
         "(() -> Std.Dict.Create) -> Lookup;\n";
@@ -839,6 +841,7 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
 
   SECTION("Std.Dict.GetDefault rejects default-value mismatch") {
     const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
         "let Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V): V :: __builtin__;\n"
         "let Lookup(d: Dict(String, Int64)): Int64 = (d, \"a\", \"oops\") -> Std.Dict.GetDefault;\n"
         "(() -> Std.Dict.Create) -> Lookup;\n";
@@ -1727,12 +1730,16 @@ TEST_CASE("Type checker matrix: Stage-4d Std.Match semantics", "[typecheck][stag
   SECTION("Std.Match accepts literal, predicate, wildcard, and mixed handler forms") {
     const std::string src =
         "let Std.Match(value: Any, cases: Any...): Any :: __builtin__;\n"
+        "let Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
+        "let Std.Equal<T>(lhs: T, rhs: T): Bool :: __builtin__;\n"
+        "let Std.ToString(value: Any): String :: __builtin__;\n"
+        "let Std.String.Join(sep: String, items: Tuple(String...)): String :: __builtin__;\n"
         "let IsEven(n: Int64): Bool = ((n, 2) -> Std.Mod, 0) -> Std.Equal;\n"
         "let NeedsString(x: String): String = x;\n"
         "(8,\n"
         "  (0, (): String = \"zero\"),\n"
         "  (IsEven, (): String = \"even\"),\n"
-        "  (_, (n: Int64): String = (\"n=\", n) -> Std.Add)\n"
+        "  (_, (n: Int64): String = (\"\", (\"n=\", (n) -> Std.ToString)) -> Std.String.Join)\n"
         ") -> Std.Match -> NeedsString;\n";
 
     const fleaux::frontend::parse::Parser parser;
@@ -2536,6 +2543,7 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
 
   SECTION("Std.Parallel.Reduce rejects downstream error-shape mismatch") {
     const std::string src =
+        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
         "let Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A): Result(A, Tuple(Int64, "
         "String)) :: __builtin__;\n"
         "let ReduceFn(acc: Int64, item: Int64): Int64 = (acc, item) -> Std.Add;\n"
@@ -2978,9 +2986,9 @@ TEST_CASE("FunctionIndex matrix: Stage-4b mixed imported symbol lookup", "[typec
 }
 
 TEST_CASE("Type checker matrix: Stage-4b symbolic qualifier ownership", "[typecheck][binding][stage4b]") {
-  SECTION("Std owned qualifiers remain symbolic") {
+  SECTION("Std owned qualifiers require an explicit import surface") {
     const std::string src =
-        "(1) -> Std.Add4;\n"
+        "(1, 2) -> Std.Add;\n"
         "(1) -> Std.Tuple.Add4;\n";
 
     const fleaux::frontend::parse::Parser parser;
@@ -2993,6 +3001,35 @@ TEST_CASE("Type checker matrix: Stage-4b symbolic qualifier ownership", "[typech
 
     const std::unordered_set<std::string> imported_symbols;
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Unresolved symbol") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE((analyzed.error().hint->find("Std.Add") != std::string::npos ||
+             analyzed.error().hint->find("Std.Tuple.Add4") != std::string::npos));
+  }
+
+  SECTION("Explicitly imported Std symbols resolve through the imported surface") {
+    const std::string src = "(1, 2) -> Std.Add;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4b_symbolic_qualifier_imported_std.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    fleaux::frontend::ir::IRLet imported_add;
+    imported_add.qualifier = std::string{"Std"};
+    imported_add.name = "Add";
+    imported_add.is_builtin = true;
+    imported_add.params = {{.name = "lhs", .type = {.name = "Int64"}},
+                           {.name = "rhs", .type = {.name = "Int64"}}};
+    imported_add.return_type = {.name = "Int64"};
+
+    const std::unordered_set<std::string> imported_symbols = {"Std.Add"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add};
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
     REQUIRE(analyzed.has_value());
   }
 
@@ -3069,6 +3106,55 @@ TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[ty
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add4};
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
     REQUIRE(analyzed.has_value());
+  }
+}
+
+TEST_CASE("Type checker narrows numeric builtin returns to concrete argument kinds", "[typecheck][builtins][numeric]") {
+  SECTION("Std.Add narrows to Int64 for concrete Int64 arguments") {
+    const std::string src =
+        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
+        "let NeedsInt(x: Int64): Int64 = x;\n"
+        "(1, 2) -> Std.Add -> NeedsInt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_numeric_builtin_refine_int64.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Add narrows to UInt64 for concrete UInt64 arguments") {
+    const std::string src =
+        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
+        "let NeedsUInt(x: UInt64): UInt64 = x;\n"
+        "(1u64, 2u64) -> Std.Add -> NeedsUInt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_numeric_builtin_refine_uint64.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Add does not narrow union-typed operands to Int64") {
+    const std::string src =
+        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: __builtin__;\n"
+        "let AddPair(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Int64 = (lhs, rhs) -> Std.Add;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_numeric_builtin_refine_union_fallback.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
   }
 }
 

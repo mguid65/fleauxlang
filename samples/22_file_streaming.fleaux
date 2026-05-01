@@ -32,41 +32,26 @@ let WriteSample(path: String): Bool =
 () -> TmpPath -> WriteSample -> Std.Println;           // True
 
 //  2. Read line-by-line with ReadLine + Loop
-// PrintGetHandle: prints a value as a side-effect and returns the handle.
-// This lets the loop step print the current line before fetching the next one.
-let PrintGetHandle(h: FileHandle, val: Any): FileHandle =
-    (val -> Std.Println, h) -> (_, 1) -> Std.ElementAt;
+let ReadFirstLine(path: String): Any =
+    (path, "r") -> Std.File.Open -> Std.File.ReadLine -> Std.Println;
 
-let LineContinue(h: FileHandle, line: String, eof: Bool): Bool = (eof) -> Std.Not;
-let LineStep(h: FileHandle, line: String, eof: Bool): Tuple(FileHandle, String, Bool) =
-    (h, line) -> PrintGetHandle -> Std.File.ReadLine;
-
-let ReadLines(path: String): Any =
-    ((path, "r") -> Std.File.Open -> Std.File.ReadLine,
-     LineContinue, LineStep) -> Std.Loop;
-
-() -> TmpPath -> ReadLines;                            // alpha / beta / gamma
+() -> TmpPath -> ReadFirstLine;                        // (handle, alpha, False)
 
 //  3. Read in fixed-size chunks with ReadChunk + Loop
-let ChunkContinue(h: FileHandle, chunk: String, eof: Bool): Bool = (eof) -> Std.Not;
-let ChunkStep(h: FileHandle, chunk: String, eof: Bool): Tuple(FileHandle, String, Bool) =
-    (h, chunk) -> PrintGetHandle -> (_, 4) -> Std.File.ReadChunk;
+let ReadFirstChunk(path: String): Any =
+    (path, "r") -> Std.File.Open -> (_, 4) -> Std.File.ReadChunk -> Std.Println;
 
-let ReadChunks(path: String): Any =
-    ((path, "r") -> Std.File.Open -> (_, 4) -> Std.File.ReadChunk,
-     ChunkContinue, ChunkStep) -> Std.Loop;
-
-() -> TmpPath -> ReadChunks;                           // alph / a\nbe / ta\ng / amma\n
+() -> TmpPath -> ReadFirstChunk;                       // (handle, alph, False)
 
 //  4. WithOpen: scoped handle, guaranteed close
 // func receives the open handle; the file is closed automatically when done.
-let FirstLine(h: FileHandle): String =
-    (h) -> Std.File.ReadLine -> (_, 1) -> Std.ElementAt;
+let ShowWithOpen(h: FileHandle): Any =
+    (h) -> Std.File.ReadLine -> Std.Println;
 
-let FirstLineOf(path: String): String =
-    (path, "r", FirstLine) -> Std.File.WithOpen;
+let FirstLineOf(path: String): Any =
+    (path, "r", ShowWithOpen) -> Std.File.WithOpen;
 
-() -> TmpPath -> FirstLineOf -> Std.Println;           // alpha
+() -> TmpPath -> FirstLineOf -> Std.Println;
 
 //  Cleanup
 () -> TmpPath -> Std.File.Delete -> Std.Println;       // True

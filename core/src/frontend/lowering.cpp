@@ -1,5 +1,6 @@
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/analysis.hpp"
+#include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
 #include <algorithm>
@@ -27,6 +28,24 @@ auto make_error(const std::string& message, const std::optional<std::string>& hi
   err.hint = hint;
   err.span = span;
   return err;
+}
+
+auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::AnalysisResult {
+  std::unordered_set<std::string> imported_symbols;
+  std::vector<ir::IRLet> imported_typed_lets;
+  const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
+      program,
+      [](const std::string& message, const std::optional<std::string>& hint,
+         const std::optional<diag::SourceSpan>& span) -> type_check::AnalysisError {
+        return type_check::AnalysisError{
+            .message = message,
+            .hint = hint,
+            .span = span,
+        };
+      },
+      imported_symbols, imported_typed_lets);
+  if (!seeded) { return tl::unexpected(seeded.error()); }
+  return type_check::analyze_program(program, imported_symbols, imported_typed_lets);
 }
 
 auto split_id(const std::variant<std::string, model::QualifiedId>& id)
@@ -629,7 +648,7 @@ auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
   auto lowered = lower_only(program);
   if (!lowered) { return tl::unexpected(lowered.error()); }
 
-  auto analyzed = type_check::analyze_program(*lowered);
+  auto analyzed = analyze_with_symbolic_imports(*lowered);
   if (!analyzed) {
     return tl::unexpected(LoweringError{
         .message = analyzed.error().message,
@@ -659,7 +678,21 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
     });
   }
 
-  return type_check::analyze_program(*lowered);
+  std::unordered_set<std::string> imported_symbols;
+  std::vector<ir::IRLet> imported_typed_lets;
+  const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
+      *lowered,
+      [](const std::string& message, const std::optional<std::string>& hint,
+         const std::optional<diag::SourceSpan>& span) -> type_check::AnalysisError {
+        return type_check::AnalysisError{
+            .message = message,
+            .hint = hint,
+            .span = span,
+        };
+      },
+      imported_symbols, imported_typed_lets);
+  if (!seeded) { return tl::unexpected(seeded.error()); }
+  return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
 }
 
 }  // namespace fleaux::frontend::analysis

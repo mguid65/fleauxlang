@@ -1,6 +1,6 @@
 import Std;
 
-let Build(): Any =
+let Build(): Dict(Any, Any) =
     () -> Std.Dict.Create
     -> (_, "name", "fleaux") -> Std.Dict.Set
     -> (_, "year", 2026) -> Std.Dict.Set

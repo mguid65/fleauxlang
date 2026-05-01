@@ -103,6 +103,7 @@ TEST_CASE("Lowerer accepts composite variadic tuple element return type", "[lowe
 
 TEST_CASE("Lowerer resolves tuple-template placeholder flow stage", "[lowering]") {
   const std::string src =
+      "import Std;\n"
       "let Sum3(a: Float64, b: Float64, c: Float64): Float64 =\n"
       "  (a, b) -> Std.Add -> (_, c) -> Std.Add;\n";
 
@@ -129,7 +130,7 @@ TEST_CASE("Lowerer resolves tuple-template placeholder flow stage", "[lowering]"
 }
 
 TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") {
-  const std::string src = "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n";
+  const std::string src = "import Std;\nlet MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_lowering.fleaux");
@@ -171,7 +172,7 @@ TEST_CASE("Lowerer preserves prefix-generic closure parameters in IR", "[lowerin
 }
 
 TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") {
-  const std::string src = "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n";
+  const std::string src = "import Std;\n(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add -> Std.Println;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_pipeline_desugar.fleaux");
@@ -204,7 +205,7 @@ TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") 
 }
 
 TEST_CASE("Lowerer excludes shadowed outer names from closure captures", "[lowering]") {
-  const std::string src = "let Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1.0) -> Std.Add;\n";
+  const std::string src = "import Std;\nlet Shadowed(n: Float64): Any = (n: Float64): Float64 = (n, 1.0) -> Std.Add;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_shadow_capture.fleaux");
@@ -237,7 +238,7 @@ TEST_CASE("Lowerer rejects closure declarations with non-final variadic paramete
 }
 
 TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
-  const std::string src = "(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match;\n";
+  const std::string src = "import Std;\n(1, (0, (): Any = \"zero\"), (_, (): Any = \"many\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_wildcard_lowering.fleaux");
@@ -273,7 +274,7 @@ TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
 }
 
 TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
-  const std::string src = "(1, (_, (): Any = \"many\"), (1, (): Any = \"one\")) -> Std.Match;\n";
+  const std::string src = "import Std;\n(1, (_, (): Any = \"many\"), (1, (): Any = \"one\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_wildcard_order_lowering.fleaux");
@@ -287,7 +288,7 @@ TEST_CASE("Lowerer rejects non-final Std.Match wildcard case", "[lowering]") {
 }
 
 TEST_CASE("Lowerer rejects Std.Match with no case tuples", "[lowering]") {
-  const std::string src = "(1) -> Std.Match;\n";
+  const std::string src = "import Std;\n(1) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_requires_case_lowering.fleaux");
@@ -301,7 +302,7 @@ TEST_CASE("Lowerer rejects Std.Match with no case tuples", "[lowering]") {
 }
 
 TEST_CASE("Lowerer rejects malformed Std.Match case tuples", "[lowering]") {
-  const std::string src = "(1, (0, (): Any = \"zero\", \"extra\")) -> Std.Match;\n";
+  const std::string src = "import Std;\n(1, (0, (): Any = \"zero\", \"extra\")) -> Std.Match;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "match_case_tuple_shape_lowering.fleaux");
@@ -402,6 +403,7 @@ TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[loweri
 
 TEST_CASE("Lowerer preserves let doc comments in IR", "[lowering]") {
   const std::string src =
+      "import Std;\n"
       "// @brief Increment a value\n"
       "// @param x input value\n"
       "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n";

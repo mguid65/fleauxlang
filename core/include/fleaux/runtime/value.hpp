@@ -533,8 +533,7 @@ inline void release_callable_ref(const Value& ref) {
   std::scoped_lock lock(callable_registry_mutex());
   // Only retire if the generation still matches (idempotent if already retired).
   auto& call_reg = callable_registry();
-  const auto* ptr = call_reg.get(*id);
-  if (ptr) { call_reg.retire(id->slot); }
+  if (const auto* ptr = call_reg.get(*id); ptr) { call_reg.retire(id->slot); }
 }
 
 // ============================================================================
@@ -1144,8 +1143,7 @@ auto make_tuple(Values&&... vals) -> Value {
 // the scalar value instead of a 1-tuple wrapper.
 [[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value {
   if (val.HasArray()) {
-    auto& arr = as_array(val);
-    if (arr.Size() == 1) { return std::move(arr[0]); }
+    if (auto& arr = as_array(val); arr.Size() == 1) { return std::move(arr[0]); }
   }
   return val;
 }
@@ -1332,7 +1330,7 @@ enum class SortTag {
 }
 
 [[nodiscard]] inline auto random_suffix(const std::size_t size = 12) -> std::string {
-  static thread_local std::mt19937_64 rng{std::random_device{}()};
+  thread_local std::mt19937_64 rng{std::random_device{}()};
   static constexpr auto alphabet = std::to_array("abcdefghijklmnopqrstuvwxyz0123456789");
   std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
   std::string out;

@@ -213,13 +213,12 @@ TEST_CASE("LineEditor tab completes symbols from the configured completion handl
   }
 
   auto result = editor.handle_event({.key = InputKey::kTab});
-  REQUIRE_FALSE(result.needs_redraw);
+  REQUIRE(result.needs_redraw);
   REQUIRE(result.completion_suggestions == std::vector<std::string>{"Std.Print", "Std.Println"});
-  REQUIRE(editor.buffer() == "Std.Pr");
+  REQUIRE(editor.buffer() == "Std.Print");
 
-  for (const char ch : std::string{"intl"}) {
-    REQUIRE(editor.handle_event(InputEvent::character(ch)).needs_redraw);
-  }
+  REQUIRE(editor.handle_event(InputEvent::character('l')).needs_redraw);
+
   result = editor.handle_event({.key = InputKey::kTab});
   REQUIRE(result.needs_redraw);
   REQUIRE(result.completion_suggestions.empty());

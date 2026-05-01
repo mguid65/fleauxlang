@@ -4,7 +4,7 @@ import Std;
 // When the sole parameter is marked `...`, all arguments are captured as a
 // tuple.  A scalar argument is automatically lifted into a 1-element tuple.
 
-let Collect(items: Any...): Any = items;
+let Collect(items: Any...): Tuple(Any...) = items;
 
 (42) -> Collect -> Std.Length -> Std.Println;              // 1  (scalar → 1-tuple)
 (1, 2, 3) -> Collect -> Std.Length -> Std.Println;         // 3
@@ -15,21 +15,18 @@ let Collect(items: Any...): Any = items;
 // collects everything that remains (may be an empty tuple).
 
 let First(head: Any, rest: Any...): Any = head;
-let Rest(head: Any, rest: Any...): Any  = rest;
+let Rest(head: Any, rest: Any...): Tuple(Any...)  = rest;
 
 (10, 20, 30) -> First -> Std.Println;                      // 10
 (10, 20, 30) -> Rest  -> Std.Length -> Std.Println;        // 2
 
-//  Practical example: variadic sum
-// The variadic tail arrives as a plain tuple, so any Tuple built-in applies.
+//  Practical example: fixed-prefix sum with a variadic tail
+// The first three values are named, and any remaining values are captured in `rest`.
 
-let AddTwo(acc: Float64, x: Float64): Float64 = (acc, x) -> Std.Add;
+let SumPrefix3(a: Float64, b: Float64, c: Float64, rest: Any...): Float64 =
+    (((a, b) -> Std.Add), c) -> Std.Add;
 
-let Sum(nums: Any...): Float64 =
-    (nums, 0, AddTwo) -> Std.Tuple.Reduce;
-
-() -> Sum -> Std.Println;                                  // 0
-(1, 2, 3, 4, 5) -> Sum -> Std.Println;                     // 15
+(1.0, 2.0, 3.0, 4.0, 5.0) -> SumPrefix3 -> Std.Println;   // 6
 
 //  Practical example: variadic string join
 // Mix fixed + variadic: `sep` is the fixed separator, `parts` is the tail.

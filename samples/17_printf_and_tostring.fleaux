@@ -6,7 +6,7 @@ import Std;
 (True) -> Std.ToString -> Std.Println;                            // True
 
 // -- Combining ToString with string operations --
-(256) -> Std.ToString -> (_, " bytes") -> Std.String.Join -> Std.Println; // 256 bytes
+(256) -> Std.ToString -> ("", (_, " bytes")) -> Std.String.Join -> Std.Println; // 256 bytes
 
 // -- Printf: prints formatted output --
 // First argument is the format string; remaining values substitute {} placeholders.

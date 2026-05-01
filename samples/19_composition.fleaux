@@ -19,7 +19,7 @@ let Abs(x: Float64): Float64      = ((x, 0.0) -> Std.GreaterOrEqual, x, (0.0, x)
 (-7.0) -> Negate -> Abs -> Std.Println;                           // 7
 
 // -- Passing composed behaviour through Apply --
-let ApplyTwice(x: Float64, f: Any): Float64 =
+let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 =
     (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
 
 (3.0, Double) -> ApplyTwice -> Std.Println;                       // 12

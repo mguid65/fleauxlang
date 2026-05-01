@@ -12,6 +12,7 @@
 
 #include <tl/expected.hpp>
 
+#include "fleaux/common/embedded_resource.hpp"
 #include "fleaux/frontend/analysis.hpp"
 #include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/parser.hpp"
@@ -109,6 +110,44 @@ template <typename ErrorT, typename ErrorFactory>
 }
 
 template <typename ErrorT, typename ErrorFactory>
+[[nodiscard]] auto seed_symbolic_imports_for_program(const ir::IRProgram& program, ErrorFactory&& make_error,
+                                                     std::unordered_set<std::string>& imported_symbols,
+                                                     std::vector<ir::IRLet>& imported_typed_lets)
+    -> tl::expected<void, ErrorT> {
+  std::unordered_set<std::string> imported_typed_let_keys;
+  imported_typed_let_keys.reserve(imported_typed_lets.size());
+  for (const auto& imported_let : imported_typed_lets) {
+    imported_typed_let_keys.insert(let_identity_key(imported_let));
+  }
+
+  for (const auto& [module_name, span] : program.imports) {
+    if (!import_resolution::is_symbolic_import(module_name)) { continue; }
+
+    const auto embedded_std = common::embedded_resource_text("Std.fleaux");
+    if (!embedded_std.has_value()) {
+      return tl::unexpected(make_error("Failed to read source file.",
+                                       std::optional<std::string>{"Embedded symbolic module 'Std' is unavailable."},
+                                       span));
+    }
+
+    const std::filesystem::path std_source_name{"Std.fleaux"};
+    const auto std_program = parse_text_to_lowered_ir<ErrorT>(std::string(*embedded_std), std_source_name.string(),
+                                                              std::forward<ErrorFactory>(make_error));
+    if (!std_program) { return tl::unexpected(std_program.error()); }
+
+    for (const auto& std_let : std_program->lets) {
+      if (!let_declared_in_source(std_let, std_source_name)) { continue; }
+      imported_symbols.insert(symbol_key(std_let.qualifier, std_let.name));
+      if (const auto key = let_identity_key(std_let); imported_typed_let_keys.insert(key).second) {
+        imported_typed_lets.push_back(std_let);
+      }
+    }
+  }
+
+  return {};
+}
+
+template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto analyze_lowered_program_with_imports(
     const ir::IRProgram& current_program, const std::filesystem::path& current_source, ErrorFactory&& make_error,
     const std::unordered_set<std::string>& extra_imported_symbols = {},
@@ -150,6 +189,13 @@ template <typename ErrorT, typename ErrorFactory>
       if (const auto typed_key = let_identity_key(imported_let); direct_imported_typed_let_keys.insert(typed_key).second) {
         direct_imported_typed_lets.push_back(imported_let);
       }
+    }
+
+    if (auto symbolic_seed = seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imported_symbols,
+                                                                       direct_imported_typed_lets);
+        !symbolic_seed) {
+      in_progress.erase(key);
+      return tl::unexpected(symbolic_seed.error());
     }
 
     IRProgram merged = current.value();

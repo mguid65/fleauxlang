@@ -33,22 +33,19 @@ let SafeDivide(a: Float64, b: Float64): Float64 =
 // -- Branch with inline closures: no named helpers needed --
 // The value at position 1 is forwarded as the argument to whichever closure runs.
 ((7.0, 0.0) -> Std.GreaterThan,
- 7.0,
- (n: Float64): String = ("positive: {}", n) -> Std.String.Format,
- (n: Float64): String = ("non-positive: {}", n) -> Std.String.Format
+ (7.0) -> Std.ToString,
+ (s: String): String = ("positive: {}", s) -> Std.String.Format,
+ (s: String): String = ("non-positive: {}", s) -> Std.String.Format
 ) -> Std.Branch -> Std.Println;                                   // positive: 7
 
 ((-3.0, 0.0) -> Std.GreaterThan,
- -3.0,
- (n: Float64): String = ("positive: {}", n) -> Std.String.Format,
- (n: Float64): String = ("non-positive: {}", n) -> Std.String.Format
+ (-3.0) -> Std.ToString,
+ (s: String): String = ("positive: {}", s) -> Std.String.Format,
+ (s: String): String = ("non-positive: {}", s) -> Std.String.Format
 ) -> Std.Branch -> Std.Println;                                   // non-positive: -3
 
 // -- Zero-parameter closures capture from the outer scope --
 // Useful when the branch result does not depend on the dispatched value.
 let GetLabel(): String = "fleaux";
-((True, (),
-  (): String = (() -> GetLabel) -> Std.String.Upper,
-  (): String = (() -> GetLabel) -> Std.String.Lower
-) -> Std.Branch) -> Std.Println;                                  // FLEAUX
+((True, () -> GetLabel, Std.String.Upper, Std.String.Lower) -> Std.Branch) -> Std.Println;  // FLEAUX
 

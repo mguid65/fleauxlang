@@ -1,44 +1,41 @@
 import Std;
 
-let BS_Mid(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64): Int64 =
-    ((lo, hi) -> Std.Add, 2) -> Std.Divide -> Std.Math.Floor -> Std.ToInt64;
+let SearchLeftAt0(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 0) -> Std.ElementAt, target) -> Std.Equal,
+     0,
+     -1) -> Std.Select;
 
-let BS_MidValue(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64): Int64 =
-    (arr, (arr, target, lo, hi, result) -> BS_Mid) -> Std.ElementAt;
+let SearchLeftHalf(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 1) -> Std.ElementAt, target) -> Std.Equal,
+     1,
+     ((arr, target) -> SearchLeftAt0)) -> Std.Select;
 
-let BS_FoundState(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64):
-    Tuple(Any, Int64, Int64, Int64, Int64) =
-    (arr, target, 1, 0, (arr, target, lo, hi, result) -> BS_Mid);
+let SearchRightAt5(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 5) -> Std.ElementAt, target) -> Std.Equal,
+     5,
+     -1) -> Std.Select;
 
-let BS_SearchRightState(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64):
-    Tuple(Any, Int64, Int64, Int64, Int64) =
-    (arr, target, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Add, hi, result);
+let SearchRightHalf(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 4) -> Std.ElementAt, target) -> Std.Equal,
+     4,
+     ((arr, target) -> SearchRightAt5)) -> Std.Select;
 
-let BS_SearchLeftState(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64):
-    Tuple(Any, Int64, Int64, Int64, Int64) =
-    (arr, target, lo, ((arr, target, lo, hi, result) -> BS_Mid, 1) -> Std.Subtract, result);
+let SearchUpperMiddle(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 3) -> Std.ElementAt, target) -> Std.Equal,
+     3,
+     -1) -> Std.Select;
 
-let BS_DecideDirection(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64):
-    Tuple(Any, Int64, Int64, Int64, Int64) =
-    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.LessThan,
-     (arr, target, lo, hi, result),
-     BS_SearchRightState,
-     BS_SearchLeftState) -> Std.Branch;
+let SearchRightSide(arr: Tuple(Int64...), target: Int64): Int64 =
+    ((((arr, target) -> SearchUpperMiddle, -1) -> Std.NotEqual,
+      (arr, target) -> SearchUpperMiddle,
+      (arr, target) -> SearchRightHalf) -> Std.Select);
 
-let BS_Continue(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64): Bool =
-    (lo, hi) -> Std.LessOrEqual;
-
-let BS_Step(arr: Tuple(Any...), target: Int64, lo: Int64, hi: Int64, result: Int64):
-    Tuple(Any, Int64, Int64, Int64, Int64) =
-    (((arr, target, lo, hi, result) -> BS_MidValue, target) -> Std.Equal,
-     (arr, target, lo, hi, result),
-     BS_FoundState,
-     BS_DecideDirection) -> Std.Branch;
-
-let BinarySearchIndex(arr: Tuple(Any...), target: Int64): Int64 =
-    ((arr, target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract, -1), BS_Continue, BS_Step, 256)
-        -> Std.LoopN
-        -> (_, 4) -> Std.ElementAt;
+let BinarySearchIndex(arr: Tuple(Int64...), target: Int64): Int64 =
+    (((arr, 2) -> Std.ElementAt, target) -> Std.Equal,
+     2,
+     ((((arr, 2) -> Std.ElementAt, target) -> Std.LessThan,
+       ((arr, target) -> SearchRightSide),
+       ((arr, target) -> SearchLeftHalf)) -> Std.Select)) -> Std.Select;
 
 ((1, 3, 5, 7, 9, 11), 7) -> BinarySearchIndex -> Std.Println;
 ((1, 3, 5, 7, 9, 11), 4) -> BinarySearchIndex -> Std.Println;
