@@ -25,4 +25,3 @@ let ApplyNamedOp(name: String, value: Float64): Float64 =
 ("double", 5.0) -> ApplyNamedOp -> Std.Println;
 ("square", 5.0) -> ApplyNamedOp -> Std.Println;
 ("unknown", 5.0) -> ApplyNamedOp -> Std.Println;
-

@@ -291,6 +291,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
 
   std::unordered_set<std::string> imported_symbols;
   std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
+  std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls;
   std::unordered_set<std::string> imported_typed_let_keys;
 
   for (std::size_t idx = 0; idx < imported_modules.size(); ++idx) {
@@ -404,6 +405,10 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
         imported_typed_lets.push_back(imported_let);
       }
 
+      for (const auto& imported_type_decl : imported_ir->type_decls) {
+        imported_type_decls.push_back(imported_type_decl);
+      }
+
       for (const auto& exported_key : exported_keys) {
         if (seeded_export_names.contains(exported_key)) {
           continue;
@@ -416,13 +421,14 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
   }
 
   if (auto symbolic_seed = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<ModuleLoadError>(
-          *ir_program, make_parse_error, imported_symbols, imported_typed_lets);
+          *ir_program, make_parse_error, imported_symbols, imported_typed_lets, imported_type_decls);
       !symbolic_seed) {
     return finish(tl::unexpected(symbolic_seed.error()));
   }
 
   const auto analyzed =
-      fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets);
+      fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets,
+                                                    imported_type_decls);
   if (!analyzed) {
     return finish(tl::unexpected(make_error(analyzed.error().hint.has_value()
                                                 ? analyzed.error().message + " (" + *analyzed.error().hint + ")"

@@ -1235,6 +1235,8 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
         return fleaux::runtime::DictClear(std::move(arg));
       case BuiltinId::DictLength:
         return fleaux::runtime::DictLength(std::move(arg));
+      case BuiltinId::Cast:
+        return fleaux::runtime::Cast(std::move(arg));
       case BuiltinId::ToInt64:
         return fleaux::runtime::ToInt64(std::move(arg));
       case BuiltinId::ToUInt64:
@@ -1390,20 +1392,23 @@ struct RuntimeSession::Impl {
 
   std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
+  std::vector<frontend::ir::IRTypeDecl> type_decls;
 };
 
 RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args)
     : impl_(std::make_shared<Impl>(process_args)) {}
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
-  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets);
+  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls);
   if (!analyzed) {
     return tl::unexpected(make_runtime_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
 
   auto merged_lets = detail::merge_repl_session_lets(impl_->lets, analyzed->lets, impl_->source_path);
+  auto merged_type_decls = detail::merge_repl_session_type_decls(impl_->type_decls, analyzed->type_decls, impl_->source_path);
   auto program_to_execute = analyzed.value();
   program_to_execute.lets = merged_lets;
+  program_to_execute.type_decls = merged_type_decls;
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   auto compiled = compiler.compile(program_to_execute, fleaux::bytecode::CompileOptions{
@@ -1417,6 +1422,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   }
 
   impl_->lets = std::move(merged_lets);
+  impl_->type_decls = std::move(merged_type_decls);
 
   constexpr Runtime runtime;
   return runtime.execute(*compiled, output);

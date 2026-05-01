@@ -33,6 +33,7 @@ auto make_error(const std::string& message, const std::optional<std::string>& hi
 auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::AnalysisResult {
   std::unordered_set<std::string> imported_symbols;
   std::vector<ir::IRLet> imported_typed_lets;
+  std::vector<ir::IRTypeDecl> imported_type_decls;
   const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
       program,
       [](const std::string& message, const std::optional<std::string>& hint,
@@ -43,9 +44,9 @@ auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::
             .span = span,
         };
       },
-      imported_symbols, imported_typed_lets);
+      imported_symbols, imported_typed_lets, imported_type_decls);
   if (!seeded) { return tl::unexpected(seeded.error()); }
-  return type_check::analyze_program(program, imported_symbols, imported_typed_lets);
+  return type_check::analyze_program(program, imported_symbols, imported_typed_lets, imported_type_decls);
 }
 
 auto split_id(const std::variant<std::string, model::QualifiedId>& id)
@@ -231,6 +232,12 @@ void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<st
                  [](const std::monostate&) -> void {},
                  [](const model::Constant&) -> void {},
                  [](const model::QualifiedId&) -> void {},
+                 [&](const model::NamedTargetBox& value) -> void {
+                   if (const auto* simple = std::get_if<std::string>(&value->target); simple != nullptr &&
+                       !kOperators.contains(*simple) && seen.insert(*simple).second) {
+                     out.push_back(*simple);
+                   }
+                 },
                  [&](const std::string& value) -> void {
                    if (!kOperators.contains(value) && seen.insert(value).second) { out.push_back(value); }
                  },
@@ -252,6 +259,39 @@ void collect_unqualified_names_from_expr(const model::Expression& expr, std::vec
 
 auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expected<ir::IRCallTarget, LoweringError> {
   return std::visit(fleaux::common::overloaded{
+                        [&](const model::NamedTargetBox& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
+                          std::vector<ir::IRSimpleType> explicit_type_args;
+                          explicit_type_args.reserve(value->explicit_type_args.size());
+                          for (const auto& type_arg : value->explicit_type_args) {
+                            explicit_type_args.push_back(lower_simple_type(*type_arg));
+                          }
+
+                          return std::visit(
+                              fleaux::common::overloaded{
+                                  [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
+                                    return ir::IRNameRef{
+                                        .qualifier = qualified.qualifier.qualifier,
+                                        .name = qualified.id,
+                                        .explicit_type_args = std::move(explicit_type_args),
+                                        .span = value->span,
+                                    };
+                                  },
+                                  [&](const std::string& simple) -> tl::expected<ir::IRCallTarget, LoweringError> {
+                                    if (kOperators.contains(simple)) {
+                                      return tl::unexpected(make_error(
+                                          "Explicit type argument application is only supported on named call targets.",
+                                          "Use explicit type arguments only with names such as 'Std.Cast<Id>'.",
+                                          value->span));
+                                    }
+                                    return ir::IRNameRef{
+                                        .qualifier = std::nullopt,
+                                        .name = simple,
+                                        .explicit_type_args = std::move(explicit_type_args),
+                                        .span = value->span,
+                                    };
+                                  }},
+                              value->target);
+                        },
                         [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
                           return ir::IRNameRef{
                               .qualifier = qualified.qualifier.qualifier,
@@ -412,6 +452,44 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
                                   },
                               .span = atom.span};
           },
+          [&](const model::NamedTargetBox& target) -> tl::expected<ir::IRExpr, LoweringError> {
+            std::vector<ir::IRSimpleType> explicit_type_args;
+            explicit_type_args.reserve(target->explicit_type_args.size());
+            for (const auto& type_arg : target->explicit_type_args) {
+              explicit_type_args.push_back(lower_simple_type(*type_arg));
+            }
+
+            return std::visit(
+                fleaux::common::overloaded{
+                    [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+                      if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
+                          (qid.id == "Ok" || qid.id == "Err")) {
+                        ir::IRConstant c;
+                        c.val = (qid.id == "Ok") ? true : false;
+                        c.span = qid.span;
+                        return ir::IRExpr{.node = std::move(c), .span = atom.span};
+                      }
+                      return ir::IRExpr{.node =
+                                            ir::IRNameRef{
+                                                .qualifier = qid.qualifier.qualifier,
+                                                .name = qid.id,
+                                                .explicit_type_args = std::move(explicit_type_args),
+                                                .span = target->span,
+                                            },
+                                        .span = atom.span};
+                    },
+                    [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+                      return ir::IRExpr{.node =
+                                            ir::IRNameRef{
+                                                .qualifier = std::nullopt,
+                                                .name = name,
+                                                .explicit_type_args = std::move(explicit_type_args),
+                                                .span = target->span,
+                                            },
+                                        .span = atom.span};
+                    }},
+                target->target);
+          },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
             return ir::IRExpr{.node =
                                   ir::IRNameRef{
@@ -558,6 +636,14 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                          });
                          return {};
                        },
+                       [&](const model::TypeStatement& model_type) -> tl::expected<void, LoweringError> {
+                         ir_program.type_decls.push_back(ir::IRTypeDecl{
+                             .name = model_type.name,
+                             .target = lower_simple_type(model_type.target),
+                             .span = model_type.span,
+                         });
+                         return {};
+                       },
                        [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
                          auto [qualifier, name] = split_id(model_let.id);
                          const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
@@ -680,6 +766,7 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
 
   std::unordered_set<std::string> imported_symbols;
   std::vector<ir::IRLet> imported_typed_lets;
+  std::vector<ir::IRTypeDecl> imported_type_decls;
   const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
       *lowered,
       [](const std::string& message, const std::optional<std::string>& hint,
@@ -690,9 +777,9 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
             .span = span,
         };
       },
-      imported_symbols, imported_typed_lets);
+      imported_symbols, imported_typed_lets, imported_type_decls);
   if (!seeded) { return tl::unexpected(seeded.error()); }
-  return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
+  return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets, imported_type_decls);
 }
 
 }  // namespace fleaux::frontend::analysis

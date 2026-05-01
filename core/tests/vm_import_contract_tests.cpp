@@ -136,6 +136,24 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
           .expected_fragments = {},
           .execute_vm = true,
       },
+      fleaux::tests::ImportContractCase{
+          .name = "imported_strong_type_visible",
+          .entry_file = "typed_entry_strong_type.fleaux",
+          .files = {
+              fleaux::tests::ImportContractFixtureFile{
+                  .name = "typed_dep_strong_type.fleaux",
+                  .source = "type UserId = Int64;\n"
+                            "let Echo(x: UserId): UserId = x;\n",
+              },
+              fleaux::tests::ImportContractFixtureFile{
+                  .name = "typed_entry_strong_type.fleaux",
+                  .source = "import typed_dep_strong_type;\n"
+                            "let UseImported(x: UserId): UserId = x;\n",
+              },
+          },
+          .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kSuccess,
+          .expected_fragments = {},
+      },
   };
 
   for (const auto& contract_case : cases) {

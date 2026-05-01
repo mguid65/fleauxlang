@@ -25,6 +25,12 @@ struct FunctionSig {
   bool is_builtin = false;
 };
 
+struct StrongTypeDecl {
+  std::string name;
+  Type target_type;
+  std::optional<diag::SourceSpan> span;
+};
+
 using FunctionOverloadSet = std::vector<FunctionSig>;
 
 class FunctionIndex {
@@ -43,6 +49,17 @@ private:
   std::unordered_map<std::string, FunctionOverloadSet> symbols_;
   std::unordered_set<std::string> unqualified_symbols_;
   std::unordered_set<std::string> qualified_symbols_;
+};
+
+class StrongTypeIndex {
+public:
+  explicit StrongTypeIndex(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls = {});
+
+  [[nodiscard]] auto resolve_name(const std::string& name) const -> const StrongTypeDecl*;
+  [[nodiscard]] auto has_name(const std::string& name) const -> bool;
+
+private:
+  std::unordered_map<std::string, StrongTypeDecl> decls_;
 };
 
 }  // namespace fleaux::frontend::type_system

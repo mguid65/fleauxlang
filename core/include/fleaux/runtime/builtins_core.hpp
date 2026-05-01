@@ -335,6 +335,8 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   return make_string(type_name(unwrap_singleton_arg(std::move(arg))));
 }
 
+[[nodiscard]] inline auto Cast(Value arg) -> Value { return unwrap_singleton_arg(std::move(arg)); }
+
 [[nodiscard]] inline auto ToInt64(Value arg) -> Value {
   return make_int(as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "ToInt64"));
 }

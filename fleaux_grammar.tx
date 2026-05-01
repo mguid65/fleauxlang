@@ -2,7 +2,7 @@ Program:
   statements*=Statement;
 
 Statement:
-  (ImportStatement | LetStatement | ExpressionStatement) ';';
+  (ImportStatement | TypeStatement | LetStatement | ExpressionStatement) ';';
 
 // Runtime parser allows import names like `Std` and digit-leading forms
 // like `20_export` (implemented as NUMBER + adjacent IDENT/NUMBER tokens).
@@ -18,6 +18,9 @@ ImportModuleNamePart:
 
 OptionallyQualifiedId:
   QualifiedId | Identifier;
+
+TypeStatement:
+  'type' name=Identifier sep=('=' | '::') target=Type;
 
 LetStatement:
   'let' id=OptionallyQualifiedId generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type
@@ -81,9 +84,15 @@ Atom:
   closure=ClosureExpression |
   '(' inner=DelimitedExpression ')' |
   constant=Constant |
-  qualified_var=QualifiedId |
-  var=Identifier |
+  named_target=NamedTarget |
   op=Operator;
+
+NamedTarget:
+  target=OptionallyQualifiedId explicit_type_args=OptionalExplicitTypeArgList;
+
+OptionalExplicitTypeArgList:
+  '<' args+=Type[','] '>' |
+  ;
 
 ClosureExpression:
   generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type '=' body=Expression;

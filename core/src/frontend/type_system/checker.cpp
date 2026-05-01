@@ -302,6 +302,92 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   return out;
 }
 
+auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
+                                const StrongTypeIndex& type_index,
+                                const std::unordered_set<std::string>& generic_params,
+                                const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<std::vector<Type>, type_check::AnalysisError> {
+  std::vector<Type> resolved;
+  resolved.reserve(explicit_type_args.size());
+  for (const auto& explicit_type_arg : explicit_type_args) {
+    const Type type_arg = rewrite_generic_type(from_ir_type(explicit_type_arg), generic_params);
+    if (auto validated = validate_declared_type(type_arg, type_index, generic_params, span); !validated) {
+      return tl::unexpected(validated.error());
+    }
+    resolved.push_back(type_arg);
+  }
+  return resolved;
+}
+
+auto explicit_type_arg_bindings_for_sig(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
+                                        const FunctionSig& sig, const std::vector<Type>& explicit_type_args)
+    -> tl::expected<TypeBindings, type_check::AnalysisError> {
+  if (explicit_type_args.empty()) { return TypeBindings{}; }
+
+  if (sig.generic_params.empty()) {
+    return tl::unexpected(make_error(
+        "Invalid explicit type argument application.",
+        std::format("{} is not generic and does not accept explicit type arguments.", full_name), span));
+  }
+
+  if (sig.generic_params.size() != explicit_type_args.size()) {
+    return tl::unexpected(
+        make_error("Invalid explicit type argument application.",
+                   std::format("{} expects {} explicit type argument(s) but got {}.", full_name,
+                               sig.generic_params.size(), explicit_type_args.size()),
+                   span));
+  }
+
+  TypeBindings bindings;
+  bindings.reserve(sig.generic_params.size());
+  for (std::size_t index = 0; index < sig.generic_params.size(); ++index) {
+    bindings.insert_or_assign(sig.generic_params[index], explicit_type_args[index]);
+  }
+  return bindings;
+}
+
+auto filter_overloads_for_explicit_type_args(const std::string& full_name,
+                                             const std::optional<diag::SourceSpan>& span,
+                                             const FunctionOverloadSet& overloads,
+                                             const std::vector<Type>& explicit_type_args)
+    -> tl::expected<std::vector<const FunctionSig*>, type_check::AnalysisError> {
+  std::vector<const FunctionSig*> filtered;
+  filtered.reserve(overloads.size());
+
+  if (explicit_type_args.empty()) {
+    for (const auto& overload : overloads) { filtered.push_back(&overload); }
+    return filtered;
+  }
+
+  for (const auto& overload : overloads) {
+    if (overload.generic_params.size() == explicit_type_args.size()) { filtered.push_back(&overload); }
+  }
+  if (!filtered.empty()) { return filtered; }
+
+  const bool has_generic_overload = std::ranges::any_of(overloads, [](const FunctionSig& overload) {
+    return !overload.generic_params.empty();
+  });
+  if (!has_generic_overload) {
+    return tl::unexpected(make_error(
+        "Invalid explicit type argument application.",
+        std::format("{} is not generic and does not accept explicit type arguments.", full_name), span));
+  }
+
+  if (overloads.size() == 1U) {
+    return tl::unexpected(
+        make_error("Invalid explicit type argument application.",
+                   std::format("{} expects {} explicit type argument(s) but got {}.", full_name,
+                               overloads.front().generic_params.size(), explicit_type_args.size()),
+                   span));
+  }
+
+  return tl::unexpected(
+      make_error("Invalid explicit type argument application.",
+                 std::format("No overload of {} accepts {} explicit type argument(s). Candidates: {}.", full_name,
+                             explicit_type_args.size(), overload_candidate_list(full_name, overloads)),
+                 span));
+}
+
 auto declaration_symbol_key(const ir::IRLet& let) -> std::string {
   return let.qualifier.has_value() ? (*let.qualifier + "." + let.name) : let.name;
 }
@@ -396,6 +482,94 @@ auto validate_supported_overload_sets(const ir::IRProgram& program, const std::v
   }
 
   return {};
+}
+
+auto validate_strong_type_declarations(const ir::IRProgram& program,
+                                       const std::vector<ir::IRTypeDecl>& imported_type_decls)
+    -> tl::expected<void, type_check::AnalysisError> {
+  std::unordered_map<std::string, std::optional<diag::SourceSpan>> seen;
+  seen.reserve(imported_type_decls.size() + program.type_decls.size());
+
+  const auto validate_decl_name = [&](const ir::IRTypeDecl& type_decl) -> std::optional<type_check::AnalysisError> {
+    if (const auto it = seen.find(type_decl.name); it != seen.end()) {
+      std::string hint = std::format("Strong type '{}' is already declared", type_decl.name);
+      if (it->second.has_value() && !it->second->source_name.empty()) {
+        hint += std::format(" in '{}'.", it->second->source_name);
+      } else {
+        hint += ".";
+      }
+      return make_error("Duplicate strong type declaration.", hint, type_decl.span);
+    }
+
+    seen.insert_or_assign(type_decl.name, type_decl.span);
+    return std::nullopt;
+  };
+
+  for (const auto& imported_type_decl : imported_type_decls) {
+    if (const auto error = validate_decl_name(imported_type_decl); error.has_value()) {
+      return tl::unexpected(*error);
+    }
+  }
+  for (const auto& type_decl : program.type_decls) {
+    if (const auto error = validate_decl_name(type_decl); error.has_value()) { return tl::unexpected(*error); }
+  }
+
+  const StrongTypeIndex type_index(program, imported_type_decls);
+  for (const auto& type_decl : program.type_decls) {
+    if (auto validated = validate_declared_type(from_ir_type(type_decl.target), type_index, {}, type_decl.span);
+        !validated) {
+      return tl::unexpected(validated.error());
+    }
+  }
+
+  return {};
+}
+
+auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index,
+                            const std::unordered_set<std::string>& generic_params,
+                            const std::optional<diag::SourceSpan>& span) -> tl::expected<void, type_check::AnalysisError> {
+  switch (type.kind) {
+    case TypeKind::kNominal:
+      if (generic_params.contains(type.nominal_name) || type_index.has_name(type.nominal_name) ||
+          is_builtin_opaque_nominal_type_name(type.nominal_name)) {
+        return {};
+      }
+      return tl::unexpected(make_error("Unknown type.",
+                                       std::format("Could not resolve type '{}'.", type.nominal_name), span));
+    case TypeKind::kTuple:
+      for (const auto& item : type.items) {
+        if (auto validated = validate_declared_type(item, type_index, generic_params, span); !validated) {
+          return tl::unexpected(validated.error());
+        }
+      }
+      return {};
+    case TypeKind::kUnion:
+      for (const auto& member : type.union_members) {
+        if (auto validated = validate_declared_type(member, type_index, generic_params, span); !validated) {
+          return tl::unexpected(validated.error());
+        }
+      }
+      return {};
+    case TypeKind::kApplied:
+      for (const auto& arg : type.applied_args) {
+        if (auto validated = validate_declared_type(arg, type_index, generic_params, span); !validated) {
+          return tl::unexpected(validated.error());
+        }
+      }
+      return {};
+    case TypeKind::kFunction:
+      for (const auto& param : type.function_params) {
+        if (auto validated = validate_declared_type(param, type_index, generic_params, span); !validated) {
+          return tl::unexpected(validated.error());
+        }
+      }
+      if (type.function_return.has_value()) {
+        return validate_declared_type(**type.function_return, type_index, generic_params, span);
+      }
+      return {};
+    default:
+      return {};
+  }
 }
 
 auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string>& generic_params) -> Type {
@@ -634,8 +808,52 @@ auto try_bind_union_option(const Type& expected_option, const Type& actual_membe
   return true;
 }
 
+namespace {
+
+auto types_are_identical(const Type& lhs, const Type& rhs) -> bool {
+  return is_consistent(lhs, rhs) && is_consistent(rhs, lhs);
+}
+
+auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target, const StrongTypeIndex& type_index)
+    -> bool {
+  if (source.kind == TypeKind::kNominal) {
+    if (const auto* source_decl = type_index.resolve_name(source.nominal_name); source_decl != nullptr &&
+        types_are_identical(source_decl->target_type, target)) {
+      return true;
+    }
+  }
+
+  if (target.kind == TypeKind::kNominal) {
+    if (const auto* target_decl = type_index.resolve_name(target.nominal_name); target_decl != nullptr &&
+        types_are_identical(source, target_decl->target_type)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+auto validate_std_cast_invocation(const Type& source_type, const Type& target_type, const StrongTypeIndex& type_index,
+                                  const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<void, type_check::AnalysisError> {
+  if (types_are_identical(source_type, target_type) ||
+      is_exact_strong_underlying_cast_pair(source_type, target_type, type_index)) {
+    return {};
+  }
+
+  return tl::unexpected(make_error(
+      "Invalid Std.Cast invocation.",
+      std::format("Std.Cast only permits identity casts or exact strong-type and underlying-type pairs. Got {} -> {}.",
+                  type_debug_name(source_type), type_debug_name(target_type)),
+      span));
+}
+
+}  // namespace
+
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
-                      const std::vector<Type>& args, const std::unordered_set<std::string>& allowed_unbound)
+                      const std::vector<Type>& args, const StrongTypeIndex& type_index,
+                      const std::unordered_set<std::string>& allowed_unbound,
+                      const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
   std::size_t fixed_count = sig.params.size();
   bool has_variadic = false;
@@ -656,7 +874,10 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
         std::format("{} expects {} argument(s) but got {}.", full_name, sig.params.size(), args.size()), span));
   }
 
-  TypeBindings generic_bindings;
+  auto explicit_bindings = explicit_type_arg_bindings_for_sig(full_name, span, sig, explicit_type_args);
+  if (!explicit_bindings) { return tl::unexpected(explicit_bindings.error()); }
+
+  TypeBindings generic_bindings = std::move(*explicit_bindings);
   const bool is_generic_call = !sig.generic_params.empty();
 
   for (std::size_t i = 0; i < fixed_count; ++i) {
@@ -713,6 +934,26 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     return tl::unexpected(make_error("Type mismatch in call target arguments.", builtin_contract_error, span));
   }
 
+  if (full_name == "Std.Cast") {
+    const Type target_type = is_generic_call ? instantiate_generic_type(sig.return_type, generic_bindings) : sig.return_type;
+
+    std::unordered_set<std::string> visiting;
+    std::unordered_map<std::string, bool> resolved_cache;
+    if (!is_type_resolved(target_type, generic_bindings, allowed_unbound, visiting, resolved_cache)) {
+      std::unordered_set<std::string> unbound;
+      collect_unresolved_return_type_vars(sig.return_type, generic_bindings, allowed_unbound, unbound);
+      return tl::unexpected(make_error("Type mismatch in call target arguments.",
+                                       std::format("{} could not infer generic return type variable(s): {}.", full_name,
+                                                   join_sorted_type_var_names(unbound)),
+                                       span));
+    }
+
+    if (auto validated = validate_std_cast_invocation(args.front(), target_type, type_index, span); !validated) {
+      return tl::unexpected(validated.error());
+    }
+    return target_type;
+  }
+
   if (is_generic_call) {
     std::unordered_set<std::string> unbound;
     collect_unresolved_return_type_vars(sig.return_type, generic_bindings, allowed_unbound, unbound);
@@ -729,17 +970,23 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
 
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                                  const FunctionOverloadSet& overloads, const std::vector<Type>& args,
-                                 const std::unordered_set<std::string>& allowed_unbound)
+                                 const StrongTypeIndex& type_index,
+                                 const std::unordered_set<std::string>& allowed_unbound,
+                                 const std::vector<Type>& explicit_type_args)
     -> tl::expected<ResolvedInvocation, type_check::AnalysisError> {
+  const auto filtered = filter_overloads_for_explicit_type_args(full_name, span, overloads, explicit_type_args);
+  if (!filtered) { return tl::unexpected(filtered.error()); }
+
   std::vector<const FunctionSig*> shape_matches;
-  shape_matches.reserve(overloads.size());
-  for (const auto& overload : overloads) {
-    if (call_shape_matches(overload, args.size())) { shape_matches.push_back(&overload); }
+  shape_matches.reserve(filtered->size());
+  for (const auto* overload : *filtered) {
+    if (call_shape_matches(*overload, args.size())) { shape_matches.push_back(overload); }
   }
 
   if (shape_matches.empty()) {
-    if (overloads.size() == 1U) {
-      if (auto checked = check_invocation(full_name, span, overloads.front(), args, allowed_unbound);
+    if (filtered->size() == 1U) {
+      if (auto checked = check_invocation(full_name, span, **filtered->begin(), args, type_index, allowed_unbound,
+                                          explicit_type_args);
           !checked.has_value()) {
         return tl::unexpected(checked.error());
       }
@@ -754,7 +1001,7 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
   matched_returns.reserve(shape_matches.size());
   std::optional<type_check::AnalysisError> first_error;
   for (const auto* overload : shape_matches) {
-    auto checked = check_invocation(full_name, span, *overload, args, allowed_unbound);
+    auto checked = check_invocation(full_name, span, *overload, args, type_index, allowed_unbound, explicit_type_args);
     if (checked.has_value()) {
       matched_returns.push_back(*checked);
       continue;
@@ -764,7 +1011,9 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
 
   std::optional<std::string> matched_symbol_key;
   for (const auto* overload : shape_matches) {
-    if (auto checked = check_invocation(full_name, span, *overload, args, allowed_unbound); !checked.has_value()) {
+    if (auto checked =
+            check_invocation(full_name, span, *overload, args, type_index, allowed_unbound, explicit_type_args);
+        !checked.has_value()) {
       continue;
     }
     if (matched_symbol_key.has_value()) {

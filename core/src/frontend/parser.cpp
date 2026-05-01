@@ -53,10 +53,10 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",  "import", "Int64", "UInt64", "Float64",    "String",
-                                                   "Bool", "Null",   "Any",   "Tuple",  "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",  "import", "type",  "Int64",  "UInt64", "Float64",
+                                                   "String", "Bool", "Null",   "Any",    "Tuple",  "__builtin__"};
 
-const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "__builtin__"};
+const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "__builtin__"};
 
 const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
@@ -627,6 +627,31 @@ private:
     return params;
   }
 
+  auto explicit_type_arg_list() -> PResult<std::vector<model::TypeNode>> {
+    FLEAUX_TRYV(eat_symbol("<"));
+
+    std::vector<model::TypeNode> args;
+    if (is_symbol(">")) {
+      return tl::unexpected(err("Explicit type argument list cannot be empty.", std::nullopt,
+                                "Add at least one type, for example: <Int64>."));
+    }
+
+    while (true) {
+      FLEAUX_TRY_ASSIGN(type_arg, type());
+      args.push_back(std::move(type_arg));
+      if (!match_symbol(",")) {
+        break;
+      }
+      if (is_symbol(">")) {
+        return tl::unexpected(err("Trailing comma in explicit type argument list.", std::nullopt,
+                                  "Remove the trailing comma or add another type argument."));
+      }
+    }
+
+    FLEAUX_TRYV(eat_symbol(">"));
+    return args;
+  }
+
   auto type() -> PResult<model::TypeNode> {
     const std::size_t start = i_;
     model::TypeNode base;
@@ -741,8 +766,17 @@ private:
   }
 
   [[nodiscard]] static auto is_call_target_primary(const model::Primary& primary) -> bool {
-    return std::holds_alternative<model::QualifiedId>(primary.base.value) ||
-           std::holds_alternative<std::string>(primary.base.value);
+    if (std::holds_alternative<model::QualifiedId>(primary.base.value) ||
+        std::holds_alternative<std::string>(primary.base.value)) {
+      return true;
+    }
+
+    if (const auto* named_target = std::get_if<model::NamedTargetBox>(&primary.base.value); named_target != nullptr) {
+      return std::holds_alternative<model::QualifiedId>((*named_target)->target) ||
+             std::holds_alternative<std::string>((*named_target)->target);
+    }
+
+    return false;
   }
 
   auto expr(bool allow_ungrouped_closure_stage_split = true) -> PResult<model::Expression> {
@@ -1052,12 +1086,16 @@ private:
     }
 
     FLEAUX_TRY_ASSIGN(q, opt_qid());
-    model::Atom out;
-    if (const auto* qualified = std::get_if<model::QualifiedId>(&q); qualified != nullptr) {
-      out.value = *qualified;
-    } else if (const auto* simple = std::get_if<std::string>(&q); simple != nullptr) {
-      out.value = *simple;
+    model::NamedTarget named_target;
+    named_target.target = std::move(q);
+    if (is_symbol("<")) {
+      FLEAUX_TRY_ASSIGN(explicit_type_args, explicit_type_arg_list());
+      for (auto& type_arg : explicit_type_args) { named_target.explicit_type_args.emplace_back(std::move(type_arg)); }
     }
+    named_target.span = span_from_mark(start);
+
+    model::Atom out;
+    out.value = model::NamedTargetBox(std::move(named_target));
     out.span = span_from_mark(start);
     return out;
   }
@@ -1090,6 +1128,20 @@ private:
 
     return tl::unexpected(err("Expected import module name", tok,
                               "Use a module name like 'Std' or a digit-leading name like '20_export'."));
+  }
+
+  auto type_stmt() -> PResult<model::TypeStatement> {
+    const std::size_t start = i_;
+    FLEAUX_TRYV(eat_ident_value("type"));
+
+    model::TypeStatement out;
+    FLEAUX_TRY_ASSIGN(type_name, ident());
+    out.name = std::move(type_name);
+    FLEAUX_TRYV(eat_one_of("::", "="));
+    FLEAUX_TRY_ASSIGN(target_type, type());
+    out.target = std::move(target_type);
+    out.span = span_from_mark(start);
+    return out;
   }
 
   auto let_stmt() -> PResult<model::LetStatement> {
@@ -1163,6 +1215,10 @@ private:
 
     if (is_ident_value("let")) {
       return let_stmt();
+    }
+
+    if (is_ident_value("type")) {
+      return type_stmt();
     }
 
     const std::size_t start = i_;
