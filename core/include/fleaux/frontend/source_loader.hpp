@@ -45,6 +45,19 @@ namespace fleaux::frontend::source_loader {
   return symbol_key(let.qualifier, let.name);
 }
 
+[[nodiscard]] inline auto type_decl_identity_key(const ir::IRTypeDecl& type_decl) -> std::string {
+  if (type_decl.span.has_value() && !type_decl.span->source_name.empty()) {
+    return type_decl.span->source_name + "::" + type_decl.name;
+  }
+  return type_decl.name;
+}
+
+[[nodiscard]] inline auto type_decl_declared_in_source(const ir::IRTypeDecl& type_decl,
+                                                       const std::filesystem::path& source_file) -> bool {
+  if (!type_decl.span.has_value()) { return false; }
+  return std::filesystem::path(type_decl.span->source_name) == source_file;
+}
+
 [[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file)
     -> bool {
   if (!let.span.has_value()) { return false; }
@@ -112,12 +125,19 @@ template <typename ErrorT, typename ErrorFactory>
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto seed_symbolic_imports_for_program(const ir::IRProgram& program, ErrorFactory&& make_error,
                                                      std::unordered_set<std::string>& imported_symbols,
-                                                     std::vector<ir::IRLet>& imported_typed_lets)
+                                                     std::vector<ir::IRLet>& imported_typed_lets,
+                                                     std::vector<ir::IRTypeDecl>& imported_type_decls)
     -> tl::expected<void, ErrorT> {
   std::unordered_set<std::string> imported_typed_let_keys;
   imported_typed_let_keys.reserve(imported_typed_lets.size());
   for (const auto& imported_let : imported_typed_lets) {
     imported_typed_let_keys.insert(let_identity_key(imported_let));
+  }
+
+  std::unordered_set<std::string> imported_type_decl_keys;
+  imported_type_decl_keys.reserve(imported_type_decls.size());
+  for (const auto& imported_type_decl : imported_type_decls) {
+    imported_type_decl_keys.insert(type_decl_identity_key(imported_type_decl));
   }
 
   for (const auto& [module_name, span] : program.imports) {
@@ -142,6 +162,13 @@ template <typename ErrorT, typename ErrorFactory>
         imported_typed_lets.push_back(std_let);
       }
     }
+
+    for (const auto& std_type_decl : std_program->type_decls) {
+      if (!type_decl_declared_in_source(std_type_decl, std_source_name)) { continue; }
+      if (const auto key = type_decl_identity_key(std_type_decl); imported_type_decl_keys.insert(key).second) {
+        imported_type_decls.push_back(std_type_decl);
+      }
+    }
   }
 
   return {};
@@ -152,6 +179,7 @@ template <typename ErrorT, typename ErrorFactory>
     const ir::IRProgram& current_program, const std::filesystem::path& current_source, ErrorFactory&& make_error,
     const std::unordered_set<std::string>& extra_imported_symbols = {},
     const std::vector<ir::IRLet>& extra_imported_typed_lets = {},
+    const std::vector<ir::IRTypeDecl>& extra_imported_type_decls = {},
     const std::string_view cycle_message = "Cyclic import detected.",
     const std::optional<std::string>& cycle_hint = std::nullopt) -> tl::expected<ir::IRProgram, ErrorT> {
   using IRProgram = ir::IRProgram;
@@ -191,8 +219,20 @@ template <typename ErrorT, typename ErrorFactory>
       }
     }
 
+    std::vector<ir::IRTypeDecl> direct_imported_type_decls;
+    direct_imported_type_decls.reserve(extra_imported_type_decls.size());
+    std::unordered_set<std::string> direct_imported_type_decl_keys;
+    direct_imported_type_decl_keys.reserve(extra_imported_type_decls.size());
+    for (const auto& imported_type_decl : extra_imported_type_decls) {
+      if (const auto type_key = type_decl_identity_key(imported_type_decl);
+          direct_imported_type_decl_keys.insert(type_key).second) {
+        direct_imported_type_decls.push_back(imported_type_decl);
+      }
+    }
+
     if (auto symbolic_seed = seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imported_symbols,
-                                                                       direct_imported_typed_lets);
+                                                                       direct_imported_typed_lets,
+                                                                       direct_imported_type_decls);
         !symbolic_seed) {
       in_progress.erase(key);
       return tl::unexpected(symbolic_seed.error());
@@ -203,6 +243,7 @@ template <typename ErrorT, typename ErrorFactory>
     for (const auto& let : merged.lets) { seen.insert(let_identity_key(let)); }
 
     std::vector<IRLet> imported_lets;
+    std::vector<ir::IRTypeDecl> imported_type_decls;
     std::vector<IRExprStatement> imported_exprs;
     for (const auto& [module_name, span] : current->imports) {
       if (import_resolution::is_symbolic_import(module_name)) { continue; }
@@ -232,6 +273,16 @@ template <typename ErrorT, typename ErrorFactory>
         }
       }
 
+      for (const auto& imported_type_decl : imported->type_decls) {
+        if (const auto type_key = type_decl_identity_key(imported_type_decl);
+            direct_imported_type_decl_keys.insert(type_key).second) {
+          direct_imported_type_decls.push_back(imported_type_decl);
+        }
+        if (imported_type_decl.span.has_value() && std::filesystem::path(imported_type_decl.span->source_name) == import_source) {
+          imported_type_decls.push_back(imported_type_decl);
+        }
+      }
+
       for (const auto& imported_let : imported->lets) {
         if (const auto sym = let_identity_key(imported_let); seen.insert(sym).second) {
           imported_lets.push_back(imported_let);
@@ -240,7 +291,8 @@ template <typename ErrorT, typename ErrorFactory>
       imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
     }
 
-    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets);
+    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets,
+                                                       direct_imported_type_decls);
     if (!analyzed_current) {
       in_progress.erase(key);
       return tl::unexpected(
@@ -248,6 +300,7 @@ template <typename ErrorT, typename ErrorFactory>
     }
 
     merged = analyzed_current.value();
+    merged.type_decls.insert(merged.type_decls.begin(), imported_type_decls.begin(), imported_type_decls.end());
     merged.lets.insert(merged.lets.begin(), imported_lets.begin(), imported_lets.end());
     merged.expressions.insert(merged.expressions.begin(), imported_exprs.begin(), imported_exprs.end());
 
@@ -270,7 +323,7 @@ template <typename ErrorT, typename ErrorFactory>
   if (!current) { return tl::unexpected(current.error()); }
 
   return analyze_lowered_program_with_imports<ErrorT>(current.value(), source_file,
-                                                      std::forward<ErrorFactory>(make_error), {}, {},
+                                                      std::forward<ErrorFactory>(make_error), {}, {}, {},
                                                       cycle_message, cycle_hint);
 }
 

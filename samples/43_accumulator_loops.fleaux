@@ -19,4 +19,3 @@ let SumItems(items: Tuple(Int64...)): Int64 =
     ) -> Std.Loop -> (_, 1) -> Std.ElementAt;
 
 ((3, 1, 4, 1, 5)) -> SumItems -> Std.Println;
-

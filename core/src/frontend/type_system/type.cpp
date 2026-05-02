@@ -192,6 +192,10 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
   return normalize_type(std::move(out));
 }
 
+auto is_builtin_opaque_nominal_type_name(const std::string& name) -> bool {
+  return name == "TaskHandle" || name == "FileHandle";
+}
+
 auto is_integer_like(const Type& type) -> bool {
   return type.kind == TypeKind::kInt64 || type.kind == TypeKind::kUInt64;
 }

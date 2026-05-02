@@ -169,6 +169,26 @@ TEST_CASE("RuntimeSession preserves typed lets across snippets", "[vm][repl][typ
   REQUIRE(output.str() == "3\n");
 }
 
+TEST_CASE("RuntimeSession preserves strong type declarations across snippets", "[vm][repl][type][strong]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto define_result = session.run_snippet("type UserId = Int64;\nlet Echo(x: UserId): UserId = x;\n", output);
+  if (!define_result.has_value()) { INFO("vm repl strong type definition error: " << define_result.error().message); }
+  REQUIRE(define_result.has_value());
+
+  const auto use_type_result = session.run_snippet("let Wrap(x: UserId): UserId = x;\n", output);
+  if (!use_type_result.has_value()) { INFO("vm repl strong type reuse error: " << use_type_result.error().message); }
+  REQUIRE(use_type_result.has_value());
+
+  const auto mismatch_result = session.run_snippet("(1) -> Wrap;\n", output);
+  REQUIRE_FALSE(mismatch_result.has_value());
+  REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
+  REQUIRE(mismatch_result.error().hint.has_value());
+  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("Wrap expects argument 0"));
+}
+
 TEST_CASE("RuntimeSession requires Std import before Std symbols are available", "[vm][repl][imports][stdlib]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
@@ -2686,7 +2706,7 @@ TEST_CASE("VM kCallBuiltin reports bitwise shift errors through primary builtin 
   REQUIRE(result.error().message == "builtin 'Std.Bit.ShiftLeft' threw: BitShiftLeft: shift must be non-negative");
 }
 
-TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through primary builtin dispatch", "[vm]") {
+TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, cast, and to_num through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c1 = push_i64_const(bytecode_module, 1);
   const auto c41 = push_i64_const(bytecode_module, 41);
@@ -2707,6 +2727,7 @@ TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through prim
   constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
   constexpr auto kWrapBuiltin = builtin(fleaux::vm::BuiltinId::Wrap);
   constexpr auto kUnwrapBuiltin = builtin(fleaux::vm::BuiltinId::Unwrap);
+  constexpr auto kCastBuiltin = builtin(fleaux::vm::BuiltinId::Cast);
   constexpr auto kToNumBuiltin = builtin(fleaux::vm::BuiltinId::ToNum);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
@@ -2722,6 +2743,7 @@ TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, and to_num through prim
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kWrapBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kUnwrapBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kCastBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -3709,6 +3731,7 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.Take") == fleaux::vm::BuiltinId::Take);
   REQUIRE(require_builtin("Std.Drop") == fleaux::vm::BuiltinId::Drop);
   REQUIRE(require_builtin("Std.Slice") == fleaux::vm::BuiltinId::Slice);
+  REQUIRE(require_builtin("Std.Cast") == fleaux::vm::BuiltinId::Cast);
   REQUIRE(require_builtin("Std.ToInt64") == fleaux::vm::BuiltinId::ToInt64);
   REQUIRE(require_builtin("Std.ToUInt64") == fleaux::vm::BuiltinId::ToUInt64);
   REQUIRE(require_builtin("Std.ToFloat64") == fleaux::vm::BuiltinId::ToFloat64);

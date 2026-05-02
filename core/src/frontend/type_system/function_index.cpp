@@ -91,4 +91,27 @@ auto FunctionIndex::has_qualified_symbol(const std::optional<std::string>& quali
   return qualified_symbols_.contains(symbol_key(qualifier, name));
 }
 
+StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls) {
+  decls_.reserve(imported_type_decls.size() + program.type_decls.size());
+
+  const auto index_decl = [&](const ir::IRTypeDecl& type_decl) -> void {
+    decls_.insert_or_assign(type_decl.name,
+                            StrongTypeDecl{
+                                .name = type_decl.name,
+                                .target_type = from_ir_type(type_decl.target),
+                                .span = type_decl.span,
+                            });
+  };
+
+  for (const auto& imported_type_decl : imported_type_decls) { index_decl(imported_type_decl); }
+  for (const auto& type_decl : program.type_decls) { index_decl(type_decl); }
+}
+
+auto StrongTypeIndex::resolve_name(const std::string& name) const -> const StrongTypeDecl* {
+  if (const auto it = decls_.find(name); it != decls_.end()) { return &it->second; }
+  return nullptr;
+}
+
+auto StrongTypeIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }
+
 }  // namespace fleaux::frontend::type_system

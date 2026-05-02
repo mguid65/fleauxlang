@@ -1,0 +1,60 @@
+import Std;
+
+// Python:
+// tag_table = {
+//     "grow": "double",
+//     "power": "square",
+// }
+//
+// def apply_with_tag(name, value):
+//     tag = tag_table.get(name, "identity")
+//     if tag == "double":
+//         return value * 2.0
+//     elif tag == "square":
+//         return value * value
+//     else:
+//         return value
+//
+// op_table = {
+//     "grow": lambda x: x * 2.0,
+//     "power": lambda x: x * x,
+// }
+//
+// def apply_with_callable(name, value):
+//     func = op_table.get(name, lambda x: x)
+//     return func(value)
+
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+let Identity(x: Float64): Float64 = x;
+
+let BuildOpTags(): Dict(String, String) =
+    () -> Std.Dict.Create
+    -> (_, "grow", "double") -> Std.Dict.Set
+    -> (_, "power", "square") -> Std.Dict.Set;
+
+let ApplyWithTag(name: String, value: Float64): Float64 =
+    (() -> BuildOpTags
+     -> (_, name, "identity") -> Std.Dict.GetDefault,
+     ("double", (): Float64 = (value) -> Double),
+     ("square", (): Float64 = (value) -> Square),
+     (_, (): Float64 = value)
+    ) -> Std.Match;
+
+let BuildOps(): Dict(String, (Float64) => Float64) =
+    () -> Std.Dict.Create
+    -> (_, "grow", Double) -> Std.Dict.Set
+    -> (_, "power", Square) -> Std.Dict.Set;
+
+let ApplyWithCallable(name: String, value: Float64): Float64 =
+    () -> BuildOps
+    -> (_, name, Identity) -> Std.Dict.GetDefault
+    -> (value, _) -> Std.Apply;
+
+("grow", 5.0) -> ApplyWithTag -> Std.Println;
+("power", 5.0) -> ApplyWithTag -> Std.Println;
+("unknown", 5.0) -> ApplyWithTag -> Std.Println;
+("grow", 5.0) -> ApplyWithCallable -> Std.Println;
+("power", 5.0) -> ApplyWithCallable -> Std.Println;
+("unknown", 5.0) -> ApplyWithCallable -> Std.Println;
+

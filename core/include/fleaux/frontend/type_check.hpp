@@ -21,6 +21,7 @@ using AnalysisResult = tl::expected<ir::IRProgram, AnalysisError>;
 
 [[nodiscard]] auto analyze_program(const ir::IRProgram& program,
                                    const std::unordered_set<std::string>& imported_symbols = {},
-                                   const std::vector<ir::IRLet>& imported_typed_lets = {}) -> AnalysisResult;
+                                   const std::vector<ir::IRLet>& imported_typed_lets = {},
+                                   const std::vector<ir::IRTypeDecl>& imported_type_decls = {}) -> AnalysisResult;
 
 }  // namespace fleaux::frontend::type_check

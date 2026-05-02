@@ -1,0 +1,18 @@
+import Std;
+
+// Python:
+// def repeat(value, n):
+//     if n == 0:
+//         return []
+//     return [value] + repeat(value, n - 1)
+
+let Repeat<T>(value: T, count: Int64): Tuple(T...) =
+    (count,
+     (0, (): Tuple(T...) = ()),
+     (_, (): Tuple(T...) = (((value, ((count, 1) -> Std.Subtract)) -> Repeat), value) -> Std.Tuple.Prepend)
+    ) -> Std.Match;
+
+("ha", 4) -> Repeat -> Std.Println;
+(7, 5) -> Repeat -> Std.Println;
+("x", 0) -> Repeat -> Std.Length -> Std.Println;
+

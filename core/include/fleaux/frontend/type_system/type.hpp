@@ -43,6 +43,8 @@ struct Type {
 
 [[nodiscard]] auto from_ir_type(const ir::IRSimpleType& type) -> Type;
 
+[[nodiscard]] auto is_builtin_opaque_nominal_type_name(const std::string& name) -> bool;
+
 [[nodiscard]] auto is_integer_like(const Type& type) -> bool;
 
 [[nodiscard]] auto is_consistent(const Type& expected, const Type& actual) -> bool;

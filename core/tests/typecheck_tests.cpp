@@ -403,6 +403,41 @@ TEST_CASE("Type checker accepts zero-arg inline closure pipeline sugar", "[typec
   REQUIRE(lowered.has_value());
 }
 
+TEST_CASE("Type checker validates explicit type arguments on Std.Apply zero-arg shorthand",
+          "[typecheck][generics][apply]") {
+  SECTION("Zero-arg Std.Apply shorthand is still accepted without explicit type arguments") {
+    const std::string src =
+        "let Std.Apply<T, U>(value: T, func: (T) => U): U :: __builtin__;\n"
+        "let NeedsString(x: String): String = x;\n"
+        "((), (): String = \"fleaux\") -> Std.Apply -> NeedsString;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_std_apply_zero_arg_shorthand_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Zero-arg Std.Apply shorthand rejects explicit type arguments") {
+    const std::string src =
+        "let Std.Apply<T, U>(value: T, func: (T) => U): U :: __builtin__;\n"
+        "((), (): String = \"fleaux\") -> Std.Apply<Tuple(), String>;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_std_apply_zero_arg_shorthand_explicit_type_args.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Apply zero-arg shorthand") != std::string::npos);
+  }
+}
+
 TEST_CASE("Type checker infers user generic variadic tail argument type", "[typecheck][generics][stage_g3c]") {
   const std::string src =
       "let FirstOf<T>(head: T, tail: T...): T = head;\n"
@@ -3120,6 +3155,224 @@ TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[ty
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add4};
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
     REQUIRE(analyzed.has_value());
+  }
+}
+
+TEST_CASE("Type checker validates strong type environments across local and imported declarations",
+          "[typecheck][types][strong]") {
+  SECTION("Unknown strong types are rejected in declared signatures") {
+    const std::string src = "let Echo(x: UserId): UserId = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_unknown_strong_type.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Unknown type") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("UserId") != std::string::npos);
+  }
+
+  SECTION("Imported strong types are visible to local declarations") {
+    const std::string src = "let Echo(x: UserId): UserId = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_imported_strong_type_visible.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
+        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+    };
+
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, {}, {}, imported_type_decls);
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Imported and local strong type declarations cannot collide") {
+    const std::string src = "type UserId = String;\nlet Echo(x: UserId): UserId = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_duplicate_imported_strong_type.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
+        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+    };
+
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, {}, {}, imported_type_decls);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Duplicate strong type declaration") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("UserId") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments resolve through imported strong types") {
+    const std::string src = "(1) -> Std.Cast<UserId>;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_explicit_type_arg_imported_strong_type.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    fleaux::frontend::ir::IRLet imported_cast;
+    imported_cast.qualifier = std::string{"Std"};
+    imported_cast.name = "Cast";
+    imported_cast.generic_params = {"T"};
+    imported_cast.params = {{.name = "x", .type = {.name = "Any"}}};
+    imported_cast.return_type = {.name = "T"};
+
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_cast};
+    const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
+        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+    };
+
+    const auto analyzed =
+        fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
+                                                      imported_type_decls);
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Nominal strong types stay distinct from their underlying builtins") {
+    const std::string src = "type UserId = Int64;\nlet Echo(x: UserId): UserId = x;\n(1) -> Echo;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_nominal_strong_type_distinct.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("Echo expects argument 0") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast semantics",
+          "[typecheck][types][generics][strong]") {
+  const auto analyze_program = [](const std::string& src, const std::string& source_name,
+                                  const std::unordered_set<std::string>& imported_symbols = {},
+                                  const std::vector<fleaux::frontend::ir::IRLet>& imported_typed_lets = {},
+                                  const std::vector<fleaux::frontend::ir::IRTypeDecl>& imported_type_decls = {}) {
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, source_name);
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    return fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
+                                                         imported_type_decls);
+  };
+
+  const auto make_imported_std_cast = [] {
+    fleaux::frontend::ir::IRLet imported_cast;
+    imported_cast.qualifier = std::string{"Std"};
+    imported_cast.name = "Cast";
+    imported_cast.generic_params = {"T"};
+    imported_cast.params = {{.name = "value", .type = {.name = "Any"}}};
+    imported_cast.return_type = {.name = "T"};
+    return imported_cast;
+  };
+
+  SECTION("Explicit type arguments reject non-generic call targets") {
+    const auto analyzed = analyze_program("let Echo(x: Int64): Int64 = x;\n(1) -> Echo<Int64>;\n",
+                                          "typecheck_explicit_type_args_non_generic.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("Echo is not generic") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments reject wrong arity") {
+    const auto analyzed = analyze_program("let Echo<T>(x: T): T = x;\n(1) -> Echo<Int64, UInt64>;\n",
+                                          "typecheck_explicit_type_args_wrong_arity.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("expects 1 explicit type argument") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments reject local values") {
+    const auto analyzed = analyze_program("let Bad(x: Int64): Int64 = x<Int64>;\n",
+                                          "typecheck_explicit_type_args_local_value.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("x is a local value") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments filter overloads before checking call shape") {
+    const auto analyzed = analyze_program(
+        "let Make<T>(value: T): T = value;\n"
+        "let Make(lhs: Int64, rhs: Int64): Int64 = lhs;\n"
+        "let NeedString(value: String): String = value;\n"
+        "(\"ok\") -> Make<String> -> NeedString;\n",
+        "typecheck_explicit_type_args_overload_filter.fleaux");
+
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Std.Cast allows underlying to strong casts") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const auto analyzed = analyze_program(
+        "type UserId = Int64;\n"
+        "let Accept(x: UserId): UserId = x;\n"
+        "(42) -> Std.Cast<UserId> -> Accept;\n",
+        "typecheck_std_cast_underlying_to_strong.fleaux", imported_symbols, imported_typed_lets);
+
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Std.Cast allows strong to underlying casts") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const auto analyzed = analyze_program(
+        "type UserId = Int64;\n"
+        "let Reveal(x: UserId): Int64 = x -> Std.Cast<Int64>;\n",
+        "typecheck_std_cast_strong_to_underlying.fleaux", imported_symbols, imported_typed_lets);
+
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Std.Cast rejects unrelated strong type casts") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const auto analyzed = analyze_program(
+        "type UserId = Int64;\n"
+        "type AccountId = Int64;\n"
+        "let Recast(x: UserId): AccountId = x -> Std.Cast<AccountId>;\n",
+        "typecheck_std_cast_rejects_unrelated_strong.fleaux", imported_symbols, imported_typed_lets);
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid Std.Cast invocation") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("UserId -> AccountId") != std::string::npos);
   }
 }
 

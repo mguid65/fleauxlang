@@ -1,0 +1,49 @@
+import Std;
+
+// Python:
+// def choose_parity_label(n):
+//     return "even" if n % 2 == 0 else "odd"
+//
+// def factorial_branch(n):
+//     if n == 0:
+//         return 1
+//     return n * factorial_branch(n - 1)
+//
+// def factorial_match(n):
+//     if n == 0:
+//         return 1
+//     return n * factorial_match(n - 1)
+
+let IsEven(n: Int64): Bool =
+    (((n, 2) -> Std.Mod), 0) -> Std.Equal;
+
+let ChooseParityLabel(n: Int64): String =
+    ((n) -> IsEven, "even", "odd") -> Std.Select;
+
+let ReturnOne(_: Int64): Int64 = 1;
+
+let MultiplyByRecursiveBranchStep(n: Int64): Int64 =
+    (n, ((n, 1) -> Std.Subtract) -> FactorialWithBranch) -> Std.Multiply;
+
+let FactorialWithBranch(n: Int64): Int64 =
+    ((n, 0) -> Std.Equal, n, ReturnOne, MultiplyByRecursiveBranchStep) -> Std.Branch;
+
+let FactorialWithMatch(n: Int64): Int64 =
+    (n,
+     (0, (): Int64 = 1),
+     (_, (): Int64 = (n, ((n, 1) -> Std.Subtract) -> FactorialWithMatch) -> Std.Multiply)
+    ) -> Std.Match;
+
+// Std.Select is eager over values. This commented form is intentionally not runnable:
+//
+// let FactorialBad(n: Int64): Int64 =
+//     ((n, 0) -> Std.Equal,
+//      1,
+//      (n, ((n, 1) -> Std.Subtract) -> FactorialBad) -> Std.Multiply
+//     ) -> Std.Select;
+
+(4) -> ChooseParityLabel -> Std.Println;
+(0) -> FactorialWithBranch -> Std.Println;
+(5) -> FactorialWithBranch -> Std.Println;
+(5) -> FactorialWithMatch -> Std.Println;
+

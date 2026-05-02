@@ -46,6 +46,19 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
 [[nodiscard]] auto resolve_signature(const FunctionIndex& index, const ir::IRCallTarget& target)
     -> const FunctionOverloadSet*;
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type;
+auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
+                                const StrongTypeIndex& type_index,
+                                const std::unordered_set<std::string>& generic_params,
+                                const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<std::vector<Type>, type_check::AnalysisError>;
+auto explicit_type_arg_bindings_for_sig(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
+                                        const FunctionSig& sig, const std::vector<Type>& explicit_type_args)
+    -> tl::expected<TypeBindings, type_check::AnalysisError>;
+auto filter_overloads_for_explicit_type_args(const std::string& full_name,
+                                             const std::optional<diag::SourceSpan>& span,
+                                             const FunctionOverloadSet& overloads,
+                                             const std::vector<Type>& explicit_type_args)
+    -> tl::expected<std::vector<const FunctionSig*>, type_check::AnalysisError>;
 
 auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -> void;
 auto is_type_resolved(const Type& type, const TypeBindings& bindings,
@@ -72,6 +85,12 @@ auto overload_candidate_list(const std::string& full_name, const FunctionOverloa
 auto call_shape_matches(const FunctionSig& sig, std::size_t arg_count) -> bool;
 auto validate_supported_overload_sets(const ir::IRProgram& program, const std::vector<ir::IRLet>& imported_typed_lets)
     -> tl::expected<void, type_check::AnalysisError>;
+auto validate_strong_type_declarations(const ir::IRProgram& program,
+                                       const std::vector<ir::IRTypeDecl>& imported_type_decls)
+    -> tl::expected<void, type_check::AnalysisError>;
+auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index,
+                            const std::unordered_set<std::string>& generic_params,
+                            const std::optional<diag::SourceSpan>& span) -> tl::expected<void, type_check::AnalysisError>;
 
 auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string>& generic_params) -> Type;
 auto type_complexity(const Type& type) -> std::size_t;
@@ -90,11 +109,15 @@ auto try_bind_union_option(const Type& expected_option, const Type& actual_membe
                            TypeBindings& trial_bindings) -> bool;
 
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
-                      const std::vector<Type>& args, const std::unordered_set<std::string>& allowed_unbound)
+                      const std::vector<Type>& args, const StrongTypeIndex& type_index,
+                      const std::unordered_set<std::string>& allowed_unbound,
+                      const std::vector<Type>& explicit_type_args = {})
     -> tl::expected<Type, type_check::AnalysisError>;
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                                  const FunctionOverloadSet& overloads, const std::vector<Type>& args,
-                                 const std::unordered_set<std::string>& allowed_unbound)
+                                 const StrongTypeIndex& type_index,
+                                 const std::unordered_set<std::string>& allowed_unbound,
+                                 const std::vector<Type>& explicit_type_args = {})
     -> tl::expected<ResolvedInvocation, type_check::AnalysisError>;
 
 auto is_std_match_target(const ir::IRCallTarget& target) -> bool;
@@ -106,13 +129,16 @@ auto match_handler_return_type(const Type& handler_type, const Type& subject_typ
 auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_type,
                                  const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError>;
-auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const LocalTypes& locals,
+auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                          const LocalTypes& locals,
                           const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
-auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const LocalTypes& locals,
+auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                     const LocalTypes& locals,
                      const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
-auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const LocalTypes& locals,
+auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                const LocalTypes& locals,
                 const std::unordered_set<std::string>& generic_params) -> tl::expected<Type, type_check::AnalysisError>;
 
 }  // namespace fleaux::frontend::type_system::detail

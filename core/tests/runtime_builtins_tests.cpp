@@ -49,6 +49,17 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
                         Catch::Matchers::ContainsSubstring("Unwrap expects 1 arguments"));
   }
 
+  SECTION("Cast returns the original runtime value") {
+    const Value int_value = Cast(make_tuple(make_int(42)));
+    REQUIRE(to_double(int_value) == 42.0);
+    REQUIRE(as_string(Type(make_tuple(int_value))) == "Int64");
+
+    const Value tuple_value = Cast(make_tuple(make_tuple(make_string("user"), make_int(7))));
+    REQUIRE(as_array(tuple_value).Size() == 2);
+    REQUIRE(as_string(array_at(tuple_value, 0)) == "user");
+    REQUIRE(to_double(array_at(tuple_value, 1)) == 7.0);
+  }
+
   SECTION("ElementAt") {
     Value tpl = make_tuple(make_int(10), make_string("hello"), make_bool(true));
     Value r0 = ElementAt(make_tuple(tpl, make_int(0)));

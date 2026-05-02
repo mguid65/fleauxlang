@@ -1,0 +1,13 @@
+import Std;
+
+// Python:
+// def describe(value):
+//     return type(value).__name__, str(value)
+
+let TypeAndValueText<T>(value: T): Tuple(String, String) =
+    ((value) -> Std.Type, (value) -> Std.ToString);
+
+(42) -> TypeAndValueText -> Std.Println;
+("hello") -> TypeAndValueText -> Std.Println;
+((1, 2, 3)) -> TypeAndValueText -> Std.Println;
+

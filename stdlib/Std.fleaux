@@ -73,6 +73,10 @@ let Std.QuarterPi(): Float64 :: 0.785398163397448309615660845819875721049292;
 let Std.InvPi(): Float64 :: 0.3183098861837906715377675267450287240689192;
 let Std.TwoDivRootPi(): Float64 :: 1.12837916709551257389615890312154517168810125;
 
+// Opaque standard-library handle surface types
+type TaskHandle = Any;
+type FileHandle = Any;
+
 // Core builtins
 // @brief Print values to the active output stream.
 // @param args Additional values. Type: Any....
@@ -98,6 +102,11 @@ let Std.Help(name: String) : String :: __builtin__;
 // @param value Input value. Type: Any.
 // @return The runtime type name as a String.
 let Std.Type(value: Any) : String :: __builtin__;
+
+// @brief Reinterpret a value as an explicitly requested type.
+// @param value Input value. Type: Any.
+// @return The same runtime value, checked against the requested type parameter.
+let Std.Cast<T>(value: Any) : T :: __builtin__;
 
 // @brief Convert a value to Int64 explicitly.
 // @param value Input value. Type: Any.

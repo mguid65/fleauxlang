@@ -61,11 +61,15 @@ auto lower_source_to_ir(const std::string& source_text, const std::string& sourc
 
   std::unordered_set<std::string> imported_symbols;
   std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
+  std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls;
   const auto seeded = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<
-      fleaux::frontend::type_check::AnalysisError>(*lowered, make_error, imported_symbols, imported_typed_lets);
+      fleaux::frontend::type_check::AnalysisError>(*lowered, make_error, imported_symbols, imported_typed_lets,
+                                                   imported_type_decls);
   REQUIRE(seeded.has_value());
 
-  const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets);
+  const auto analyzed =
+      fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
+                                                    imported_type_decls);
   REQUIRE(analyzed.has_value());
   return analyzed.value();
 }

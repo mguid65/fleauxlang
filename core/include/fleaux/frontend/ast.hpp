@@ -26,6 +26,9 @@ struct QualifiedId {
 struct TypeNode;
 using TypeBox = Box<TypeNode>;
 
+struct NamedTarget;
+using NamedTargetBox = Box<NamedTarget>;
+
 struct TypeList {
   std::vector<TypeBox> types;
   std::optional<diag::SourceSpan> span;
@@ -57,6 +60,12 @@ struct TypeNode {
   std::optional<diag::SourceSpan> span;
 };
 
+struct NamedTarget {
+  std::variant<std::string, QualifiedId> target;
+  std::vector<TypeBox> explicit_type_args;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct Parameter {
   std::string param_name;
   TypeNode type;
@@ -85,7 +94,8 @@ struct DelimitedExpression {
 };
 
 struct Atom {
-  std::variant<std::monostate, Box<DelimitedExpression>, ClosureExpressionBox, Constant, QualifiedId, std::string>
+  std::variant<std::monostate, Box<DelimitedExpression>, ClosureExpressionBox, Constant, QualifiedId, std::string,
+               NamedTargetBox>
       value;
   std::optional<diag::SourceSpan> span;
 };
@@ -131,12 +141,18 @@ struct LetStatement {
   std::optional<diag::SourceSpan> span;
 };
 
+struct TypeStatement {
+  std::string name;
+  TypeNode target;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct ExpressionStatement {
   Expression expr;
   std::optional<diag::SourceSpan> span;
 };
 
-using Statement = std::variant<ImportStatement, LetStatement, ExpressionStatement>;
+using Statement = std::variant<ImportStatement, TypeStatement, LetStatement, ExpressionStatement>;
 
 struct Program {
   std::string source_name;
@@ -203,6 +219,7 @@ struct IRConstant {
 struct IRNameRef {
   std::optional<std::string> qualifier;
   std::string name;
+  std::vector<IRSimpleType> explicit_type_args;
   std::optional<std::string> resolved_symbol_key;
   std::optional<diag::SourceSpan> span;
 };
@@ -252,6 +269,12 @@ struct IRLet {
   std::optional<diag::SourceSpan> span;
 };
 
+struct IRTypeDecl {
+  std::string name;
+  IRSimpleType target;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct IRExprStatement {
   IRExpr expr;
   std::optional<diag::SourceSpan> span;
@@ -259,6 +282,7 @@ struct IRExprStatement {
 
 struct IRProgram {
   std::vector<IRImport> imports;
+  std::vector<IRTypeDecl> type_decls;
   std::vector<IRLet> lets;
   std::vector<IRExprStatement> expressions;
   std::optional<diag::SourceSpan> span;

@@ -219,3 +219,5 @@ python3 run_samples.py --mode vm --sample 25_fleaux_parser.fleaux
 - `tl::expected` for lightweight `expected` support in the C++ implementation.
 - `PCRE2` for regex support in the runtime and tooling.
 - `Catch2` for the native test suite.
+
+- The many developers of other functional/dataflow and esoteric languages for inspiration.

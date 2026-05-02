@@ -21,6 +21,48 @@ TEST_CASE("Parser handles import let and expression statements", "[parser]") {
   REQUIRE(std::holds_alternative<fleaux::frontend::model::ExpressionStatement>(parsed->statements[2]));
 }
 
+TEST_CASE("Parser accepts strong type declarations with both separators", "[parser][types]") {
+  const std::string src =
+      "type Id = Int64;\n"
+      "type Username :: String;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "type_declarations_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 2);
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::TypeStatement>(parsed->statements[0]));
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::TypeStatement>(parsed->statements[1]));
+
+  const auto& first = std::get<fleaux::frontend::model::TypeStatement>(parsed->statements[0]);
+  const auto& second = std::get<fleaux::frontend::model::TypeStatement>(parsed->statements[1]);
+  REQUIRE(first.name == "Id");
+  REQUIRE(second.name == "Username");
+}
+
+TEST_CASE("Parser accepts explicit type argument application on named targets", "[parser][types][generics]") {
+  const std::string src = "(10) -> Std.Cast<Id>;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "explicit_type_args_named_target_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::ExpressionStatement>(parsed->statements[0]));
+
+  const auto& expr_stmt = std::get<fleaux::frontend::model::ExpressionStatement>(parsed->statements[0]);
+  REQUIRE(expr_stmt.expr.expr.rhs.size() == 1);
+
+  const auto* named_target = std::get_if<fleaux::frontend::model::NamedTargetBox>(&expr_stmt.expr.expr.rhs[0].base.value);
+  REQUIRE(named_target != nullptr);
+  REQUIRE((*named_target)->explicit_type_args.size() == 1);
+
+  const auto* qualified = std::get_if<fleaux::frontend::model::QualifiedId>(&(*named_target)->target);
+  REQUIRE(qualified != nullptr);
+  REQUIRE(qualified->qualifier.qualifier == "Std");
+  REQUIRE(qualified->id == "Cast");
+}
+
 TEST_CASE("Parser supports digit-leading import module names", "[parser]") {
   const std::string src = "import 20_export;\n(4) -> Add4 -> Std.Println;\n";
 

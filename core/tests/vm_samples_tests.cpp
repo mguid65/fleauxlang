@@ -105,7 +105,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 45> kExpectedSamples = {
+constexpr std::array<std::string_view, 51> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -151,6 +151,12 @@ constexpr std::array<std::string_view, 45> kExpectedSamples = {
     "43_accumulator_loops.fleaux",
     "44_tuple_map_filter_reduce.fleaux",
     "45_result_recovery.fleaux",
+    "46_select_vs_branch_match.fleaux",
+    "47_tag_dispatch_vs_callable_dispatch.fleaux",
+    "48_repeat_value_tuple.fleaux",
+    "49_same_input_fanout.fleaux",
+    "50_multi_accumulator_loop_state.fleaux",
+    "51_strong_type_casts.fleaux",
 };
 
 }  // namespace
@@ -997,6 +1003,11 @@ FLEAUX_VM_SAMPLE_TEST("42_dict_dispatch.fleaux")
 FLEAUX_VM_SAMPLE_TEST("43_accumulator_loops.fleaux")
 FLEAUX_VM_SAMPLE_TEST("44_tuple_map_filter_reduce.fleaux")
 FLEAUX_VM_SAMPLE_TEST("45_result_recovery.fleaux")
+FLEAUX_VM_SAMPLE_TEST("46_select_vs_branch_match.fleaux")
+FLEAUX_VM_SAMPLE_TEST("47_tag_dispatch_vs_callable_dispatch.fleaux")
+FLEAUX_VM_SAMPLE_TEST("48_repeat_value_tuple.fleaux")
+FLEAUX_VM_SAMPLE_TEST("49_same_input_fanout.fleaux")
+FLEAUX_VM_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1042,6 +1053,11 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("42_dict_dispatch.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("43_accumulator_loops.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("44_tuple_map_filter_reduce.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("45_result_recovery.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("46_select_vs_branch_match.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("47_tag_dispatch_vs_callable_dispatch.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("48_repeat_value_tuple.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("49_same_input_fanout.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

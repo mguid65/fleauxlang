@@ -20,4 +20,3 @@ let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
     -> (_, GreaterThanFive) -> Std.Tuple.Filter
     -> (_, 0, Add) -> Std.Tuple.Reduce
     -> Std.Println;
-

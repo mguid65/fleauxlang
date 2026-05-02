@@ -28,6 +28,51 @@ TEST_CASE("Lowerer maps parser program into import let and expression buckets", 
   REQUIRE(lowered->lets[0].body.has_value());
 }
 
+TEST_CASE("Lowerer preserves type declarations in a dedicated IR bucket", "[lowering][types]") {
+  const std::string src =
+      "type Id = Int64;\n"
+      "type Username :: String;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_type_decl_shape.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->type_decls.size() == 2);
+  REQUIRE(lowered->type_decls[0].name == "Id");
+  REQUIRE(lowered->type_decls[0].target.name == "Int64");
+  REQUIRE(lowered->type_decls[1].name == "Username");
+  REQUIRE(lowered->type_decls[1].target.name == "String");
+}
+
+TEST_CASE("Lowerer preserves explicit type argument application on named targets", "[lowering][types][generics]") {
+  const std::string src = "(10) -> Std.Cast<Id>;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_explicit_type_args_named_target.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->expressions.size() == 1);
+
+  const auto& [node, span] = lowered->expressions[0].expr;
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRFlowExpr>(node));
+  const auto& flow = std::get<fleaux::frontend::ir::IRFlowExpr>(node);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRNameRef>(flow.rhs));
+
+  const auto& target = std::get<fleaux::frontend::ir::IRNameRef>(flow.rhs);
+  REQUIRE(target.qualifier.has_value());
+  REQUIRE(target.qualifier.value() == "Std");
+  REQUIRE(target.name == "Cast");
+  REQUIRE(target.explicit_type_args.size() == 1);
+  REQUIRE(target.explicit_type_args[0].name == "Id");
+}
+
 TEST_CASE("Lowerer marks builtin lets and clears body", "[lowering]") {
   const std::string src = "let Pi(): Float64 :: __builtin__;\n";
 

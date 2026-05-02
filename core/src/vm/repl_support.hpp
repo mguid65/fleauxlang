@@ -188,7 +188,8 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
 }
 
 inline auto parse_and_analyze_repl_text(const std::string& source_text, const std::filesystem::path& source_path,
-                                        const std::vector<frontend::ir::IRLet>& prior_session_lets)
+                                        const std::vector<frontend::ir::IRLet>& prior_session_lets,
+                                        const std::vector<frontend::ir::IRTypeDecl>& prior_session_type_decls)
     -> tl::expected<frontend::ir::IRProgram, ReplSessionError> {
   auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(source_text, source_path.string(),
                                                                                      make_repl_session_error);
@@ -207,8 +208,20 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     imported_typed_lets.push_back(prior_let);
   }
 
+  std::unordered_set<std::string> replaced_type_names;
+  replaced_type_names.reserve(lowered->type_decls.size());
+  for (const auto& type_decl : lowered->type_decls) { replaced_type_names.insert(type_decl.name); }
+
+  std::vector<frontend::ir::IRTypeDecl> imported_type_decls;
+  imported_type_decls.reserve(prior_session_type_decls.size());
+  for (const auto& prior_type_decl : prior_session_type_decls) {
+    if (replaced_type_names.contains(prior_type_decl.name)) { continue; }
+    imported_type_decls.push_back(prior_type_decl);
+  }
+
   std::unordered_set<std::string> imported_symbols;
   std::vector<frontend::ir::IRLet> symbolic_imported_lets;
+  std::vector<frontend::ir::IRTypeDecl> symbolic_imported_type_decls;
   for (const auto& [module_name, span] : lowered->imports) {
     (void)span;
     if (module_name != "Std") { continue; }
@@ -232,6 +245,12 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       imported_typed_keys.insert(frontend::source_loader::let_identity_key(imported_let));
     }
 
+    std::unordered_set<std::string> imported_type_decl_keys;
+    imported_type_decl_keys.reserve(imported_type_decls.size());
+    for (const auto& imported_type_decl : imported_type_decls) {
+      imported_type_decl_keys.insert(frontend::source_loader::type_decl_identity_key(imported_type_decl));
+    }
+
     for (const auto& std_let : std_program->lets) {
       if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) { continue; }
       imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
@@ -240,10 +259,19 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       }
       symbolic_imported_lets.push_back(std_let);
     }
+
+    for (const auto& std_type_decl : std_program->type_decls) {
+      if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) { continue; }
+      if (const auto key = frontend::source_loader::type_decl_identity_key(std_type_decl);
+          imported_type_decl_keys.insert(key).second) {
+        imported_type_decls.push_back(std_type_decl);
+      }
+      symbolic_imported_type_decls.push_back(std_type_decl);
+    }
   }
 
   const auto analyzed = frontend::source_loader::analyze_lowered_program_with_imports<ReplSessionError>(
-      *lowered, source_path, make_repl_session_error, imported_symbols, imported_typed_lets,
+      *lowered, source_path, make_repl_session_error, imported_symbols, imported_typed_lets, imported_type_decls,
       "Cyclic import detected.", std::optional<std::string>{"Break the cycle by moving shared definitions into a third module."});
   if (!analyzed) {
     return tl::unexpected(
@@ -265,6 +293,24 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     }
     merged_lets.insert(merged_lets.end(), result.lets.begin(), result.lets.end());
     result.lets = std::move(merged_lets);
+  }
+
+  if (!symbolic_imported_type_decls.empty()) {
+    std::unordered_set<std::string> seen;
+    seen.reserve(result.type_decls.size() + symbolic_imported_type_decls.size());
+    for (const auto& type_decl : result.type_decls) {
+      seen.insert(frontend::source_loader::type_decl_identity_key(type_decl));
+    }
+
+    std::vector<frontend::ir::IRTypeDecl> merged_type_decls;
+    merged_type_decls.reserve(result.type_decls.size() + symbolic_imported_type_decls.size());
+    for (const auto& imported_type_decl : symbolic_imported_type_decls) {
+      if (const auto key = frontend::source_loader::type_decl_identity_key(imported_type_decl); seen.insert(key).second) {
+        merged_type_decls.push_back(imported_type_decl);
+      }
+    }
+    merged_type_decls.insert(merged_type_decls.end(), result.type_decls.begin(), result.type_decls.end());
+    result.type_decls = std::move(merged_type_decls);
   }
 
   return result;
@@ -296,6 +342,35 @@ inline auto merge_repl_session_lets(const std::vector<frontend::ir::IRLet>& prio
     }
   }
   return merged_lets;
+}
+
+inline auto merge_repl_session_type_decls(const std::vector<frontend::ir::IRTypeDecl>& prior_session_type_decls,
+                                          const std::vector<frontend::ir::IRTypeDecl>& snippet_type_decls,
+                                          const std::filesystem::path& snippet_source)
+    -> std::vector<frontend::ir::IRTypeDecl> {
+  std::unordered_set<std::string> replaced_names;
+  replaced_names.reserve(snippet_type_decls.size());
+  for (const auto& type_decl : snippet_type_decls) {
+    if (!frontend::source_loader::type_decl_declared_in_source(type_decl, snippet_source)) { continue; }
+    replaced_names.insert(type_decl.name);
+  }
+
+  std::vector<frontend::ir::IRTypeDecl> merged_type_decls;
+  merged_type_decls.reserve(prior_session_type_decls.size() + snippet_type_decls.size());
+  std::unordered_set<std::string> seen_keys;
+  seen_keys.reserve(prior_session_type_decls.size() + snippet_type_decls.size());
+  for (const auto& prior_type_decl : prior_session_type_decls) {
+    if (replaced_names.contains(prior_type_decl.name)) { continue; }
+    seen_keys.insert(frontend::source_loader::type_decl_identity_key(prior_type_decl));
+    merged_type_decls.push_back(prior_type_decl);
+  }
+  for (const auto& snippet_type_decl : snippet_type_decls) {
+    if (const auto key = frontend::source_loader::type_decl_identity_key(snippet_type_decl);
+        seen_keys.insert(key).second) {
+      merged_type_decls.push_back(snippet_type_decl);
+    }
+  }
+  return merged_type_decls;
 }
 
 }  // namespace fleaux::vm::detail
