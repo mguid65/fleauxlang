@@ -16,15 +16,21 @@ namespace fleaux::runtime {
 }
 
 [[nodiscard]] inline auto array_shape(const Value& value) -> std::optional<std::vector<std::size_t>> {
-  if (!value.HasArray()) { return std::vector<std::size_t>{}; }
+  if (!value.HasArray()) {
+    return std::vector<std::size_t>{};
+  }
 
   const auto& arr = as_array(value);
   std::vector<std::size_t> shape;
   shape.push_back(arr.Size());
-  if (arr.Size() == 0) { return shape; }
+  if (arr.Size() == 0) {
+    return shape;
+  }
 
   auto first_child_shape = array_shape(*arr.TryGet(0));
-  if (!first_child_shape.has_value()) { return std::nullopt; }
+  if (!first_child_shape.has_value()) {
+    return std::nullopt;
+  }
   for (std::size_t child_index = 1; child_index < arr.Size(); ++child_index) {
     if (auto child_shape = array_shape(*arr.TryGet(child_index));
         !child_shape.has_value() || child_shape.value() != first_child_shape.value()) {
@@ -49,7 +55,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 [[nodiscard]] inline auto set_at_path(const Value& value, const std::vector<std::size_t>& path, const std::size_t depth,
                                       const Value& replacement) -> Value {
-  if (depth == path.size()) { return replacement; }
+  if (depth == path.size()) {
+    return replacement;
+  }
   const auto& arr = as_array(value);
   const std::size_t idx = path.at(depth);
   if (idx >= arr.Size()) {
@@ -71,7 +79,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 [[nodiscard]] inline auto reshape_from_flat(const Array& flat, const std::vector<std::size_t>& dims, std::size_t depth,
                                             std::size_t& cursor) -> Value {
-  if (depth == dims.size()) { return *flat.TryGet(cursor++); }
+  if (depth == dims.size()) {
+    return *flat.TryGet(cursor++);
+  }
 
   Array out;
   out.Reserve(dims.at(depth));
@@ -144,7 +154,9 @@ inline void flatten_into(const Value& value, Array& out) {
   Array out;
   out.Reserve(arr.Size() - 1);
   for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-    if (element_index != idx) { out.PushBack(*arr.TryGet(element_index)); }
+    if (element_index != idx) {
+      out.PushBack(*arr.TryGet(element_index));
+    }
   }
   return Value{std::move(out)};
 }
@@ -155,7 +167,9 @@ inline void flatten_into(const Value& value, Array& out) {
   const auto& arr = as_array(*args.TryGet(0));
   const std::size_t start = checked_index(*args.TryGet(1), "ArraySlice start");
   const std::size_t stop = checked_index(*args.TryGet(2), "ArraySlice stop");
-  if (start > stop) { throw std::invalid_argument(std::format("ArraySlice: start {} > stop {}", start, stop)); }
+  if (start > stop) {
+    throw std::invalid_argument(std::format("ArraySlice: start {} > stop {}", start, stop));
+  }
   if (stop > arr.Size()) {
     throw std::out_of_range(std::format("ArraySlice: stop {} out of range for size {}", stop, arr.Size()));
   }
@@ -176,8 +190,12 @@ inline void flatten_into(const Value& value, Array& out) {
 
   Array out;
   out.Reserve(lhs.Size() + rhs.Size());
-  for (std::size_t lhs_index = 0; lhs_index < lhs.Size(); ++lhs_index) { out.PushBack(*lhs.TryGet(lhs_index)); }
-  for (std::size_t rhs_index = 0; rhs_index < rhs.Size(); ++rhs_index) { out.PushBack(*rhs.TryGet(rhs_index)); }
+  for (std::size_t lhs_index = 0; lhs_index < lhs.Size(); ++lhs_index) {
+    out.PushBack(*lhs.TryGet(lhs_index));
+  }
+  for (std::size_t rhs_index = 0; rhs_index < rhs.Size(); ++rhs_index) {
+    out.PushBack(*rhs.TryGet(rhs_index));
+  }
   return Value{std::move(out)};
 }
 
@@ -217,7 +235,7 @@ inline void flatten_into(const Value& value, Array& out) {
     for (std::size_t column_index = 0; column_index < row.Size(); ++column_index) {
       new_row_array.PushBack(column_index == col_idx ? new_val : *row.TryGet(column_index));
     }
-    out_grid_array.PushBack(std::move(new_row));
+    out_grid_array.PushBack(new_row);
   }
 
   return out_grid;
@@ -254,7 +272,9 @@ inline void flatten_into(const Value& value, Array& out) {
 // Returns a new grid where rows become columns and columns become rows.
 [[nodiscard]] inline auto ArrayTranspose2D(Value arg) -> Value {
   const auto& grid = as_array(arg);
-  if (grid.Size() == 0) { return Value{Array{}}; }
+  if (grid.Size() == 0) {
+    return Value{Array{}};
+  }
 
   const auto& first_row = as_array(*grid.TryGet(0));
   const std::size_t num_cols = first_row.Size();
@@ -355,18 +375,24 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = value
 [[nodiscard]] inline auto ArrayRank(Value arg) -> Value {
   const auto shape = array_shape(arg);
-  if (!shape.has_value()) { throw std::invalid_argument("ArrayRank: value is not rectangular"); }
+  if (!shape.has_value()) {
+    throw std::invalid_argument("ArrayRank: value is not rectangular");
+  }
   return make_int(static_cast<Int>(shape->size()));
 }
 
 // arg = value
 [[nodiscard]] inline auto ArrayShape(Value arg) -> Value {
   const auto shape = array_shape(arg);
-  if (!shape.has_value()) { throw std::invalid_argument("ArrayShape: value is not rectangular"); }
+  if (!shape.has_value()) {
+    throw std::invalid_argument("ArrayShape: value is not rectangular");
+  }
 
   Array out;
   out.Reserve(shape->size());
-  for (const std::size_t dim : *shape) { out.PushBack(make_int(static_cast<Int>(dim))); }
+  for (const std::size_t dim : *shape) {
+    out.PushBack(make_int(static_cast<Int>(dim)));
+  }
   return Value{std::move(out)};
 }
 

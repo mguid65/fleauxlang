@@ -11,9 +11,11 @@ auto registry_storage() -> std::span<const EmbeddedResourceView>& {
 }  // namespace
 
 auto find_embedded_resource(const std::span<const EmbeddedResourceView> resources, const std::string_view name)
-	-> std::optional<EmbeddedResourceView> {
+    -> std::optional<EmbeddedResourceView> {
   for (const auto& resource : resources) {
-	if (resource.name == name) { return resource; }
+    if (resource.name == name) {
+      return resource;
+    }
   }
   return std::nullopt;
 }
@@ -39,10 +41,10 @@ auto find_embedded_resource(const std::string_view name) -> std::optional<Embedd
 
 auto embedded_resource_text(const std::string_view name) -> std::optional<std::string_view> {
   const auto resource = find_embedded_resource(name);
-  if (!resource.has_value()) { return std::nullopt; }
+  if (!resource.has_value()) {
+    return std::nullopt;
+  }
   return embedded_resource_text(*resource);
 }
 
 }  // namespace fleaux::common
-
-

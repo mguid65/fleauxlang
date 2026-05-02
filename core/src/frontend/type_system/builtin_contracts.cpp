@@ -29,7 +29,9 @@ enum NumericTypeMask : unsigned {
       return kNumericDeferred;
     case TypeKind::kUnion: {
       unsigned mask = kNumericNone;
-      for (const auto& member : type.union_members) { mask |= numeric_type_mask(member); }
+      for (const auto& member : type.union_members) {
+        mask |= numeric_type_mask(member);
+      }
       return mask == kNumericNone ? kNumericOther : mask;
     }
     default:
@@ -52,13 +54,21 @@ enum NumericTypeMask : unsigned {
 auto check_no_implicit_float_promotion(const std::vector<Type>& args, std::string& error_message,
                                        const std::string& full_name) -> bool {
   unsigned combined_mask = kNumericNone;
-  for (const auto& arg : args) { combined_mask |= numeric_type_mask(arg); }
+  for (const auto& arg : args) {
+    combined_mask |= numeric_type_mask(arg);
+  }
 
-  if ((combined_mask & kNumericDeferred) != 0U) { return true; }
-  if ((combined_mask & kNumericOther) != 0U) { return true; }
+  if ((combined_mask & kNumericDeferred) != 0U) {
+    return true;
+  }
+  if ((combined_mask & kNumericOther) != 0U) {
+    return true;
+  }
 
   const bool has_float = (combined_mask & kNumericFloat64) != 0U;
-  if (const bool has_integer = (combined_mask & (kNumericInt64 | kNumericUInt64)) != 0U; !has_float || !has_integer) { return true; }
+  if (const bool has_integer = (combined_mask & (kNumericInt64 | kNumericUInt64)) != 0U; !has_float || !has_integer) {
+    return true;
+  }
 
   error_message = full_name + " does not implicitly cast Int64 or UInt64 to Float64. Use Std.ToFloat64 explicitly.";
   return false;
@@ -70,7 +80,9 @@ auto check_integer_index_arg(const std::vector<Type>& args, const std::size_t in
     error_message = "Type mismatch in call target arguments.";
     return false;
   }
-  if (is_integer_like(args[index]) || is_deferred_integer_check_type(args[index])) { return true; }
+  if (is_integer_like(args[index]) || is_deferred_integer_check_type(args[index])) {
+    return true;
+  }
   error_message = full_name + " expects Int64 or UInt64 for integer arguments.";
   return false;
 }
@@ -81,7 +93,9 @@ auto check_integer_tuple_arg(const std::vector<Type>& args, const std::size_t in
     error_message = "Type mismatch in call target arguments.";
     return false;
   }
-  if (is_deferred_integer_check_type(args[index])) { return true; }
+  if (is_deferred_integer_check_type(args[index])) {
+    return true;
+  }
   if (args[index].kind != TypeKind::kTuple) {
     error_message = full_name + " expects tuple indices.";
     return false;
@@ -99,27 +113,46 @@ auto check_integer_tuple_arg(const std::vector<Type>& args, const std::size_t in
 
 auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args, std::string& error_message)
     -> bool {
-  if (is_numeric_cast_sensitive_builtin(full_name) && !check_no_implicit_float_promotion(args, error_message, full_name)) {
+  if (is_numeric_cast_sensitive_builtin(full_name) &&
+      !check_no_implicit_float_promotion(args, error_message, full_name)) {
     return false;
   }
-  if (full_name == "Std.Array.GetAt") { return check_integer_index_arg(args, 1U, error_message, full_name); }
-  if (full_name == "Std.Array.GetAtND") { return check_integer_tuple_arg(args, 1U, error_message, full_name); }
-  if (full_name == "Std.Array.ReshapeND") { return check_integer_tuple_arg(args, 1U, error_message, full_name); }
+  if (full_name == "Std.Array.GetAt") {
+    return check_integer_index_arg(args, 1U, error_message, full_name);
+  }
+  if (full_name == "Std.Array.GetAtND") {
+    return check_integer_tuple_arg(args, 1U, error_message, full_name);
+  }
+  if (full_name == "Std.Array.ReshapeND") {
+    return check_integer_tuple_arg(args, 1U, error_message, full_name);
+  }
 
   return true;
 }
 
-auto refine_builtin_return_type(const std::string& full_name, const std::vector<Type>& args, const Type& declared_return_type)
-    -> Type {
-  if (!is_numeric_arithmetic_builtin(full_name)) { return declared_return_type; }
+auto refine_builtin_return_type(const std::string& full_name, const std::vector<Type>& args,
+                                const Type& declared_return_type) -> Type {
+  if (!is_numeric_arithmetic_builtin(full_name)) {
+    return declared_return_type;
+  }
 
   unsigned combined_mask = kNumericNone;
-  for (const auto& arg : args) { combined_mask |= numeric_type_mask(arg); }
+  for (const auto& arg : args) {
+    combined_mask |= numeric_type_mask(arg);
+  }
 
-  if ((combined_mask & (kNumericDeferred | kNumericOther)) != 0U) { return declared_return_type; }
-  if (combined_mask == kNumericInt64) { return Type{.kind = TypeKind::kInt64}; }
-  if (combined_mask == kNumericUInt64) { return Type{.kind = TypeKind::kUInt64}; }
-  if (combined_mask == kNumericFloat64) { return Type{.kind = TypeKind::kFloat64}; }
+  if ((combined_mask & (kNumericDeferred | kNumericOther)) != 0U) {
+    return declared_return_type;
+  }
+  if (combined_mask == kNumericInt64) {
+    return Type{.kind = TypeKind::kInt64};
+  }
+  if (combined_mask == kNumericUInt64) {
+    return Type{.kind = TypeKind::kUInt64};
+  }
+  if (combined_mask == kNumericFloat64) {
+    return Type{.kind = TypeKind::kFloat64};
+  }
   return declared_return_type;
 }
 

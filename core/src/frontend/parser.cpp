@@ -53,8 +53,8 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",  "import", "type",  "Int64",  "UInt64", "Float64",
-                                                   "String", "Bool", "Null",   "Any",    "Tuple",  "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",    "import", "type", "Int64", "UInt64", "Float64",
+                                                   "String", "Bool",   "Null", "Any",   "Tuple",  "__builtin__"};
 
 const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "__builtin__"};
 
@@ -343,7 +343,7 @@ private:
   std::vector<bool> source_line_is_blank_;
   std::vector<std::optional<std::string>> source_line_comment_;
 
-  [[nodiscard]] static auto trim_copy(std::string_view text) -> std::string {
+  [[nodiscard]] static auto trim_copy(const std::string_view text) -> std::string {
     const auto first = text.find_first_not_of(" \t\r");
     if (first == std::string_view::npos) {
       return {};
@@ -486,8 +486,7 @@ private:
     int paren_depth = 1;
 
     while (scan_pos < tokens_.size() && paren_depth > 0) {
-      const auto& tok = tokens_[scan_pos];
-      if (tok.kind == TokenKind::kSymbol) {
+      if (const auto& tok = tokens_[scan_pos]; tok.kind == TokenKind::kSymbol) {
         if (tok.value == "(") {
           ++paren_depth;
         } else if (tok.value == ")") {
@@ -779,7 +778,7 @@ private:
     return false;
   }
 
-  auto expr(bool allow_ungrouped_closure_stage_split = true) -> PResult<model::Expression> {
+  auto expr(const bool allow_ungrouped_closure_stage_split = true) -> PResult<model::Expression> {
     const std::size_t start = i_;
     model::Expression out;
     FLEAUX_TRY_ASSIGN(parsed_flow, flow(allow_ungrouped_closure_stage_split));
@@ -817,8 +816,8 @@ private:
 
   auto parse_closure_after_open_paren(const std::size_t closure_start_index, const std::size_t open_paren_index,
                                       std::vector<std::string> generic_params,
-                                      const bool allow_ungrouped_closure_stage_split,
-                                      bool& committed) -> PResult<model::Atom> {
+                                      const bool allow_ungrouped_closure_stage_split, bool& committed)
+      -> PResult<model::Atom> {
     model::Atom out_atom;
 
     std::vector<model::Parameter> params;
@@ -912,7 +911,7 @@ private:
     return true;
   }
 
-  auto flow(bool allow_ungrouped_closure_stage_split = true) -> PResult<model::FlowExpression> {
+  auto flow(const bool allow_ungrouped_closure_stage_split = true) -> PResult<model::FlowExpression> {
     const std::size_t start = i_;
     model::FlowExpression out;
     FLEAUX_TRY_ASSIGN(lhs, primary());
@@ -942,9 +941,9 @@ private:
       FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
       FLEAUX_TRYV(eat_symbol("("));
       bool committed_generic = true;  // already committed by consuming the generic param list
-      FLEAUX_TRY_ASSIGN(prefixed_closure, parse_closure_after_open_paren(start, i_ - 1, std::move(generic_params),
-                                                                         allow_ungrouped_closure_stage_split,
-                                                                         committed_generic));
+      FLEAUX_TRY_ASSIGN(prefixed_closure,
+                        parse_closure_after_open_paren(start, i_ - 1, std::move(generic_params),
+                                                       allow_ungrouped_closure_stage_split, committed_generic));
       return prefixed_closure;
     }
 
@@ -1090,7 +1089,9 @@ private:
     named_target.target = std::move(q);
     if (is_symbol("<")) {
       FLEAUX_TRY_ASSIGN(explicit_type_args, explicit_type_arg_list());
-      for (auto& type_arg : explicit_type_args) { named_target.explicit_type_args.emplace_back(std::move(type_arg)); }
+      for (auto& type_arg : explicit_type_args) {
+        named_target.explicit_type_args.emplace_back(std::move(type_arg));
+      }
     }
     named_target.span = span_from_mark(start);
 
@@ -1236,8 +1237,7 @@ private:
   [[nodiscard]] auto hint_for_expected_expression(const Token& tok) const -> std::optional<std::string> {
     if (tok.kind == TokenKind::kSymbol) {
       if (tok.value == "->") {
-        const Token& prev = previous_token();
-        if (prev.kind == TokenKind::kSymbol && prev.value == "=") {
+        if (const Token& prev = previous_token(); prev.kind == TokenKind::kSymbol && prev.value == "=") {
           return "The function body is missing after '='. Add an expression, e.g. '= (a, b) -> Std.Add'.";
         }
         return "The left-hand side of '->' is missing. Add an expression before the pipeline operator.";

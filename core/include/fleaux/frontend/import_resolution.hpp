@@ -22,7 +22,9 @@ struct ResolvedModulePaths {
 
 [[nodiscard]] inline auto canonical_if_exists(const std::filesystem::path& path)
     -> std::optional<std::filesystem::path> {
-  if (!path_exists(path)) { return std::nullopt; }
+  if (!path_exists(path)) {
+    return std::nullopt;
+  }
   return std::filesystem::weakly_canonical(path);
 }
 
@@ -42,8 +44,12 @@ struct ResolvedModulePaths {
 }
 
 [[nodiscard]] inline auto module_key_for(const ResolvedModulePaths& paths) -> std::string {
-  if (paths.source.has_value()) { return paths.source->string(); }
-  if (paths.bytecode.has_value()) { return paths.bytecode->string(); }
+  if (paths.source.has_value()) {
+    return paths.source->string();
+  }
+  if (paths.bytecode.has_value()) {
+    return paths.bytecode->string();
+  }
   return {};
 }
 
@@ -72,7 +78,9 @@ struct ResolvedModulePaths {
 [[nodiscard]] inline auto resolve_import_paths(const std::filesystem::path& current_module_dir,
                                                const std::string& module_name) -> ResolvedModulePaths {
   ResolvedModulePaths paths;
-  if (is_symbolic_import(module_name)) { return paths; }
+  if (is_symbolic_import(module_name)) {
+    return paths;
+  }
 
   const auto source_candidate = current_module_dir / (module_name + ".fleaux");
   const auto bytecode_candidate = current_module_dir / (module_name + ".fleaux.bc");

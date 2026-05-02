@@ -65,7 +65,9 @@ inline void ensure_runtime_filesystem_ready() { ensure_web_virtual_filesystem();
 }
 
 [[nodiscard]] inline auto web_home_directory_path() -> std::filesystem::path {
-  if (const auto home = web_env_override("HOME"); home.has_value()) { return std::filesystem::path(*home); }
+  if (const auto home = web_env_override("HOME"); home.has_value()) {
+    return std::filesystem::path(*home);
+  }
   if (const auto userprofile = web_env_override("USERPROFILE"); userprofile.has_value()) {
     return std::filesystem::path(*userprofile);
   }
@@ -76,9 +78,15 @@ inline void ensure_runtime_filesystem_ready() { ensure_web_virtual_filesystem();
 }
 
 [[nodiscard]] inline auto web_temp_directory_path() -> std::filesystem::path {
-  if (const auto tmpdir = web_env_override("TMPDIR"); tmpdir.has_value()) { return std::filesystem::path(*tmpdir); }
-  if (const auto tmp = web_env_override("TMP"); tmp.has_value()) { return std::filesystem::path(*tmp); }
-  if (const auto temp = web_env_override("TEMP"); temp.has_value()) { return std::filesystem::path(*temp); }
+  if (const auto tmpdir = web_env_override("TMPDIR"); tmpdir.has_value()) {
+    return std::filesystem::path(*tmpdir);
+  }
+  if (const auto tmp = web_env_override("TMP"); tmp.has_value()) {
+    return std::filesystem::path(*tmp);
+  }
+  if (const auto temp = web_env_override("TEMP"); temp.has_value()) {
+    return std::filesystem::path(*temp);
+  }
   ensure_web_virtual_filesystem();
   std::error_code ec;
   std::filesystem::create_directories(web_default_temp_directory_path(), ec);
@@ -86,17 +94,27 @@ inline void ensure_runtime_filesystem_ready() { ensure_web_virtual_filesystem();
 }
 
 [[nodiscard]] inline auto web_env_value(std::string_view key) -> std::optional<std::string> {
-  if (key == "PWD") { return current_working_directory_path().string(); }
-  if (const auto overridden = web_env_override(key); overridden.has_value()) { return overridden; }
-  if (key == "HOME" || key == "USERPROFILE") { return web_home_directory_path().string(); }
-  if (key == "TMPDIR" || key == "TMP" || key == "TEMP") { return web_temp_directory_path().string(); }
+  if (key == "PWD") {
+    return current_working_directory_path().string();
+  }
+  if (const auto overridden = web_env_override(key); overridden.has_value()) {
+    return overridden;
+  }
+  if (key == "HOME" || key == "USERPROFILE") {
+    return web_home_directory_path().string();
+  }
+  if (key == "TMPDIR" || key == "TMP" || key == "TEMP") {
+    return web_temp_directory_path().string();
+  }
   return std::nullopt;
 }
 
 [[nodiscard]] inline auto resolve_runtime_path(std::string_view raw_path) -> std::filesystem::path {
   ensure_web_virtual_filesystem();
   const std::filesystem::path path(raw_path);
-  if (path.is_absolute()) { return path.lexically_normal(); }
+  if (path.is_absolute()) {
+    return path.lexically_normal();
+  }
   return (current_working_directory_path() / path).lexically_normal();
 }
 
@@ -137,7 +155,9 @@ inline void set_web_env_value(std::string key, std::string value) {
 [[nodiscard]] inline auto current_working_directory_path() -> std::filesystem::path {
   std::error_code ec;
   auto cwd = std::filesystem::current_path(ec);
-  if (!ec) { return cwd; }
+  if (!ec) {
+    return cwd;
+  }
   return std::filesystem::path{"."};
 }
 
@@ -153,8 +173,12 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   std::scoped_lock lock(registry.mtx);
   const auto normalized_target = target_path.lexically_normal();
   for (auto& entry : registry.entries) {
-    if (entry.closed) { continue; }
-    if (std::filesystem::path(entry.path).lexically_normal() != normalized_target) { continue; }
+    if (entry.closed) {
+      continue;
+    }
+    if (std::filesystem::path(entry.path).lexically_normal() != normalized_target) {
+      continue;
+    }
     entry.stream.close();
     entry.closed = true;
   }
@@ -172,7 +196,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto PathJoin(Value arg) -> Value {
   // arg = [seg0, seg1, ...]  — at least 2 segments required.
   const auto& args = as_array(arg);
-  if (args.Size() < 2) { throw std::invalid_argument{"PathJoin expects at least 2 arguments"}; }
+  if (args.Size() < 2) {
+    throw std::invalid_argument{"PathJoin expects at least 2 arguments"};
+  }
   std::filesystem::path result = to_string(*args.TryGet(0));
   for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
     result /= to_string(*args.TryGet(segment_index));
@@ -230,7 +256,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const auto& args = require_args(arg, 2, "PathWithExtension");
   std::filesystem::path path = to_string(*args.TryGet(0));
   std::string extension = to_string(*args.TryGet(1));
-  if (!extension.empty() && extension[0] != '.') { extension.insert(extension.begin(), '.'); }
+  if (!extension.empty() && extension[0] != '.') {
+    extension.insert(extension.begin(), '.');
+  }
   path.replace_extension(extension);
   return make_string(path.string());
 }
@@ -245,7 +273,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto FileReadText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
-  if (!in) { throw std::runtime_error{"FileReadText failed"}; }
+  if (!in) {
+    throw std::runtime_error{"FileReadText failed"};
+  }
   std::ostringstream ss;
   ss << in.rdbuf();
   return make_string(ss.str());
@@ -256,7 +286,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const auto& args = require_args(arg, 2, "FileWriteText");
   const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
   std::ofstream out(path, std::ios::trunc);
-  if (!out) { throw std::runtime_error{"FileWriteText failed"}; }
+  if (!out) {
+    throw std::runtime_error{"FileWriteText failed"};
+  }
   out << to_string(*args.TryGet(1));
   return make_string(path.string());
 }
@@ -266,7 +298,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const auto& args = require_args(arg, 2, "FileAppendText");
   const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
   std::ofstream out(path, std::ios::app);
-  if (!out) { throw std::runtime_error{"FileAppendText failed"}; }
+  if (!out) {
+    throw std::runtime_error{"FileAppendText failed"};
+  }
   out << to_string(*args.TryGet(1));
   return make_string(path.string());
 }
@@ -274,10 +308,14 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto FileReadLines(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
-  if (!in) { throw std::runtime_error{"FileReadLines failed"}; }
+  if (!in) {
+    throw std::runtime_error{"FileReadLines failed"};
+  }
   Array out;
   std::string line;
-  while (std::getline(in, line)) { out.PushBack(make_string(line)); }
+  while (std::getline(in, line)) {
+    out.PushBack(make_string(line));
+  }
   return Value{std::move(out)};
 }
 
@@ -330,7 +368,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   }
   Array out;
   out.Reserve(names.size());
-  for (const auto& name : names) { out.PushBack(make_string(name)); }
+  for (const auto& name : names) {
+    out.PushBack(make_string(name));
+  }
   return Value{std::move(out)};
 }
 
@@ -343,17 +383,23 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   }
   Array out;
   out.Reserve(names.size());
-  for (const auto& name : names) { out.PushBack(make_string(name)); }
+  for (const auto& name : names) {
+    out.PushBack(make_string(name));
+  }
   return Value{std::move(out)};
 }
 
 [[nodiscard]] inline auto OSEnv(Value arg) -> Value {
   const std::string key = as_path_string_unary(std::move(arg));
 #if defined(__EMSCRIPTEN__)
-  if (const auto emulated = detail::web_env_value(key); emulated.has_value()) { return make_string(*emulated); }
+  if (const auto emulated = detail::web_env_value(key); emulated.has_value()) {
+    return make_string(*emulated);
+  }
   return make_null();
 #else
-  if (const char* env_value = std::getenv(key.c_str())) { return make_string(env_value); }
+  if (const char* env_value = std::getenv(key.c_str())) {
+    return make_string(env_value);
+  }
   return make_null();
 #endif
 }
@@ -377,9 +423,13 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #else
 #if defined(_WIN32)
   const int rc = _putenv_s(key.c_str(), value.c_str());
-  if (rc != 0) { throw std::runtime_error{"OSSetEnv failed"}; }
+  if (rc != 0) {
+    throw std::runtime_error{"OSSetEnv failed"};
+  }
 #else
-  if (setenv(key.c_str(), value.c_str(), 1) != 0) { throw std::runtime_error{"OSSetEnv failed"}; }
+  if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+    throw std::runtime_error{"OSSetEnv failed"};
+  }
 #endif
   return make_string(value);
 #endif
@@ -393,9 +443,13 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const bool existed = std::getenv(key.c_str()) != nullptr;
 #if defined(_WIN32)
   const int rc = _putenv_s(key.c_str(), "");
-  if (rc != 0) { throw std::runtime_error{"OSUnsetEnv failed"}; }
+  if (rc != 0) {
+    throw std::runtime_error{"OSUnsetEnv failed"};
+  }
 #else
-  if (unsetenv(key.c_str()) != 0) { throw std::runtime_error{"OSUnsetEnv failed"}; }
+  if (unsetenv(key.c_str()) != 0) {
+    throw std::runtime_error{"OSUnsetEnv failed"};
+  }
 #endif
   return make_bool(existed);
 #endif
@@ -439,19 +493,23 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #if defined(__EMSCRIPTEN__)
   return make_string(detail::web_home_directory_path().string());
 #else
-  if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') { return make_string(home); }
+  if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+    return make_string(home);
+  }
   if (const char* userprofile = std::getenv("USERPROFILE"); userprofile != nullptr && userprofile[0] != '\0') {
     return make_string(userprofile);
   }
   const char* homedrive = std::getenv("HOMEDRIVE");
-  const char* homepath = std::getenv("HOMEPATH");
-  if (homedrive != nullptr && homepath != nullptr && homedrive[0] != '\0' && homepath[0] != '\0') {
+  if (const char* homepath = std::getenv("HOMEPATH");
+      homedrive != nullptr && homepath != nullptr && homedrive[0] != '\0' && homepath[0] != '\0') {
     return make_string(std::string(homedrive) + std::string(homepath));
   }
 
   std::error_code ec;
   const auto cwd = std::filesystem::current_path(ec);
-  if (!ec) { return make_string(cwd.string()); }
+  if (!ec) {
+    return make_string(cwd.string());
+  }
   return make_string(".");
 #endif
 }
@@ -472,12 +530,16 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const auto dir = detail::web_temp_directory_path();
 #else
   const auto dir = std::filesystem::temp_directory_path(ec);
-  if (ec) { return make_null(); }
+  if (ec) {
+    return make_null();
+  }
 #endif
   for (int attempt = 0; attempt < 100; ++attempt) {
     if (const auto candidate = dir / ("fleaux_" + random_suffix() + ".tmp");
         !std::filesystem::exists(candidate, ec) && !ec) {
-      if (std::ofstream out(candidate); out.good()) { return make_string(candidate.string()); }
+      if (std::ofstream out(candidate); out.good()) {
+        return make_string(candidate.string());
+      }
     }
   }
   return make_null();
@@ -490,7 +552,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const auto dir = detail::web_temp_directory_path();
 #else
   const auto dir = std::filesystem::temp_directory_path(ec);
-  if (ec) { return make_null(); }
+  if (ec) {
+    return make_null();
+  }
 #endif
   for (int attempt = 0; attempt < 100; ++attempt) {
     if (const auto candidate = dir / ("fleaux_" + random_suffix());
@@ -519,11 +583,15 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const std::string wrapped = command + " 2>&1";
   FILE* pipe = popen(wrapped.c_str(), "r");
 #endif
-  if (pipe == nullptr) { throw std::runtime_error{"OSExec: failed to start command"}; }
+  if (pipe == nullptr) {
+    throw std::runtime_error{"OSExec: failed to start command"};
+  }
 
   std::string output;
   std::array<char, 4096> buffer{};
-  while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) { output += buffer.data(); }
+  while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+    output += buffer.data();
+  }
 
 #if defined(_WIN32)
   const int close_status = _pclose(pipe);
@@ -531,7 +599,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #else
   const int close_status = pclose(pipe);
   Int exit_code = static_cast<Int>(close_status);
-  if (WIFEXITED(close_status)) { exit_code = static_cast<Int>(WEXITSTATUS(close_status)); }
+  if (WIFEXITED(close_status)) {
+    exit_code = static_cast<Int>(WEXITSTATUS(close_status));
+  }
 #endif
 
   return make_tuple(make_int(exit_code), make_string(std::move(output)));
@@ -563,7 +633,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   // arg = handle_token   ->  (handle_token, line, eof_bool)
   const Value token = unwrap_singleton_arg(std::move(arg));
   auto& handle_entry = require_handle(token, "FileReadLine");
-  if (handle_entry.mode.find('r') == std::string::npos) { throw std::runtime_error{"FileReadLine: read failed"}; }
+  if (handle_entry.mode.find('r') == std::string::npos) {
+    throw std::runtime_error{"FileReadLine: read failed"};
+  }
   std::string line;
   bool eof = false;
   if (!std::getline(handle_entry.stream, line)) {
@@ -598,7 +670,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   auto& handle_entry = require_handle(*args.TryGet(0), "FileWriteChunk");
   const std::string& data = as_string(*args.TryGet(1));
   handle_entry.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
-  if (!handle_entry.stream) throw std::runtime_error{"FileWriteChunk: write failed"};
+  if (!handle_entry.stream)
+    throw std::runtime_error{"FileWriteChunk: write failed"};
   auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
   return make_handle_token(slot, gen);
 }
@@ -608,7 +681,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const Value token = unwrap_singleton_arg(std::move(arg));
   auto& handle_entry = require_handle(token, "FileFlush");
   handle_entry.stream.flush();
-  if (!handle_entry.stream) throw std::runtime_error{"FileFlush: flush failed"};
+  if (!handle_entry.stream)
+    throw std::runtime_error{"FileFlush: flush failed"};
   auto [slot, gen] = handle_id_from_value(token).value();
   return make_handle_token(slot, gen);
 }
@@ -617,7 +691,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   // arg = handle_token  ->  Bool (true if was open, false if already closed)
   const Value token = unwrap_singleton_arg(std::move(arg));
   const auto id = handle_id_from_value(token);
-  if (!id) return make_bool(false);
+  if (!id)
+    return make_bool(false);
   return make_bool(handle_registry().close(id->slot, id->gen));
 }
 

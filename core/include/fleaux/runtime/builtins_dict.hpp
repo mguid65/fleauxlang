@@ -33,7 +33,9 @@ namespace fleaux::runtime {
 [[nodiscard]] inline auto sorted_dict_keys(const Object& obj) -> std::vector<std::string> {
   std::vector<std::string> keys;
   keys.reserve(obj.Size());
-  for (const auto& internal_key : obj | std::views::keys) { keys.push_back(internal_key); }
+  for (const auto& internal_key : obj | std::views::keys) {
+    keys.push_back(internal_key);
+  }
   std::ranges::sort(keys);
   return keys;
 }
@@ -44,14 +46,18 @@ namespace fleaux::runtime {
   if (internal_key.size() >= 2 && internal_key[1] == ':') {
     const char tag = internal_key[0];
     const std::string payload = internal_key.substr(2);
-    if (tag == 's') return make_string(payload);
-    if (tag == 'b') return make_bool(payload == "true");
-    if (tag == 'z') return make_null();
+    if (tag == 's')
+      return make_string(payload);
+    if (tag == 'b')
+      return make_bool(payload == "true");
+    if (tag == 'z')
+      return make_null();
     if (tag == 'n') {
       // parse as number
       std::size_t consumed = 0;
       const double parsed_number = std::stod(payload, &consumed);
-      if (consumed == payload.size()) return num_result(parsed_number);
+      if (consumed == payload.size())
+        return num_result(parsed_number);
     }
   }
   // Fallback: return as-is (handles any legacy unadorned string keys)
@@ -59,7 +65,9 @@ namespace fleaux::runtime {
 }
 
 [[nodiscard]] inline auto merge_dict_objects(Object base, const Object& overlay) -> Object {
-  for (const auto& [internal_key, mapped_value] : overlay) { base[internal_key] = mapped_value; }
+  for (const auto& [internal_key, mapped_value] : overlay) {
+    base[internal_key] = mapped_value;
+  }
   return base;
 }
 
@@ -69,16 +77,18 @@ namespace fleaux::runtime {
 
 // arg = () -> {}
 [[nodiscard]] inline auto DictCreate_Void(Value arg) -> Value {
-  const auto& arr = arg.TryGetArray();
-  if (!arr || arr->Size() != 0) { throw std::invalid_argument{"DictCreate_Void expects 0 arguments"}; }
+  if (const auto& arr = arg.TryGetArray(); !arr || arr->Size() != 0) {
+    throw std::invalid_argument{"DictCreate_Void expects 0 arguments"};
+  }
   return Value{Object{}};
 }
 
 // arg = (dict,) or dict -> clone(dict)
 [[nodiscard]] inline auto DictCreate_Dict(Value arg) -> Value {
-  const auto& arr = arg.TryGetArray();
-  if (arr) {
-    if (arr->Size() != 1) { throw std::invalid_argument{"DictCreate_Dict expects 1 argument"}; }
+  if (const auto& arr = arg.TryGetArray()) {
+    if (arr->Size() != 1) {
+      throw std::invalid_argument{"DictCreate_Dict expects 1 argument"};
+    }
     return Value{as_object(*arr->TryGet(0))};
   }
 
@@ -99,7 +109,9 @@ namespace fleaux::runtime {
   const auto& obj = as_object(*args.TryGet(0));
   const auto key = dict_key_from_value(*args.TryGet(1));
   const auto got = obj.TryGet(key);
-  if (!got) { throw std::runtime_error{"DictGet: key not found"}; }
+  if (!got) {
+    throw std::runtime_error{"DictGet: key not found"};
+  }
   return *got;
 }
 
@@ -109,7 +121,9 @@ namespace fleaux::runtime {
   const auto& obj = as_object(*args.TryGet(0));
   const auto key = dict_key_from_value(*args.TryGet(1));
   const auto got = obj.TryGet(key);
-  if (!got) { return *args.TryGet(2); }
+  if (!got) {
+    return *args.TryGet(2);
+  }
   return *got;
 }
 
@@ -135,7 +149,9 @@ namespace fleaux::runtime {
   const auto keys = sorted_dict_keys(obj);
   Array out;
   out.Reserve(keys.size());
-  for (const auto& key : keys) { out.PushBack(dict_key_to_value(key)); }
+  for (const auto& key : keys) {
+    out.PushBack(dict_key_to_value(key));
+  }
   return Value{std::move(out)};
 }
 
@@ -147,7 +163,8 @@ namespace fleaux::runtime {
   Array out;
   out.Reserve(keys.size());
   for (const auto& key : keys) {
-    if (const auto got = obj.TryGet(key)) out.PushBack(*got);
+    if (const auto got = obj.TryGet(key))
+      out.PushBack(*got);
   }
   return Value{std::move(out)};
 }
@@ -160,7 +177,8 @@ namespace fleaux::runtime {
   Array out;
   out.Reserve(keys.size());
   for (const auto& key : keys) {
-    if (const auto got = obj.TryGet(key)) out.PushBack(make_tuple(dict_key_to_value(key), *got));
+    if (const auto got = obj.TryGet(key))
+      out.PushBack(make_tuple(dict_key_to_value(key), *got));
   }
   return Value{std::move(out)};
 }

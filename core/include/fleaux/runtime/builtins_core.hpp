@@ -39,7 +39,9 @@ inline auto normalize_runtime_error_message(std::string message) -> std::string 
   constexpr std::string_view k_threw = "threw: ";
   while (message.starts_with("native ") || message.starts_with("builtin ")) {
     const std::size_t split = message.find(k_threw);
-    if (split == std::string::npos) { break; }
+    if (split == std::string::npos) {
+      break;
+    }
     message = message.substr(split + k_threw.size());
   }
   return message;
@@ -70,7 +72,8 @@ private:
   const auto& seq = as_array(array_at(arg, 0));
   const std::size_t idx = as_index_strict(array_at(arg, 1), "ElementAt index");
   auto result = seq.TryGet(idx);
-  if (!result) throw std::out_of_range{"ElementAt: index out of range"};
+  if (!result)
+    throw std::out_of_range{"ElementAt: index out of range"};
   return *result;
 }
 
@@ -81,7 +84,9 @@ private:
   const std::size_t take_count = std::min(as_index_strict(array_at(arg, 1), "Take count"), seq.Size());
   Array out;
   out.Reserve(take_count);
-  for (std::size_t index = 0; index < take_count; ++index) { out.PushBack(*seq.TryGet(index)); }
+  for (std::size_t index = 0; index < take_count; ++index) {
+    out.PushBack(*seq.TryGet(index));
+  }
   return Value{std::move(out)};
 }
 
@@ -89,13 +94,17 @@ private:
   const auto& seq = as_array(array_at(arg, 0));
   const std::size_t start = as_index_strict(array_at(arg, 1), "Drop count");
   Array out;
-  for (std::size_t index = start; index < seq.Size(); ++index) { out.PushBack(*seq.TryGet(index)); }
+  for (std::size_t index = start; index < seq.Size(); ++index) {
+    out.PushBack(*seq.TryGet(index));
+  }
   return Value{std::move(out)};
 }
 
 [[nodiscard]] inline auto Slice(Value arg) -> Value {
   const auto& arr = as_array(arg);
-  if (arr.Size() < 2 || arr.Size() > 4) { throw std::invalid_argument{"Slice: expected 2, 3, or 4 arguments"}; }
+  if (arr.Size() < 2 || arr.Size() > 4) {
+    throw std::invalid_argument{"Slice: expected 2, 3, or 4 arguments"};
+  }
   const auto& seq = as_array(*arr.TryGet(0));
 
   std::size_t real_start{0};
@@ -110,12 +119,15 @@ private:
     real_start = as_index_strict(*arr.TryGet(1), "Slice start");
     real_stop = as_index_strict(*arr.TryGet(2), "Slice stop");
     real_step = as_index_strict(*arr.TryGet(3), "Slice step");
-    if (real_step == 0) throw std::invalid_argument{"Slice: step cannot be 0"};
+    if (real_step == 0)
+      throw std::invalid_argument{"Slice: step cannot be 0"};
   }
 
   Array out;
   const std::size_t end = std::min(real_stop, seq.Size());
-  for (std::size_t index = real_start; index < end; index += real_step) { out.PushBack(*seq.TryGet(index)); }
+  for (std::size_t index = real_start; index < end; index += real_step) {
+    out.PushBack(*seq.TryGet(index));
+  }
   return Value{std::move(out)};
 }
 
@@ -129,8 +141,8 @@ inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const 
 
 inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& rhs, const char* op_name) -> void {
   const bool has_float = is_float_number(lhs) || is_float_number(rhs);
-  const bool has_integer = is_int_number(lhs) || is_int_number(rhs) || is_uint_number(lhs) || is_uint_number(rhs);
-  if (has_float && has_integer) {
+  if (const bool has_integer = is_int_number(lhs) || is_int_number(rhs) || is_uint_number(lhs) || is_uint_number(rhs);
+      has_float && has_integer) {
     throw std::invalid_argument{std::string(op_name) +
                                 ": cannot mix Float64 with Int64 or UInt64 operands without explicit cast"};
   }
@@ -143,7 +155,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 [[nodiscard]] inline auto Add(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
-  if (lhs.HasString() && rhs.HasString()) { return make_string(as_string(lhs) + as_string(rhs)); }
+  if (lhs.HasString() && rhs.HasString()) {
+    return make_string(as_string(lhs) + as_string(rhs));
+  }
   require_no_implicit_float_promotion(lhs, rhs, "Add");
   require_same_integer_kind(lhs, rhs, "Add");
   return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
@@ -215,14 +229,18 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 [[nodiscard]] inline auto BitShiftLeft(Value arg) -> Value {
   const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftLeft value");
   const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftLeft shift");
-  if (shift < 0) { throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"}; }
+  if (shift < 0) {
+    throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"};
+  }
   return make_int(value << shift);
 }
 
 [[nodiscard]] inline auto BitShiftRight(Value arg) -> Value {
   const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftRight value");
   const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftRight shift");
-  if (shift < 0) { throw std::invalid_argument{"BitShiftRight: shift must be non-negative"}; }
+  if (shift < 0) {
+    throw std::invalid_argument{"BitShiftRight: shift must be non-negative"};
+  }
   return make_int(value >> shift);
 }
 
@@ -286,11 +304,15 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   // arg = [format, arg0, arg1, ...]
   // Prints formatted text and returns the original argument tuple unchanged.
   const auto& args = as_array(arg);
-  if (args.Size() < 1) { throw std::invalid_argument{"Printf expects at least 1 argument"}; }
+  if (args.Size() < 1) {
+    throw std::invalid_argument{"Printf expects at least 1 argument"};
+  }
   const std::string fmt = to_string(*args.TryGet(0));
   std::vector<Value> values;
   values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
-  for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) { values.push_back(*args.TryGet(arg_index)); }
+  for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
+    values.push_back(*args.TryGet(arg_index));
+  }
 
   runtime_output_stream() << format_values(fmt, values);
   return arg;
@@ -300,7 +322,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   // arg = [] | [prompt] | prompt
   auto read_line = []() -> Value {
     std::string line;
-    if (!std::getline(runtime_input_stream(), line)) { return make_string(""); }
+    if (!std::getline(runtime_input_stream(), line)) {
+      return make_string("");
+    }
     return make_string(line);
   };
 
@@ -312,7 +336,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   }
 
   const auto& args = as_array(arg);
-  if (args.Size() == 0) { return read_line(); }
+  if (args.Size() == 0) {
+    return read_line();
+  }
   if (args.Size() == 1) {
     output << to_string(*args.TryGet(0));
     output.flush();
@@ -326,7 +352,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   Array out;
   const auto args = get_process_args();
   out.Reserve(args.size());
-  for (const auto& process_arg : args) { out.PushBack(make_string(process_arg)); }
+  for (const auto& process_arg : args) {
+    out.PushBack(make_string(process_arg));
+  }
   return Value{std::move(out)};
 }
 
@@ -345,7 +373,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   const Value value = unwrap_singleton_arg(std::move(arg));
   return as_number(value).Visit(
       [](const Int signed_value) -> Value {
-        if (signed_value < 0) { throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"}; }
+        if (signed_value < 0) {
+          throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"};
+        }
         return make_uint(static_cast<UInt>(signed_value));
       },
       [](const UInt unsigned_value) -> Value { return make_uint(unsigned_value); },
@@ -365,8 +395,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto Exit_Void(Value arg) -> Value {
-  const auto& arr = arg.TryGetArray();
-  if (!arr || arr->Size() != 0) { throw std::invalid_argument{"Exit_Void expects 0 arguments"}; }
+  if (const auto& arr = arg.TryGetArray(); !arr || arr->Size() != 0) {
+    throw std::invalid_argument{"Exit_Void expects 0 arguments"};
+  }
   std::exit(0);
 }
 
@@ -380,9 +411,10 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
     return static_cast<int>(code);
   };
 
-  const auto& arr = arg.TryGetArray();
-  if (arr) {
-    if (arr->Size() != 1) { throw std::invalid_argument{"Exit_Int64 expects 1 argument"}; }
+  if (const auto& arr = arg.TryGetArray()) {
+    if (arr->Size() != 1) {
+      throw std::invalid_argument{"Exit_Int64 expects 1 argument"};
+    }
     std::exit(to_exit_code(*arr->TryGet(0)));
   }
 
@@ -401,12 +433,16 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   // Pattern wildcard is encoded as the lowering sentinel string.
   // Callable patterns are predicates: pattern(subject) -> Bool.
   const auto& args = as_array(arg);
-  if (args.Size() < 2) { throw std::invalid_argument{"Match expects a value and at least one case"}; }
+  if (args.Size() < 2) {
+    throw std::invalid_argument{"Match expects a value and at least one case"};
+  }
 
   const Value subject = *args.TryGet(0);
   for (std::size_t case_index = 1; case_index < args.Size(); ++case_index) {
     const auto& case_tuple = as_array(*args.TryGet(case_index));
-    if (case_tuple.Size() != 2) { throw std::invalid_argument{"Match case must be a (pattern, handler) tuple"}; }
+    if (case_tuple.Size() != 2) {
+      throw std::invalid_argument{"Match case must be a (pattern, handler) tuple"};
+    }
 
     const Value pattern = *case_tuple.TryGet(0);
     const Value handler = *case_tuple.TryGet(1);
@@ -417,7 +453,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
       predicate_match = as_bool(invoke_callable_ref(pattern, subject));
     }
 
-    if (wildcard_match || predicate_match || pattern == subject) { return invoke_callable_ref(handler, subject); }
+    if (wildcard_match || predicate_match || pattern == subject) {
+      return invoke_callable_ref(handler, subject);
+    }
   }
 
   throw std::runtime_error{"Match: no case matched and no wildcard case provided"};
@@ -458,14 +496,18 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 [[nodiscard]] inline auto ResultUnwrap(Value arg) -> Value {
   const Value result = unwrap_singleton_arg(std::move(arg));
   const auto& tuple = require_result_tuple(result, "Result.Unwrap");
-  if (!as_bool(*tuple.TryGet(0))) { throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"}; }
+  if (!as_bool(*tuple.TryGet(0))) {
+    throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"};
+  }
   return *tuple.TryGet(1);
 }
 
 [[nodiscard]] inline auto ResultUnwrapErr(Value arg) -> Value {
   const Value result = unwrap_singleton_arg(std::move(arg));
   const auto& tuple = require_result_tuple(result, "Result.UnwrapErr");
-  if (as_bool(*tuple.TryGet(0))) { throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"}; }
+  if (as_bool(*tuple.TryGet(0))) {
+    throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"};
+  }
   return *tuple.TryGet(1);
 }
 
@@ -518,7 +560,9 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
   std::size_t steps = 0;
   while (as_bool(invoke_callable_ref(continue_func, state))) {
-    if (steps >= max_iters) { throw std::runtime_error{"LoopN: exceeded max_iters"}; }
+    if (steps >= max_iters) {
+      throw std::runtime_error{"LoopN: exceeded max_iters"};
+    }
     state = invoke_callable_ref(step_func, std::move(state));
     ++steps;
   }

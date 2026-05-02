@@ -12,7 +12,7 @@ namespace fleaux::common {
 class Trie {
 public:
   // Inserts a word into the trie.
-  void insert(std::string_view word) {
+  void insert(const std::string_view word) {
     Node* current = &root_;
     for (const char ch : word) {
       current = &current->children[ch];
@@ -22,7 +22,7 @@ public:
 
   // Returns all words stored in the trie that begin with the given prefix.
   // The prefix itself is included if it was directly inserted.
-  [[nodiscard]] auto completions(std::string_view prefix) const -> std::vector<std::string> {
+  [[nodiscard]] auto completions(const std::string_view prefix) const -> std::vector<std::string> {
     const Node* current = &root_;
     for (const char ch : prefix) {
       const auto it = current->children.find(ch);

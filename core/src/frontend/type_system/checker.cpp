@@ -463,8 +463,8 @@ auto filter_overloads_for_explicit_type_args(const std::string& full_name, const
     return filtered;
   }
 
-  const bool has_generic_overload =
-      std::ranges::any_of(overloads, [](const FunctionSig& overload) -> bool { return !overload.generic_params.empty(); });
+  const bool has_generic_overload = std::ranges::any_of(
+      overloads, [](const FunctionSig& overload) -> bool { return !overload.generic_params.empty(); });
   if (!has_generic_overload) {
     return tl::unexpected(
         make_error("Invalid explicit type argument application.",
@@ -1153,8 +1153,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
   }
 
   if (full_name == "Std.Cast") {
-    Type target_type =
-        is_generic_call ? instantiate_generic_type(sig.return_type, generic_bindings) : sig.return_type;
+    Type target_type = is_generic_call ? instantiate_generic_type(sig.return_type, generic_bindings) : sig.return_type;
 
     std::unordered_map<std::string, bool> resolved_cache;
     if (std::unordered_set<std::string> visiting;

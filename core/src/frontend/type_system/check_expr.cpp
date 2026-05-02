@@ -22,8 +22,12 @@ auto instantiate_type_preserving_unbound(const Type& type, const TypeBindings& b
     item = instantiate_type_preserving_unbound(item, bindings);
     item.variadic = variadic;
   }
-  for (auto& member : out.union_members) { member = instantiate_type_preserving_unbound(member, bindings); }
-  for (auto& arg : out.applied_args) { arg = instantiate_type_preserving_unbound(arg, bindings); }
+  for (auto& member : out.union_members) {
+    member = instantiate_type_preserving_unbound(member, bindings);
+  }
+  for (auto& arg : out.applied_args) {
+    arg = instantiate_type_preserving_unbound(arg, bindings);
+  }
   for (auto& param : out.function_params) {
     const bool variadic = param.variadic;
     param = instantiate_type_preserving_unbound(param, bindings);
@@ -49,11 +53,13 @@ auto unresolved_generic_return_error(const std::string& full_name, const Functio
                                      const std::unordered_set<std::string>& generic_params,
                                      const std::optional<diag::SourceSpan>& span)
     -> std::optional<type_check::AnalysisError> {
-  if (sig.generic_params.empty()) { return std::nullopt; }
+  if (sig.generic_params.empty()) {
+    return std::nullopt;
+  }
 
   std::unordered_set<std::string> visiting;
-  std::unordered_map<std::string, bool> resolved_cache;
-  if (is_type_resolved(instantiated.return_type, bindings, generic_params, visiting, resolved_cache)) {
+  if (std::unordered_map<std::string, bool> resolved_cache;
+      is_type_resolved(instantiated.return_type, bindings, generic_params, visiting, resolved_cache)) {
     return std::nullopt;
   }
 
@@ -69,13 +75,17 @@ auto unresolved_generic_callable_error(const std::string& full_name, const Funct
                                        const std::unordered_set<std::string>& generic_params,
                                        const std::optional<diag::SourceSpan>& span)
     -> std::optional<type_check::AnalysisError> {
-  if (sig.generic_params.empty()) { return std::nullopt; }
+  if (sig.generic_params.empty()) {
+    return std::nullopt;
+  }
 
   const auto callable_type = function_type_from_sig(sig);
   std::unordered_set<std::string> visiting;
-  std::unordered_map<std::string, bool> resolved_cache;
   const TypeBindings no_bindings;
-  if (is_type_resolved(callable_type, no_bindings, generic_params, visiting, resolved_cache)) { return std::nullopt; }
+  if (std::unordered_map<std::string, bool> resolved_cache;
+      is_type_resolved(callable_type, no_bindings, generic_params, visiting, resolved_cache)) {
+    return std::nullopt;
+  }
 
   std::unordered_set<std::string> unbound;
   collect_unbound_type_vars(callable_type, no_bindings, unbound);
@@ -87,8 +97,8 @@ auto unresolved_generic_callable_error(const std::string& full_name, const Funct
 
 }  // namespace
 
-auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index, const LocalTypes& locals,
-                const std::unordered_set<std::string>& generic_params)
+auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   return std::visit(
       common::overloaded{
@@ -103,14 +113,18 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
                 constant.val);
           },
           [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
-            if (tuple.items.size() == 1U) { return infer_expr(*tuple.items[0], index, type_index, locals, generic_params); }
+            if (tuple.items.size() == 1U) {
+              return infer_expr(*tuple.items[0], index, type_index, locals, generic_params);
+            }
 
             Type out;
             out.kind = TypeKind::kTuple;
             out.items.reserve(tuple.items.size());
             for (auto& item : tuple.items) {
               auto item_type = infer_expr(*item, index, type_index, locals, generic_params);
-              if (!item_type) { return tl::unexpected(item_type.error()); }
+              if (!item_type) {
+                return tl::unexpected(item_type.error());
+              }
               out.items.push_back(*item_type);
             }
             return out;
@@ -118,7 +132,9 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
           [&](const ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
             auto explicit_type_args =
                 resolve_explicit_type_args(name_ref.explicit_type_args, type_index, generic_params, name_ref.span);
-            if (!explicit_type_args) { return tl::unexpected(explicit_type_args.error()); }
+            if (!explicit_type_args) {
+              return tl::unexpected(explicit_type_args.error());
+            }
 
             if (!name_ref.qualifier.has_value()) {
               if (const auto it = locals.find(name_ref.name); it != locals.end()) {
@@ -136,14 +152,17 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
                 overloads != nullptr) {
               const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
               if (full_name == "Std.Cast") {
-                return tl::unexpected(make_error(
-                    "Invalid Std.Cast reference.",
-                    std::optional<std::string>{"Use Std.Cast only in direct call position, such as '(value) -> Std.Cast<T>'."},
-                    name_ref.span));
+                return tl::unexpected(
+                    make_error("Invalid Std.Cast reference.",
+                               std::optional<std::string>{
+                                   "Use Std.Cast only in direct call position, such as '(value) -> Std.Cast<T>'."},
+                               name_ref.span));
               }
               const auto filtered =
                   filter_overloads_for_explicit_type_args(full_name, name_ref.span, *overloads, *explicit_type_args);
-              if (!filtered) { return tl::unexpected(filtered.error()); }
+              if (!filtered) {
+                return tl::unexpected(filtered.error());
+              }
 
               if (filtered->size() > 1U) {
                 return tl::unexpected(
@@ -155,23 +174,25 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
               }
 
               const auto& sig = *filtered->front();
-              const auto bindings = explicit_type_arg_bindings_for_sig(full_name, name_ref.span, sig, *explicit_type_args);
-              if (!bindings) { return tl::unexpected(bindings.error()); }
+              const auto bindings =
+                  explicit_type_arg_bindings_for_sig(full_name, name_ref.span, sig, *explicit_type_args);
+              if (!bindings) {
+                return tl::unexpected(bindings.error());
+              }
 
               const auto instantiated = instantiate_function_sig(sig, *bindings);
-              if (const auto unresolved_return =
-                      unresolved_generic_return_error(full_name, sig, instantiated, *bindings, generic_params,
-                                                      name_ref.span);
+              if (auto unresolved_return = unresolved_generic_return_error(full_name, sig, instantiated, *bindings,
+                                                                           generic_params, name_ref.span);
                   unresolved_return.has_value()) {
-                return tl::unexpected(*unresolved_return);
+                return tl::unexpected(std::move(*unresolved_return));
               }
               if (instantiated.params.empty()) {
                 return instantiated.return_type;
               }
-              if (const auto unresolved_callable =
+              if (auto unresolved_callable =
                       unresolved_generic_callable_error(full_name, instantiated, generic_params, name_ref.span);
                   unresolved_callable.has_value()) {
-                return tl::unexpected(*unresolved_callable);
+                return tl::unexpected(std::move(*unresolved_callable));
               }
               return function_type_from_sig(instantiated);
             }
@@ -187,7 +208,9 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
               return tl::unexpected(make_unresolved_symbol_error(
                   qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
             }
-            if (index.has_unqualified_symbol(name_ref.name)) { return Type{.kind = TypeKind::kAny}; }
+            if (index.has_unqualified_symbol(name_ref.name)) {
+              return Type{.kind = TypeKind::kAny};
+            }
             return tl::unexpected(make_unresolved_symbol_error(name_ref.name, name_ref.span));
           },
           [&](ir::IRClosureExprBox& closure_box) -> tl::expected<Type, type_check::AnalysisError> {
@@ -201,17 +224,17 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
 
             FunctionSig closure_sig;
             closure_sig.params.reserve(closure.params.size());
-            for (const auto& param : closure.params) {
-              Type param_type = rewrite_generic_type(from_ir_type(param.type), closure_generic_params);
-              if (auto validated = validate_declared_type(param_type, type_index, closure_generic_params, param.span);
+            for (const auto& [name, type, span] : closure.params) {
+              Type param_type = rewrite_generic_type(from_ir_type(type), closure_generic_params);
+              if (auto validated = validate_declared_type(param_type, type_index, closure_generic_params, span);
                   !validated) {
                 return tl::unexpected(validated.error());
               }
-              closure_locals.insert_or_assign(param.name, param_type);
+              closure_locals.insert_or_assign(name, param_type);
               closure_sig.params.push_back(ParamSig{
-                  .name = param.name,
+                  .name = name,
                   .type = std::move(param_type),
-                  .variadic = param.type.variadic,
+                  .variadic = type.variadic,
               });
             }
             closure_sig.return_type = rewrite_generic_type(from_ir_type(closure.return_type), closure_generic_params);
@@ -222,7 +245,9 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
             }
 
             auto inferred_body = infer_expr(*closure.body, index, type_index, closure_locals, closure_generic_params);
-            if (!inferred_body) { return tl::unexpected(inferred_body.error()); }
+            if (!inferred_body) {
+              return tl::unexpected(inferred_body.error());
+            }
             if (!is_consistent(closure_sig.return_type, *inferred_body)) {
               return tl::unexpected(make_error("Type mismatch in function return.",
                                                "Closure body type does not match declared return type.", closure.span));

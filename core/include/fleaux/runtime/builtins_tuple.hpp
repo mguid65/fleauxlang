@@ -13,7 +13,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   Array out;
   out.Reserve(src.Size() + 1);
-  for (std::size_t index = 0; index < src.Size(); ++index) { out.PushBack(*src.TryGet(index)); }
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    out.PushBack(*src.TryGet(index));
+  }
   out.PushBack(*args.TryGet(1));
   return Value{std::move(out)};
 }
@@ -25,7 +27,9 @@ namespace fleaux::runtime {
   Array out;
   out.Reserve(src.Size() + 1);
   out.PushBack(*args.TryGet(1));
-  for (std::size_t index = 0; index < src.Size(); ++index) { out.PushBack(*src.TryGet(index)); }
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    out.PushBack(*src.TryGet(index));
+  }
   return Value{std::move(out)};
 }
 
@@ -46,7 +50,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   const Value& item = *args.TryGet(1);
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (*src.TryGet(index) == item) { return make_bool(true); }
+    if (*src.TryGet(index) == item) {
+      return make_bool(true);
+    }
   }
   return make_bool(false);
 }
@@ -87,7 +93,9 @@ namespace fleaux::runtime {
 
   Array out;
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (const Value& item = *src.TryGet(index); as_bool(invoke_callable_ref(pred, item))) { out.PushBack(item); }
+    if (const Value& item = *src.TryGet(index); as_bool(invoke_callable_ref(pred, item))) {
+      out.PushBack(item);
+    }
   }
   return Value{std::move(out)};
 }
@@ -97,14 +105,18 @@ namespace fleaux::runtime {
   const auto& src = as_array(arg);
   std::vector<Value> items;
   items.reserve(src.Size());
-  for (std::size_t index = 0; index < src.Size(); ++index) { items.push_back(*src.TryGet(index)); }
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    items.push_back(*src.TryGet(index));
+  }
 
   std::ranges::stable_sort(
       items, [](const Value& lhs, const Value& rhs) -> bool { return compare_values_for_sort(lhs, rhs) < 0; });
 
   Array out;
   out.Reserve(items.size());
-  for (const auto& item : items) { out.PushBack(item); }
+  for (const auto& item : items) {
+    out.PushBack(item);
+  }
   return Value{std::move(out)};
 }
 
@@ -122,7 +134,9 @@ namespace fleaux::runtime {
         break;
       }
     }
-    if (!seen) { out.PushBack(item); }
+    if (!seen) {
+      out.PushBack(item);
+    }
   }
   return Value{std::move(out)};
 }
@@ -130,12 +144,16 @@ namespace fleaux::runtime {
 // arg = sequence
 [[nodiscard]] inline auto TupleMin(Value arg) -> Value {
   const auto& src = as_array(arg);
-  if (src.Size() == 0) { throw std::invalid_argument{"TupleMin expects non-empty tuple"}; }
+  if (src.Size() == 0) {
+    throw std::invalid_argument{"TupleMin expects non-empty tuple"};
+  }
   const Value& first = *src.TryGet(0);
   const Value* best = &first;
   for (std::size_t index = 1; index < src.Size(); ++index) {
     const Value& item = *src.TryGet(index);
-    if (compare_values_for_sort(item, *best) < 0) { best = &item; }
+    if (compare_values_for_sort(item, *best) < 0) {
+      best = &item;
+    }
   }
   return *best;
 }
@@ -143,12 +161,16 @@ namespace fleaux::runtime {
 // arg = sequence
 [[nodiscard]] inline auto TupleMax(Value arg) -> Value {
   const auto& src = as_array(arg);
-  if (src.Size() == 0) { throw std::invalid_argument{"TupleMax expects non-empty tuple"}; }
+  if (src.Size() == 0) {
+    throw std::invalid_argument{"TupleMax expects non-empty tuple"};
+  }
   const Value& first = *src.TryGet(0);
   const Value* best = &first;
   for (std::size_t index = 1; index < src.Size(); ++index) {
     const Value& item = *src.TryGet(index);
-    if (compare_values_for_sort(item, *best) > 0) { best = &item; }
+    if (compare_values_for_sort(item, *best) > 0) {
+      best = &item;
+    }
   }
   return *best;
 }
@@ -171,7 +193,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) { return make_int(static_cast<Int>(index)); }
+    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
+      return make_int(static_cast<Int>(index));
+    }
   }
   return make_int(-1);
 }
@@ -182,7 +206,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) { return make_bool(true); }
+    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
+      return make_bool(true);
+    }
   }
   return make_bool(false);
 }
@@ -193,7 +219,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (!as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) { return make_bool(false); }
+    if (!as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
+      return make_bool(false);
+    }
   }
   return make_bool(true);
 }
@@ -218,13 +246,19 @@ namespace fleaux::runtime {
     throw std::invalid_argument{"TupleRange expects 1, 2, or 3 arguments"};
   }
 
-  if (step == 0) { throw std::invalid_argument{"TupleRange step cannot be 0"}; }
+  if (step == 0) {
+    throw std::invalid_argument{"TupleRange step cannot be 0"};
+  }
 
   Array out;
   if (step > 0) {
-    for (Int current = start; current < stop; current += step) { out.PushBack(make_int(current)); }
+    for (Int current = start; current < stop; current += step) {
+      out.PushBack(make_int(current));
+    }
   } else {
-    for (Int current = start; current > stop; current += step) { out.PushBack(make_int(current)); }
+    for (Int current = start; current > stop; current += step) {
+      out.PushBack(make_int(current));
+    }
   }
   return Value{std::move(out)};
 }

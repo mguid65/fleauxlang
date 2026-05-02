@@ -177,7 +177,7 @@ auto decode_csi_with_params(const std::string& params, const char final_char) ->
   return {};
 }
 
-auto completion_lines_for_width(std::span<const std::string> suggestions, std::size_t terminal_width)
+auto completion_lines_for_width(const std::span<const std::string> suggestions, std::size_t terminal_width)
     -> std::vector<std::string> {
   if (suggestions.empty()) {
     return {};
@@ -236,8 +236,7 @@ auto completion_lines_for_width(std::span<const std::string> suggestions, std::s
       const std::string& text = suggestions[idx];
       line += text;
 
-      const std::size_t next_idx = row * best_columns + (col + 1);
-      if ((col + 1) < best_columns && next_idx < count) {
+      if (const std::size_t next_idx = row * best_columns + (col + 1); (col + 1) < best_columns && next_idx < count) {
         const std::size_t pad = (best_widths[col] - text.size()) + kColumnSpacing;
         line.append(pad, ' ');
       }
@@ -692,7 +691,7 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
 
 #endif
 
-auto read_fallback_line(std::string_view prompt) -> InteractiveReadResult {
+auto read_fallback_line(const std::string_view prompt) -> InteractiveReadResult {
   std::cout << prompt;
   std::string line;
   if (!std::getline(std::cin, line)) {
@@ -862,7 +861,7 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
         cursor_ = start + partial_replacement->size();
       }
 
-      return { .needs_redraw = true, .completion_suggestions = std::move(completions)};
+      return {.needs_redraw = true, .completion_suggestions = std::move(completions)};
     }
 
     const std::string& replacement = completions.front();
@@ -1041,13 +1040,14 @@ auto stdin_is_interactive() -> bool {
 #endif
 }
 
-auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> InteractiveReadResult {
+auto read_interactive_line(LineEditor& editor, const std::string_view prompt) -> InteractiveReadResult {
   editor.reset();
 
   if (!stdin_is_interactive()) {
     return read_fallback_line(prompt);
   }
 
+  // This cannot be put into the if-init. It sets terminal states and is necessary for handling control characters
   const ScopedRawMode raw_mode;
   if (!raw_mode.enabled()) {
     return read_fallback_line(prompt);
@@ -1103,9 +1103,10 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
       return {.action = action};
     }
   }
+  (void)raw_mode;  // This is here so the IDE will shutup about putting it in the if-init
 }
 
-auto decode_escape_bytes_for_testing_impl(std::string_view bytes) -> InputEvent {
+auto decode_escape_bytes_for_testing_impl(const std::string_view bytes) -> InputEvent {
   std::size_t cursor = 0;
   const auto parse = [&](const auto& self) -> InputEvent {
     if (cursor >= bytes.size()) {

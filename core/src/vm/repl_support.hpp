@@ -45,7 +45,9 @@ inline auto repl_let_internal_key(const frontend::ir::IRLet& let) -> std::string
 
 inline auto repl_normalize_type_name(const std::string& name,
                                      const std::unordered_map<std::string, std::size_t>& generic_slots) -> std::string {
-  if (const auto it = generic_slots.find(name); it != generic_slots.end()) { return "G" + std::to_string(it->second); }
+  if (const auto it = generic_slots.find(name); it != generic_slots.end()) {
+    return "G" + std::to_string(it->second);
+  }
   return name;
 }
 
@@ -59,14 +61,18 @@ inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
   if (!type.alternative_types.empty()) {
     out += "|U[";
     for (std::size_t index = 0; index < type.alternative_types.size(); ++index) {
-      if (index != 0U) { out += ","; }
+      if (index != 0U) {
+        out += ",";
+      }
       out += repl_type_signature_fragment(type.alternative_types[index], generic_slots);
     }
     out += "]";
   } else if (!type.alternatives.empty()) {
     out += "|u[";
     for (std::size_t index = 0; index < type.alternatives.size(); ++index) {
-      if (index != 0U) { out += ","; }
+      if (index != 0U) {
+        out += ",";
+      }
       out += repl_normalize_type_name(type.alternatives[index], generic_slots);
     }
     out += "]";
@@ -75,7 +81,9 @@ inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
   if (!type.tuple_items.empty()) {
     out += "|T[";
     for (std::size_t index = 0; index < type.tuple_items.size(); ++index) {
-      if (index != 0U) { out += ","; }
+      if (index != 0U) {
+        out += ",";
+      }
       out += repl_type_signature_fragment(type.tuple_items[index], generic_slots);
     }
     out += "]";
@@ -84,7 +92,9 @@ inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
   if (!type.type_args.empty()) {
     out += "|A[";
     for (std::size_t index = 0; index < type.type_args.size(); ++index) {
-      if (index != 0U) { out += ","; }
+      if (index != 0U) {
+        out += ",";
+      }
       out += repl_type_signature_fragment(type.type_args[index], generic_slots);
     }
     out += "]";
@@ -93,7 +103,9 @@ inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
   if (type.function_sig.has_value()) {
     out += "|F(";
     for (std::size_t index = 0; index < type.function_sig->param_types.size(); ++index) {
-      if (index != 0U) { out += ","; }
+      if (index != 0U) {
+        out += ",";
+      }
       out += repl_type_signature_fragment(type.function_sig->param_types[index], generic_slots);
     }
     out += ")->";
@@ -112,7 +124,9 @@ inline auto repl_signature_key(const frontend::ir::IRLet& let) -> std::string {
 
   std::string out = "g" + std::to_string(let.generic_params.size()) + "|p[";
   for (std::size_t index = 0; index < let.params.size(); ++index) {
-    if (index != 0U) { out += ";"; }
+    if (index != 0U) {
+      out += ";";
+    }
     out += repl_type_signature_fragment(let.params[index].type, generic_slots);
   }
   out += "]";
@@ -122,7 +136,9 @@ inline auto repl_signature_key(const frontend::ir::IRLet& let) -> std::string {
 inline auto repl_let_ordinal(const frontend::ir::IRLet& let) -> std::optional<std::size_t> {
   const std::string public_symbol = repl_let_key(let.qualifier, let.name);
   const std::string internal_key = repl_let_internal_key(let);
-  if (!internal_key.starts_with(public_symbol + "#")) { return std::nullopt; }
+  if (!internal_key.starts_with(public_symbol + "#")) {
+    return std::nullopt;
+  }
 
   const std::string_view ordinal_text = std::string_view{internal_key}.substr(public_symbol.size() + 1U);
   std::size_t ordinal = 0;
@@ -173,12 +189,13 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
     auto let = std::move(program.lets[index]);
     const std::string public_symbol = repl_let_key(let.qualifier, let.name);
     if (const std::string dedupe_key = public_symbol + "\n" + let_signatures[index];
-        last_definition_index.at(dedupe_key) != index) { continue; }
+        last_definition_index.at(dedupe_key) != index) {
+      continue;
+    }
 
     auto& [signature_to_ordinal, next_ordinal] = slots_by_symbol[public_symbol];
     const auto existing = signature_to_ordinal.find(let_signatures[index]);
-    const std::size_t ordinal =
-        existing != signature_to_ordinal.end() ? existing->second : next_ordinal++;
+    const std::size_t ordinal = existing != signature_to_ordinal.end() ? existing->second : next_ordinal++;
     signature_to_ordinal[let_signatures[index]] = ordinal;
     let.symbol_key = public_symbol + "#" + std::to_string(ordinal);
     normalized_lets.push_back(std::move(let));
@@ -193,29 +210,39 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     -> tl::expected<frontend::ir::IRProgram, ReplSessionError> {
   auto lowered = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(source_text, source_path.string(),
                                                                                      make_repl_session_error);
-  if (!lowered) { return tl::unexpected(lowered.error()); }
+  if (!lowered) {
+    return tl::unexpected(lowered.error());
+  }
 
   assign_repl_stable_symbol_keys(*lowered, prior_session_lets);
 
   std::unordered_set<std::string> replaced_keys;
   replaced_keys.reserve(lowered->lets.size());
-  for (const auto& let : lowered->lets) { replaced_keys.insert(repl_let_internal_key(let)); }
+  for (const auto& let : lowered->lets) {
+    replaced_keys.insert(repl_let_internal_key(let));
+  }
 
   std::vector<frontend::ir::IRLet> imported_typed_lets;
   imported_typed_lets.reserve(prior_session_lets.size());
   for (const auto& prior_let : prior_session_lets) {
-    if (replaced_keys.contains(repl_let_internal_key(prior_let))) { continue; }
+    if (replaced_keys.contains(repl_let_internal_key(prior_let))) {
+      continue;
+    }
     imported_typed_lets.push_back(prior_let);
   }
 
   std::unordered_set<std::string> replaced_type_names;
   replaced_type_names.reserve(lowered->type_decls.size());
-  for (const auto& type_decl : lowered->type_decls) { replaced_type_names.insert(type_decl.name); }
+  for (const auto& type_decl : lowered->type_decls) {
+    replaced_type_names.insert(type_decl.name);
+  }
 
   std::vector<frontend::ir::IRTypeDecl> imported_type_decls;
   imported_type_decls.reserve(prior_session_type_decls.size());
   for (const auto& prior_type_decl : prior_session_type_decls) {
-    if (replaced_type_names.contains(prior_type_decl.name)) { continue; }
+    if (replaced_type_names.contains(prior_type_decl.name)) {
+      continue;
+    }
     imported_type_decls.push_back(prior_type_decl);
   }
 
@@ -224,7 +251,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
   std::vector<frontend::ir::IRTypeDecl> symbolic_imported_type_decls;
   for (const auto& [module_name, span] : lowered->imports) {
     (void)span;
-    if (module_name != "Std") { continue; }
+    if (module_name != "Std") {
+      continue;
+    }
 
     const std::filesystem::path std_source_name{"Std.fleaux"};
     const auto embedded_std = fleaux::common::embedded_resource_text("Std.fleaux");
@@ -237,7 +266,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     const auto std_program = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(
         std::string(*embedded_std), std_source_name.string(), make_repl_session_error);
 
-    if (!std_program) { return tl::unexpected(std_program.error()); }
+    if (!std_program) {
+      return tl::unexpected(std_program.error());
+    }
 
     std::unordered_set<std::string> imported_typed_keys;
     imported_typed_keys.reserve(imported_typed_lets.size());
@@ -252,7 +283,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     }
 
     for (const auto& std_let : std_program->lets) {
-      if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) { continue; }
+      if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) {
+        continue;
+      }
       imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
       if (const auto key = frontend::source_loader::let_identity_key(std_let); imported_typed_keys.insert(key).second) {
         imported_typed_lets.push_back(std_let);
@@ -261,7 +294,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     }
 
     for (const auto& std_type_decl : std_program->type_decls) {
-      if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) { continue; }
+      if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) {
+        continue;
+      }
       if (const auto key = frontend::source_loader::type_decl_identity_key(std_type_decl);
           imported_type_decl_keys.insert(key).second) {
         imported_type_decls.push_back(std_type_decl);
@@ -272,7 +307,8 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
 
   const auto analyzed = frontend::source_loader::analyze_lowered_program_with_imports<ReplSessionError>(
       *lowered, source_path, make_repl_session_error, imported_symbols, imported_typed_lets, imported_type_decls,
-      "Cyclic import detected.", std::optional<std::string>{"Break the cycle by moving shared definitions into a third module."});
+      "Cyclic import detected.",
+      std::optional<std::string>{"Break the cycle by moving shared definitions into a third module."});
   if (!analyzed) {
     return tl::unexpected(
         make_repl_session_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
@@ -282,7 +318,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
   if (!symbolic_imported_lets.empty()) {
     std::unordered_set<std::string> seen;
     seen.reserve(result.lets.size() + symbolic_imported_lets.size());
-    for (const auto& let : result.lets) { seen.insert(frontend::source_loader::let_identity_key(let)); }
+    for (const auto& let : result.lets) {
+      seen.insert(frontend::source_loader::let_identity_key(let));
+    }
 
     std::vector<frontend::ir::IRLet> merged_lets;
     merged_lets.reserve(result.lets.size() + symbolic_imported_lets.size());
@@ -305,7 +343,8 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     std::vector<frontend::ir::IRTypeDecl> merged_type_decls;
     merged_type_decls.reserve(result.type_decls.size() + symbolic_imported_type_decls.size());
     for (const auto& imported_type_decl : symbolic_imported_type_decls) {
-      if (const auto key = frontend::source_loader::type_decl_identity_key(imported_type_decl); seen.insert(key).second) {
+      if (const auto key = frontend::source_loader::type_decl_identity_key(imported_type_decl);
+          seen.insert(key).second) {
         merged_type_decls.push_back(imported_type_decl);
       }
     }
@@ -318,12 +357,13 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
 
 inline auto merge_repl_session_lets(const std::vector<frontend::ir::IRLet>& prior_session_lets,
                                     const std::vector<frontend::ir::IRLet>& snippet_lets,
-                                    const std::filesystem::path& snippet_source)
-    -> std::vector<frontend::ir::IRLet> {
+                                    const std::filesystem::path& snippet_source) -> std::vector<frontend::ir::IRLet> {
   std::unordered_set<std::string> replaced_keys;
   replaced_keys.reserve(snippet_lets.size());
   for (const auto& let : snippet_lets) {
-    if (!frontend::source_loader::let_declared_in_source(let, snippet_source)) { continue; }
+    if (!frontend::source_loader::let_declared_in_source(let, snippet_source)) {
+      continue;
+    }
     replaced_keys.insert(repl_let_internal_key(let));
   }
 
@@ -332,7 +372,9 @@ inline auto merge_repl_session_lets(const std::vector<frontend::ir::IRLet>& prio
   std::unordered_set<std::string> seen_keys;
   seen_keys.reserve(prior_session_lets.size() + snippet_lets.size());
   for (const auto& prior_let : prior_session_lets) {
-    if (replaced_keys.contains(repl_let_internal_key(prior_let))) { continue; }
+    if (replaced_keys.contains(repl_let_internal_key(prior_let))) {
+      continue;
+    }
     seen_keys.insert(repl_let_internal_key(prior_let));
     merged_lets.push_back(prior_let);
   }
@@ -351,7 +393,9 @@ inline auto merge_repl_session_type_decls(const std::vector<frontend::ir::IRType
   std::unordered_set<std::string> replaced_names;
   replaced_names.reserve(snippet_type_decls.size());
   for (const auto& type_decl : snippet_type_decls) {
-    if (!frontend::source_loader::type_decl_declared_in_source(type_decl, snippet_source)) { continue; }
+    if (!frontend::source_loader::type_decl_declared_in_source(type_decl, snippet_source)) {
+      continue;
+    }
     replaced_names.insert(type_decl.name);
   }
 
@@ -360,7 +404,9 @@ inline auto merge_repl_session_type_decls(const std::vector<frontend::ir::IRType
   std::unordered_set<std::string> seen_keys;
   seen_keys.reserve(prior_session_type_decls.size() + snippet_type_decls.size());
   for (const auto& prior_type_decl : prior_session_type_decls) {
-    if (replaced_names.contains(prior_type_decl.name)) { continue; }
+    if (replaced_names.contains(prior_type_decl.name)) {
+      continue;
+    }
     seen_keys.insert(frontend::source_loader::type_decl_identity_key(prior_type_decl));
     merged_type_decls.push_back(prior_type_decl);
   }

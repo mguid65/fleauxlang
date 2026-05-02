@@ -24,20 +24,24 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
   const StrongTypeIndex type_index(annotated_program, imported_type_decls);
 
   for (auto& let : annotated_program.lets) {
-    if (!let.body.has_value()) { continue; }
+    if (!let.body.has_value()) {
+      continue;
+    }
 
     std::unordered_set<std::string> generic_param_set;
     generic_param_set.reserve(let.generic_params.size());
-    for (const auto& generic_param : let.generic_params) { generic_param_set.insert(generic_param); }
+    for (const auto& generic_param : let.generic_params) {
+      generic_param_set.insert(generic_param);
+    }
 
     detail::LocalTypes locals;
-    for (const auto& param : let.params) {
-      const Type param_type = detail::rewrite_generic_type(from_ir_type(param.type), generic_param_set);
-      if (auto validated = detail::validate_declared_type(param_type, type_index, generic_param_set, param.span);
+    for (const auto& [name, type, span] : let.params) {
+      const Type param_type = detail::rewrite_generic_type(from_ir_type(type), generic_param_set);
+      if (auto validated = detail::validate_declared_type(param_type, type_index, generic_param_set, span);
           !validated) {
         return tl::unexpected(validated.error());
       }
-      locals.insert_or_assign(param.name, param_type);
+      locals.insert_or_assign(name, param_type);
     }
 
     const Type declared_return = detail::rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
@@ -47,7 +51,9 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
     }
 
     auto inferred_body = detail::infer_expr(*let.body, index, type_index, locals, generic_param_set);
-    if (!inferred_body) { return tl::unexpected(inferred_body.error()); }
+    if (!inferred_body) {
+      return tl::unexpected(inferred_body.error());
+    }
 
     if (!is_consistent(declared_return, *inferred_body)) {
       return tl::unexpected(detail::make_error(

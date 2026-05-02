@@ -15,7 +15,9 @@ namespace {
 template <typename Fn>
 void for_each_stream(Module& module, Fn&& fn) {
   fn(module.instructions);
-  for (auto& fn_def : module.functions) { fn(fn_def.instructions); }
+  for (auto& fn_def : module.functions) {
+    fn(fn_def.instructions);
+  }
 }
 
 // NoOpEliminationPass helpers
@@ -93,7 +95,9 @@ void eliminate_dead_pushes(std::vector<Instruction>& instrs) {
   // is kPop, both are dead. Skip i+1 after marking both.
   std::vector<bool> dead(instrs.size(), false);
   for (std::size_t i = 0; i + 1 < instrs.size(); ++i) {
-    if (dead[i]) { continue; }
+    if (dead[i]) {
+      continue;
+    }
     if (is_side_effect_free_push(instrs[i].opcode) && instrs[i + 1].opcode == Opcode::kPop) {
       dead[i] = true;
       dead[i + 1] = true;
@@ -102,7 +106,9 @@ void eliminate_dead_pushes(std::vector<Instruction>& instrs) {
   }
   std::size_t write = 0;
   for (std::size_t read = 0; read < instrs.size(); ++read) {
-    if (!dead[read]) { instrs[write++] = instrs[read]; }
+    if (!dead[read]) {
+      instrs[write++] = instrs[read];
+    }
   }
   instrs.resize(write);
 }
@@ -111,7 +117,9 @@ void eliminate_dead_pushes(std::vector<Instruction>& instrs) {
 
 auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::optional<ConstValue> {
   if (opcode == Opcode::kNot) {
-    if (const auto* value = std::get_if<bool>(&input.data); value != nullptr) { return ConstValue{.data = !*value}; }
+    if (const auto* value = std::get_if<bool>(&input.data); value != nullptr) {
+      return ConstValue{.data = !*value};
+    }
     return std::nullopt;
   }
 
@@ -123,7 +131,9 @@ auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::option
       }
       return ConstValue{.data = static_cast<std::int64_t>(-*value)};
     }
-    if (const auto* value = std::get_if<double>(&input.data); value != nullptr) { return ConstValue{.data = -*value}; }
+    if (const auto* value = std::get_if<double>(&input.data); value != nullptr) {
+      return ConstValue{.data = -*value};
+    }
     return std::nullopt;
   }
 
@@ -147,12 +157,16 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
     if (const auto* unsigned_value = std::get_if<std::uint64_t>(&value.data); unsigned_value != nullptr) {
       return static_cast<double>(*unsigned_value);
     }
-    if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) { return *float_value; }
+    if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) {
+      return *float_value;
+    }
     return std::nullopt;
   };
   const auto num_result = [](const double value, const bool prefer_unsigned = false,
                              const bool prefer_float = false) -> ConstValue {
-    if (prefer_float) { return ConstValue{.data = value}; }
+    if (prefer_float) {
+      return ConstValue{.data = value};
+    }
     if (value == std::floor(value) && std::isfinite(value)) {
       if (prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
         return ConstValue{.data = static_cast<std::uint64_t>(value)};
@@ -168,18 +182,26 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
     return ConstValue{.data = value};
   };
 
-  if (opcode == Opcode::kCmpEq) { return ConstValue{.data = (left.data == right.data)}; }
-  if (opcode == Opcode::kCmpNe) { return ConstValue{.data = (left.data != right.data)}; }
+  if (opcode == Opcode::kCmpEq) {
+    return ConstValue{.data = (left.data == right.data)};
+  }
+  if (opcode == Opcode::kCmpNe) {
+    return ConstValue{.data = (left.data != right.data)};
+  }
 
   if (opcode == Opcode::kAnd || opcode == Opcode::kOr) {
     const auto* lhs = std::get_if<bool>(&left.data);
     const auto* rhs = std::get_if<bool>(&right.data);
-    if (lhs == nullptr || rhs == nullptr) { return std::nullopt; }
+    if (lhs == nullptr || rhs == nullptr) {
+      return std::nullopt;
+    }
     return ConstValue{.data = (opcode == Opcode::kAnd ? (*lhs && *rhs) : (*lhs || *rhs))};
   }
 
   if (opcode == Opcode::kDiv || opcode == Opcode::kMod || opcode == Opcode::kPow) {
-    if (!is_numeric(left) || !is_numeric(right)) { return std::nullopt; }
+    if (!is_numeric(left) || !is_numeric(right)) {
+      return std::nullopt;
+    }
 
     // Runtime rejects mixed Int64/UInt64 for div/mod (but not for pow).
     const bool mixed_signed_unsigned_integer_pair =
@@ -190,7 +212,9 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
 
     const auto lhs = to_double(left);
     const auto rhs = to_double(right);
-    if (!lhs.has_value() || !rhs.has_value()) { return std::nullopt; }
+    if (!lhs.has_value() || !rhs.has_value()) {
+      return std::nullopt;
+    }
 
     if (opcode == Opcode::kDiv) {
       const bool prefer_unsigned = is_uint(left) && is_uint(right);
@@ -213,17 +237,23 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
       case Opcode::kAdd: {
         const bool overflow = (*rhs_i64 > 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() - *rhs_i64) ||
                               (*rhs_i64 < 0 && *lhs_i64 < std::numeric_limits<std::int64_t>::min() - *rhs_i64);
-        if (overflow) { return std::nullopt; }
+        if (overflow) {
+          return std::nullopt;
+        }
         return ConstValue{.data = static_cast<std::int64_t>(*lhs_i64 + *rhs_i64)};
       }
       case Opcode::kSub: {
         const bool overflow = (*rhs_i64 < 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() + *rhs_i64) ||
                               (*rhs_i64 > 0 && *lhs_i64 < std::numeric_limits<std::int64_t>::min() + *rhs_i64);
-        if (overflow) { return std::nullopt; }
+        if (overflow) {
+          return std::nullopt;
+        }
         return ConstValue{.data = static_cast<std::int64_t>(*lhs_i64 - *rhs_i64)};
       }
       case Opcode::kMul: {
-        if (*lhs_i64 == 0 || *rhs_i64 == 0) { return ConstValue{.data = static_cast<std::int64_t>(0)}; }
+        if (*lhs_i64 == 0 || *rhs_i64 == 0) {
+          return ConstValue{.data = static_cast<std::int64_t>(0)};
+        }
         if (const auto result = static_cast<long double>(*lhs_i64) * static_cast<long double>(*rhs_i64);
             result > static_cast<long double>(std::numeric_limits<std::int64_t>::max()) ||
             result < static_cast<long double>(std::numeric_limits<std::int64_t>::min())) {
@@ -338,7 +368,9 @@ void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, cons
 void NoOpEliminationPass::run(Module& module) const { for_each_stream(module, erase_noops); }
 
 void ConstantPoolDeduplicationPass::run(Module& module) const {
-  if (module.constants.size() <= 1) { return; }
+  if (module.constants.size() <= 1) {
+    return;
+  }
 
   const auto canonical_remap = build_const_remap(module.constants);
 
@@ -350,7 +382,9 @@ void ConstantPoolDeduplicationPass::run(Module& module) const {
       break;
     }
   }
-  if (!any_duplicate) { return; }
+  if (!any_duplicate) {
+    return;
+  }
 
   auto [new_pool, final_remap] = compact_pool(module.constants, canonical_remap);
   module.constants = std::move(new_pool);
@@ -390,10 +424,14 @@ auto BytecodeOptimizer::run_extended_passes(Module& module) const -> OptimizeRes
 }
 
 auto BytecodeOptimizer::optimize(Module& module, const OptimizerConfig& config) const -> OptimizeResult {
-  if (auto result = run_always_on_passes(module); !result) { return result; }
+  if (auto result = run_always_on_passes(module); !result) {
+    return result;
+  }
 
   if (config.mode == OptimizationMode::kExtended) {
-    if (auto result = run_extended_passes(module); !result) { return result; }
+    if (auto result = run_extended_passes(module); !result) {
+      return result;
+    }
   }
 
   return {};

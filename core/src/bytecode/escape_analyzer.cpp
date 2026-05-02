@@ -43,17 +43,23 @@ auto full_symbol_name(const std::optional<std::string>& qualifier, const std::st
 }
 
 auto let_identity_key(const IRLet& let) -> std::string {
-  if (!let.symbol_key.empty()) { return let.symbol_key; }
+  if (!let.symbol_key.empty()) {
+    return let.symbol_key;
+  }
   return full_symbol_name(let.qualifier, let.name);
 }
 
 auto target_identity_key(const IRNameRef& name_ref) -> std::string {
-  if (name_ref.resolved_symbol_key.has_value()) { return *name_ref.resolved_symbol_key; }
+  if (name_ref.resolved_symbol_key.has_value()) {
+    return *name_ref.resolved_symbol_key;
+  }
   return full_symbol_name(name_ref.qualifier, name_ref.name);
 }
 
 auto saturating_add(const std::size_t lhs, const std::size_t rhs) -> std::size_t {
-  if (lhs > std::numeric_limits<std::size_t>::max() - rhs) { return std::numeric_limits<std::size_t>::max(); }
+  if (lhs > std::numeric_limits<std::size_t>::max() - rhs) {
+    return std::numeric_limits<std::size_t>::max();
+  }
   return lhs + rhs;
 }
 
@@ -70,11 +76,15 @@ auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> 
                                c.val);
                          },
                          [](const IRTupleExpr& tuple) -> std::optional<std::size_t> {
-                           if (tuple.items.size() == 1) { return estimate_expr_size_bytes(*tuple.items.front()); }
+                           if (tuple.items.size() == 1) {
+                             return estimate_expr_size_bytes(*tuple.items.front());
+                           }
                            std::size_t total = 16;
                            for (const auto& item : tuple.items) {
                              const auto item_size = estimate_expr_size_bytes(*item);
-                             if (!item_size.has_value()) { return std::nullopt; }
+                             if (!item_size.has_value()) {
+                               return std::nullopt;
+                             }
                              total = saturating_add(total, *item_size);
                            }
                            return total;
@@ -110,7 +120,9 @@ auto param_reaches_escape_builtin_call(const IRExpr& expr, const std::string& pa
                                                              },
                                                              [](const IROperatorRef&) -> bool { return false; }},
                                           flow.rhs);
-                           if (lhs_contains_param && calls_escape_builtin) { return true; }
+                           if (lhs_contains_param && calls_escape_builtin) {
+                             return true;
+                           }
                            return param_reaches_escape_builtin_call(*flow.lhs, param_name);
                          },
                          [&](const IRTupleExpr& tuple) -> bool {
@@ -137,7 +149,9 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
                               flow.rhs);
                  },
                  [&](const IRTupleExpr& tuple) -> void {
-                   for (const auto& item : tuple.items) { collect_call_sites(*item, out); }
+                   for (const auto& item : tuple.items) {
+                     collect_call_sites(*item, out);
+                   }
                  },
                  [&](const IRClosureExprBox& closure_ptr) -> void { collect_call_sites(*closure_ptr->body, out); },
                  [](const auto&) -> auto {}},
@@ -146,17 +160,23 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
 
 void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>& out) {
   for (const auto& let : program.lets) {
-    if (let.is_builtin || !let.body.has_value()) { continue; }
+    if (let.is_builtin || !let.body.has_value()) {
+      continue;
+    }
     collect_call_sites(*let.body, out);
   }
-  for (const auto& [expr, span] : program.expressions) { collect_call_sites(expr, out); }
+  for (const auto& [expr, span] : program.expressions) {
+    collect_call_sites(expr, out);
+  }
 }
 
 auto param_is_captured_by_nested_closure(const IRExpr& expr, const std::string& param_name) -> bool {
   return std::visit(
       common::overloaded{
           [&](const IRClosureExprBox& closure_ptr) -> bool {
-            if (std::ranges::find(closure_ptr->captures, param_name) != closure_ptr->captures.end()) { return true; }
+            if (std::ranges::find(closure_ptr->captures, param_name) != closure_ptr->captures.end()) {
+              return true;
+            }
             return param_is_captured_by_nested_closure(*closure_ptr->body, param_name);
           },
           [&](const IRTupleExpr& tuple) -> bool {
@@ -172,13 +192,21 @@ auto param_is_captured_by_nested_closure(const IRExpr& expr, const std::string& 
 auto call_arg_for_param(const IRExpr& lhs, const std::size_t arity, const std::size_t param_index) -> const IRExpr* {
   const auto* tuple_expr = std::get_if<IRTupleExpr>(&lhs.node);
   if (arity == 1) {
-    if (tuple_expr != nullptr && tuple_expr->items.size() == 1) { return &*tuple_expr->items.front(); }
+    if (tuple_expr != nullptr && tuple_expr->items.size() == 1) {
+      return &*tuple_expr->items.front();
+    }
     return &lhs;
   }
 
-  if (tuple_expr == nullptr) { return nullptr; }
-  if (tuple_expr->items.size() != arity) { return nullptr; }
-  if (param_index >= tuple_expr->items.size()) { return nullptr; }
+  if (tuple_expr == nullptr) {
+    return nullptr;
+  }
+  if (tuple_expr->items.size() != arity) {
+    return nullptr;
+  }
+  if (param_index >= tuple_expr->items.size()) {
+    return nullptr;
+  }
   return &*tuple_expr->items[param_index];
 }
 
@@ -187,14 +215,18 @@ auto call_arg_for_param(const IRExpr& lhs, const std::size_t arity, const std::s
 auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefAnalysisOptions& options)
     -> AutoValueRefParamSlots {
   AutoValueRefParamSlots result;
-  if (!options.enabled) { return result; }
+  if (!options.enabled) {
+    return result;
+  }
 
   std::unordered_map<std::string, const IRLet*> lets_by_name;
   std::unordered_map<std::string, std::string> short_to_full_name;
   std::unordered_set<std::string> ambiguous_short_names;
 
   for (const auto& let : program.lets) {
-    if (let.is_builtin || !let.body.has_value()) { continue; }
+    if (let.is_builtin || !let.body.has_value()) {
+      continue;
+    }
     const auto full_name = let_identity_key(let);
     lets_by_name.emplace(full_name, &let);
     if (!let.qualifier.has_value()) {
@@ -225,20 +257,32 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
 
   for (const auto& [full_name, let_ptr] : lets_by_name) {
     const auto callsite_it = calls_by_target.find(full_name);
-    if (callsite_it == calls_by_target.end()) { continue; }
+    if (callsite_it == calls_by_target.end()) {
+      continue;
+    }
 
     const auto& let = *let_ptr;
     const auto arity = let.params.size();
-    if (arity == 0) { continue; }
+    if (arity == 0) {
+      continue;
+    }
 
     std::unordered_set<std::uint32_t> marked_params;
 
     for (std::size_t param_idx = 0; param_idx < arity; ++param_idx) {
       const auto& param = let.params[param_idx];
-      if (param.type.variadic) { continue; }
-      if (param.type.name == "Any") { continue; }
-      if (let.body.has_value() && param_is_captured_by_nested_closure(*let.body, param.name)) { continue; }
-      if (let.body.has_value() && param_reaches_escape_builtin_call(*let.body, param.name)) { continue; }
+      if (param.type.variadic) {
+        continue;
+      }
+      if (param.type.name == "Any") {
+        continue;
+      }
+      if (let.body.has_value() && param_is_captured_by_nested_closure(*let.body, param.name)) {
+        continue;
+      }
+      if (let.body.has_value() && param_reaches_escape_builtin_call(*let.body, param.name)) {
+        continue;
+      }
 
       bool all_calls_large = true;
       bool saw_call = false;
@@ -258,10 +302,14 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
         saw_call = true;
       }
 
-      if (saw_call && all_calls_large) { marked_params.insert(static_cast<std::uint32_t>(param_idx)); }
+      if (saw_call && all_calls_large) {
+        marked_params.insert(static_cast<std::uint32_t>(param_idx));
+      }
     }
 
-    if (!marked_params.empty()) { result.emplace(full_name, std::move(marked_params)); }
+    if (!marked_params.empty()) {
+      result.emplace(full_name, std::move(marked_params));
+    }
   }
 
   return result;

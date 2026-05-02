@@ -107,7 +107,9 @@ struct ScopedRegistry {
       entries.push_back(Entry{.value = std::move(val), .generation = 0, .occupied = true});
       slot = static_cast<UInt>(entries.size() - 1);
     }
-    if (logged) { registration_log.push_back(slot); }
+    if (logged) {
+      registration_log.push_back(slot);
+    }
     ++active_count;
     return RegistryId{.slot = slot, .generation = entries[static_cast<std::size_t>(slot)].generation};
   }
@@ -115,22 +117,32 @@ struct ScopedRegistry {
   // Retire a slot; bumps generation so existing ids become stale.
   void retire(const UInt slot) {
     const auto idx = static_cast<std::size_t>(slot);
-    if (idx >= entries.size()) { return; }
+    if (idx >= entries.size()) {
+      return;
+    }
     auto& entry = entries[idx];
-    if (!entry.occupied) { return; }
+    if (!entry.occupied) {
+      return;
+    }
     entry.value = T{};
     ++entry.generation;
     entry.occupied = false;
     free_slots.push_back(slot);
-    if (active_count > 0) { --active_count; }
+    if (active_count > 0) {
+      --active_count;
+    }
   }
 
   // Look up a value by id; returns nullptr if id is stale or invalid.
   [[nodiscard]] auto get(const RegistryId& id) const -> const T* {
     const auto idx = static_cast<std::size_t>(id.slot);
-    if (idx >= entries.size()) { return nullptr; }
+    if (idx >= entries.size()) {
+      return nullptr;
+    }
     const auto& entry = entries[idx];
-    if (!entry.occupied || entry.generation != id.generation) { return nullptr; }
+    if (!entry.occupied || entry.generation != id.generation) {
+      return nullptr;
+    }
     return &entry.value;
   }
 
@@ -167,7 +179,9 @@ public:
   ~ScopedRegistryCheckpoint() {
     std::scoped_lock lock(*mutex_);
     const auto log_size = registry_->registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) { registry_->retire(registry_->registration_log[i]); }
+    for (std::size_t i = checkpoint_; i < log_size; ++i) {
+      registry_->retire(registry_->registration_log[i]);
+    }
     registry_->registration_log.resize(checkpoint_);
   }
 
@@ -205,7 +219,9 @@ public:
 
   auto operator=(PinnedRegistryRef&& other) noexcept -> PinnedRegistryRef& {
     if (this != &other) {
-      if (valid_) { do_release(); }
+      if (valid_) {
+        do_release();
+      }
       registry_ = other.registry_;
       mutex_ = other.mutex_;
       id_ = other.id_;
@@ -216,7 +232,9 @@ public:
   }
 
   ~PinnedRegistryRef() {
-    if (valid_) { do_release(); }
+    if (valid_) {
+      do_release();
+    }
   }
 
   void release() {
@@ -275,22 +293,34 @@ inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
                                                       const bool allow_legacy_generationless = false)
     -> std::optional<RegistryId> {
   const auto& arr = token.TryGetArray();
-  if (!arr || (arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) { return std::nullopt; }
+  if (!arr || (arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
+    return std::nullopt;
+  }
 
   const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != expected_tag) { return std::nullopt; }
+  if (!tag || *tag != expected_tag) {
+    return std::nullopt;
+  }
 
   const auto& slot_num = arr->TryGet(1)->TryGetNumber();
-  if (!slot_num) { return std::nullopt; }
+  if (!slot_num) {
+    return std::nullopt;
+  }
   const auto slot = tagged_token_number_as_uint(*slot_num);
-  if (!slot) { return std::nullopt; }
+  if (!slot) {
+    return std::nullopt;
+  }
 
   UInt generation = 0;
   if (arr->Size() == 3) {
     const auto& generation_num = arr->TryGet(2)->TryGetNumber();
-    if (!generation_num) { return std::nullopt; }
+    if (!generation_num) {
+      return std::nullopt;
+    }
     const auto parsed_generation = tagged_token_number_as_uint(*generation_num);
-    if (!parsed_generation) { return std::nullopt; }
+    if (!parsed_generation) {
+      return std::nullopt;
+    }
     generation = *parsed_generation;
   }
 
@@ -370,7 +400,9 @@ inline void set_process_args(const int argc, char** argv) {
   std::scoped_lock lock(process_args_mutex());
   auto& args = process_args_storage();
   args.clear();
-  if (argc <= 0) { return; }
+  if (argc <= 0) {
+    return;
+  }
   args.reserve(static_cast<std::size_t>(argc));
   for (int arg_index = 0; arg_index < argc; ++arg_index) {
     args.emplace_back((argv != nullptr && argv[arg_index] != nullptr) ? argv[arg_index] : "");
@@ -427,7 +459,9 @@ public:
     std::scoped_lock lock(callable_registry_mutex());
     auto& call_reg = callable_registry();
     const auto log_size = call_reg.registration_log.size();
-    for (std::size_t i = checkpoint_log_size_; i < log_size; ++i) { call_reg.retire(call_reg.registration_log[i]); }
+    for (std::size_t i = checkpoint_log_size_; i < log_size; ++i) {
+      call_reg.retire(call_reg.registration_log[i]);
+    }
     call_reg.registration_log.resize(checkpoint_log_size_);
   }
 
@@ -473,7 +507,9 @@ public:
 
   auto operator=(PinnedCallableRef&& other) noexcept -> PinnedCallableRef& {
     if (this != &other) {
-      if (valid_) { release_callable_ref(id_); }
+      if (valid_) {
+        release_callable_ref(id_);
+      }
       id_ = other.id_;
       ref_ = std::move(other.ref_);
       valid_ = other.valid_;
@@ -483,7 +519,9 @@ public:
   }
 
   ~PinnedCallableRef() {
-    if (valid_) { release_callable_ref(id_); }
+    if (valid_) {
+      release_callable_ref(id_);
+    }
   }
 
   // Returns the Value token that can be passed into the runtime.
@@ -529,11 +567,15 @@ auto make_callable_ref(F&& fn) -> Value {
 // callable_id_from_value is available).
 inline void release_callable_ref(const Value& ref) {
   const auto id = callable_id_from_value(ref);
-  if (!id) { return; }
+  if (!id) {
+    return;
+  }
   std::scoped_lock lock(callable_registry_mutex());
   // Only retire if the generation still matches (idempotent if already retired).
   auto& call_reg = callable_registry();
-  if (const auto* ptr = call_reg.get(*id); ptr) { call_reg.retire(id->slot); }
+  if (const auto* ptr = call_reg.get(*id); ptr) {
+    call_reg.retire(id->slot);
+  }
 }
 
 // ============================================================================
@@ -615,7 +657,9 @@ inline void reset_value_registry_for_tests() {
 // Returns a copy of the stored value; throws if token is stale.
 [[nodiscard]] inline auto deref_value_ref(const Value& token) -> Value {
   const auto id = value_ref_id_from_token(token);
-  if (!id) { throw std::runtime_error{"deref_value_ref: not a value-ref token"}; }
+  if (!id) {
+    throw std::runtime_error{"deref_value_ref: not a value-ref token"};
+  }
   std::scoped_lock lock(value_registry_mutex());
   auto& telemetry = value_registry_telemetry_state();
   const Value* ptr = value_registry().get(*id);
@@ -629,10 +673,14 @@ inline void reset_value_registry_for_tests() {
 // Explicitly retire a value ref token. Idempotent.
 inline void release_value_ref(const Value& token) {
   const auto id = value_ref_id_from_token(token);
-  if (!id) { return; }
+  if (!id) {
+    return;
+  }
   std::scoped_lock lock(value_registry_mutex());
   auto& reg = value_registry();
-  if (reg.get(*id)) { reg.retire(id->slot); }
+  if (reg.get(*id)) {
+    reg.retire(id->slot);
+  }
 }
 
 // RAII scope: retires all transient value-refs created within this scope on exit.
@@ -652,7 +700,9 @@ public:
     std::scoped_lock lock(value_registry_mutex());
     auto& reg = value_registry();
     const auto log_size = reg.registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) { reg.retire(reg.registration_log[i]); }
+    for (std::size_t i = checkpoint_; i < log_size; ++i) {
+      reg.retire(reg.registration_log[i]);
+    }
     reg.registration_log.resize(checkpoint_);
   }
 
@@ -686,7 +736,9 @@ public:
 
   auto operator=(PinnedValueRef&& other) noexcept -> PinnedValueRef& {
     if (this != &other) {
-      if (valid_) { do_release(); }
+      if (valid_) {
+        do_release();
+      }
       id_ = other.id_;
       token_ = std::move(other.token_);
       valid_ = other.valid_;
@@ -696,7 +748,9 @@ public:
   }
 
   ~PinnedValueRef() {
-    if (valid_) { do_release(); }
+    if (valid_) {
+      do_release();
+    }
   }
 
   [[nodiscard]] auto token() const -> const Value& { return token_; }
@@ -712,7 +766,9 @@ public:
 
   // Returns a copy of the stored value.
   [[nodiscard]] auto get() const -> Value {
-    if (!valid_) { throw std::runtime_error{"PinnedValueRef::get: already released"}; }
+    if (!valid_) {
+      throw std::runtime_error{"PinnedValueRef::get: already released"};
+    }
     return deref_value_ref(token_);
   }
 
@@ -777,11 +833,16 @@ struct HandleRegistry {
     const bool is_append = (entry.mode.find('a') != std::string::npos);
     const bool is_binary = (entry.mode.find('b') != std::string::npos);
 
-    if (is_read) flags |= std::ios::in;
-    if (is_write) flags |= std::ios::out | std::ios::trunc;
-    if (is_append) flags |= std::ios::out | std::ios::app;
-    if (is_binary) flags |= std::ios::binary;
-    if (!is_read && !is_write && !is_append) flags |= std::ios::in;
+    if (is_read)
+      flags |= std::ios::in;
+    if (is_write)
+      flags |= std::ios::out | std::ios::trunc;
+    if (is_append)
+      flags |= std::ios::out | std::ios::app;
+    if (is_binary)
+      flags |= std::ios::binary;
+    if (!is_read && !is_write && !is_append)
+      flags |= std::ios::in;
 
     entry.stream.open(entry.path, flags);
     if (!entry.stream.is_open()) {
@@ -792,17 +853,21 @@ struct HandleRegistry {
   // Returns a raw pointer to the entry; callers must not concurrently call
   // open() or close() while the pointer is in use.
   [[nodiscard]] auto get(const UInt slot, const UInt gen) -> HandleEntry* {
-    if (slot >= entries.size()) return nullptr;
+    if (slot >= entries.size())
+      return nullptr;
     auto& entry = entries[slot];
-    if (entry.closed || entry.generation != gen) return nullptr;
+    if (entry.closed || entry.generation != gen)
+      return nullptr;
     return &entry;
   }
 
   auto close(const UInt slot, const UInt gen) -> bool {
     std::scoped_lock lock(mtx);
-    if (slot >= entries.size()) return false;
+    if (slot >= entries.size())
+      return false;
     auto& entry = entries[slot];
-    if (entry.closed || entry.generation != gen) return false;
+    if (entry.closed || entry.generation != gen)
+      return false;
     entry.stream.close();
     entry.closed = true;
     return true;
@@ -876,27 +941,35 @@ struct HandleId {
 
 [[nodiscard]] inline auto handle_id_from_value(const Value& value) -> std::optional<HandleId> {
   const auto parsed = parse_tagged_registry_token(value, k_handle_tag);
-  if (!parsed) { return std::nullopt; }
+  if (!parsed) {
+    return std::nullopt;
+  }
   return HandleId{.slot = parsed->slot, .gen = parsed->generation};
 }
 
 [[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
   const auto id = handle_id_from_value(token);
-  if (!id) throw std::runtime_error{std::string(op) + ": not a valid handle token"};
+  if (!id)
+    throw std::runtime_error{std::string(op) + ": not a valid handle token"};
   HandleEntry* entry = handle_registry().get(id->slot, id->gen);
-  if (!entry) throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+  if (!entry)
+    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
   return *entry;
 }
 
 [[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
   const auto id = callable_id_from_value(ref);
-  if (!id) { throw std::runtime_error{"Expected callable reference"}; }
+  if (!id) {
+    throw std::runtime_error{"Expected callable reference"};
+  }
 
   RuntimeCallable callable;
   {
     std::scoped_lock lock(callable_registry_mutex());
     const RuntimeCallable* ptr = callable_registry().get(*id);
-    if (!ptr) { throw std::runtime_error{"Unknown callable reference"}; }
+    if (!ptr) {
+      throw std::runtime_error{"Unknown callable reference"};
+    }
     callable = *ptr;
   }
 
@@ -948,58 +1021,68 @@ auto make_tuple(Values&&... vals) -> Value {
 
 [[nodiscard]] inline auto as_array(const Value& value) -> const Array& {
   auto result = value.TryGetArray();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Array"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_array(Value& value) -> Array& {
   auto result = value.TryGetArray();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Array"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_number(const Value& value) -> const Number& {
   auto result = value.TryGetNumber();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_bool(const Value& value) -> Bool {
   auto result = value.TryGetBool();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Bool"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Bool"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_string(const Value& value) -> const String& {
   auto result = value.TryGetString();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected String"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected String"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_object(const Value& value) -> const Object& {
   auto result = value.TryGetObject();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Object"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Object"};
   return *result;
 }
 
 [[nodiscard]] inline auto as_object(Value& value) -> Object& {
   auto result = value.TryGetObject();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Object"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Object"};
   return *result;
 }
 
 // Get the Nth element of an Array Value (throws on out-of-range).
 [[nodiscard]] inline auto array_at(const Value& value, const std::size_t index) -> const Value& {
   auto result = as_array(value).TryGet(index);
-  if (!result) throw std::out_of_range{"fleaux::runtime: array index out of range"};
+  if (!result)
+    throw std::out_of_range{"fleaux::runtime: array index out of range"};
   return *result;
 }
 
 [[nodiscard]] inline auto array_at(Value& value, const std::size_t index) -> Value& {
   auto result = value.TryGetArray();
-  if (!result) throw std::runtime_error{"fleaux::runtime: expected Array"};
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Array"};
   Array& arr = *result;
-  if (index >= arr.Size()) throw std::out_of_range{"fleaux::runtime: array index out of range"};
+  if (index >= arr.Size())
+    throw std::out_of_range{"fleaux::runtime: array index out of range"};
   return arr[index];
 }
 
@@ -1013,7 +1096,9 @@ auto make_tuple(Values&&... vals) -> Value {
 // Convert a double result back to the most correct numeric Value (Int64, UInt64, or Float64).
 [[nodiscard]] inline auto num_result(const double val, const bool prefer_unsigned = false,
                                      const bool prefer_float = false) -> Value {
-  if (prefer_float) { return make_float(val); }
+  if (prefer_float) {
+    return make_float(val);
+  }
   if (val == std::floor(val) && std::isfinite(val)) {
     if (prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
       return make_uint(static_cast<UInt>(val));
@@ -1045,7 +1130,9 @@ auto make_tuple(Values&&... vals) -> Value {
 }
 
 [[nodiscard]] inline auto is_mixed_signed_unsigned_integer_pair(const Value& lhs, const Value& rhs) -> bool {
-  if (is_float_number(lhs) || is_float_number(rhs)) { return false; }
+  if (is_float_number(lhs) || is_float_number(rhs)) {
+    return false;
+  }
   return (is_int_number(lhs) && is_uint_number(rhs)) || (is_uint_number(lhs) && is_int_number(rhs));
 }
 
@@ -1084,7 +1171,9 @@ auto make_tuple(Values&&... vals) -> Value {
     const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
                                                 [](const UInt unsigned_value) -> UInt { return unsigned_value; },
                                                 [](const Float) -> UInt { return 0; });
-    if (lhs_value < 0) { return -1; }
+    if (lhs_value < 0) {
+      return -1;
+    }
     const UInt lhs_as_uint = static_cast<UInt>(lhs_value);
     return (lhs_as_uint < rhs_value) ? -1 : ((lhs_as_uint > rhs_value) ? 1 : 0);
   }
@@ -1094,7 +1183,9 @@ auto make_tuple(Values&&... vals) -> Value {
                                               [](const Float) -> UInt { return 0; });
   const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
                                              [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
-  if (rhs_value < 0) { return 1; }
+  if (rhs_value < 0) {
+    return 1;
+  }
   const UInt rhs_as_uint = static_cast<UInt>(rhs_value);
   return (lhs_value < rhs_as_uint) ? -1 : ((lhs_value > rhs_as_uint) ? 1 : 0);
 }
@@ -1135,7 +1226,9 @@ auto make_tuple(Values&&... vals) -> Value {
 
 [[nodiscard]] inline auto as_index_strict(const Value& val, const std::string_view name) -> std::size_t {
   const Int index_value = as_int_value_strict(val, name);
-  if (index_value < 0) { throw std::out_of_range(std::format("{} expects non-negative integer", name)); }
+  if (index_value < 0) {
+    throw std::out_of_range(std::format("{} expects non-negative integer", name));
+  }
   return static_cast<std::size_t>(index_value);
 }
 
@@ -1143,7 +1236,9 @@ auto make_tuple(Values&&... vals) -> Value {
 // the scalar value instead of a 1-tuple wrapper.
 [[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value {
   if (val.HasArray()) {
-    if (auto& arr = as_array(val); arr.Size() == 1) { return std::move(arr[0]); }
+    if (auto& arr = as_array(val); arr.Size() == 1) {
+      return std::move(arr[0]);
+    }
   }
   return val;
 }
@@ -1162,10 +1257,14 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
       [&](const Array& arr) -> void {
         os << '(';
         for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-          if (element_index > 0) { os << ", "; }
+          if (element_index > 0) {
+            os << ", ";
+          }
           print_value_repr(os, *arr.TryGet(element_index));
         }
-        if (arr.Size() == 1) { os << ','; }
+        if (arr.Size() == 1) {
+          os << ',';
+        }
         os << ')';
       },
       [&](const Object& obj) -> void {
@@ -1176,11 +1275,13 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
         // Collect and sort internal keys so output is deterministic.
         std::vector<std::string> sorted_keys;
         sorted_keys.reserve(obj.Size());
-        for (const auto& internal_key : obj | std::views::keys) sorted_keys.push_back(internal_key);
+        for (const auto& internal_key : obj | std::views::keys)
+          sorted_keys.push_back(internal_key);
         std::ranges::sort(sorted_keys);
         bool first = true;
         for (const auto& ikey : sorted_keys) {
-          if (!first) os << ", ";
+          if (!first)
+            os << ", ";
           first = false;
           // Strip the type prefix and render the original key value.
           if (ikey.size() >= 2 && ikey[1] == ':') {
@@ -1196,7 +1297,8 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
             os << ikey;  // legacy key without a prefix
           }
           os << ": ";
-          if (const auto got = obj.TryGet(ikey)) print_value_repr(os, *got);
+          if (const auto got = obj.TryGet(ikey))
+            print_value_repr(os, *got);
         }
         os << '}';
       },
@@ -1218,7 +1320,9 @@ inline void print_value_varargs(std::ostream& os, const Value& value) {
 
   const auto& arr = as_array(value);
   for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-    if (element_index > 0) { os << ' '; }
+    if (element_index > 0) {
+      os << ' ';
+    }
     print_value_repr(os, *arr.TryGet(element_index));
   }
 }
@@ -1230,8 +1334,12 @@ inline auto to_string(const Value& value) -> std::string {
 }
 
 [[nodiscard]] inline auto type_name(const Value& value) -> std::string {
-  if (callable_id_from_value(value).has_value()) { return "Callable"; }
-  if (handle_id_from_value(value).has_value()) { return "Handle"; }
+  if (callable_id_from_value(value).has_value()) {
+    return "Callable";
+  }
+  if (handle_id_from_value(value).has_value()) {
+    return "Handle";
+  }
 
   return value.Visit(
       [](const Array&) -> std::string { return "Tuple"; }, [](const Generic&) -> std::string { return "Generic"; },
@@ -1280,8 +1388,12 @@ enum class SortTag {
       return cmp;
     }
   }
-  if (lhs.Size() < rhs.Size()) { return -1; }
-  if (lhs.Size() > rhs.Size()) { return 1; }
+  if (lhs.Size() < rhs.Size()) {
+    return -1;
+  }
+  if (lhs.Size() > rhs.Size()) {
+    return 1;
+  }
   return 0;
 }
 
@@ -1335,12 +1447,16 @@ enum class SortTag {
   std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
   std::string out;
   out.reserve(size);
-  for (std::size_t char_index = 0; char_index < size; ++char_index) { out.push_back(alphabet[dist(rng)]); }
+  for (std::size_t char_index = 0; char_index < size; ++char_index) {
+    out.push_back(alphabet[dist(rng)]);
+  }
   return out;
 }
 
 inline void throw_if_filesystem_error(const std::error_code& ec, std::string_view op) {
-  if (ec) { throw std::runtime_error(std::format("{} failed: {}", op, ec.message())); }
+  if (ec) {
+    throw std::runtime_error(std::format("{} failed: {}", op, ec.message()));
+  }
 }
 
 [[nodiscard]] inline auto trim_left(std::string text) -> std::string {
@@ -1357,30 +1473,30 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 }
 
 [[nodiscard]] inline auto format_value_plain(const Value& value) -> std::string {
-  return value.Visit(
-      [&](const Array&) -> std::string { return to_string(value); },
-      [&](const Object&) -> std::string { return to_string(value); },
-      [&](const Generic&) -> std::string { return to_string(value); },
-      [&](const ValueNode& value_node) -> std::string {
-        return value_node.Visit(
-            [&](const Null&) -> std::string { return to_string(value); },
-            [&](const Bool bool_value) -> std::string { return std::vformat("{}", std::make_format_args(bool_value)); },
-            [&](const Number& number_value) -> std::string {
-              return number_value.Visit(
-                  [&](const Int signed_value) -> std::string {
-                    return std::vformat("{}", std::make_format_args(signed_value));
-                  },
-                  [&](const UInt unsigned_value) -> std::string {
-                    return std::vformat("{}", std::make_format_args(unsigned_value));
-                  },
-                  [&](const Float float_value) -> std::string {
-                    return std::vformat("{}", std::make_format_args(float_value));
-                  });
-            },
-            [&](const String& string_value) -> std::string {
-              return std::vformat("{}", std::make_format_args(string_value));
-            });
-      });
+  return value.Visit([&](const Array&) -> std::string { return to_string(value); },
+                     [&](const Object&) -> std::string { return to_string(value); },
+                     [&](const Generic&) -> std::string { return to_string(value); },
+                     [&](const ValueNode& value_node) -> std::string {
+                       return value_node.Visit([&](const Null&) -> std::string { return to_string(value); },
+                                               [&](const Bool bool_value) -> std::string {
+                                                 return std::vformat("{}", std::make_format_args(bool_value));
+                                               },
+                                               [&](const Number& number_value) -> std::string {
+                                                 return number_value.Visit(
+                                                     [&](const Int signed_value) -> std::string {
+                                                       return std::vformat("{}", std::make_format_args(signed_value));
+                                                     },
+                                                     [&](const UInt unsigned_value) -> std::string {
+                                                       return std::vformat("{}", std::make_format_args(unsigned_value));
+                                                     },
+                                                     [&](const Float float_value) -> std::string {
+                                                       return std::vformat("{}", std::make_format_args(float_value));
+                                                     });
+                                               },
+                                               [&](const String& string_value) -> std::string {
+                                                 return std::vformat("{}", std::make_format_args(string_value));
+                                               });
+                     });
 }
 
 [[nodiscard]] inline auto format_value_with_spec(const Value& value, const std::string& spec) -> std::string {
@@ -1456,7 +1572,9 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
       }
 
       const std::size_t close = fmt.find('}', cursor + 1);
-      if (close == std::string::npos) { throw std::invalid_argument{"Printf format string has unmatched '{'"}; }
+      if (close == std::string::npos) {
+        throw std::invalid_argument{"Printf format string has unmatched '{'"};
+      }
 
       const std::string field = fmt.substr(cursor + 1, close - (cursor + 1));
       std::size_t index = 0;
@@ -1464,7 +1582,9 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 
       const std::size_t colon = field.find(':');
       const std::string index_part = (colon == std::string::npos) ? field : field.substr(0, colon);
-      if (colon != std::string::npos) { spec = field.substr(colon + 1); }
+      if (colon != std::string::npos) {
+        spec = field.substr(colon + 1);
+      }
 
       if (index_part.empty()) {
         if (saw_manual_index) {
@@ -1485,7 +1605,9 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
         index = static_cast<std::size_t>(std::stoull(index_part));
       }
 
-      if (index >= values.size()) { throw std::invalid_argument{"Format string references a missing argument"}; }
+      if (index >= values.size()) {
+        throw std::invalid_argument{"Format string references a missing argument"};
+      }
 
       if (spec.empty()) {
         out += format_value_plain(values[index]);
@@ -1516,7 +1638,9 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 [[nodiscard]] inline auto format_values(const std::string& fmt, const std::vector<std::string>& values) -> std::string {
   std::vector<Value> wrapped;
   wrapped.reserve(values.size());
-  for (const auto& s : values) { wrapped.push_back(make_string(s)); }
+  for (const auto& s : values) {
+    wrapped.push_back(make_string(s));
+  }
   return format_values(fmt, wrapped);
 }
 

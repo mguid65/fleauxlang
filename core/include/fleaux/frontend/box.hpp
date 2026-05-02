@@ -18,7 +18,9 @@ public:
   Box(Box&&) noexcept = default;
 
   auto operator=(const Box& other) -> Box& {
-    if (this != &other) { ptr_ = other.ptr_ ? std::make_unique<T>(*other.ptr_) : nullptr; }
+    if (this != &other) {
+      ptr_ = other.ptr_ ? std::make_unique<T>(*other.ptr_) : nullptr;
+    }
     return *this;
   }
 

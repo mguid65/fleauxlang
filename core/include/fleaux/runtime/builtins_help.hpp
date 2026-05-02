@@ -35,13 +35,17 @@ namespace detail {
 
 [[nodiscard]] inline auto trim_copy(const std::string_view text) -> std::string {
   const auto first = text.find_first_not_of(" \t\r\n");
-  if (first == std::string_view::npos) { return {}; }
+  if (first == std::string_view::npos) {
+    return {};
+  }
   const auto last = text.find_last_not_of(" \t\r\n");
   return std::string{text.substr(first, last - first + 1)};
 }
 
 [[nodiscard]] inline auto starts_with_token(const std::string& line, const std::string_view token) -> bool {
-  if (line.size() < token.size()) { return false; }
+  if (line.size() < token.size()) {
+    return false;
+  }
   return std::string_view(line).starts_with(token);
 }
 
@@ -64,7 +68,9 @@ struct ParsedDoc {
 
   for (const auto& raw_line : doc_lines) {
     const std::string line = trim_copy(raw_line);
-    if (line.empty()) { continue; }
+    if (line.empty()) {
+      continue;
+    }
 
     if (starts_with_token(line, "@brief")) {
       parsed.brief = trim_copy(std::string_view(line).substr(6));
@@ -91,9 +97,13 @@ struct ParsedDoc {
       continue;
     }
 
+    // todo: handle tparam
+
     if (starts_with_token(line, "@param")) {
       std::string rest = trim_copy(std::string_view(line).substr(6));
-      if (rest.empty()) { continue; }
+      if (rest.empty()) {
+        continue;
+      }
       const auto first_space = rest.find_first_of(" \t:");
       if (first_space == std::string::npos) {
         parsed.params[rest] = {};
@@ -127,11 +137,15 @@ struct ParsedDoc {
 
   const auto& registry = help_metadata_registry();
   if (name.empty()) {
-    if (registry.empty()) { return make_string("Help: no symbols available."); }
+    if (registry.empty()) {
+      return make_string("Help: no symbols available.");
+    }
 
     std::vector<std::string> names;
     names.reserve(registry.size());
-    for (const auto& key : registry | std::views::keys) { names.push_back(key); }
+    for (const auto& key : registry | std::views::keys) {
+      names.push_back(key);
+    }
     std::ranges::sort(names);
 
     std::string result = "Available symbols:\n";
@@ -139,14 +153,18 @@ struct ParsedDoc {
       const auto& metadata = registry.at(symbol_name);
       const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
       result += "- " + symbol_name;
-      if (!parsed.brief.empty()) { result += " - " + parsed.brief; }
+      if (!parsed.brief.empty()) {
+        result += " - " + parsed.brief;
+      }
       result += "\n";
     }
     return make_string(result);
   }
 
   auto it = registry.find(name);
-  if (it == registry.end() && name.find('.') == std::string::npos) { it = registry.find("Std." + name); }
+  if (it == registry.end() && name.find('.') == std::string::npos) {
+    it = registry.find("Std." + name);
+  }
 
   if (it == registry.end()) {
     return make_string("Help: unknown symbol '" + name +
@@ -168,7 +186,9 @@ struct ParsedDoc {
   if (!params.empty()) {
     std::vector<std::string> param_names;
     param_names.reserve(params.size());
-    for (const auto& param_name : params | std::views::keys) { param_names.push_back(param_name); }
+    for (const auto& param_name : params | std::views::keys) {
+      param_names.push_back(param_name);
+    }
     std::ranges::sort(param_names);
 
     result += "\nParameters:\n";
@@ -188,7 +208,9 @@ struct ParsedDoc {
 
   if (!notes.empty()) {
     result += "\nNotes:\n";
-    for (const auto& note : notes) { result += "- " + note + "\n"; }
+    for (const auto& note : notes) {
+      result += "- " + note + "\n";
+    }
   }
 
   return make_string(result);
