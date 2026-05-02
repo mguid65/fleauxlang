@@ -44,6 +44,47 @@ auto instantiate_function_sig(const FunctionSig& sig, const TypeBindings& bindin
   return instantiated;
 }
 
+auto unresolved_generic_return_error(const std::string& full_name, const FunctionSig& sig,
+                                     const FunctionSig& instantiated, const TypeBindings& bindings,
+                                     const std::unordered_set<std::string>& generic_params,
+                                     const std::optional<diag::SourceSpan>& span)
+    -> std::optional<type_check::AnalysisError> {
+  if (sig.generic_params.empty()) { return std::nullopt; }
+
+  std::unordered_set<std::string> visiting;
+  std::unordered_map<std::string, bool> resolved_cache;
+  if (is_type_resolved(instantiated.return_type, bindings, generic_params, visiting, resolved_cache)) {
+    return std::nullopt;
+  }
+
+  std::unordered_set<std::string> unbound;
+  collect_unresolved_return_type_vars(sig.return_type, bindings, generic_params, unbound);
+  return make_error("Type mismatch in call target arguments.",
+                    std::format("{} could not infer generic return type variable(s): {}.", full_name,
+                                join_sorted_type_var_names(unbound)),
+                    span);
+}
+
+auto unresolved_generic_callable_error(const std::string& full_name, const FunctionSig& sig,
+                                       const std::unordered_set<std::string>& generic_params,
+                                       const std::optional<diag::SourceSpan>& span)
+    -> std::optional<type_check::AnalysisError> {
+  if (sig.generic_params.empty()) { return std::nullopt; }
+
+  const auto callable_type = function_type_from_sig(sig);
+  std::unordered_set<std::string> visiting;
+  std::unordered_map<std::string, bool> resolved_cache;
+  const TypeBindings no_bindings;
+  if (is_type_resolved(callable_type, no_bindings, generic_params, visiting, resolved_cache)) { return std::nullopt; }
+
+  std::unordered_set<std::string> unbound;
+  collect_unbound_type_vars(callable_type, no_bindings, unbound);
+  return make_error("Type mismatch in call target arguments.",
+                    std::format("{} could not infer generic callable type variable(s): {}.", full_name,
+                                join_sorted_type_var_names(unbound)),
+                    span);
+}
+
 }  // namespace
 
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index, const LocalTypes& locals,
@@ -94,6 +135,12 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
             if (const auto* overloads = resolve_name_or_symbolic_builtin(index, name_ref.qualifier, name_ref.name);
                 overloads != nullptr) {
               const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
+              if (full_name == "Std.Cast") {
+                return tl::unexpected(make_error(
+                    "Invalid Std.Cast reference.",
+                    std::optional<std::string>{"Use Std.Cast only in direct call position, such as '(value) -> Std.Cast<T>'."},
+                    name_ref.span));
+              }
               const auto filtered =
                   filter_overloads_for_explicit_type_args(full_name, name_ref.span, *overloads, *explicit_type_args);
               if (!filtered) { return tl::unexpected(filtered.error()); }
@@ -103,7 +150,7 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
                     make_error("Ambiguous overloaded function reference.",
                                std::format("{} has multiple overloads. Use it in direct call position or wrap the "
                                            "desired overload in an explicit closure. Candidates: {}.",
-                                           full_name, overload_candidate_list(full_name, *overloads)),
+                                           full_name, overload_candidate_list(full_name, *filtered)),
                                name_ref.span));
               }
 
@@ -112,7 +159,20 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
               if (!bindings) { return tl::unexpected(bindings.error()); }
 
               const auto instantiated = instantiate_function_sig(sig, *bindings);
-              if (instantiated.params.empty()) { return instantiated.return_type; }
+              if (const auto unresolved_return =
+                      unresolved_generic_return_error(full_name, sig, instantiated, *bindings, generic_params,
+                                                      name_ref.span);
+                  unresolved_return.has_value()) {
+                return tl::unexpected(*unresolved_return);
+              }
+              if (instantiated.params.empty()) {
+                return instantiated.return_type;
+              }
+              if (const auto unresolved_callable =
+                      unresolved_generic_callable_error(full_name, instantiated, generic_params, name_ref.span);
+                  unresolved_callable.has_value()) {
+                return tl::unexpected(*unresolved_callable);
+              }
               return function_type_from_sig(instantiated);
             }
 

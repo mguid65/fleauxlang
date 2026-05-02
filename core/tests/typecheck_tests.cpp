@@ -438,6 +438,127 @@ TEST_CASE("Type checker validates explicit type arguments on Std.Apply zero-arg 
   }
 }
 
+TEST_CASE("Type checker rejects zero-arg Std.Apply shorthand when named generic callable return remains unbound",
+          "[typecheck][generics][apply][stage_g3f]") {
+  const std::string src =
+      "let Std.Apply<T, U>(value: T, func: (T) => U): U :: __builtin__;\n"
+      "let MakeUnknown<U>(): U :: __builtin__;\n"
+      "let NeedsInt(x: Int64): Int64 = x;\n"
+      "((), MakeUnknown) -> Std.Apply -> NeedsInt;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_std_apply_zero_arg_named_generic_unbound.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("could not infer generic return type variable") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("MakeUnknown") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("U") != std::string::npos);
+}
+
+TEST_CASE("Type checker validates first-class generic callable references with unresolved returns",
+          "[typecheck][generics][stage_g3f]") {
+  SECTION("Bare generic callable references reject unresolved return type variables") {
+    const std::string src =
+        "let MakeUnknown<U>(x: Int64): U :: __builtin__;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "MakeUnknown -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage_g3f_generic_value_ref_unbound_return.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("could not infer generic return type variable") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("MakeUnknown") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("U") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments still allow first-class callable materialization") {
+    const std::string src =
+        "let MakeUnknown<U>(x: Int64): U :: __builtin__;\n"
+        "let KeepFn(f: (Int64) => Int64): (Int64) => Int64 = f;\n"
+        "MakeUnknown<Int64> -> KeepFn;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage_g3f_generic_value_ref_explicit_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+}
+
+TEST_CASE("Type checker validates first-class generic callable references with unresolved parameter types",
+          "[typecheck][generics][stage_g3f]") {
+  SECTION("Bare generic callable references reject unresolved parameter type variables") {
+    const std::string src =
+        "let ToInt<T>(x: T): Int64 :: __builtin__;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "ToInt -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage_g3f_generic_value_ref_unbound_param.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("could not infer generic callable type variable") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("ToInt") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("T") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments still allow callable references with concrete parameter types") {
+    const std::string src =
+        "let ToInt<T>(x: T): Int64 :: __builtin__;\n"
+        "let KeepFn(f: (String) => Int64): (String) => Int64 = f;\n"
+        "ToInt<String> -> KeepFn;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage_g3f_generic_value_ref_explicit_param_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+}
+
+TEST_CASE("Type checker reports filtered overload candidates for explicit generic value-reference ambiguity",
+          "[typecheck][generics][stage_g3f]") {
+  const std::string src =
+      "let Make<T>(x: T): T = x;\n"
+      "let Make<T>(x: T, y: T): T = x;\n"
+      "let Make(x: Int64): Int64 = x;\n"
+      "let Keep(value: Any): Any = value;\n"
+      "Make<String> -> Keep;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_stage_g3f_filtered_value_ref_ambiguity.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Ambiguous overloaded function reference") != std::string::npos);
+  REQUIRE(lowered.error().hint.has_value());
+  REQUIRE(lowered.error().hint->find("Make(T): T") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Make(T, T): T") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Make(Int64): Int64") == std::string::npos);
+}
+
 TEST_CASE("Type checker infers user generic variadic tail argument type", "[typecheck][generics][stage_g3c]") {
   const std::string src =
       "let FirstOf<T>(head: T, tail: T...): T = head;\n"
@@ -2095,6 +2216,72 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
     REQUIRE(lowered.error().hint->find("Candidates:") != std::string::npos);
   }
 
+  SECTION("Overload ambiguity with explicit type arguments reports only matching filtered candidates") {
+    const std::string src =
+        "let Make<T>(x: T): T = x;\n"
+        "let Make<T>(x: T): Any = x;\n"
+        "let Make(x: Int64): Int64 = x;\n"
+        "(\"ok\") -> Make<String>;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_overload_filtered_ambiguity_diagnostic.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Ambiguous overloaded call target") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Make(T): T") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(T): Any") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(Int64): Int64") == std::string::npos);
+  }
+
+  SECTION("Explicit type arguments keep no-shape overload diagnostics narrowed to filtered candidates") {
+    const std::string src =
+        "let Make<T>(x: T): T = x;\n"
+        "let Make<T>(x: T, y: T): T = x;\n"
+        "let Make(x: Int64): Int64 = x;\n"
+        "(1, 2, 3) -> Make<String>;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_overload_filtered_no_shape_diagnostic.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Make has no overload that accepts 3 argument(s)") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(T): T") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(T, T): T") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(Int64): Int64") == std::string::npos);
+  }
+
+  SECTION("Explicit type arguments keep no-match overload diagnostics narrowed to matching filtered candidates") {
+    const std::string src =
+        "let Make<T>(x: T): T = x;\n"
+        "let Make<T>(x: Tuple(T)): T :: __builtin__;\n"
+        "let Make(x: Int64): Int64 = x;\n"
+        "(1.5) -> Make<String>;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4h_overload_filtered_no_match_diagnostic.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("No overload of Make matches the provided argument types") !=
+            std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(T): T") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(Tuple(T)): T") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Make(Int64): Int64") == std::string::npos);
+  }
+
   SECTION("Builtin contract diagnostics preserve specific index-tuple hints") {
     const std::string src =
         "let Std.Array.GetAtND(value: Any, indices: Any): Any :: __builtin__;\n"
@@ -3316,6 +3503,112 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     REQUIRE(analyzed.error().hint->find("expects 1 explicit type argument") != std::string::npos);
   }
 
+  SECTION("Explicit type arguments report generic and non-generic expectations across mixed overload sets") {
+    const auto analyzed = analyze_program(
+        "let Make(x: Int64): Int64 = x;\n"
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "(1) -> Make<String>;\n",
+        "typecheck_explicit_type_args_mixed_arity_summary.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("No overload of Make accepts 1 explicit type argument") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("generic overloads expect 2 explicit type argument") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("non-generic overloads accept none") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("available explicit type argument arities") == std::string::npos);
+  }
+
+  SECTION("Explicit type arguments still report available arities across distinct generic overload sets") {
+    const auto analyzed = analyze_program(
+        "let Make<T>(value: Int64): Int64 = value;\n"
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "(1) -> Make<String, UInt64, Float64>;\n",
+        "typecheck_explicit_type_args_generic_mixed_arity_summary.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("No overload of Make accepts 3 explicit type argument") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("available explicit type argument arities are 1, 2") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments report direct expects-got wording for uniform generic arity overload sets") {
+    const auto analyzed = analyze_program(
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "let Make<T, U>(value: String): String = value;\n"
+        "(1) -> Make<String>;\n",
+        "typecheck_explicit_type_args_uniform_arity_summary.fleaux");
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("Make expects 2 explicit type argument(s) but got 1") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("available explicit type argument arities") == std::string::npos);
+  }
+
+  SECTION("Value-position explicit type arguments report generic and non-generic expectations across mixed overload sets") {
+    const std::string src =
+        "let Make(x: Int64): Int64 = x;\n"
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "Make<String> -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_explicit_type_args_value_mixed_arity_summary.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("No overload of Make accepts 1 explicit type argument") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("generic overloads expect 2 explicit type argument") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("non-generic overloads accept none") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("available explicit type argument arities") == std::string::npos);
+  }
+
+  SECTION("Value-position explicit type arguments still reuse the generic mixed-arity summary") {
+    const std::string src =
+        "let Make<T>(value: Int64): Int64 = value;\n"
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "Make<String, UInt64, Float64> -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_explicit_type_args_value_generic_mixed_arity_summary.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("No overload of Make accepts 3 explicit type argument") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("available explicit type argument arities are 1, 2") != std::string::npos);
+  }
+
+  SECTION("Value-position explicit type arguments reuse the uniform-arity expects-got wording") {
+    const std::string src =
+        "let Make<T, U>(value: Int64): Int64 = value;\n"
+        "let Make<T, U>(value: String): String = value;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "Make<String> -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_explicit_type_args_value_uniform_arity_summary.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid explicit type argument application") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Make expects 2 explicit type argument(s) but got 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("available explicit type argument arities") == std::string::npos);
+  }
+
   SECTION("Explicit type arguments reject local values") {
     const auto analyzed = analyze_program("let Bad(x: Int64): Int64 = x<Int64>;\n",
                                           "typecheck_explicit_type_args_local_value.fleaux");
@@ -3373,6 +3666,22 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     REQUIRE(analyzed.error().message.find("Invalid Std.Cast invocation") != std::string::npos);
     REQUIRE(analyzed.error().hint.has_value());
     REQUIRE(analyzed.error().hint->find("UserId -> AccountId") != std::string::npos);
+  }
+
+  SECTION("Std.Cast rejects first-class references that bypass direct call validation") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const auto analyzed = analyze_program(
+        "let Std.Apply<T, U>(value: T, func: (T) => U): U :: __builtin__;\n"
+        "type UserId = Int64;\n"
+        "type AccountId = Int64;\n"
+        "let Recast(x: UserId): AccountId = (x, Std.Cast<AccountId>) -> Std.Apply;\n",
+        "typecheck_std_cast_rejects_first_class_reference.fleaux", imported_symbols, imported_typed_lets);
+
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Invalid Std.Cast reference") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("direct call position") != std::string::npos);
   }
 }
 
