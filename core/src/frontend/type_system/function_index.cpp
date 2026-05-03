@@ -15,10 +15,18 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
     return out;
   }
 
-  for (auto& item : out.items) { item = rewrite_generic_type(item, generic_params); }
-  for (auto& member : out.union_members) { member = rewrite_generic_type(member, generic_params); }
-  for (auto& arg : out.applied_args) { arg = rewrite_generic_type(arg, generic_params); }
-  for (auto& param : out.function_params) { param = rewrite_generic_type(param, generic_params); }
+  for (auto& item : out.items) {
+    item = rewrite_generic_type(item, generic_params);
+  }
+  for (auto& member : out.union_members) {
+    member = rewrite_generic_type(member, generic_params);
+  }
+  for (auto& arg : out.applied_args) {
+    arg = rewrite_generic_type(arg, generic_params);
+  }
+  for (auto& param : out.function_params) {
+    param = rewrite_generic_type(param, generic_params);
+  }
   if (out.function_return.has_value()) {
     out.function_return = make_box<Type>(rewrite_generic_type(**out.function_return, generic_params));
   }
@@ -34,7 +42,9 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
   unqualified_symbols_.reserve(program.lets.size() + imported_symbols.size());
   qualified_symbols_.reserve(imported_symbols.size());
   for (const auto& imported_symbol : imported_symbols) {
-    if (imported_symbol.empty()) { continue; }
+    if (imported_symbol.empty()) {
+      continue;
+    }
     if (imported_symbol.find('.') != std::string::npos) {
       qualified_symbols_.insert(imported_symbol);
       continue;
@@ -50,7 +60,9 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
 
     std::unordered_set<std::string> generic_param_set;
     generic_param_set.reserve(let.generic_params.size());
-    for (const auto& generic_param : let.generic_params) { generic_param_set.insert(generic_param); }
+    for (const auto& generic_param : let.generic_params) {
+      generic_param_set.insert(generic_param);
+    }
 
     sig.return_type = rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
     sig.params.reserve(let.params.size());
@@ -63,21 +75,29 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     }
 
     symbols_[symbol_key(let.qualifier, let.name)].push_back(sig);
-    if (!let.qualifier.has_value()) { unqualified_symbols_.insert(let.name); }
+    if (!let.qualifier.has_value()) {
+      unqualified_symbols_.insert(let.name);
+    }
   };
 
   for (const auto& imported_typed_let : imported_typed_lets) {
-    if (imported_typed_let.name.empty()) { continue; }
+    if (imported_typed_let.name.empty()) {
+      continue;
+    }
     index_signature(imported_typed_let);
   }
 
-  for (const auto& let : program.lets) { index_signature(let); }
+  for (const auto& let : program.lets) {
+    index_signature(let);
+  }
 }
 
 auto FunctionIndex::resolve_name(const std::optional<std::string>& qualifier, const std::string& name) const
     -> const FunctionOverloadSet* {
   const auto key = symbol_key(qualifier, name);
-  if (const auto it = symbols_.find(key); it != symbols_.end()) { return &it->second; }
+  if (const auto it = symbols_.find(key); it != symbols_.end()) {
+    return &it->second;
+  }
   return nullptr;
 }
 
@@ -87,7 +107,9 @@ auto FunctionIndex::has_unqualified_symbol(const std::string& name) const -> boo
 
 auto FunctionIndex::has_qualified_symbol(const std::optional<std::string>& qualifier, const std::string& name) const
     -> bool {
-  if (!qualifier.has_value()) { return false; }
+  if (!qualifier.has_value()) {
+    return false;
+  }
   return qualified_symbols_.contains(symbol_key(qualifier, name));
 }
 
@@ -95,20 +117,25 @@ StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const std::vector
   decls_.reserve(imported_type_decls.size() + program.type_decls.size());
 
   const auto index_decl = [&](const ir::IRTypeDecl& type_decl) -> void {
-    decls_.insert_or_assign(type_decl.name,
-                            StrongTypeDecl{
-                                .name = type_decl.name,
-                                .target_type = from_ir_type(type_decl.target),
-                                .span = type_decl.span,
-                            });
+    decls_.insert_or_assign(type_decl.name, StrongTypeDecl{
+                                                .name = type_decl.name,
+                                                .target_type = from_ir_type(type_decl.target),
+                                                .span = type_decl.span,
+                                            });
   };
 
-  for (const auto& imported_type_decl : imported_type_decls) { index_decl(imported_type_decl); }
-  for (const auto& type_decl : program.type_decls) { index_decl(type_decl); }
+  for (const auto& imported_type_decl : imported_type_decls) {
+    index_decl(imported_type_decl);
+  }
+  for (const auto& type_decl : program.type_decls) {
+    index_decl(type_decl);
+  }
 }
 
 auto StrongTypeIndex::resolve_name(const std::string& name) const -> const StrongTypeDecl* {
-  if (const auto it = decls_.find(name); it != decls_.end()) { return &it->second; }
+  if (const auto it = decls_.find(name); it != decls_.end()) {
+    return &it->second;
+  }
   return nullptr;
 }
 

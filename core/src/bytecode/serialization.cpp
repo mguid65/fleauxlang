@@ -8,6 +8,7 @@
 #include <format>
 #include <iostream>
 #include <type_traits>
+#include <utility>
 
 namespace fleaux::bytecode {
 
@@ -248,7 +249,7 @@ auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offs
 }
 
 auto valid_index(const std::int64_t operand, const std::size_t size) -> bool {
-  return operand >= 0 && static_cast<std::size_t>(operand) < size;
+  return operand >= 0 && std::cmp_less(operand, size);
 }
 
 auto describe_operand(const Module& module, const std::vector<Instruction>& stream, const Instruction& instruction)
@@ -361,15 +362,16 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
-    for (const auto& fn : module.functions) {
-      write_string(buffer, fn.name);
-      write_pod(buffer, fn.arity);
-      write_pod(buffer, fn.has_variadic_tail);
-      write_pod(buffer, fn.is_import_placeholder);
-      write_instruction_stream(buffer, fn.instructions);
-      write_string_list(buffer, fn.generic_params);
-      write_string_list(buffer, fn.param_type_names);
-      write_string(buffer, fn.return_type_name);
+    for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
+                      param_type_names, return_type_name] : module.functions) {
+      write_string(buffer, name);
+      write_pod(buffer, arity);
+      write_pod(buffer, has_variadic_tail);
+      write_pod(buffer, is_import_placeholder);
+      write_instruction_stream(buffer, instructions);
+      write_string_list(buffer, generic_params);
+      write_string_list(buffer, param_type_names);
+      write_string(buffer, return_type_name);
     }
   }
 

@@ -47,11 +47,15 @@ namespace detail {
 template <typename Number>
 [[nodiscard]] inline auto parse_decimal_or_throw(std::string_view input, const char* builtin_name) -> Number {
   input = skip_ascii_leading_whitespace(input);
-  if (input.empty()) { throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"}; }
+  if (input.empty()) {
+    throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+  }
 
   if (input.front() == '+') {
     input.remove_prefix(1);
-    if (input.empty()) { throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"}; }
+    if (input.empty()) {
+      throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+    }
   }
 
   Number parsed_value{};
@@ -71,7 +75,9 @@ template <typename Number>
   if (result.ec == std::errc::result_out_of_range) {
     throw std::out_of_range{std::string{builtin_name} + ": value out of range"};
   }
-  if (result.ptr != end) { throw std::invalid_argument{std::string{builtin_name} + ": trailing characters in input"}; }
+  if (result.ptr != end) {
+    throw std::invalid_argument{std::string{builtin_name} + ": trailing characters in input"};
+  }
 
   return parsed_value;
 }

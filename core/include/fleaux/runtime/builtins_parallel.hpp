@@ -47,7 +47,9 @@ inline void reset_task_registry_for_tests() {
     std::scoped_lock lock(task_registry_mutex());
     auto& registry = task_registry();
     for (const auto& entry : registry.entries) {
-      if (entry.occupied && entry.value) { tasks.push_back(entry.value); }
+      if (entry.occupied && entry.value) {
+        tasks.push_back(entry.value);
+      }
     }
     registry.clear();
   }
@@ -71,9 +73,13 @@ inline auto make_task_handle_from_id(const RegistryId& id) -> Value {
 
 [[nodiscard]] inline auto task_id_from_handle(const Value& task_handle) -> std::optional<RegistryId> {
   const auto& arr = task_handle.TryGetArray();
-  if (!arr || arr->Size() != 3) { return std::nullopt; }
+  if (!arr || arr->Size() != 3) {
+    return std::nullopt;
+  }
   const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_task_handle_tag) { return std::nullopt; }
+  if (!tag || *tag != k_task_handle_tag) {
+    return std::nullopt;
+  }
 
   const auto as_uint = [](const Number& n) -> std::optional<UInt> {
     return n.Visit(
@@ -90,31 +96,43 @@ inline auto make_task_handle_from_id(const RegistryId& id) -> Value {
 
   const auto& slot_number = arr->TryGet(1)->TryGetNumber();
   const auto& gen_number = arr->TryGet(2)->TryGetNumber();
-  if (!slot_number || !gen_number) { return std::nullopt; }
+  if (!slot_number || !gen_number) {
+    return std::nullopt;
+  }
   const auto slot = as_uint(*slot_number);
   const auto generation = as_uint(*gen_number);
-  if (!slot || !generation) { return std::nullopt; }
+  if (!slot || !generation) {
+    return std::nullopt;
+  }
   return RegistryId{.slot = *slot, .generation = *generation};
 }
 
 [[nodiscard]] inline auto task_control_from_handle(const Value& task_handle) -> TaskControlPtr {
   const auto id = task_id_from_handle(task_handle);
-  if (!id) { return {}; }
+  if (!id) {
+    return {};
+  }
   std::scoped_lock lock(task_registry_mutex());
   const TaskControlPtr* control = task_registry().get(*id);
   return control != nullptr ? *control : TaskControlPtr{};
 }
 
 inline auto request_task_cancel(const TaskControlPtr& task) -> bool {
-  if (!task) { return false; }
+  if (!task) {
+    return false;
+  }
   std::scoped_lock lock(task->mutex);
-  if (task->started || task->completed || task->cancel_requested) { return false; }
+  if (task->started || task->completed || task->cancel_requested) {
+    return false;
+  }
   task->cancel_requested = true;
   return true;
 }
 
 [[nodiscard]] inline auto wait_task_result(const TaskControlPtr& task) -> Value {
-  if (!task) { return ResultErr(make_tuple(make_string("Task.Await: invalid task handle"))); }
+  if (!task) {
+    return ResultErr(make_tuple(make_string("Task.Await: invalid task handle")));
+  }
 
   std::unique_lock lock(task->mutex);
   task->cv.wait(lock, [&task]() -> bool { return task->completed; });
@@ -123,10 +141,14 @@ inline auto request_task_cancel(const TaskControlPtr& task) -> bool {
 
 [[nodiscard]] inline auto wait_task_result_for(const TaskControlPtr& task, const std::chrono::milliseconds timeout)
     -> std::optional<Value> {
-  if (!task) { return std::nullopt; }
+  if (!task) {
+    return std::nullopt;
+  }
 
   std::unique_lock lock(task->mutex);
-  if (!task->cv.wait_for(lock, timeout, [&task]() -> bool { return task->completed; })) { return std::nullopt; }
+  if (!task->cv.wait_for(lock, timeout, [&task]() -> bool { return task->completed; })) {
+    return std::nullopt;
+  }
   return task->result;
 }
 
@@ -142,7 +164,9 @@ public:
   static constexpr std::size_t k_max_workers = 16;
 
   explicit TaskRuntime(std::size_t worker_count = 0) {
-    if (worker_count == 0) { worker_count = static_cast<std::size_t>(std::thread::hardware_concurrency()); }
+    if (worker_count == 0) {
+      worker_count = static_cast<std::size_t>(std::thread::hardware_concurrency());
+    }
     worker_count = std::clamp(worker_count, k_min_workers, k_max_workers);
     workers_.reserve(worker_count);
     for (std::size_t i = 0; i < worker_count; ++i) {
@@ -157,7 +181,9 @@ public:
     }
     cv_.notify_all();
     for (auto& worker : workers_) {
-      if (worker.joinable()) { worker.join(); }
+      if (worker.joinable()) {
+        worker.join();
+      }
     }
   }
 
@@ -172,10 +198,14 @@ public:
     RuntimeCallable callable;
     try {
       const auto callable_id = callable_id_from_value(function_ref);
-      if (!callable_id) { throw std::runtime_error{"Expected callable reference"}; }
+      if (!callable_id) {
+        throw std::runtime_error{"Expected callable reference"};
+      }
       std::scoped_lock callable_lock(callable_registry_mutex());
       const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-      if (!resolved) { throw std::runtime_error{"Unknown callable reference"}; }
+      if (!resolved) {
+        throw std::runtime_error{"Unknown callable reference"};
+      }
       callable = *resolved;
     } catch (const std::exception& ex) {
       std::scoped_lock task_lock(task->mutex);
@@ -220,7 +250,9 @@ private:
       {
         std::unique_lock lock(mutex_);
         cv_.wait(lock, [this]() -> bool { return stopping_ || !queue_.empty(); });
-        if (stopping_ && queue_.empty()) { return; }
+        if (stopping_ && queue_.empty()) {
+          return;
+        }
         job = std::move(queue_.front());
         queue_.pop_front();
       }
@@ -239,7 +271,9 @@ private:
       Value result;
       try {
         result = ResultOk(make_tuple(job.callable(std::move(job.arg))));
-      } catch (const RuntimePayloadError& ex) { result = ResultErr(ex.payload()); } catch (const std::exception& ex) {
+      } catch (const RuntimePayloadError& ex) {
+        result = ResultErr(ex.payload());
+      } catch (const std::exception& ex) {
         result = ResultErr(make_tuple(make_string(normalize_runtime_error_message(ex.what()))));
       }
 
@@ -280,21 +314,27 @@ public:
     std::vector<std::pair<RegistryId, TaskControlPtr>> tasks;
     {
       std::scoped_lock lock(task_registry_mutex());
-      auto& registry = task_registry();
+      const auto& registry = task_registry();
       const auto log_size = registry.registration_log.size();
       for (std::size_t index = checkpoint_; index < log_size; ++index) {
         const auto slot = registry.registration_log[index];
         const auto entry_index = static_cast<std::size_t>(slot);
-        if (entry_index >= registry.entries.size()) { continue; }
-        const auto& entry = registry.entries[entry_index];
-        if (!entry.occupied || !entry.value) { continue; }
-        tasks.emplace_back(RegistryId{.slot = slot, .generation = entry.generation}, entry.value);
+        if (entry_index >= registry.entries.size()) {
+          continue;
+        }
+        const auto& [value, generation, occupied] = registry.entries[entry_index];
+        if (!occupied || !value) {
+          continue;
+        }
+        tasks.emplace_back(RegistryId{.slot = slot, .generation = generation}, value);
       }
     }
 
     for (const auto& [id, task] : tasks) {
       (void)id;
-      if (request_task_cancel(task)) { task->cv.notify_all(); }
+      if (request_task_cancel(task)) {
+        task->cv.notify_all();
+      }
       (void)wait_task_result(task);
     }
 
@@ -302,7 +342,9 @@ public:
     auto& registry = task_registry();
     for (const auto& [id, task] : tasks) {
       (void)task;
-      if (registry.get(id) != nullptr) { registry.retire(id.slot); }
+      if (registry.get(id) != nullptr) {
+        registry.retire(id.slot);
+      }
     }
     registry.registration_log.resize(checkpoint_);
   }
@@ -319,7 +361,9 @@ inline auto try_get_string_dict_option(const Object& options, const std::string_
 inline auto parse_positive_size_option(const Object& options, const std::string_view key)
     -> std::optional<std::size_t> {
   const auto* value = try_get_string_dict_option(options, key);
-  if (value == nullptr) { return std::nullopt; }
+  if (value == nullptr) {
+    return std::nullopt;
+  }
   const auto parsed = as_index_strict(*value, key);
   if (parsed == 0) {
     throw std::invalid_argument{std::string{"Parallel.WithOptions: "} + std::string{key} + " must be > 0"};
@@ -328,13 +372,17 @@ inline auto parse_positive_size_option(const Object& options, const std::string_
 }
 
 inline auto strip_object_key_prefix(const std::string& internal_key) -> std::string {
-  if (internal_key.size() >= 2U && internal_key[1] == ':') { return internal_key.substr(2); }
+  if (internal_key.size() >= 2U && internal_key[1] == ':') {
+    return internal_key.substr(2);
+  }
   return internal_key;
 }
 
 inline auto validate_parallel_with_options_keys(const Object& options) -> void {
   for (const auto& internal_key : options | std::views::keys) {
-    if (internal_key == "s:max_workers") { continue; }
+    if (internal_key == "s:max_workers") {
+      continue;
+    }
     throw std::invalid_argument{"Parallel.WithOptions: unsupported option '" + strip_object_key_prefix(internal_key) +
                                 "'"};
   }
@@ -345,16 +393,22 @@ inline auto validate_parallel_with_options_keys(const Object& options) -> void {
 // input order. Returns a Result value.
 inline auto run_parallel_map_pooled(const Array& items, const Value& function_ref, const std::size_t max_in_flight)
     -> Value {
-  if (items.Size() == 0) { return ResultOk(make_tuple(Value{Array{}})); }
+  if (items.Size() == 0) {
+    return ResultOk(make_tuple(Value{Array{}}));
+  }
 
   // Resolve callable once before submitting.
   RuntimeCallable callable;
   try {
     const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) { throw std::runtime_error{"Expected callable reference"}; }
+    if (!callable_id) {
+      throw std::runtime_error{"Expected callable reference"};
+    }
     std::scoped_lock callable_lock(callable_registry_mutex());
     const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) { throw std::runtime_error{"Unknown callable reference"}; }
+    if (!resolved) {
+      throw std::runtime_error{"Unknown callable reference"};
+    }
     callable = *resolved;
   } catch (const std::exception& ex) {
     return ResultErr(
@@ -367,7 +421,9 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
   // Pre-collect items so we can index them.
   std::vector<Value> item_vec;
   item_vec.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) { item_vec.push_back(*items.TryGet(i)); }
+  for (std::size_t i = 0; i < n; ++i) {
+    item_vec.push_back(*items.TryGet(i));
+  }
 
   // Sliding window: submit up to `window` items, then await front before submitting next.
   std::deque<std::pair<std::size_t, TaskControlPtr>> in_flight;
@@ -382,7 +438,9 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
   };
 
   // Fill initial window.
-  while (in_flight.size() < window && next_submit < n) { submit_next(); }
+  while (in_flight.size() < window && next_submit < n) {
+    submit_next();
+  }
 
   Array out;
   out.Reserve(n);
@@ -400,8 +458,7 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
       return ResultErr(make_tuple(
           make_tuple(make_int(static_cast<Int>(item_index)), make_string("Parallel.Map: unexpected result shape"))));
     }
-    const auto& ok_tag = result_arr->TryGet(0)->TryGetBool();
-    if (!ok_tag || !*ok_tag) {
+    if (const auto& ok_tag = result_arr->TryGet(0)->TryGetBool(); !ok_tag || !*ok_tag) {
       const auto payload = result_arr->Size() >= 2 ? *result_arr->TryGet(1) : make_string("unknown error");
       const auto msg = payload.HasArray() && as_array(payload).Size() == 1 ? to_string(*as_array(payload).TryGet(0))
                                                                            : to_string(payload);
@@ -463,9 +520,13 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 [[nodiscard]] inline auto TaskCancel(Value arg) -> Value {
   const Value task_handle = unwrap_singleton_arg(std::move(arg));
   const TaskControlPtr task = task_control_from_handle(task_handle);
-  if (!task) { return make_bool(false); }
+  if (!task) {
+    return make_bool(false);
+  }
   const bool cancelled = request_task_cancel(task);
-  if (cancelled) { task->cv.notify_all(); }
+  if (cancelled) {
+    task->cv.notify_all();
+  }
   return make_bool(cancelled);
 }
 
@@ -476,9 +537,13 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
     return ResultErr(make_tuple(make_string("Task.WithTimeout: timeout_ms must be non-negative")));
   }
   const TaskControlPtr task = task_control_from_handle(*args.TryGet(0));
-  if (!task) { return ResultErr(make_tuple(make_string("Task.WithTimeout: invalid task handle"))); }
+  if (!task) {
+    return ResultErr(make_tuple(make_string("Task.WithTimeout: invalid task handle")));
+  }
   const auto result = wait_task_result_for(task, std::chrono::milliseconds{timeout_ms});
-  if (!result) { return ResultErr(make_tuple(make_string(String{k_task_timeout_message}))); }
+  if (!result) {
+    return ResultErr(make_tuple(make_string(String{k_task_timeout_message})));
+  }
   return *result;
 }
 
@@ -519,15 +584,21 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 // On first error returns Err((index, message)).
 inline auto run_parallel_foreach_pooled(const Array& items, const Value& function_ref, const std::size_t max_in_flight)
     -> Value {
-  if (items.Size() == 0) { return ResultOk(make_tuple(Value{Array{}})); }
+  if (items.Size() == 0) {
+    return ResultOk(make_tuple(Value{Array{}}));
+  }
 
   RuntimeCallable callable;
   try {
     const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) { throw std::runtime_error{"Expected callable reference"}; }
+    if (!callable_id) {
+      throw std::runtime_error{"Expected callable reference"};
+    }
     std::scoped_lock callable_lock(callable_registry_mutex());
     const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) { throw std::runtime_error{"Unknown callable reference"}; }
+    if (!resolved) {
+      throw std::runtime_error{"Unknown callable reference"};
+    }
     callable = *resolved;
   } catch (const std::exception& ex) {
     return ResultErr(
@@ -539,7 +610,9 @@ inline auto run_parallel_foreach_pooled(const Array& items, const Value& functio
 
   std::vector<Value> item_vec;
   item_vec.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) { item_vec.push_back(*items.TryGet(i)); }
+  for (std::size_t i = 0; i < n; ++i) {
+    item_vec.push_back(*items.TryGet(i));
+  }
 
   std::deque<std::pair<std::size_t, TaskControlPtr>> in_flight;
   std::size_t next_submit = 0;
@@ -552,7 +625,9 @@ inline auto run_parallel_foreach_pooled(const Array& items, const Value& functio
     }
   };
 
-  while (in_flight.size() < window && next_submit < n) { submit_next(); }
+  while (in_flight.size() < window && next_submit < n) {
+    submit_next();
+  }
 
   while (!in_flight.empty()) {
     auto [item_index, task] = std::move(in_flight.front());
@@ -582,15 +657,21 @@ inline auto run_parallel_foreach_pooled(const Array& items, const Value& functio
 inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, const Value& function_ref,
                                         const std::size_t chunk_size) -> Value {
   const std::size_t n = items.Size();
-  if (n == 0) { return ResultOk(make_tuple(init)); }
+  if (n == 0) {
+    return ResultOk(make_tuple(init));
+  }
 
   RuntimeCallable callable;
   try {
     const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) { throw std::runtime_error{"Expected callable reference"}; }
+    if (!callable_id) {
+      throw std::runtime_error{"Expected callable reference"};
+    }
     std::scoped_lock callable_lock(callable_registry_mutex());
     const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) { throw std::runtime_error{"Unknown callable reference"}; }
+    if (!resolved) {
+      throw std::runtime_error{"Unknown callable reference"};
+    }
     callable = *resolved;
   } catch (const std::exception& ex) {
     return ResultErr(
@@ -600,7 +681,9 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
   // Collect items into vector for random access.
   std::vector<Value> item_vec;
   item_vec.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) { item_vec.push_back(*items.TryGet(i)); }
+  for (std::size_t i = 0; i < n; ++i) {
+    item_vec.push_back(*items.TryGet(i));
+  }
 
   // Build chunk descriptors: [start, end) pairs.
   const std::size_t cs = std::max<std::size_t>(1, chunk_size);
@@ -609,7 +692,9 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
     std::size_t end;
   };
   std::vector<Chunk> chunks;
-  for (std::size_t s = 0; s < n; s += cs) { chunks.push_back({.start = s, .end = std::min(s + cs, n)}); }
+  for (std::size_t s = 0; s < n; s += cs) {
+    chunks.push_back({.start = s, .end = std::min(s + cs, n)});
+  }
 
   // A chunk-fold is a sequential left-fold over that chunk, starting from its provided seed.
   // We submit each chunk-fold as a single pool task. The "arg" is a (seed, chunk_items_tuple).
@@ -633,7 +718,9 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
     // Build a tuple of the chunk's items.
     Array chunk_items;
     chunk_items.Reserve(end - start);
-    for (std::size_t i = start; i < end; ++i) { chunk_items.PushBack(item_vec[i]); }
+    for (std::size_t i = start; i < end; ++i) {
+      chunk_items.PushBack(item_vec[i]);
+    }
 
     // Submit a task that folds this chunk.
     // The task receives (seed, items_tuple) and calls callable(acc, item) repeatedly.
@@ -674,7 +761,9 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
       return chunk_result;  // propagate Err as-is
     }
     acc = chunk_arr->Size() >= 2 ? *chunk_arr->TryGet(1) : Value{Array{}};
-    if (acc.HasArray() && as_array(acc).Size() == 1) { acc = *as_array(acc).TryGet(0); }
+    if (acc.HasArray() && as_array(acc).Size() == 1) {
+      acc = *as_array(acc).TryGet(0);
+    }
   }
 
   return ResultOk(make_tuple(acc));

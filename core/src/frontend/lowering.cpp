@@ -45,7 +45,9 @@ auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::
         };
       },
       imported_symbols, imported_typed_lets, imported_type_decls);
-  if (!seeded) { return tl::unexpected(seeded.error()); }
+  if (!seeded) {
+    return tl::unexpected(seeded.error());
+  }
   return type_check::analyze_program(program, imported_symbols, imported_typed_lets, imported_type_decls);
 }
 
@@ -92,7 +94,9 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                             for (const auto& alt : union_list->alternatives) {
                                               out.items.push_back(self(self, *alt));
                                             }
-                                            if (!out.items.empty()) { out.name = out.items.front().name; }
+                                            if (!out.items.empty()) {
+                                              out.name = out.items.front().name;
+                                            }
                                           },
                                           [&](const Box<model::AppliedTypeNode>& applied) -> void {
                                             out.kind = types::TypeNodeKind::kApplied;
@@ -142,7 +146,9 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                        out.alternatives.push_back(lowered.name);
                                      }
                                    }
-                                   if (!out.alternatives.empty()) { out.name = out.alternatives.front(); }
+                                   if (!out.alternatives.empty()) {
+                                     out.name = out.alternatives.front();
+                                   }
                                  },
                                  [&](const Box<model::TypeList>& type_list) -> void {
                                    out.name = "Tuple";
@@ -233,16 +239,20 @@ void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<st
                  [](const model::Constant&) -> void {},
                  [](const model::QualifiedId&) -> void {},
                  [&](const model::NamedTargetBox& value) -> void {
-                   if (const auto* simple = std::get_if<std::string>(&value->target); simple != nullptr &&
-                       !kOperators.contains(*simple) && seen.insert(*simple).second) {
+                   if (const auto* simple = std::get_if<std::string>(&value->target);
+                       simple != nullptr && !kOperators.contains(*simple) && seen.insert(*simple).second) {
                      out.push_back(*simple);
                    }
                  },
                  [&](const std::string& value) -> void {
-                   if (!kOperators.contains(value) && seen.insert(value).second) { out.push_back(value); }
+                   if (!kOperators.contains(value) && seen.insert(value).second) {
+                     out.push_back(value);
+                   }
                  },
                  [&](const fleaux::frontend::Box<model::DelimitedExpression>& value) -> void {
-                   for (const auto& item : value->items) { collect_unqualified_names_from_expr(*item, out, seen); }
+                   for (const auto& item : value->items) {
+                     collect_unqualified_names_from_expr(*item, out, seen);
+                   }
                  },
                  [&](const model::ClosureExpressionBox& value) -> void {
                    collect_unqualified_names_from_expr(*value->body, out, seen);
@@ -254,63 +264,65 @@ void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<st
 void collect_unqualified_names_from_expr(const model::Expression& expr, std::vector<std::string>& out,
                                          std::unordered_set<std::string>& seen) {
   collect_unqualified_names_from_atom(expr.expr.lhs.base, out, seen);
-  for (const auto& stage : expr.expr.rhs) { collect_unqualified_names_from_atom(stage.base, out, seen); }
+  for (const auto& stage : expr.expr.rhs) {
+    collect_unqualified_names_from_atom(stage.base, out, seen);
+  }
 }
 
 auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expected<ir::IRCallTarget, LoweringError> {
-  return std::visit(fleaux::common::overloaded{
-                        [&](const model::NamedTargetBox& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                          std::vector<ir::IRSimpleType> explicit_type_args;
-                          explicit_type_args.reserve(value->explicit_type_args.size());
-                          for (const auto& type_arg : value->explicit_type_args) {
-                            explicit_type_args.push_back(lower_simple_type(*type_arg));
-                          }
+  return std::visit(
+      fleaux::common::overloaded{
+          [&](const model::NamedTargetBox& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
+            std::vector<ir::IRSimpleType> explicit_type_args;
+            explicit_type_args.reserve(value->explicit_type_args.size());
+            for (const auto& type_arg : value->explicit_type_args) {
+              explicit_type_args.push_back(lower_simple_type(*type_arg));
+            }
 
-                          return std::visit(
-                              fleaux::common::overloaded{
-                                  [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                                    return ir::IRNameRef{
-                                        .qualifier = qualified.qualifier.qualifier,
-                                        .name = qualified.id,
-                                        .explicit_type_args = std::move(explicit_type_args),
-                                        .span = value->span,
-                                    };
-                                  },
-                                  [&](const std::string& simple) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                                    if (kOperators.contains(simple)) {
-                                      return tl::unexpected(make_error(
-                                          "Explicit type argument application is only supported on named call targets.",
-                                          "Use explicit type arguments only with names such as 'Std.Cast<Id>'.",
-                                          value->span));
-                                    }
-                                    return ir::IRNameRef{
-                                        .qualifier = std::nullopt,
-                                        .name = simple,
-                                        .explicit_type_args = std::move(explicit_type_args),
-                                        .span = value->span,
-                                    };
-                                  }},
-                              value->target);
-                        },
-                        [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                          return ir::IRNameRef{
-                              .qualifier = qualified.qualifier.qualifier,
-                              .name = qualified.id,
-                              .span = qualified.span,
-                          };
-                        },
-                        [&](const std::string& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                          if (kOperators.contains(value)) {
-                            return ir::IROperatorRef{.op = value, .span = primary.span};
-                          }
-                          return ir::IRNameRef{.qualifier = std::nullopt, .name = value, .span = primary.span};
-                        },
-                        [&](const auto&) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                          return tl::unexpected(make_error(
-                              "Primary used as flow target must be a simple name, qualified name, or operator.",
-                              "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.", primary.span));
-                        }},
-                    primary.base.value);
+            return std::visit(
+                fleaux::common::overloaded{
+                    [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
+                      return ir::IRNameRef{
+                          .qualifier = qualified.qualifier.qualifier,
+                          .name = qualified.id,
+                          .explicit_type_args = std::move(explicit_type_args),
+                          .span = value->span,
+                      };
+                    },
+                    [&](const std::string& simple) -> tl::expected<ir::IRCallTarget, LoweringError> {
+                      if (kOperators.contains(simple)) {
+                        return tl::unexpected(make_error(
+                            "Explicit type argument application is only supported on named call targets.",
+                            "Use explicit type arguments only with names such as 'Std.Cast<Id>'.", value->span));
+                      }
+                      return ir::IRNameRef{
+                          .qualifier = std::nullopt,
+                          .name = simple,
+                          .explicit_type_args = std::move(explicit_type_args),
+                          .span = value->span,
+                      };
+                    }},
+                value->target);
+          },
+          [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
+            return ir::IRNameRef{
+                .qualifier = qualified.qualifier.qualifier,
+                .name = qualified.id,
+                .span = qualified.span,
+            };
+          },
+          [&](const std::string& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
+            if (kOperators.contains(value)) {
+              return ir::IROperatorRef{.op = value, .span = primary.span};
+            }
+            return ir::IRNameRef{.qualifier = std::nullopt, .name = value, .span = primary.span};
+          },
+          [&](const auto&) -> tl::expected<ir::IRCallTarget, LoweringError> {
+            return tl::unexpected(
+                make_error("Primary used as flow target must be a simple name, qualified name, or operator.",
+                           "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.", primary.span));
+          }},
+      primary.base.value);
 }
 
 auto contains_placeholder(const ir::IRExpr& expr) -> bool;
@@ -318,7 +330,9 @@ auto contains_placeholder(const ir::IRExpr& expr) -> bool;
 auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacement) -> ir::IRExpr {
   return std::visit(
       fleaux::common::overloaded{[&](const ir::IRNameRef& name_ref) -> ir::IRExpr {
-                                   if (!name_ref.qualifier.has_value() && name_ref.name == "_") { return replacement; }
+                                   if (!name_ref.qualifier.has_value() && name_ref.name == "_") {
+                                     return replacement;
+                                   }
                                    return expr;
                                  },
                                  [&](const ir::IRTupleExpr& tuple_expr) -> ir::IRExpr {
@@ -372,13 +386,17 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
       fleaux::common::overloaded{
           [&](const fleaux::frontend::Box<model::DelimitedExpression>& inner)
               -> tl::expected<ir::IRExpr, LoweringError> {
-            if (inner->items.size() == 1) { return lower_expr(*inner->items[0], bound_names); }
+            if (inner->items.size() == 1) {
+              return lower_expr(*inner->items[0], bound_names);
+            }
 
             ir::IRTupleExpr tuple;
             tuple.span = inner->span;
             for (const auto& item : inner->items) {
               auto lowered_item = lower_expr(*item, bound_names);
-              if (!lowered_item) { return tl::unexpected(lowered_item.error()); }
+              if (!lowered_item) {
+                return tl::unexpected(lowered_item.error());
+              }
               tuple.items.emplace_back(lowered_item.value());
             }
             return ir::IRExpr{.node = std::move(tuple), .span = atom.span};
@@ -405,7 +423,9 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             }
 
             std::unordered_set<std::string> closure_bound = bound_names;
-            for (const auto& p : params) { closure_bound.insert(p.name); }
+            for (const auto& p : params) {
+              closure_bound.insert(p.name);
+            }
 
             std::vector<std::string> discovered_names;
             std::unordered_set<std::string> seen_names;
@@ -413,12 +433,18 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
 
             std::vector<std::string> captures;
             for (const auto& candidate : discovered_names) {
-              if (param_names.contains(candidate)) { continue; }
-              if (bound_names.contains(candidate)) { captures.push_back(candidate); }
+              if (param_names.contains(candidate)) {
+                continue;
+              }
+              if (bound_names.contains(candidate)) {
+                captures.push_back(candidate);
+              }
             }
 
             auto lowered_body = lower_expr(*closure->body, closure_bound);
-            if (!lowered_body) { return tl::unexpected(lowered_body.error()); }
+            if (!lowered_body) {
+              return tl::unexpected(lowered_body.error());
+            }
 
             ir::IRClosureExpr closure_ir;
             closure_ir.generic_params = closure->generic_params;
@@ -459,36 +485,35 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
               explicit_type_args.push_back(lower_simple_type(*type_arg));
             }
 
-            return std::visit(
-                fleaux::common::overloaded{
-                    [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
-                      if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
-                          (qid.id == "Ok" || qid.id == "Err")) {
-                        ir::IRConstant c;
-                        c.val = (qid.id == "Ok") ? true : false;
-                        c.span = qid.span;
-                        return ir::IRExpr{.node = std::move(c), .span = atom.span};
-                      }
-                      return ir::IRExpr{.node =
-                                            ir::IRNameRef{
-                                                .qualifier = qid.qualifier.qualifier,
-                                                .name = qid.id,
-                                                .explicit_type_args = std::move(explicit_type_args),
-                                                .span = target->span,
-                                            },
-                                        .span = atom.span};
-                    },
-                    [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-                      return ir::IRExpr{.node =
-                                            ir::IRNameRef{
-                                                .qualifier = std::nullopt,
-                                                .name = name,
-                                                .explicit_type_args = std::move(explicit_type_args),
-                                                .span = target->span,
-                                            },
-                                        .span = atom.span};
-                    }},
-                target->target);
+            return std::visit(fleaux::common::overloaded{
+                                  [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+                                    if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
+                                        (qid.id == "Ok" || qid.id == "Err")) {
+                                      ir::IRConstant c;
+                                      c.val = (qid.id == "Ok") ? true : false;
+                                      c.span = qid.span;
+                                      return ir::IRExpr{.node = std::move(c), .span = atom.span};
+                                    }
+                                    return ir::IRExpr{.node =
+                                                          ir::IRNameRef{
+                                                              .qualifier = qid.qualifier.qualifier,
+                                                              .name = qid.id,
+                                                              .explicit_type_args = std::move(explicit_type_args),
+                                                              .span = target->span,
+                                                          },
+                                                      .span = atom.span};
+                                  },
+                                  [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+                                    return ir::IRExpr{.node =
+                                                          ir::IRNameRef{
+                                                              .qualifier = std::nullopt,
+                                                              .name = name,
+                                                              .explicit_type_args = std::move(explicit_type_args),
+                                                              .span = target->span,
+                                                          },
+                                                      .span = atom.span};
+                                  }},
+                              target->target);
           },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
             return ir::IRExpr{.node =
@@ -515,11 +540,15 @@ auto lower_primary(const model::Primary& primary, const std::unordered_set<std::
 auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std::string>& bound_names)
     -> tl::expected<ir::IRExpr, LoweringError> {
   auto result = lower_primary(flow.lhs, bound_names);
-  if (!result) { return tl::unexpected(result.error()); }
+  if (!result) {
+    return tl::unexpected(result.error());
+  }
 
   const auto apply_direct_target_stage = [&](const model::Primary& stage_primary) -> tl::expected<bool, LoweringError> {
     auto maybe_target = extract_call_target_from_primary(stage_primary);
-    if (!maybe_target) { return false; }
+    if (!maybe_target) {
+      return false;
+    }
 
     if (is_std_match_target(maybe_target.value())) {
       if (auto rewritten = rewrite_match_wildcards(result.value(), stage_primary.span); !rewritten) {
@@ -536,7 +565,9 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
   };
 
   const auto apply_closure_stage = [&](const model::Primary& stage_primary, const ir::IRExpr& stage_expr) -> bool {
-    if (std::get_if<ir::IRClosureExprBox>(&stage_expr.node) == nullptr) { return false; }
+    if (std::get_if<ir::IRClosureExprBox>(&stage_expr.node) == nullptr) {
+      return false;
+    }
 
     ir::IRTupleExpr apply_args;
     apply_args.span = stage_primary.span;
@@ -567,10 +598,14 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
     }
 
     auto next_target = extract_call_target_from_primary(next_primary);
-    if (!next_target) { return tl::unexpected(next_target.error()); }
+    if (!next_target) {
+      return tl::unexpected(next_target.error());
+    }
 
     auto replaced = replace_placeholder(stage_expr, result.value());
-    if (!replaced) { return tl::unexpected(replaced.error()); }
+    if (!replaced) {
+      return tl::unexpected(replaced.error());
+    }
 
     ir::IRFlowExpr ir_flow;
     ir_flow.lhs = replaced.value();
@@ -591,7 +626,9 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
     }
 
     auto stage_expr = lower_primary(flow.rhs[stage_index], bound_names);
-    if (!stage_expr) { return tl::unexpected(stage_expr.error()); }
+    if (!stage_expr) {
+      return tl::unexpected(stage_expr.error());
+    }
 
     if (apply_closure_stage(flow.rhs[stage_index], stage_expr.value())) {
       ++stage_index;
@@ -673,12 +710,16 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                          }
 
                          std::unordered_set<std::string> let_bound_names;
-                         for (const auto& p : params) { let_bound_names.insert(p.name); }
+                         for (const auto& p : params) {
+                           let_bound_names.insert(p.name);
+                         }
 
                          std::optional<ir::IRExpr> body;
                          if (!is_builtin) {
                            auto lowered_body = lower_expr(*model_let.expr, let_bound_names);
-                           if (!lowered_body) { return tl::unexpected(lowered_body.error()); }
+                           if (!lowered_body) {
+                             return tl::unexpected(lowered_body.error());
+                           }
                            body = lowered_body.value();
                          }
 
@@ -697,9 +738,11 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                          return {};
                        },
                        [&](const model::ExpressionStatement& model_expr_stmt) -> tl::expected<void, LoweringError> {
-                         std::unordered_set<std::string> no_bound_names;
+                         const std::unordered_set<std::string> no_bound_names;
                          auto lowered_expr = lower_expr(model_expr_stmt.expr, no_bound_names);
-                         if (!lowered_expr) { return tl::unexpected(lowered_expr.error()); }
+                         if (!lowered_expr) {
+                           return tl::unexpected(lowered_expr.error());
+                         }
 
                          ir_program.expressions.push_back(ir::IRExprStatement{
                              .expr = lowered_expr.value(),
@@ -709,19 +752,25 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                        }},
                    stmt);
 
-    if (!lowered_stmt) { return tl::unexpected(lowered_stmt.error()); }
+    if (!lowered_stmt) {
+      return tl::unexpected(lowered_stmt.error());
+    }
   }
 
   std::unordered_map<std::string, std::vector<std::size_t>> builtin_overload_slots;
   for (std::size_t let_index = 0; let_index < ir_program.lets.size(); ++let_index) {
     const auto& let = ir_program.lets[let_index];
-    if (!let.is_builtin) { continue; }
+    if (!let.is_builtin) {
+      continue;
+    }
     const std::string public_symbol = let.qualifier.has_value() ? (*let.qualifier + "." + let.name) : let.name;
     builtin_overload_slots[public_symbol].push_back(let_index);
   }
 
   for (const auto& [public_symbol, overload_slots] : builtin_overload_slots) {
-    if (overload_slots.size() <= 1U) { continue; }
+    if (overload_slots.size() <= 1U) {
+      continue;
+    }
     for (std::size_t ordinal = 0; ordinal < overload_slots.size(); ++ordinal) {
       ir_program.lets[overload_slots[ordinal]].symbol_key = public_symbol + "#" + std::to_string(ordinal);
     }
@@ -732,7 +781,9 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
 
 auto Lowerer::lower(const model::Program& program) const -> LoweringResult {
   auto lowered = lower_only(program);
-  if (!lowered) { return tl::unexpected(lowered.error()); }
+  if (!lowered) {
+    return tl::unexpected(lowered.error());
+  }
 
   auto analyzed = analyze_with_symbolic_imports(*lowered);
   if (!analyzed) {
@@ -778,7 +829,9 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
         };
       },
       imported_symbols, imported_typed_lets, imported_type_decls);
-  if (!seeded) { return tl::unexpected(seeded.error()); }
+  if (!seeded) {
+    return tl::unexpected(seeded.error());
+  }
   return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets, imported_type_decls);
 }
 

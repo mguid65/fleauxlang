@@ -22,7 +22,9 @@ namespace fleaux::frontend::source_loader {
 
 [[nodiscard]] inline auto read_text_file(const std::filesystem::path& file) -> std::string {
   std::ifstream in(file);
-  if (!in) { return {}; }
+  if (!in) {
+    return {};
+  }
   std::ostringstream buffer;
   buffer << in.rdbuf();
   return buffer.str();
@@ -30,9 +32,11 @@ namespace fleaux::frontend::source_loader {
 
 [[nodiscard]] inline auto resolve_import_source(const std::filesystem::path& current_source,
                                                 const std::string& module_name) -> std::filesystem::path {
-  if (import_resolution::is_symbolic_import(module_name)) { return {}; }
-  const auto paths = import_resolution::resolve_import_paths(current_source.parent_path(), module_name);
-  return paths.source.value_or(std::filesystem::path{});
+  if (import_resolution::is_symbolic_import(module_name)) {
+    return {};
+  }
+  const auto [source, bytecode] = import_resolution::resolve_import_paths(current_source.parent_path(), module_name);
+  return source.value_or(std::filesystem::path{});
 }
 
 [[nodiscard]] inline auto symbol_key(const std::optional<std::string>& qualifier, const std::string& name)
@@ -41,7 +45,9 @@ namespace fleaux::frontend::source_loader {
 }
 
 [[nodiscard]] inline auto let_identity_key(const ir::IRLet& let) -> std::string {
-  if (!let.symbol_key.empty()) { return let.symbol_key; }
+  if (!let.symbol_key.empty()) {
+    return let.symbol_key;
+  }
   return symbol_key(let.qualifier, let.name);
 }
 
@@ -54,13 +60,17 @@ namespace fleaux::frontend::source_loader {
 
 [[nodiscard]] inline auto type_decl_declared_in_source(const ir::IRTypeDecl& type_decl,
                                                        const std::filesystem::path& source_file) -> bool {
-  if (!type_decl.span.has_value()) { return false; }
+  if (!type_decl.span.has_value()) {
+    return false;
+  }
   return std::filesystem::path(type_decl.span->source_name) == source_file;
 }
 
 [[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file)
     -> bool {
-  if (!let.span.has_value()) { return false; }
+  if (!let.span.has_value()) {
+    return false;
+  }
   return std::filesystem::path(let.span->source_name) == source_file;
 }
 
@@ -69,7 +79,9 @@ template <typename ErrorT, typename ErrorFactory>
                                     ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
   constexpr parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_name);
-  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
+  if (!parsed) {
+    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
+  }
 
   constexpr analysis::Analyzer analyzer;
   const auto analyzed = analyzer.analyze(parsed.value());
@@ -85,7 +97,9 @@ template <typename ErrorT, typename ErrorFactory>
                                             ErrorFactory&& make_error) -> tl::expected<ir::IRProgram, ErrorT> {
   constexpr parse::Parser parser;
   const auto parsed = parser.parse_program(source_text, source_name);
-  if (!parsed) { return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span)); }
+  if (!parsed) {
+    return tl::unexpected(make_error(parsed.error().message, parsed.error().hint, parsed.error().span));
+  }
 
   constexpr analysis::Analyzer analyzer;
   const auto lowered = analyzer.lower_only(parsed.value());
@@ -141,7 +155,9 @@ template <typename ErrorT, typename ErrorFactory>
   }
 
   for (const auto& [module_name, span] : program.imports) {
-    if (!import_resolution::is_symbolic_import(module_name)) { continue; }
+    if (!import_resolution::is_symbolic_import(module_name)) {
+      continue;
+    }
 
     const auto embedded_std = common::embedded_resource_text("Std.fleaux");
     if (!embedded_std.has_value()) {
@@ -153,10 +169,14 @@ template <typename ErrorT, typename ErrorFactory>
     const std::filesystem::path std_source_name{"Std.fleaux"};
     const auto std_program = parse_text_to_lowered_ir<ErrorT>(std::string(*embedded_std), std_source_name.string(),
                                                               std::forward<ErrorFactory>(make_error));
-    if (!std_program) { return tl::unexpected(std_program.error()); }
+    if (!std_program) {
+      return tl::unexpected(std_program.error());
+    }
 
     for (const auto& std_let : std_program->lets) {
-      if (!let_declared_in_source(std_let, std_source_name)) { continue; }
+      if (!let_declared_in_source(std_let, std_source_name)) {
+        continue;
+      }
       imported_symbols.insert(symbol_key(std_let.qualifier, std_let.name));
       if (const auto key = let_identity_key(std_let); imported_typed_let_keys.insert(key).second) {
         imported_typed_lets.push_back(std_let);
@@ -164,7 +184,9 @@ template <typename ErrorT, typename ErrorFactory>
     }
 
     for (const auto& std_type_decl : std_program->type_decls) {
-      if (!type_decl_declared_in_source(std_type_decl, std_source_name)) { continue; }
+      if (!type_decl_declared_in_source(std_type_decl, std_source_name)) {
+        continue;
+      }
       if (const auto key = type_decl_identity_key(std_type_decl); imported_type_decl_keys.insert(key).second) {
         imported_type_decls.push_back(std_type_decl);
       }
@@ -192,7 +214,9 @@ template <typename ErrorT, typename ErrorFactory>
                                    std::unordered_map<std::string, IRProgram>& cache,
                                    std::unordered_set<std::string>& in_progress) -> tl::expected<IRProgram, ErrorT> {
     const std::string key = is_entry ? entry_source.string() : std::filesystem::weakly_canonical(source_path).string();
-    if (cache.contains(key)) { return cache.at(key); }
+    if (cache.contains(key)) {
+      return cache.at(key);
+    }
 
     if (in_progress.contains(key)) {
       return tl::unexpected(
@@ -214,7 +238,8 @@ template <typename ErrorT, typename ErrorFactory>
     std::unordered_set<std::string> direct_imported_typed_let_keys;
     direct_imported_typed_let_keys.reserve(extra_imported_typed_lets.size());
     for (const auto& imported_let : extra_imported_typed_lets) {
-      if (const auto typed_key = let_identity_key(imported_let); direct_imported_typed_let_keys.insert(typed_key).second) {
+      if (const auto typed_key = let_identity_key(imported_let);
+          direct_imported_typed_let_keys.insert(typed_key).second) {
         direct_imported_typed_lets.push_back(imported_let);
       }
     }
@@ -230,9 +255,9 @@ template <typename ErrorT, typename ErrorFactory>
       }
     }
 
-    if (auto symbolic_seed = seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imported_symbols,
-                                                                       direct_imported_typed_lets,
-                                                                       direct_imported_type_decls);
+    if (auto symbolic_seed =
+            seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imported_symbols,
+                                                      direct_imported_typed_lets, direct_imported_type_decls);
         !symbolic_seed) {
       in_progress.erase(key);
       return tl::unexpected(symbolic_seed.error());
@@ -240,13 +265,17 @@ template <typename ErrorT, typename ErrorFactory>
 
     IRProgram merged = current.value();
     std::unordered_set<std::string> seen;
-    for (const auto& let : merged.lets) { seen.insert(let_identity_key(let)); }
+    for (const auto& let : merged.lets) {
+      seen.insert(let_identity_key(let));
+    }
 
     std::vector<IRLet> imported_lets;
     std::vector<ir::IRTypeDecl> imported_type_decls;
     std::vector<IRExprStatement> imported_exprs;
     for (const auto& [module_name, span] : current->imports) {
-      if (import_resolution::is_symbolic_import(module_name)) { continue; }
+      if (import_resolution::is_symbolic_import(module_name)) {
+        continue;
+      }
       const auto import_source = resolve_import_source(source_path, module_name);
       if (import_source.empty()) {
         in_progress.erase(key);
@@ -265,7 +294,9 @@ template <typename ErrorT, typename ErrorFactory>
       }
 
       for (const auto& imported_let : imported->lets) {
-        if (!let_declared_in_source(imported_let, import_source)) { continue; }
+        if (!let_declared_in_source(imported_let, import_source)) {
+          continue;
+        }
         direct_imported_symbols.insert(symbol_key(imported_let.qualifier, imported_let.name));
         if (const auto typed_key = let_identity_key(imported_let);
             direct_imported_typed_let_keys.insert(typed_key).second) {
@@ -278,7 +309,8 @@ template <typename ErrorT, typename ErrorFactory>
             direct_imported_type_decl_keys.insert(type_key).second) {
           direct_imported_type_decls.push_back(imported_type_decl);
         }
-        if (imported_type_decl.span.has_value() && std::filesystem::path(imported_type_decl.span->source_name) == import_source) {
+        if (imported_type_decl.span.has_value() &&
+            std::filesystem::path(imported_type_decl.span->source_name) == import_source) {
           imported_type_decls.push_back(imported_type_decl);
         }
       }
@@ -291,8 +323,8 @@ template <typename ErrorT, typename ErrorFactory>
       imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
     }
 
-    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols, direct_imported_typed_lets,
-                                                       direct_imported_type_decls);
+    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols,
+                                                        direct_imported_typed_lets, direct_imported_type_decls);
     if (!analyzed_current) {
       in_progress.erase(key);
       return tl::unexpected(
@@ -320,11 +352,12 @@ template <typename ErrorT, typename ErrorFactory>
                                    const std::optional<std::string>& cycle_hint = std::nullopt)
     -> tl::expected<ir::IRProgram, ErrorT> {
   auto current = parse_file_to_lowered_ir<ErrorT>(source_file, make_error);
-  if (!current) { return tl::unexpected(current.error()); }
+  if (!current) {
+    return tl::unexpected(current.error());
+  }
 
-  return analyze_lowered_program_with_imports<ErrorT>(current.value(), source_file,
-                                                      std::forward<ErrorFactory>(make_error), {}, {}, {},
-                                                      cycle_message, cycle_hint);
+  return analyze_lowered_program_with_imports<ErrorT>(
+      current.value(), source_file, std::forward<ErrorFactory>(make_error), {}, {}, {}, cycle_message, cycle_hint);
 }
 
 }  // namespace fleaux::frontend::source_loader

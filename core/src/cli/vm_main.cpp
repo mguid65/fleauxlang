@@ -57,7 +57,8 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] "
+  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--no-emit-bytecode] [--no-color] "
+         "[file.fleaux|file.fleaux.bc] "
          "[-- "
          "<arg1> <arg2> ...]";
 }
@@ -156,7 +157,7 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
   return 2;
 }
 
-auto parse_cli_args(int argc, char** argv) -> tl::expected<CliOptions, CliError> {
+auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
   if (argc < 2) {
@@ -256,11 +257,12 @@ auto main(int argc, char** argv) -> int {
 
   if (disassemble) {
     if (!source_path.has_value()) {
-      return print_diag_and_return("vm-disassemble", CliError{
-                                                     .message = "disassembly mode requires a module path",
-                                                     .hint = "Pass a .fleaux.bc file (or .fleaux with sibling .bc).",
-                                                     .span = std::nullopt,
-                                                 });
+      return print_diag_and_return("vm-disassemble",
+                                   CliError{
+                                       .message = "disassembly mode requires a module path",
+                                       .hint = "Pass a .fleaux.bc file (or .fleaux with sibling .bc).",
+                                       .span = std::nullopt,
+                                   });
     }
     if (const auto result = run_disassembly(*source_path); !result) {
       return print_diag_and_return("vm-disassemble", result.error());

@@ -25,7 +25,9 @@ auto trim_copy(const std::string& text) -> std::string {
   const auto end_it = std::ranges::find_if_not(std::views::reverse(text), [](const unsigned char ch) -> bool {
                         return std::isspace(ch) != 0;
                       }).base();
-  if (begin_it >= end_it) { return {}; }
+  if (begin_it >= end_it) {
+    return {};
+  }
   return {begin_it, end_it};
 }
 
@@ -53,15 +55,21 @@ auto buffer_has_complete_statement(const std::string& buffer) -> bool {
       ++paren_depth;
       continue;
     }
-    if (ch == ')') { --paren_depth; }
+    if (ch == ')') {
+      --paren_depth;
+    }
   }
 
-  if (paren_depth != 0 || in_string) { return false; }
+  if (paren_depth != 0 || in_string) {
+    return false;
+  }
   return trim_copy(buffer).ends_with(';');
 }
 
 [[nodiscard]] auto repl_color_enabled(const bool requested) -> bool {
-  if (!requested) { return false; }
+  if (!requested) {
+    return false;
+  }
   const char* no_color = std::getenv("NO_COLOR");
   return no_color == nullptr || *no_color == '\0';
 }
@@ -79,16 +87,7 @@ auto make_repl_style_provider() -> StyleSpanProvider {
         std::string_view{"True"},
         std::string_view{"False"},
     };
-    constexpr std::array<char, 8> kOtherSymbols = {
-        '(',
-        ')',
-        ',',
-        ';',
-        ':',
-        '=',
-        '|',
-        '.'
-    };
+    constexpr std::array<char, 8> kOtherSymbols = {'(', ')', ',', ';', ':', '=', '|', '.'};
 
     auto is_ident_start = [](const char ch) -> bool {
       const auto uch = static_cast<unsigned char>(ch);
@@ -104,7 +103,7 @@ auto make_repl_style_provider() -> StyleSpanProvider {
     auto is_literal = [&](const std::string_view token) -> bool {
       return std::ranges::any_of(kLiterals, [&](const auto& literal) -> bool { return literal == token; });
     };
-    auto is_other_symbol = [&](const char ch) {
+    auto is_other_symbol = [&](const char ch) -> bool {
       return std::ranges::any_of(kOtherSymbols, [&](const auto& symbol) -> bool { return symbol == ch; });
     };
 
@@ -128,7 +127,9 @@ auto make_repl_style_provider() -> StyleSpanProvider {
             escaped = true;
             continue;
           }
-          if (current == '"') { break; }
+          if (current == '"') {
+            break;
+          }
         }
         spans.push_back(StyleSpan{.start = start, .length = cursor - start, .token_class = TokenClass::kString});
         continue;
@@ -156,7 +157,9 @@ auto make_repl_style_provider() -> StyleSpanProvider {
 
       if (is_ident_start(ch)) {
         const std::size_t start = cursor++;
-        while (cursor < text.size() && is_ident_char(text[cursor])) { ++cursor; }
+        while (cursor < text.size() && is_ident_char(text[cursor])) {
+          ++cursor;
+        }
         const auto token = text.substr(start, cursor - start);
         const auto token_class = is_keyword(token)   ? TokenClass::kKeyword
                                  : is_literal(token) ? TokenClass::kNumber
@@ -180,17 +183,7 @@ auto make_repl_style_provider() -> StyleSpanProvider {
 }
 
 constexpr std::array<std::string_view, 11> kReplKeywords = {
-    "import",
-    "let",
-    "__builtin__",
-    "Int64",
-    "UInt64",
-    "Float64",
-    "String",
-    "Bool",
-    "Null",
-    "Any",
-    "Tuple",
+    "import", "let", "__builtin__", "Int64", "UInt64", "Float64", "String", "Bool", "Null", "Any", "Tuple",
 };
 
 auto seed_completion_symbols(CompletionHandler& completion) -> void {
@@ -206,7 +199,7 @@ auto seed_completion_symbols(CompletionHandler& completion) -> void {
   completion.load_symbols(builtins);
 }
 
-auto extract_declared_functions(std::string_view snippet) -> std::vector<std::string> {
+auto extract_declared_functions(const std::string_view snippet) -> std::vector<std::string> {
   auto is_ident_start = [](const char ch) -> bool {
     const auto uch = static_cast<unsigned char>(ch);
     return std::isalpha(uch) != 0 || ch == '_';
@@ -216,21 +209,31 @@ auto extract_declared_functions(std::string_view snippet) -> std::vector<std::st
     return std::isalnum(uch) != 0 || ch == '_';
   };
   auto skip_whitespace = [&](std::size_t idx) -> std::size_t {
-    while (idx < snippet.size() && std::isspace(static_cast<unsigned char>(snippet[idx])) != 0) { ++idx; }
+    while (idx < snippet.size() && std::isspace(static_cast<unsigned char>(snippet[idx])) != 0) {
+      ++idx;
+    }
     return idx;
   };
-  auto is_boundary = [&](std::size_t idx) -> bool {
-    if (idx >= snippet.size()) { return true; }
+  auto is_boundary = [&](const std::size_t idx) -> bool {
+    if (idx >= snippet.size()) {
+      return true;
+    }
     return !is_ident_char(snippet[idx]);
   };
 
   std::vector<std::string> names;
   for (std::size_t idx = 0; idx + 3 <= snippet.size(); ++idx) {
-    if (snippet.substr(idx, 3) != "let") { continue; }
-    if ((idx > 0 && !is_boundary(idx - 1)) || !is_boundary(idx + 3)) { continue; }
+    if (snippet.substr(idx, 3) != "let") {
+      continue;
+    }
+    if ((idx > 0 && !is_boundary(idx - 1)) || !is_boundary(idx + 3)) {
+      continue;
+    }
 
     std::size_t cursor = skip_whitespace(idx + 3);
-    if (cursor >= snippet.size() || !is_ident_start(snippet[cursor])) { continue; }
+    if (cursor >= snippet.size() || !is_ident_start(snippet[cursor])) {
+      continue;
+    }
 
     const std::size_t name_start = cursor;
     while (cursor < snippet.size()) {
@@ -245,11 +248,15 @@ auto extract_declared_functions(std::string_view snippet) -> std::vector<std::st
       break;
     }
 
-    const std::size_t after_name = skip_whitespace(cursor);
-    if (after_name >= snippet.size() || snippet[after_name] != '(') { continue; }
+    if (const std::size_t after_name = skip_whitespace(cursor);
+        after_name >= snippet.size() || snippet[after_name] != '(') {
+      continue;
+    }
 
-    const auto symbol = std::string(snippet.substr(name_start, cursor - name_start));
-    if (std::ranges::find(names, symbol) == names.end()) { names.push_back(symbol); }
+    if (const auto symbol = std::string(snippet.substr(name_start, cursor - name_start));
+        std::ranges::find(names, symbol) == names.end()) {
+      names.push_back(symbol);
+    }
   }
 
   return names;
@@ -262,15 +269,16 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
   const bool use_color = repl_color_enabled(color_enabled);
   CompletionHandler completion_handler;
   seed_completion_symbols(completion_handler);
-  LineEditor line_editor(
-      LineEditorConfig{
-          .style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{},
-          .completion_handler = &completion_handler,
-      });
+  LineEditor line_editor(LineEditorConfig{
+      .style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{},
+      .completion_handler = &completion_handler,
+  });
   constexpr fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session(process_args);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
-    if (const auto result = session.run_snippet(snippet, std::cout); !result) { return result.error(); }
+    if (const auto result = session.run_snippet(snippet, std::cout); !result) {
+      return result.error();
+    }
     return std::nullopt;
   };
 
@@ -296,12 +304,16 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
 
     if (interactive_stdin) {
       const auto [action, line_opt] = read_interactive_line(line_editor, buffer.empty() ? ">>> " : "... ");
-      if (action == LineEditorAction::kEndOfInput) { break; }
+      if (action == LineEditorAction::kEndOfInput) {
+        break;
+      }
       if (action == LineEditorAction::kClearBuffer) {
         buffer.clear();
         continue;
       }
-      if (!line_opt.has_value()) { continue; }
+      if (!line_opt.has_value()) {
+        continue;
+      }
       line = *line_opt;
     } else {
       std::cout << (buffer.empty() ? ">>> " : "... ");
@@ -313,7 +325,9 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
 
     if (buffer.empty()) {
       const auto command = trim_copy(line);
-      if (command == ":quit" || command == ":q") { break; }
+      if (command == ":quit" || command == ":q") {
+        break;
+      }
       if (command == ":help" || command == ":?") {
         print_help();
         continue;
@@ -327,13 +341,19 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
                   << "Type :help to list supported commands.\n";
         continue;
       }
-      if (command.empty()) { continue; }
+      if (command.empty()) {
+        continue;
+      }
     }
 
-    if (!buffer.empty()) { buffer.push_back('\n'); }
+    if (!buffer.empty()) {
+      buffer.push_back('\n');
+    }
     buffer += line;
 
-    if (!buffer_has_complete_statement(buffer)) { continue; }
+    if (!buffer_has_complete_statement(buffer)) {
+      continue;
+    }
 
     if (const auto error = run_snippet(buffer); error.has_value()) {
       std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", error->message, error->span, error->hint)

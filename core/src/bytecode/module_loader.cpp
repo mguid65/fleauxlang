@@ -323,12 +323,12 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
           if (exported.kind != ExportKind::kFunction) {
             continue;
           }
-          const auto key = export_identity_key(exported);
-          if (!imported_typed_let_keys.insert(key).second) {
+          const auto id_key = export_identity_key(exported);
+          if (!imported_typed_let_keys.insert(id_key).second) {
             continue;  // already seeded by an earlier import with source
           }
 
-          const auto fn_it = fn_by_link_name.find(key);
+          const auto fn_it = fn_by_link_name.find(id_key);
           if (fn_it == fn_by_link_name.end()) {
             continue;
           }
@@ -340,14 +340,13 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
           // Decompose "Qualifier.Name" → qualifier + name.
           fleaux::frontend::ir::IRLet stub;
           const auto& full_name = exported.name;
-          const auto dot = full_name.rfind('.');
-          if (dot != std::string::npos) {
+          if (const auto dot = full_name.rfind('.'); dot != std::string::npos) {
             stub.qualifier = full_name.substr(0, dot);
             stub.name     = full_name.substr(dot + 1);
           } else {
             stub.name = full_name;
           }
-          stub.symbol_key    = key;
+          stub.symbol_key    = id_key;
           stub.generic_params = fn.generic_params;
 
           // Reconstruct parameter list from the stored type names.
