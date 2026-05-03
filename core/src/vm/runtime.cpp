@@ -1520,7 +1520,17 @@ struct RuntimeSession::Impl {
 };
 
 RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args)
-    : impl_(std::make_shared<Impl>(process_args)) {}
+    : impl_(frontend::make_box<Impl>(process_args)) {}
+
+RuntimeSession::RuntimeSession(const RuntimeSession& other) = default;
+
+RuntimeSession::RuntimeSession(RuntimeSession&& other) noexcept = default;
+
+auto RuntimeSession::operator=(const RuntimeSession& other) -> RuntimeSession& = default;
+
+auto RuntimeSession::operator=(RuntimeSession&& other) noexcept -> RuntimeSession& = default;
+
+RuntimeSession::~RuntimeSession() = default;
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
   auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls);

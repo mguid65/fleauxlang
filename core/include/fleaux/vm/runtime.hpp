@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <iosfwd>
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,6 +9,7 @@
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/module.hpp"
+#include "fleaux/frontend/box.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 
 namespace fleaux::vm {
@@ -29,12 +29,17 @@ using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 class RuntimeSession {
 public:
   explicit RuntimeSession(const std::vector<std::string>& process_args = {});
+  RuntimeSession(const RuntimeSession& other);
+  RuntimeSession(RuntimeSession&& other) noexcept;
+  auto operator=(const RuntimeSession& other) -> RuntimeSession&;
+  auto operator=(RuntimeSession&& other) noexcept -> RuntimeSession&;
+  ~RuntimeSession();
 
   [[nodiscard]] auto run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult;
 
 private:
   struct Impl;
-  std::shared_ptr<Impl> impl_;
+  mutable frontend::Box<Impl> impl_;
 };
 
 class Runtime {
