@@ -82,6 +82,7 @@ auto generic_arg_mismatch_hint(const std::string& full_name, std::size_t arg_ind
                                bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string;
 auto format_signature_debug_name(const std::string& full_name, const FunctionSig& sig) -> std::string;
 auto overload_candidate_list(const std::string& full_name, const FunctionOverloadSet& overloads) -> std::string;
+auto overload_candidate_list(const std::string& full_name, const std::vector<const FunctionSig*>& overloads) -> std::string;
 auto call_shape_matches(const FunctionSig& sig, std::size_t arg_count) -> bool;
 auto validate_supported_overload_sets(const ir::IRProgram& program, const std::vector<ir::IRLet>& imported_typed_lets)
     -> tl::expected<void, type_check::AnalysisError>;
