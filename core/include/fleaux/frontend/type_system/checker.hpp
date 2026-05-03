@@ -14,7 +14,8 @@ class Checker {
 public:
   [[nodiscard]] auto analyze(const ir::IRProgram& program, const std::unordered_set<std::string>& imported_symbols,
                              const std::vector<ir::IRLet>& imported_typed_lets = {},
-                             const std::vector<ir::IRTypeDecl>& imported_type_decls = {}) const
+                             const std::vector<ir::IRTypeDecl>& imported_type_decls = {},
+                             const std::vector<ir::IRAliasDecl>& imported_alias_decls = {}) const
       -> tl::expected<ir::IRProgram, type_check::AnalysisError>;
 };
 

@@ -73,6 +73,10 @@ Touch:
 - `core/src/frontend/type_system/check_pipeline.cpp`
 - `core/src/frontend/type_system/function_index.cpp` (overload/index behavior)
 
+Notes:
+- Transparent aliases use a dedicated alias environment, not the strong nominal type environment.
+- If alias behavior changes, verify both local declarations and imported typed signatures.
+
 Tests:
 - `core/tests/typecheck_tests.cpp`
 - `core/tests/lowering_tests.cpp` when lowered assumptions change
@@ -104,6 +108,10 @@ Tests:
 - `core/tests/vm_samples_tests.cpp` import contract cases
 - `core/tests/bytecode_tests.cpp` staged import/link behavior
 - `core/tests/vm_boundary_matrix_tests.cpp` coverage rows
+
+Notes:
+- Imported transparent aliases must be propagated alongside imported typed lets and strong nominal type declarations.
+- Symbolic Std seeding must keep alias declarations in step with builtin lets and strong types.
 
 ### 6) Bytecode instruction/opcode/compiler behavior
 Touch:
@@ -156,6 +164,7 @@ Tests:
 - For import changes, verify both VM stages: `bytecode::load_linked_module` and `fleaux::vm::Runtime` execution when applicable.
 - For cross-module type contracts, verify direct-import seeding and qualifier/symbol-key behavior.
 - REPL imports are intentionally symbolic-only (`Std`) unless explicitly redesigned.
+- REPL session state persists lets, strong types, and transparent aliases separately; do not collapse aliases into strong-type storage.
 
 ## Test matrix by change type
 - Parser and grammar: `parser_tests`, `parser_type_syntax_tests`, `lowering_tests`

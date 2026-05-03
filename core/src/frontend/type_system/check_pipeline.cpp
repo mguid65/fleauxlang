@@ -85,7 +85,8 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
 }
 
 auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                          const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                          const AliasIndex& alias_index, const LocalTypes& locals,
+                          const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto* match_args = std::get_if<ir::IRTupleExpr>(&flow.lhs->node);
   if (match_args == nullptr || match_args->items.size() < 2U) {
@@ -94,7 +95,7 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
                    std::optional<std::string>{"Std.Match expects '(value, (pattern, handler), ... )'."}, flow.span));
   }
 
-  auto subject_type = infer_expr(*match_args->items[0], index, type_index, locals, generic_params);
+  auto subject_type = infer_expr(*match_args->items[0], index, type_index, alias_index, locals, generic_params);
   if (!subject_type) {
     return tl::unexpected(subject_type.error());
   }
@@ -113,7 +114,7 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
     auto& handler_expr = *case_tuple->items[1];
 
     if (!is_match_wildcard_pattern(pattern_expr)) {
-      auto pattern_type = infer_expr(pattern_expr, index, type_index, locals, generic_params);
+      auto pattern_type = infer_expr(pattern_expr, index, type_index, alias_index, locals, generic_params);
       if (!pattern_type) {
         return tl::unexpected(pattern_type.error());
       }
@@ -124,7 +125,7 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
       }
     }
 
-    auto handler_type = infer_expr(handler_expr, index, type_index, locals, generic_params);
+    auto handler_type = infer_expr(handler_expr, index, type_index, alias_index, locals, generic_params);
     if (!handler_type) {
       return tl::unexpected(handler_type.error());
     }
@@ -153,7 +154,8 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 }
 
 auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                          const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                          const AliasIndex& alias_index, const LocalTypes& locals,
+                          const std::unordered_set<std::string>& generic_params)
     -> std::optional<tl::expected<Type, type_check::AnalysisError>> {
   const auto* target_name_ref = std::get_if<ir::IRNameRef>(&flow.rhs);
   if (target_name_ref == nullptr) {
@@ -165,12 +167,12 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
     return std::nullopt;
   }
 
-  auto value_type = infer_expr(*apply_args->items[0], index, type_index, locals, generic_params);
+  auto value_type = infer_expr(*apply_args->items[0], index, type_index, alias_index, locals, generic_params);
   if (!value_type) {
     return tl::unexpected(value_type.error());
   }
 
-  auto func_type = infer_expr(*apply_args->items[1], index, type_index, locals, generic_params);
+  auto func_type = infer_expr(*apply_args->items[1], index, type_index, alias_index, locals, generic_params);
   if (!func_type) {
     return tl::unexpected(func_type.error());
   }
@@ -180,8 +182,8 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
     return std::nullopt;
   }
 
-  auto explicit_type_args = resolve_explicit_type_args(target_name_ref->explicit_type_args, type_index, generic_params,
-                                                       target_name_ref->span);
+  auto explicit_type_args = resolve_explicit_type_args(target_name_ref->explicit_type_args, type_index, alias_index,
+                                                       generic_params, target_name_ref->span);
   if (!explicit_type_args) {
     return tl::unexpected(explicit_type_args.error());
   }
@@ -205,28 +207,29 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 }
 
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                     const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                     const AliasIndex& alias_index, const LocalTypes& locals,
+                     const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (is_std_match_target(flow.rhs)) {
-    return infer_std_match_expr(flow, index, type_index, locals, generic_params);
+    return infer_std_match_expr(flow, index, type_index, alias_index, locals, generic_params);
   }
 
   if (is_std_apply_target(flow.rhs)) {
-    if (auto zero_arg_apply = infer_std_apply_expr(flow, index, type_index, locals, generic_params);
+    if (auto zero_arg_apply = infer_std_apply_expr(flow, index, type_index, alias_index, locals, generic_params);
         zero_arg_apply.has_value()) {
       return *zero_arg_apply;
     }
   }
 
-  auto lhs_type = infer_expr(*flow.lhs, index, type_index, locals, generic_params);
+  auto lhs_type = infer_expr(*flow.lhs, index, type_index, alias_index, locals, generic_params);
   if (!lhs_type) {
     return tl::unexpected(lhs_type.error());
   }
 
   std::vector<Type> explicit_type_args;
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
-    auto resolved =
-        resolve_explicit_type_args(name_ref->explicit_type_args, type_index, generic_params, name_ref->span);
+    auto resolved = resolve_explicit_type_args(name_ref->explicit_type_args, type_index, alias_index, generic_params,
+                                               name_ref->span);
     if (!resolved) {
       return tl::unexpected(resolved.error());
     }

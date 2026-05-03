@@ -53,10 +53,11 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",    "import", "type", "Int64", "UInt64", "Float64",
-                                                   "String", "Bool",   "Null", "Any",   "Tuple",  "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",    "import", "type",      "alias", "Int64",
+                                                   "UInt64", "Float64", "String",    "Bool",  "Null",
+                                                   "Any",    "Tuple",  "__builtin__"};
 
-const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "__builtin__"};
+const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "alias", "__builtin__"};
 
 const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
@@ -1145,6 +1146,30 @@ private:
     return out;
   }
 
+  auto alias_stmt() -> PResult<model::AliasStatement> {
+    const std::size_t start = i_;
+    FLEAUX_TRYV(eat_ident_value("alias"));
+
+    model::AliasStatement out;
+    FLEAUX_TRY_ASSIGN(alias_name, ident());
+    out.name = std::move(alias_name);
+
+    if (is_symbol("<")) {
+      return tl::unexpected(err("Transparent aliases do not support generic parameter lists.", peek(),
+                                "Remove '<...>' from the alias declaration. Generic aliases are not supported in phase 1."));
+    }
+    if (is_symbol("::")) {
+      return tl::unexpected(err("Transparent aliases use '=' as their declaration separator.", peek(),
+                                "Write aliases as 'alias Name = Type;'."));
+    }
+
+    FLEAUX_TRYV(eat_symbol("="));
+    FLEAUX_TRY_ASSIGN(target_type, type());
+    out.target = std::move(target_type);
+    out.span = span_from_mark(start);
+    return out;
+  }
+
   auto let_stmt() -> PResult<model::LetStatement> {
     const std::size_t start = i_;
     FLEAUX_TRYV(eat_ident_value("let"));
@@ -1220,6 +1245,10 @@ private:
 
     if (is_ident_value("type")) {
       return type_stmt();
+    }
+
+    if (is_ident_value("alias")) {
+      return alias_stmt();
     }
 
     const std::size_t start = i_;

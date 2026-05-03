@@ -147,12 +147,18 @@ struct TypeStatement {
   std::optional<diag::SourceSpan> span;
 };
 
+struct AliasStatement {
+  std::string name;
+  TypeNode target;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct ExpressionStatement {
   Expression expr;
   std::optional<diag::SourceSpan> span;
 };
 
-using Statement = std::variant<ImportStatement, TypeStatement, LetStatement, ExpressionStatement>;
+using Statement = std::variant<ImportStatement, TypeStatement, AliasStatement, LetStatement, ExpressionStatement>;
 
 struct Program {
   std::string source_name;
@@ -275,6 +281,12 @@ struct IRTypeDecl {
   std::optional<diag::SourceSpan> span;
 };
 
+struct IRAliasDecl {
+  std::string name;
+  IRSimpleType target;
+  std::optional<diag::SourceSpan> span;
+};
+
 struct IRExprStatement {
   IRExpr expr;
   std::optional<diag::SourceSpan> span;
@@ -285,6 +297,7 @@ struct IRProgram {
   std::vector<IRTypeDecl> type_decls;
   std::vector<IRLet> lets;
   std::vector<IRExprStatement> expressions;
+  std::vector<IRAliasDecl> alias_decls;
   std::optional<diag::SourceSpan> span;
 };
 

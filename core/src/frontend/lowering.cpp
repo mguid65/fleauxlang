@@ -34,6 +34,7 @@ auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::
   std::unordered_set<std::string> imported_symbols;
   std::vector<ir::IRLet> imported_typed_lets;
   std::vector<ir::IRTypeDecl> imported_type_decls;
+  std::vector<ir::IRAliasDecl> imported_alias_decls;
   const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
       program,
       [](const std::string& message, const std::optional<std::string>& hint,
@@ -44,11 +45,12 @@ auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::
             .span = span,
         };
       },
-      imported_symbols, imported_typed_lets, imported_type_decls);
+      imported_symbols, imported_typed_lets, imported_type_decls, imported_alias_decls);
   if (!seeded) {
     return tl::unexpected(seeded.error());
   }
-  return type_check::analyze_program(program, imported_symbols, imported_typed_lets, imported_type_decls);
+  return type_check::analyze_program(program, imported_symbols, imported_typed_lets, imported_type_decls,
+                                     imported_alias_decls);
 }
 
 auto split_id(const std::variant<std::string, model::QualifiedId>& id)
@@ -681,6 +683,14 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                          });
                          return {};
                        },
+                       [&](const model::AliasStatement& model_alias) -> tl::expected<void, LoweringError> {
+                         ir_program.alias_decls.push_back(ir::IRAliasDecl{
+                             .name = model_alias.name,
+                             .target = lower_simple_type(model_alias.target),
+                             .span = model_alias.span,
+                         });
+                         return {};
+                       },
                        [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
                          auto [qualifier, name] = split_id(model_let.id);
                          const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
@@ -818,6 +828,7 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
   std::unordered_set<std::string> imported_symbols;
   std::vector<ir::IRLet> imported_typed_lets;
   std::vector<ir::IRTypeDecl> imported_type_decls;
+  std::vector<ir::IRAliasDecl> imported_alias_decls;
   const auto seeded = source_loader::seed_symbolic_imports_for_program<type_check::AnalysisError>(
       *lowered,
       [](const std::string& message, const std::optional<std::string>& hint,
@@ -828,11 +839,12 @@ auto Analyzer::analyze(const model::Program& program) const -> AnalysisResult {
             .span = span,
         };
       },
-      imported_symbols, imported_typed_lets, imported_type_decls);
+      imported_symbols, imported_typed_lets, imported_type_decls, imported_alias_decls);
   if (!seeded) {
     return tl::unexpected(seeded.error());
   }
-  return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets, imported_type_decls);
+  return type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets, imported_type_decls,
+                                     imported_alias_decls);
 }
 
 }  // namespace fleaux::frontend::analysis
