@@ -151,6 +151,35 @@ template <typename ErrorT, typename ErrorFactory>
   return parse_text_to_lowered_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
 }
 
+[[nodiscard]] inline auto cached_lowered_symbolic_std_program() -> const tl::expected<ir::IRProgram, std::string>& {
+  static const auto cached = []() -> tl::expected<ir::IRProgram, std::string> {
+    const auto embedded_std = common::embedded_resource_text("Std.fleaux");
+    if (!embedded_std.has_value()) {
+      return tl::unexpected(std::string{"Embedded symbolic module 'Std' is unavailable."});
+    }
+
+    const std::filesystem::path std_source_name{"Std.fleaux"};
+    return parse_text_to_lowered_ir<std::string>(
+        std::string(*embedded_std), std_source_name.string(),
+        [](const std::string& message, const std::optional<std::string>& hint,
+           const std::optional<diag::SourceSpan>&) -> std::string {
+          return hint.has_value() ? message + " (" + *hint + ")" : message;
+        });
+  }();
+  return cached;
+}
+
+template <typename ErrorT, typename ErrorFactory>
+[[nodiscard]] auto load_lowered_symbolic_std_program(ErrorFactory&& make_error,
+                                                     const std::optional<diag::SourceSpan>& span = std::nullopt)
+    -> tl::expected<const ir::IRProgram*, ErrorT> {
+  const auto& cached = cached_lowered_symbolic_std_program();
+  if (!cached) {
+    return tl::unexpected(make_error("Failed to read source file.", std::optional<std::string>{cached.error()}, span));
+  }
+  return &*cached;
+}
+
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto seed_symbolic_imports_for_program(const ir::IRProgram& program, ErrorFactory&& make_error,
                                                      std::unordered_set<std::string>& imported_symbols,
@@ -181,21 +210,13 @@ template <typename ErrorT, typename ErrorFactory>
       continue;
     }
 
-    const auto embedded_std = common::embedded_resource_text("Std.fleaux");
-    if (!embedded_std.has_value()) {
-      return tl::unexpected(make_error("Failed to read source file.",
-                                       std::optional<std::string>{"Embedded symbolic module 'Std' is unavailable."},
-                                       span));
-    }
-
     const std::filesystem::path std_source_name{"Std.fleaux"};
-    const auto std_program = parse_text_to_lowered_ir<ErrorT>(std::string(*embedded_std), std_source_name.string(),
-                                                              std::forward<ErrorFactory>(make_error));
+    const auto std_program = load_lowered_symbolic_std_program<ErrorT>(make_error, span);
     if (!std_program) {
       return tl::unexpected(std_program.error());
     }
 
-    for (const auto& std_let : std_program->lets) {
+    for (const auto& std_let : (*std_program)->lets) {
       if (!let_declared_in_source(std_let, std_source_name)) {
         continue;
       }
@@ -205,7 +226,7 @@ template <typename ErrorT, typename ErrorFactory>
       }
     }
 
-    for (const auto& std_type_decl : std_program->type_decls) {
+    for (const auto& std_type_decl : (*std_program)->type_decls) {
       if (!type_decl_declared_in_source(std_type_decl, std_source_name)) {
         continue;
       }
@@ -214,7 +235,7 @@ template <typename ErrorT, typename ErrorFactory>
       }
     }
 
-    for (const auto& std_alias_decl : std_program->alias_decls) {
+    for (const auto& std_alias_decl : (*std_program)->alias_decls) {
       if (!alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
         continue;
       }

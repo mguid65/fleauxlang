@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace fleaux::vm {
@@ -626,6 +627,31 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
     // clang-format on
 });
 
+[[nodiscard]] inline auto builtin_name_lookup_map() -> const std::unordered_map<std::string_view, BuiltinId>& {
+  static const auto map = [] () -> std::unordered_map<std::string_view, BuiltinId> {
+    std::unordered_map<std::string_view, BuiltinId> out;
+    out.reserve(kBuiltinSpecs.size());
+    for (const auto& spec : kBuiltinSpecs) {
+      out.emplace(spec.name, spec.id);
+    }
+    return out;
+  }();
+  return map;
+}
+
+[[nodiscard]] inline auto builtin_symbol_key_lookup_map() -> const std::unordered_map<std::string_view, BuiltinId>& {
+  static const auto map = [] () -> std::unordered_map<std::string_view, BuiltinId> {
+    std::unordered_map<std::string_view, BuiltinId> out;
+    out.reserve(kBuiltinSpecs.size());
+    for (const auto& [id, name, symbol_key] : kBuiltinSpecs) {
+      const auto effective_symbol_key = symbol_key.empty() ? name : symbol_key;
+      out.emplace(effective_symbol_key, id);
+    }
+    return out;
+  }();
+  return map;
+}
+
 [[nodiscard]] constexpr auto builtin_count() -> std::size_t { return static_cast<std::size_t>(BuiltinId::kCount); }
 
 [[nodiscard]] constexpr auto callable_builtin_count() -> std::size_t {
@@ -643,21 +669,16 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
   return static_cast<BuiltinId>(operand);
 }
 
-[[nodiscard]] constexpr auto builtin_id_from_name(const std::string_view name) -> std::optional<BuiltinId> {
-  for (const auto& spec : kBuiltinSpecs) {
-    if (spec.name == name) {
-      return spec.id;
-    }
+[[nodiscard]] inline auto builtin_id_from_name(const std::string_view name) -> std::optional<BuiltinId> {
+  if (const auto it = builtin_name_lookup_map().find(name); it != builtin_name_lookup_map().end()) {
+    return it->second;
   }
   return std::nullopt;
 }
 
-[[nodiscard]] constexpr auto builtin_id_from_symbol_key(const std::string_view symbol_key) -> std::optional<BuiltinId> {
-  for (const auto& [id, name, sym_key] : kBuiltinSpecs) {
-    if (const auto effective_symbol_key = sym_key.empty() ? name : sym_key;
-        effective_symbol_key == symbol_key) {
-      return id;
-    }
+[[nodiscard]] inline auto builtin_id_from_symbol_key(const std::string_view symbol_key) -> std::optional<BuiltinId> {
+  if (const auto it = builtin_symbol_key_lookup_map().find(symbol_key); it != builtin_symbol_key_lookup_map().end()) {
+    return it->second;
   }
   if (const auto hash_pos = symbol_key.rfind('#'); hash_pos != std::string_view::npos) {
     const auto base_symbol_key = symbol_key.substr(0, hash_pos);

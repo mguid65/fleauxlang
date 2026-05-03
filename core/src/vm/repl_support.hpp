@@ -273,16 +273,8 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
     }
 
     const std::filesystem::path std_source_name{"Std.fleaux"};
-    const auto embedded_std = fleaux::common::embedded_resource_text("Std.fleaux");
-    if (!embedded_std.has_value()) {
-      return tl::unexpected(make_repl_session_error(
-          "Failed to read source file.", std::optional<std::string>{"Embedded symbolic module 'Std' is unavailable."},
-          std::nullopt));
-    }
-
-    const auto std_program = frontend::source_loader::parse_text_to_lowered_ir<ReplSessionError>(
-        std::string(*embedded_std), std_source_name.string(), make_repl_session_error);
-
+    const auto std_program = frontend::source_loader::load_lowered_symbolic_std_program<ReplSessionError>(
+        make_repl_session_error, std::nullopt);
     if (!std_program) {
       return tl::unexpected(std_program.error());
     }
@@ -305,7 +297,7 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       imported_alias_decl_keys.insert(frontend::source_loader::alias_decl_identity_key(imported_alias_decl));
     }
 
-    for (const auto& std_let : std_program->lets) {
+    for (const auto& std_let : (*std_program)->lets) {
       if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) {
         continue;
       }
@@ -316,7 +308,7 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       symbolic_imported_lets.push_back(std_let);
     }
 
-    for (const auto& std_type_decl : std_program->type_decls) {
+    for (const auto& std_type_decl : (*std_program)->type_decls) {
       if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) {
         continue;
       }
@@ -327,7 +319,7 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       symbolic_imported_type_decls.push_back(std_type_decl);
     }
 
-    for (const auto& std_alias_decl : std_program->alias_decls) {
+    for (const auto& std_alias_decl : (*std_program)->alias_decls) {
       if (!frontend::source_loader::alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
         continue;
       }
