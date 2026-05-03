@@ -11,11 +11,9 @@
 
 #include <tl/expected.hpp>
 
-#include "fleaux/common/embedded_resource.hpp"
 #include "fleaux/frontend/ast.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/source_loader.hpp"
-#include "fleaux/frontend/type_check.hpp"
 
 namespace fleaux::vm::detail {
 
