@@ -22,9 +22,9 @@ struct CompileOptions {
   std::optional<std::string> source_text;
   std::optional<std::string> module_name;
   std::vector<Module> imported_modules;
-  bool enable_value_ref_gate{false};
-  bool enable_auto_value_ref{false};
-  std::size_t value_ref_byte_cutoff{256};
+  bool enable_value_ref_gate{false}; // TODO: Need to wire these through to the cli
+  bool enable_auto_value_ref{false}; // TODO: Need to wire these through to the cli
+  std::size_t value_ref_byte_cutoff{256}; // TODO: Need to wire these through to the cli
 };
 
 using CompileResult = tl::expected<Module, CompileError>;
