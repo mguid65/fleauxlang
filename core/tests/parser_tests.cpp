@@ -40,6 +40,50 @@ TEST_CASE("Parser accepts strong type declarations with both separators", "[pars
   REQUIRE(second.name == "Username");
 }
 
+TEST_CASE("Parser accepts transparent alias declarations and keeps them distinct from type declarations",
+          "[parser][aliases]") {
+  const std::string src =
+      "type Id = Int64;\n"
+      "alias UserId = Id;\n"
+      "alias Pair = Tuple(Int64, Int64);\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "alias_declarations_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 3);
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::TypeStatement>(parsed->statements[0]));
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::AliasStatement>(parsed->statements[1]));
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::AliasStatement>(parsed->statements[2]));
+
+  const auto& first_alias = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[1]);
+  const auto& second_alias = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[2]);
+  REQUIRE(first_alias.name == "UserId");
+  REQUIRE(second_alias.name == "Pair");
+}
+
+TEST_CASE("Parser rejects generic transparent alias declarations with a clear diagnostic", "[parser][aliases]") {
+  const std::string src = "alias Box<T> = T;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "generic_alias_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("do not support generic parameter lists") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+}
+
+TEST_CASE("Parser rejects transparent alias declarations that use '::'", "[parser][aliases]") {
+  const std::string src = "alias Name :: String;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "alias_colon_separator_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("use '=' as their declaration separator") != std::string::npos);
+  REQUIRE(parsed.error().hint.has_value());
+}
+
 TEST_CASE("Parser accepts explicit type argument application on named targets", "[parser][types][generics]") {
   const std::string src = "(10) -> Std.Cast<Id>;\n";
 

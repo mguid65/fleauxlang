@@ -16,6 +16,7 @@ namespace fleaux::frontend::type_system::detail {
 
 using LocalTypes = std::unordered_map<std::string, Type>;
 using TypeBindings = std::unordered_map<std::string, Type>;
+using TypeNameSet = std::unordered_set<std::string>;
 
 struct ResolvedInvocation {
   Type return_type;
@@ -48,6 +49,7 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type;
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
                                 const StrongTypeIndex& type_index,
+                                const AliasIndex& alias_index,
                                 const std::unordered_set<std::string>& generic_params,
                                 const std::optional<diag::SourceSpan>& span)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError>;
@@ -86,10 +88,25 @@ auto overload_candidate_list(const std::string& full_name, const std::vector<con
 auto call_shape_matches(const FunctionSig& sig, std::size_t arg_count) -> bool;
 auto validate_supported_overload_sets(const ir::IRProgram& program, const std::vector<ir::IRLet>& imported_typed_lets)
     -> tl::expected<void, type_check::AnalysisError>;
+auto collect_known_strong_type_names(const ir::IRProgram& program,
+                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> TypeNameSet;
+auto validate_alias_declarations(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls,
+                                 const std::vector<ir::IRAliasDecl>& imported_alias_decls)
+    -> tl::expected<AliasIndex, type_check::AnalysisError>;
 auto validate_strong_type_declarations(const ir::IRProgram& program,
-                                       const std::vector<ir::IRTypeDecl>& imported_type_decls)
+                                       const std::vector<ir::IRTypeDecl>& imported_type_decls,
+                                       const AliasIndex& alias_index)
     -> tl::expected<void, type_check::AnalysisError>;
+auto expand_aliases_in_type(const Type& type, const TypeNameSet& known_strong_type_names, const AliasIndex& alias_index,
+                            const std::unordered_set<std::string>& generic_params,
+                            const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<Type, type_check::AnalysisError>;
+auto expand_aliases_in_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
+                            const std::unordered_set<std::string>& generic_params,
+                            const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<Type, type_check::AnalysisError>;
 auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index,
+                            const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError>;
@@ -132,13 +149,16 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
                                  const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError>;
 auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                          const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                          const AliasIndex& alias_index, const LocalTypes& locals,
+                          const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                     const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                     const AliasIndex& alias_index, const LocalTypes& locals,
+                     const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                const AliasIndex& alias_index, const LocalTypes& locals,
+                const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 
 }  // namespace fleaux::frontend::type_system::detail

@@ -189,6 +189,48 @@ TEST_CASE("RuntimeSession preserves strong type declarations across snippets", "
   REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("Wrap expects argument 0"));
 }
 
+TEST_CASE("RuntimeSession preserves transparent aliases across snippets", "[vm][repl][type][aliases]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto define_result =
+      session.run_snippet("import Std;\nalias Name = String;\nlet Echo(x: Name): Name = x;\n", output);
+  if (!define_result.has_value()) { INFO("vm repl alias definition error: " << define_result.error().message); }
+  REQUIRE(define_result.has_value());
+
+  const auto use_alias_result = session.run_snippet(
+      "import Std;\nlet NeedsName(x: Name): Name = x;\n(\"fleaux\") -> Echo -> NeedsName -> Std.Println;\n", output);
+  if (!use_alias_result.has_value()) { INFO("vm repl alias reuse error: " << use_alias_result.error().message); }
+  REQUIRE(use_alias_result.has_value());
+  REQUIRE(output.str() == "fleaux\n");
+}
+
+TEST_CASE("RuntimeSession replaces transparent aliases by name across snippets", "[vm][repl][type][aliases]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto define_string_alias =
+      session.run_snippet("import Std;\nalias Value = String;\nlet Echo(value: Value): Value = value;\n", output);
+  if (!define_string_alias.has_value()) {
+    INFO("vm repl initial alias definition error: " << define_string_alias.error().message);
+  }
+  REQUIRE(define_string_alias.has_value());
+
+  const auto replace_alias =
+      session.run_snippet("import Std;\nalias Value = Int64;\nlet NeedsValue(value: Value): Value = value;\n", output);
+  if (!replace_alias.has_value()) { INFO("vm repl alias replacement error: " << replace_alias.error().message); }
+  REQUIRE(replace_alias.has_value());
+
+  const auto use_replaced_alias = session.run_snippet("import Std;\n(1) -> NeedsValue -> Std.Println;\n", output);
+  if (!use_replaced_alias.has_value()) {
+    INFO("vm repl replaced alias reuse error: " << use_replaced_alias.error().message);
+  }
+  REQUIRE(use_replaced_alias.has_value());
+  REQUIRE(output.str() == "1\n");
+}
+
 TEST_CASE("RuntimeSession requires Std import before Std symbols are available", "[vm][repl][imports][stdlib]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});

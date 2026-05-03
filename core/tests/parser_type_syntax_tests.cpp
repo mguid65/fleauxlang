@@ -119,3 +119,36 @@ TEST_CASE("Parser accepts nested function type syntax", "[parser][type_syntax][f
   REQUIRE(inner_func != nullptr);
   REQUIRE((*inner_func)->params.types.size() == 1);
 }
+
+TEST_CASE("Parser accepts function type syntax in alias targets", "[parser][aliases][type_syntax][function_type]") {
+  const std::string src = "alias Handler = (String, Int64) => Bool;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "alias_function_type_target.fleaux");
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+
+  const auto& alias_stmt = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[0]);
+  const auto* func_type = std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(
+      &alias_stmt.target.value);
+  REQUIRE(func_type != nullptr);
+  REQUIRE((*func_type)->params.types.size() == 2);
+  REQUIRE(std::holds_alternative<std::string>((*func_type)->return_type->value));
+  REQUIRE(std::get<std::string>((*func_type)->return_type->value) == "Bool");
+}
+
+TEST_CASE("Parser accepts union type syntax in alias targets", "[parser][aliases][type_syntax][union_type]") {
+  const std::string src = "alias MaybeName = String | Null;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "alias_union_type_target.fleaux");
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+
+  const auto& alias_stmt = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[0]);
+  const auto* union_type =
+      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::UnionTypeList>>(&alias_stmt.target.value);
+  REQUIRE(union_type != nullptr);
+  REQUIRE((*union_type)->alternatives.size() == 2);
+}
+

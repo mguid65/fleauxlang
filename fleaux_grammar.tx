@@ -2,7 +2,7 @@ Program:
   statements*=Statement;
 
 Statement:
-  (ImportStatement | TypeStatement | LetStatement | ExpressionStatement) ';';
+  (ImportStatement | TypeStatement | AliasStatement | LetStatement | ExpressionStatement) ';';
 
 // Runtime parser allows import names like `Std` and digit-leading forms
 // like `20_export` (implemented as NUMBER + adjacent IDENT/NUMBER tokens).
@@ -21,6 +21,9 @@ OptionallyQualifiedId:
 
 TypeStatement:
   'type' name=Identifier sep=('=' | '::') target=Type;
+
+AliasStatement:
+  'alias' name=Identifier '=' target=Type;
 
 LetStatement:
   'let' id=OptionallyQualifiedId generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type
@@ -135,7 +138,7 @@ Constant:
   val=NUMBER | val=STRING | val=BOOL | val='null';
 
 StructuralKeyword:
-  'let' | 'import' | '__builtin__';
+  'let' | 'import' | 'alias' | '__builtin__';
 
 Keyword:
   StructuralKeyword |

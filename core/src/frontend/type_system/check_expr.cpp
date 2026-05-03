@@ -98,7 +98,8 @@ auto unresolved_generic_callable_error(const std::string& full_name, const Funct
 }  // namespace
 
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                const AliasIndex& alias_index, const LocalTypes& locals,
+                const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   return std::visit(
       common::overloaded{
@@ -114,14 +115,14 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
           },
           [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
             if (tuple.items.size() == 1U) {
-              return infer_expr(*tuple.items[0], index, type_index, locals, generic_params);
+              return infer_expr(*tuple.items[0], index, type_index, alias_index, locals, generic_params);
             }
 
             Type out;
             out.kind = TypeKind::kTuple;
             out.items.reserve(tuple.items.size());
             for (auto& item : tuple.items) {
-              auto item_type = infer_expr(*item, index, type_index, locals, generic_params);
+              auto item_type = infer_expr(*item, index, type_index, alias_index, locals, generic_params);
               if (!item_type) {
                 return tl::unexpected(item_type.error());
               }
@@ -131,7 +132,8 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
           },
           [&](const ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
             auto explicit_type_args =
-                resolve_explicit_type_args(name_ref.explicit_type_args, type_index, generic_params, name_ref.span);
+                resolve_explicit_type_args(name_ref.explicit_type_args, type_index, alias_index, generic_params,
+                                           name_ref.span);
             if (!explicit_type_args) {
               return tl::unexpected(explicit_type_args.error());
             }
@@ -226,25 +228,38 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
             closure_sig.params.reserve(closure.params.size());
             for (const auto& [name, type, span] : closure.params) {
               Type param_type = rewrite_generic_type(from_ir_type(type), closure_generic_params);
-              if (auto validated = validate_declared_type(param_type, type_index, closure_generic_params, span);
+              if (auto validated =
+                      validate_declared_type(param_type, type_index, alias_index, closure_generic_params, span);
                   !validated) {
                 return tl::unexpected(validated.error());
               }
-              closure_locals.insert_or_assign(name, param_type);
+              auto expanded_param =
+                  expand_aliases_in_type(param_type, type_index, alias_index, closure_generic_params, span);
+              if (!expanded_param) {
+                return tl::unexpected(expanded_param.error());
+              }
+              closure_locals.insert_or_assign(name, *expanded_param);
               closure_sig.params.push_back(ParamSig{
                   .name = name,
-                  .type = std::move(param_type),
+                  .type = std::move(*expanded_param),
                   .variadic = type.variadic,
               });
             }
-            closure_sig.return_type = rewrite_generic_type(from_ir_type(closure.return_type), closure_generic_params);
+            const Type declared_return = rewrite_generic_type(from_ir_type(closure.return_type), closure_generic_params);
             if (auto validated =
-                    validate_declared_type(closure_sig.return_type, type_index, closure_generic_params, closure.span);
+                    validate_declared_type(declared_return, type_index, alias_index, closure_generic_params, closure.span);
                 !validated) {
               return tl::unexpected(validated.error());
             }
+            auto expanded_return =
+                expand_aliases_in_type(declared_return, type_index, alias_index, closure_generic_params, closure.span);
+            if (!expanded_return) {
+              return tl::unexpected(expanded_return.error());
+            }
+            closure_sig.return_type = *expanded_return;
 
-            auto inferred_body = infer_expr(*closure.body, index, type_index, closure_locals, closure_generic_params);
+            auto inferred_body = infer_expr(*closure.body, index, type_index, alias_index, closure_locals,
+                                            closure_generic_params);
             if (!inferred_body) {
               return tl::unexpected(inferred_body.error());
             }
@@ -256,7 +271,7 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
             return function_type_from_sig(closure_sig);
           },
           [&](ir::IRFlowExpr& flow) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_flow_expr(flow, index, type_index, locals, generic_params);
+            return infer_flow_expr(flow, index, type_index, alias_index, locals, generic_params);
           },
       },
       expr.node);

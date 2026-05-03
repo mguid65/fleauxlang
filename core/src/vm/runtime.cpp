@@ -1517,6 +1517,7 @@ struct RuntimeSession::Impl {
   std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
   std::vector<frontend::ir::IRTypeDecl> type_decls;
+  std::vector<frontend::ir::IRAliasDecl> alias_decls;
 };
 
 RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args)
@@ -1533,7 +1534,9 @@ auto RuntimeSession::operator=(RuntimeSession&& other) noexcept -> RuntimeSessio
 RuntimeSession::~RuntimeSession() = default;
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
-  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls);
+  auto analyzed =
+      detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls,
+                                          impl_->alias_decls);
   if (!analyzed) {
     return tl::unexpected(make_runtime_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
@@ -1541,9 +1544,12 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   auto merged_lets = detail::merge_repl_session_lets(impl_->lets, analyzed->lets, impl_->source_path);
   auto merged_type_decls =
       detail::merge_repl_session_type_decls(impl_->type_decls, analyzed->type_decls, impl_->source_path);
+  auto merged_alias_decls =
+      detail::merge_repl_session_alias_decls(impl_->alias_decls, analyzed->alias_decls, impl_->source_path);
   auto program_to_execute = analyzed.value();
   program_to_execute.lets = merged_lets;
   program_to_execute.type_decls = merged_type_decls;
+  program_to_execute.alias_decls = merged_alias_decls;
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   auto compiled = compiler.compile(program_to_execute, fleaux::bytecode::CompileOptions{
@@ -1558,6 +1564,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
 
   impl_->lets = std::move(merged_lets);
   impl_->type_decls = std::move(merged_type_decls);
+  impl_->alias_decls = std::move(merged_alias_decls);
 
   constexpr Runtime runtime;
   return runtime.execute(*compiled, output);

@@ -1,5 +1,9 @@
 #include "fleaux/frontend/type_system/function_index.hpp"
 
+#include <stdexcept>
+
+#include "fleaux/frontend/type_system/detail/checker_internal.hpp"
+
 namespace fleaux::frontend::type_system {
 namespace {
 
@@ -37,6 +41,7 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
 }  // namespace
 
 FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_set<std::string>& imported_symbols,
+                             const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                              const std::vector<ir::IRLet>& imported_typed_lets) {
   symbols_.reserve(program.lets.size() * 2U);
   unqualified_symbols_.reserve(program.lets.size() + imported_symbols.size());
@@ -52,6 +57,8 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     unqualified_symbols_.insert(imported_symbol);
   }
 
+  const auto& known_strong_type_names = type_index.known_names();
+
   auto index_signature = [&](const ir::IRLet& let) -> void {
     FunctionSig sig;
     sig.resolved_symbol_key = let.symbol_key.empty() ? symbol_key(let.qualifier, let.name) : let.symbol_key;
@@ -64,12 +71,22 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
       generic_param_set.insert(generic_param);
     }
 
-    sig.return_type = rewrite_generic_type(from_ir_type(let.return_type), generic_param_set);
+    const auto rewrite_signature_type = [&](const ir::IRSimpleType& ir_type) -> Type {
+      Type rewritten = rewrite_generic_type(from_ir_type(ir_type), generic_param_set);
+      auto expanded = detail::expand_aliases_in_type(rewritten, known_strong_type_names, alias_index, generic_param_set,
+                                                     ir_type.span);
+      if (!expanded) {
+        throw std::logic_error("FunctionIndex received an invalid signature after alias validation.");
+      }
+      return *expanded;
+    };
+
+    sig.return_type = rewrite_signature_type(let.return_type);
     sig.params.reserve(let.params.size());
     for (const auto& param : let.params) {
       sig.params.push_back(ParamSig{
           .name = param.name,
-          .type = rewrite_generic_type(from_ir_type(param.type), generic_param_set),
+          .type = rewrite_signature_type(param.type),
           .variadic = param.type.variadic,
       });
     }
@@ -92,6 +109,35 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
   }
 }
 
+AliasIndex::AliasIndex(const ir::IRProgram& program, const std::vector<ir::IRAliasDecl>& imported_alias_decls) {
+  decls_.reserve(imported_alias_decls.size() + program.alias_decls.size());
+
+  for (const auto& alias_decl : imported_alias_decls) {
+    decls_.insert_or_assign(alias_decl.name, AliasDecl{
+                                               .name = alias_decl.name,
+                                               .target_type = from_ir_type(alias_decl.target),
+                                               .span = alias_decl.span,
+                                           });
+  }
+
+  for (const auto& alias_decl : program.alias_decls) {
+    decls_.insert_or_assign(alias_decl.name, AliasDecl{
+                                               .name = alias_decl.name,
+                                               .target_type = from_ir_type(alias_decl.target),
+                                               .span = alias_decl.span,
+                                           });
+  }
+}
+
+auto AliasIndex::resolve_name(const std::string& name) const -> const AliasDecl* {
+  if (const auto it = decls_.find(name); it != decls_.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
+auto AliasIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }
+
 auto FunctionIndex::resolve_name(const std::optional<std::string>& qualifier, const std::string& name) const
     -> const FunctionOverloadSet* {
   const auto key = symbol_key(qualifier, name);
@@ -113,13 +159,21 @@ auto FunctionIndex::has_qualified_symbol(const std::optional<std::string>& quali
   return qualified_symbols_.contains(symbol_key(qualifier, name));
 }
 
-StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls) {
+StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const AliasIndex& alias_index,
+                                 const std::vector<ir::IRTypeDecl>& imported_type_decls) {
+  known_names_ = detail::collect_known_strong_type_names(program, imported_type_decls);
   decls_.reserve(imported_type_decls.size() + program.type_decls.size());
 
   const auto index_decl = [&](const ir::IRTypeDecl& type_decl) -> void {
+    auto expanded_target = detail::expand_aliases_in_type(from_ir_type(type_decl.target), known_names_, alias_index, {},
+                                                          type_decl.span);
+    if (!expanded_target) {
+      throw std::logic_error("StrongTypeIndex received an invalid strong type target after alias validation.");
+    }
+
     decls_.insert_or_assign(type_decl.name, StrongTypeDecl{
                                                 .name = type_decl.name,
-                                                .target_type = from_ir_type(type_decl.target),
+                                                .target_type = *expanded_target,
                                                 .span = type_decl.span,
                                             });
   };
@@ -140,5 +194,7 @@ auto StrongTypeIndex::resolve_name(const std::string& name) const -> const Stron
 }
 
 auto StrongTypeIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }
+
+auto StrongTypeIndex::known_names() const -> const std::unordered_set<std::string>& { return known_names_; }
 
 }  // namespace fleaux::frontend::type_system

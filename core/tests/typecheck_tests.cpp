@@ -3200,21 +3200,27 @@ TEST_CASE("FunctionIndex matrix: Stage-4b mixed imported symbol lookup", "[typec
 
   SECTION("Qualified import does not imply unqualified lookup") {
     const std::unordered_set<std::string> imported_symbols = {"Foo.Add4"};
-    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols);
+    const fleaux::frontend::type_system::AliasIndex alias_index(*lowered);
+    const fleaux::frontend::type_system::StrongTypeIndex type_index(*lowered, alias_index);
+    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols, type_index, alias_index);
     REQUIRE(index.has_qualified_symbol(std::optional<std::string>{"Foo"}, "Add4"));
     REQUIRE_FALSE(index.has_unqualified_symbol("Add4"));
   }
 
   SECTION("Unqualified import does not imply qualified lookup") {
     const std::unordered_set<std::string> imported_symbols = {"Add4"};
-    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols);
+    const fleaux::frontend::type_system::AliasIndex alias_index(*lowered);
+    const fleaux::frontend::type_system::StrongTypeIndex type_index(*lowered, alias_index);
+    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols, type_index, alias_index);
     REQUIRE(index.has_unqualified_symbol("Add4"));
     REQUIRE_FALSE(index.has_qualified_symbol(std::optional<std::string>{"Foo"}, "Add4"));
   }
 
   SECTION("Explicit mixed import keeps both lookups distinct") {
     const std::unordered_set<std::string> imported_symbols = {"Foo.Add4", "Add4"};
-    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols);
+    const fleaux::frontend::type_system::AliasIndex alias_index(*lowered);
+    const fleaux::frontend::type_system::StrongTypeIndex type_index(*lowered, alias_index);
+    const fleaux::frontend::type_system::FunctionIndex index(*lowered, imported_symbols, type_index, alias_index);
     REQUIRE(index.has_unqualified_symbol("Add4"));
     REQUIRE(index.has_qualified_symbol(std::optional<std::string>{"Foo"}, "Add4"));
     REQUIRE_FALSE(index.has_qualified_symbol(std::optional<std::string>{"Bar"}, "Add4"));
@@ -3452,6 +3458,159 @@ TEST_CASE("Type checker validates strong type environments across local and impo
     REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(analyzed.error().hint.has_value());
     REQUIRE(analyzed.error().hint->find("Echo expects argument 0") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker expands transparent local aliases before structural compatibility checks",
+          "[typecheck][types][aliases]") {
+  SECTION("Primitive aliases are transparent in parameter and return signatures") {
+    const std::string src =
+        "alias Name = String;\n"
+        "let Echo(x: Name): Name = x;\n"
+        "let NeedsString(x: String): String = x;\n"
+        "(\"fleaux\") -> Echo -> NeedsString;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_primitive_transparent.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Alias chains stay transparent across tuple-typed signatures") {
+    const std::string src =
+        "alias Pair = Tuple(Int64, Int64);\n"
+        "alias CounterPair = Pair;\n"
+        "let Echo(x: CounterPair): Pair = x;\n"
+        "let NeedsPair(x: Pair): Pair = x;\n"
+        "(1, 2) -> Echo -> NeedsPair;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_chain_tuple_transparent.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Aliases to nominal types remain transparent to the nominal target") {
+    const std::string src =
+        "let Std.Cast<T>(value: Any): T :: __builtin__;\n"
+        "type Id = Int64;\n"
+        "alias UserId = Id;\n"
+        "let MakeUserId(x: Id): UserId = x;\n"
+        "let NeedsId(x: Id): Id = x;\n"
+        "(1) -> Std.Cast<UserId> -> MakeUserId -> NeedsId;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_nominal_target_transparent.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Aliases to function types are transparent for first-class callable values") {
+    const std::string src =
+        "alias Handler = (String) => Bool;\n"
+        "let Keep(h: Handler): Handler = h;\n"
+        "let NeedsHandler(h: (String) => Bool): (String) => Bool = h;\n"
+        "let IsOk(s: String): Bool = True;\n"
+        "IsOk -> Keep -> NeedsHandler;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_function_target_transparent.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Imported aliases expand transparently in local declarations and imported signatures") {
+    const std::string src =
+        "let NeedsDistance(x: Distance): Distance = x;\n"
+        "(1) -> ImportedEcho -> NeedsDistance;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_imported_alias_transparent.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    fleaux::frontend::ir::IRLet imported_echo;
+    imported_echo.name = "ImportedEcho";
+    imported_echo.params = {{.name = "x", .type = {.name = "Distance"}}};
+    imported_echo.return_type = {.name = "Distance"};
+
+    const std::unordered_set<std::string> imported_symbols = {"ImportedEcho"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_echo};
+    const std::vector<fleaux::frontend::ir::IRAliasDecl> imported_alias_decls = {
+        fleaux::frontend::ir::IRAliasDecl{.name = "Distance", .target = {.name = "Int64"}},
+    };
+
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols,
+                                                                        imported_typed_lets, {}, imported_alias_decls);
+    REQUIRE(analyzed.has_value());
+  }
+
+  SECTION("Unknown alias targets are rejected during analysis") {
+    const std::string src =
+        "alias UserId = Missing;\n"
+        "let Echo(x: UserId): UserId = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_unknown_target.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Unknown type") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Missing") != std::string::npos);
+  }
+
+  SECTION("Direct alias cycles are rejected") {
+    const std::string src =
+        "alias Loop = Loop;\n"
+        "let Echo(x: Loop): Loop = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_direct_cycle.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Alias cycle detected") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Loop") != std::string::npos);
+  }
+
+  SECTION("Transitive alias cycles are rejected") {
+    const std::string src =
+        "alias A = B;\n"
+        "alias B = C;\n"
+        "alias C = A;\n"
+        "let Echo(x: A): A = x;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_alias_transitive_cycle.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Alias cycle detected") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("A") != std::string::npos);
   }
 }
 

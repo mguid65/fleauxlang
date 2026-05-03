@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <utility>
 
 namespace fleaux::vm {
 
@@ -636,7 +637,7 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
 }
 
 [[nodiscard]] constexpr auto builtin_id_from_operand(const std::int64_t operand) -> std::optional<BuiltinId> {
-  if (operand < 0 || operand >= static_cast<std::int64_t>(builtin_count())) {
+  if (operand < 0 || std::cmp_greater_equal(operand ,builtin_count())) {
     return std::nullopt;
   }
   return static_cast<BuiltinId>(operand);

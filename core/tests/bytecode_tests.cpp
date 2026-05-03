@@ -62,14 +62,15 @@ auto lower_source_to_ir(const std::string& source_text, const std::string& sourc
   std::unordered_set<std::string> imported_symbols;
   std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
   std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls;
+  std::vector<fleaux::frontend::ir::IRAliasDecl> imported_alias_decls;
   const auto seeded = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<
       fleaux::frontend::type_check::AnalysisError>(*lowered, make_error, imported_symbols, imported_typed_lets,
-                                                   imported_type_decls);
+                                                   imported_type_decls, imported_alias_decls);
   REQUIRE(seeded.has_value());
 
   const auto analyzed =
       fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
-                                                    imported_type_decls);
+                                                    imported_type_decls, imported_alias_decls);
   REQUIRE(analyzed.has_value());
   return analyzed.value();
 }
@@ -2643,6 +2644,42 @@ TEST_CASE("Bytecode module loader enforces typed imported signatures during anal
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().message.find("Add4 expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader propagates imported transparent aliases into entry analysis",
+          "[bytecode][serialization][imports][aliases]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_imported_aliases";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "alias_dep.fleaux";
+  const auto entry_path = temp_dir / "alias_entry.fleaux";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "alias Distance = Int64;\n"
+           "let EchoDistance(x: Distance): Distance = x;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import alias_dep;\n"
+           "let NeedsDistance(x: Distance): Distance = x;\n"
+           "(1) -> EchoDistance -> NeedsDistance -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  if (!loaded.has_value()) { INFO("bytecode imported alias load error: " << loaded.error().message); }
+  REQUIRE(loaded.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto runtime_result = runtime.execute(*loaded, output);
+  if (!runtime_result.has_value()) { INFO("vm runtime error: " << runtime_result.error().message); }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "1\n");
 }
 
 TEST_CASE("Bytecode module loader revalidates typed import seeds when entry cache is stale",

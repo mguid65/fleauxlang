@@ -48,6 +48,52 @@ TEST_CASE("Lowerer preserves type declarations in a dedicated IR bucket", "[lowe
   REQUIRE(lowered->type_decls[1].target.name == "String");
 }
 
+TEST_CASE("Lowerer preserves transparent aliases in a dedicated IR bucket", "[lowering][aliases]") {
+  const std::string src =
+      "type Id = Int64;\n"
+      "alias UserId = Id;\n"
+      "alias Pair = Tuple(Int64, Int64);\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_alias_decl_shape.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->type_decls.size() == 1);
+  REQUIRE(lowered->alias_decls.size() == 2);
+  REQUIRE(lowered->type_decls[0].name == "Id");
+  REQUIRE(lowered->alias_decls[0].name == "UserId");
+  REQUIRE(lowered->alias_decls[0].target.name == "Id");
+  REQUIRE(lowered->alias_decls[1].name == "Pair");
+  REQUIRE(lowered->alias_decls[1].target.name == "Tuple");
+  REQUIRE(lowered->alias_decls[1].target.tuple_items.size() == 2);
+}
+
+TEST_CASE("Lowerer preserves function alias target structure", "[lowering][aliases][function_type]") {
+  const std::string src = "alias Handler = (String, Int64) => Bool;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_alias_function_target.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->alias_decls.size() == 1);
+
+  const auto& alias = lowered->alias_decls[0];
+  REQUIRE(alias.name == "Handler");
+  REQUIRE(alias.target.name == "Function");
+  REQUIRE(alias.target.function_sig.has_value());
+  REQUIRE(alias.target.function_sig->param_types.size() == 2);
+  REQUIRE(alias.target.function_sig->param_types[0].name == "String");
+  REQUIRE(alias.target.function_sig->param_types[1].name == "Int64");
+  REQUIRE(alias.target.function_sig->return_type->name == "Bool");
+}
+
 TEST_CASE("Lowerer preserves explicit type argument application on named targets", "[lowering][types][generics]") {
   const std::string src = "(10) -> Std.Cast<Id>;\n";
 
