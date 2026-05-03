@@ -18,6 +18,11 @@ struct CallSite {
   const IRExpr* lhs{nullptr};
 };
 
+struct LetBodySummary {
+  std::unordered_set<std::string> captured_by_nested_closure;
+  std::unordered_set<std::string> reaches_escape_builtin;
+};
+
 auto escape_builtins() -> const std::unordered_set<std::string>& {
   static const std::unordered_set<std::string> names = {
       "Std.Apply",
@@ -93,48 +98,51 @@ auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> 
       expr.node);
 }
 
-auto expr_contains_unqualified_name_ref(const IRExpr& expr, const std::string& name) -> bool {
-  return std::visit(
-      common::overloaded{
-          [&](const IRNameRef& name_ref) -> bool { return !name_ref.qualifier.has_value() && name_ref.name == name; },
-          [&](const IRFlowExpr& flow) -> bool { return expr_contains_unqualified_name_ref(*flow.lhs, name); },
-          [&](const IRTupleExpr& tuple) -> bool {
-            return std::ranges::any_of(
-                tuple.items, [&](const auto& item) -> bool { return expr_contains_unqualified_name_ref(*item, name); });
-          },
-          [&](const IRClosureExprBox& closure_ptr) -> bool {
-            return expr_contains_unqualified_name_ref(*closure_ptr->body, name);
-          },
-          [](const auto&) -> bool { return false; }},
-      expr.node);
+void collect_unqualified_name_refs(const IRExpr& expr, std::unordered_set<std::string>& out) {
+  std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
+                                  if (!name_ref.qualifier.has_value()) {
+                                    out.insert(name_ref.name);
+                                  }
+                                },
+                                [&](const IRFlowExpr& flow) -> void { collect_unqualified_name_refs(*flow.lhs, out); },
+                                [&](const IRTupleExpr& tuple) -> void {
+                                  for (const auto& item : tuple.items) {
+                                    collect_unqualified_name_refs(*item, out);
+                                  }
+                                },
+                                [&](const IRClosureExprBox& closure_ptr) -> void {
+                                  collect_unqualified_name_refs(*closure_ptr->body, out);
+                                },
+                                [](const auto&) -> void {}},
+             expr.node);
 }
 
-auto param_reaches_escape_builtin_call(const IRExpr& expr, const std::string& param_name) -> bool {
-  return std::visit(
-      common::overloaded{[&](const IRFlowExpr& flow) -> bool {
-                           const bool lhs_contains_param = expr_contains_unqualified_name_ref(*flow.lhs, param_name);
-                           const bool calls_escape_builtin =
-                               std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
-                                                               return escape_builtins().contains(
-                                                                   full_symbol_name(name_ref.qualifier, name_ref.name));
-                                                             },
-                                                             [](const IROperatorRef&) -> bool { return false; }},
-                                          flow.rhs);
-                           if (lhs_contains_param && calls_escape_builtin) {
-                             return true;
-                           }
-                           return param_reaches_escape_builtin_call(*flow.lhs, param_name);
-                         },
-                         [&](const IRTupleExpr& tuple) -> bool {
-                           return std::ranges::any_of(tuple.items, [&](const auto& item) -> bool {
-                             return param_reaches_escape_builtin_call(*item, param_name);
-                           });
-                         },
-                         [&](const IRClosureExprBox& closure_ptr) -> bool {
-                           return param_reaches_escape_builtin_call(*closure_ptr->body, param_name);
-                         },
-                         [](const auto&) -> bool { return false; }},
-      expr.node);
+void summarize_let_body(const IRExpr& expr, LetBodySummary& summary) {
+  std::visit(common::overloaded{[&](const IRFlowExpr& flow) -> void {
+                                  std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
+                                                                  if (escape_builtins().contains(full_symbol_name(
+                                                                          name_ref.qualifier, name_ref.name))) {
+                                                                    collect_unqualified_name_refs(
+                                                                        *flow.lhs, summary.reaches_escape_builtin);
+                                                                  }
+                                                                },
+                                                                [](const IROperatorRef&) -> void {}},
+                                             flow.rhs);
+                                  summarize_let_body(*flow.lhs, summary);
+                                },
+                                [&](const IRTupleExpr& tuple) -> void {
+                                  for (const auto& item : tuple.items) {
+                                    summarize_let_body(*item, summary);
+                                  }
+                                },
+                                [&](const IRClosureExprBox& closure_ptr) -> void {
+                                  for (const auto& capture : closure_ptr->captures) {
+                                    summary.captured_by_nested_closure.insert(capture);
+                                  }
+                                  summarize_let_body(*closure_ptr->body, summary);
+                                },
+                                [](const auto&) -> void {}},
+             expr.node);
 }
 
 void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
@@ -170,25 +178,6 @@ void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>&
   }
 }
 
-auto param_is_captured_by_nested_closure(const IRExpr& expr, const std::string& param_name) -> bool {
-  return std::visit(
-      common::overloaded{
-          [&](const IRClosureExprBox& closure_ptr) -> bool {
-            if (std::ranges::find(closure_ptr->captures, param_name) != closure_ptr->captures.end()) {
-              return true;
-            }
-            return param_is_captured_by_nested_closure(*closure_ptr->body, param_name);
-          },
-          [&](const IRTupleExpr& tuple) -> bool {
-            return std::ranges::any_of(tuple.items, [&](const auto& item) -> bool {
-              return param_is_captured_by_nested_closure(*item, param_name);
-            });
-          },
-          [&](const IRFlowExpr& flow) -> bool { return param_is_captured_by_nested_closure(*flow.lhs, param_name); },
-          [](const auto&) -> bool { return false; }},
-      expr.node);
-}
-
 auto call_arg_for_param(const IRExpr& lhs, const std::size_t arity, const std::size_t param_index) -> const IRExpr* {
   const auto* tuple_expr = std::get_if<IRTupleExpr>(&lhs.node);
   if (arity == 1) {
@@ -220,6 +209,7 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
   }
 
   std::unordered_map<std::string, const IRLet*> lets_by_name;
+  std::unordered_map<std::string, LetBodySummary> let_body_summaries;
   std::unordered_map<std::string, std::string> short_to_full_name;
   std::unordered_set<std::string> ambiguous_short_names;
 
@@ -229,6 +219,8 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
     }
     const auto full_name = let_identity_key(let);
     lets_by_name.emplace(full_name, &let);
+    auto& summary = let_body_summaries[full_name];
+    summarize_let_body(*let.body, summary);
     if (!let.qualifier.has_value()) {
       if (!short_to_full_name.contains(let.name) && !ambiguous_short_names.contains(let.name)) {
         short_to_full_name.emplace(let.name, full_name);
@@ -277,11 +269,14 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
       if (param.type.name == "Any") {
         continue;
       }
-      if (let.body.has_value() && param_is_captured_by_nested_closure(*let.body, param.name)) {
-        continue;
-      }
-      if (let.body.has_value() && param_reaches_escape_builtin_call(*let.body, param.name)) {
-        continue;
+
+      if (const auto summary_it = let_body_summaries.find(full_name); summary_it != let_body_summaries.end()) {
+        if (summary_it->second.captured_by_nested_closure.contains(param.name)) {
+          continue;
+        }
+        if (summary_it->second.reaches_escape_builtin.contains(param.name)) {
+          continue;
+        }
       }
 
       bool all_calls_large = true;
