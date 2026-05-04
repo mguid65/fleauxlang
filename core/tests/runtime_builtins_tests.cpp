@@ -983,7 +983,19 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(reversed, 0)) == 2.0);
     REQUIRE(as_bool(TupleContains(make_tuple(values, make_int(2)))));
     REQUIRE(as_array(zipped).Size() == 2U);
+    REQUIRE(to_double(array_at(TupleRange(make_int(3)), 2)) == 2.0);
     REQUIRE(to_double(array_at(TupleRange(make_tuple(make_int(3))), 2)) == 2.0);
+
+    const Value from_start = TupleRange(make_tuple(make_int(2), make_int(5)));
+    REQUIRE(as_array(from_start).Size() == 3U);
+    REQUIRE(to_double(array_at(from_start, 0)) == 2.0);
+    REQUIRE(to_double(array_at(from_start, 2)) == 4.0);
+
+    const Value stepped = TupleRange(make_tuple(make_int(5), make_int(0), make_int(-2)));
+    REQUIRE(as_array(stepped).Size() == 3U);
+    REQUIRE(to_double(array_at(stepped, 0)) == 5.0);
+    REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
+    REQUIRE(to_double(array_at(stepped, 2)) == 1.0);
   }
 
   SECTION("TupleMin and TupleMax reject empty tuples") {

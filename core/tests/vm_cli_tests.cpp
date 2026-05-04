@@ -135,7 +135,87 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("[--repl]"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("Start the interactive REPL"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--no-emit-bytecode"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--auto-value-ref"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--value-ref-byte-cutoff"));
   REQUIRE(stdout_text.find("--mode") == std::string::npos);
+}
+
+TEST_CASE("CLI vm mode threads auto value-ref options into compilation", "[vm][cli][value_ref]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_value_ref_vm";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  fleaux::tests::write_text_file(source_path, "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n");
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result =
+      run_cli("--auto-value-ref --value-ref-byte-cutoff 0 " + shell_quote(source_path.string()), temp_dir);
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code != 0);
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("value_ref_byte_cutoff must be > 0"));
+}
+
+TEST_CASE("CLI vm mode accepts valid auto value-ref options and bypasses bytecode cache writes",
+          "[vm][cli][value_ref]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_value_ref_vm_ok";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  const auto bytecode_path = temp_dir / "entry.fleaux.bc";
+  fleaux::tests::write_text_file(
+      source_path,
+      "import Std;\n"
+      "let Echo(x: String): String = x;\n"
+      "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+      " -> Echo -> Std.Println;\n");
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result =
+      run_cli("--auto-value-ref --value-ref-byte-cutoff 32 " + shell_quote(source_path.string()), temp_dir);
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("abcdefghijklmnopqrstuvwxyz"));
+  REQUIRE(result.stderr_text.empty());
+  REQUIRE_FALSE(std::filesystem::exists(bytecode_path));
+}
+
+TEST_CASE("CLI REPL threads auto value-ref options into snippet compilation", "[vm][cli][repl][value_ref]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_value_ref_repl";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl --auto-value-ref --value-ref-byte-cutoff 0", temp_dir,
+                              "import Std;\n"
+                              "(1, 2) -> Std.Add -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("value_ref_byte_cutoff must be > 0"));
+}
+
+TEST_CASE("CLI REPL accepts valid auto value-ref options", "[vm][cli][repl][value_ref]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_value_ref_repl_ok";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--repl --auto-value-ref --value-ref-byte-cutoff 32", temp_dir,
+                              "import Std;\n"
+                              "let Echo(x: String): String = x;\n"
+                              "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+                              " -> Echo -> Std.Println;\n"
+                              ":quit\n");
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("abcdefghijklmnopqrstuvwxyz"));
+  REQUIRE(result.stderr_text.empty());
 }
 
 TEST_CASE("CLI vm REPL executes snippets in vm mode", "[vm][cli][repl]") {

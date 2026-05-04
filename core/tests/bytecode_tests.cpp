@@ -241,6 +241,9 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Dict.Create#1") == fleaux::vm::BuiltinId::DictCreateDict);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#0") == fleaux::vm::BuiltinId::ExitVoid);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#1") == fleaux::vm::BuiltinId::ExitInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#0") == fleaux::vm::BuiltinId::TupleRange);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRange);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") == fleaux::vm::BuiltinId::TupleRange);
 }
 
 // ---------------------------------------------------------------------------
@@ -3045,6 +3048,44 @@ TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch withou
   REQUIRE(cached_after_extended.has_value());
   REQUIRE(cached_after_extended->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
+}
+
+TEST_CASE("Bytecode module loader threads auto value-ref options into compilation and bypasses cache writes",
+          "[bytecode][value_ref][auto][loader]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_value_ref_loader";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "entry.fleaux.bc";
+
+  {
+    std::ofstream out(entry_path);
+    REQUIRE(out.good());
+    out << "import Std;\n"
+           "let Echo(x: String): String = x;\n"
+           "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+           " -> Echo -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(
+      entry_path,
+      fleaux::bytecode::ModuleLoadOptions{
+          .enable_value_ref_gate = true,
+          .enable_auto_value_ref = true,
+          .value_ref_byte_cutoff = 32,
+      });
+  REQUIRE(loaded.has_value());
+
+  bool saw_make_value_ref = false;
+  for (const auto& ins : loaded->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+      saw_make_value_ref = true;
+      break;
+    }
+  }
+  REQUIRE(saw_make_value_ref);
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
 }
 
 TEST_CASE("Bytecode module loader handles diamond dependencies with serialized fallback",

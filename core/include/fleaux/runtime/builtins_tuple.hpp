@@ -228,22 +228,25 @@ namespace fleaux::runtime {
 
 // arg = [stop] | [start, stop] | [start, stop, step]
 [[nodiscard]] inline auto TupleRange(Value arg) -> Value {
-  const auto& args = as_array(arg);
   Int start = 0;
   Int stop = 0;
   Int step = 1;
 
-  if (args.Size() == 1) {
-    stop = as_int_value(*args.TryGet(0));
-  } else if (args.Size() == 2) {
-    start = as_int_value(*args.TryGet(0));
-    stop = as_int_value(*args.TryGet(1));
-  } else if (args.Size() == 3) {
-    start = as_int_value(*args.TryGet(0));
-    stop = as_int_value(*args.TryGet(1));
-    step = as_int_value(*args.TryGet(2));
+  if (!arg.HasArray()) {
+    stop = as_int_value(arg);
   } else {
-    throw std::invalid_argument{"TupleRange expects 1, 2, or 3 arguments"};
+    if (const auto& args = as_array(arg); args.Size() == 1) {
+      stop = as_int_value(*args.TryGet(0));
+    } else if (args.Size() == 2) {
+      start = as_int_value(*args.TryGet(0));
+      stop = as_int_value(*args.TryGet(1));
+    } else if (args.Size() == 3) {
+      start = as_int_value(*args.TryGet(0));
+      stop = as_int_value(*args.TryGet(1));
+      step = as_int_value(*args.TryGet(2));
+    } else {
+      throw std::invalid_argument{"TupleRange expects 1, 2, or 3 arguments"};
+    }
   }
 
   if (step == 0) {

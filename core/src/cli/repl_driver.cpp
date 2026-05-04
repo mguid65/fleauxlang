@@ -264,7 +264,8 @@ auto extract_declared_functions(const std::string_view snippet) -> std::vector<s
 
 }  // namespace
 
-auto ReplDriver::run(const std::vector<std::string>& process_args, const bool color_enabled) const -> int {
+auto ReplDriver::run(const std::vector<std::string>& process_args, const bool color_enabled,
+                     const fleaux::vm::RuntimeCompileOptions& compile_options) const -> int {
   const bool interactive_stdin = stdin_is_interactive();
   const bool use_color = repl_color_enabled(color_enabled);
   CompletionHandler completion_handler;
@@ -274,7 +275,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
       .completion_handler = &completion_handler,
   });
   constexpr fleaux::vm::Runtime runtime;
-  const auto session = runtime.create_session(process_args);
+  const auto session = runtime.create_session(process_args, compile_options);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
     if (const auto result = session.run_snippet(snippet, std::cout); !result) {
       return result.error();
