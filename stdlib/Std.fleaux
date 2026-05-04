@@ -923,6 +923,19 @@ let Std.Tuple.All<T>(t: Tuple(T...), pred: (T) => Bool) : Bool :: __builtin__;
 // @return A value of type Tuple(Int64...).
 let Std.Tuple.Range(stop: Int64) : Tuple(Int64...) :: __builtin__;
 
+// @brief Return a tuple of Int64 values from start up to stop.
+// @param start Inclusive starting index. Type: Int64.
+// @param stop Exclusive ending index. Type: Int64.
+// @return A value of type Tuple(Int64...).
+let Std.Tuple.Range(start: Int64, stop: Int64) : Tuple(Int64...) :: __builtin__;
+
+// @brief Return a tuple of Int64 values from start up to stop using step.
+// @param start Inclusive starting index. Type: Int64.
+// @param stop Exclusive ending index. Type: Int64.
+// @param step Step delta between successive values. Type: Int64.
+// @return A value of type Tuple(Int64...).
+let Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) : Tuple(Int64...) :: __builtin__;
+
 // @brief Return the first count items from a tuple.
 // @param T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).

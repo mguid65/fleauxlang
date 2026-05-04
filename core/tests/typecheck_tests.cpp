@@ -1095,11 +1095,15 @@ TEST_CASE("Type checker matrix: Stage-3g typed tuple outputs", "[typecheck][stag
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
-  SECTION("Std.Tuple.Range output is typed as Tuple(Int64...)") {
+  SECTION("Std.Tuple.Range output is typed as Tuple(Int64...) across overloads") {
     const std::string src =
         "let Std.Tuple.Range(stop: Int64): Tuple(Int64...) :: __builtin__;\n"
+        "let Std.Tuple.Range(start: Int64, stop: Int64): Tuple(Int64...) :: __builtin__;\n"
+        "let Std.Tuple.Range(start: Int64, stop: Int64, step: Int64): Tuple(Int64...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "(5) -> Std.Tuple.Range -> NeedsInts;\n";
+        "(5) -> Std.Tuple.Range -> NeedsInts;\n"
+        "(2, 5) -> Std.Tuple.Range -> NeedsInts;\n"
+        "(1, 7, 3) -> Std.Tuple.Range -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3g_tuple_range_typed_output.fleaux");

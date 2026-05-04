@@ -1499,8 +1499,9 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
 }  // namespace
 
 struct RuntimeSession::Impl {
-  explicit Impl(const std::vector<std::string>& process_args)
-      : source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
+  explicit Impl(const std::vector<std::string>& process_args, const RuntimeCompileOptions& compile_options)
+      : compile_options(compile_options),
+        source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
     std::vector<std::string> args_storage;
     args_storage.reserve(process_args.size() + 1U);
     args_storage.emplace_back("<repl>");
@@ -1514,14 +1515,15 @@ struct RuntimeSession::Impl {
     fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   }
 
+  RuntimeCompileOptions compile_options;
   std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
   std::vector<frontend::ir::IRTypeDecl> type_decls;
   std::vector<frontend::ir::IRAliasDecl> alias_decls;
 };
 
-RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args)
-    : impl_(frontend::make_box<Impl>(process_args)) {}
+RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args, const RuntimeCompileOptions& compile_options)
+    : impl_(frontend::make_box<Impl>(process_args, compile_options)) {}
 
 RuntimeSession::RuntimeSession(const RuntimeSession& other) = default;
 
@@ -1556,6 +1558,13 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
                                                            .source_path = impl_->source_path,
                                                            .source_text = snippet_text,
                                                            .module_name = std::string{"repl"},
+                                                           .enable_value_ref_gate =
+                                                               impl_->compile_options.enable_value_ref_gate ||
+                                                               impl_->compile_options.enable_auto_value_ref,
+                                                           .enable_auto_value_ref =
+                                                               impl_->compile_options.enable_auto_value_ref,
+                                                           .value_ref_byte_cutoff =
+                                                               impl_->compile_options.value_ref_byte_cutoff,
                                                        });
   if (!compiled) {
     return tl::unexpected(
@@ -1572,8 +1581,9 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
 
 // Runtime::execute
 
-auto Runtime::create_session(const std::vector<std::string>& process_args) const -> RuntimeSession {
-  return RuntimeSession(process_args);
+auto Runtime::create_session(const std::vector<std::string>& process_args,
+                             const RuntimeCompileOptions& compile_options) const -> RuntimeSession {
+  return RuntimeSession(process_args, compile_options);
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {

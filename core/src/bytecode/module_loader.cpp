@@ -48,6 +48,10 @@ auto hash_text(const std::string& text) -> std::uint64_t {
   return hash;
 }
 
+auto value_ref_cache_compatible(const ModuleLoadOptions& options) -> bool {
+  return !options.enable_value_ref_gate && !options.enable_auto_value_ref;
+}
+
 auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
@@ -223,7 +227,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     return result;
   };
 
-  if (paths.bytecode.has_value()) {
+  if (paths.bytecode.has_value() && (!paths.source.has_value() || value_ref_cache_compatible(options))) {
     if (const auto serialized = read_binary_file(*paths.bytecode)) {
       if (const auto deserialized = deserialize_module(*serialized)) {
         if (!paths.source.has_value()) {
@@ -450,6 +454,10 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
                                                   .source_text = source_text,
                                                   .module_name = paths.source->stem().string(),
                                                   .imported_modules = std::move(imported_modules),
+                                                  .enable_value_ref_gate =
+                                                      options.enable_value_ref_gate || options.enable_auto_value_ref,
+                                                  .enable_auto_value_ref = options.enable_auto_value_ref,
+                                                  .value_ref_byte_cutoff = options.value_ref_byte_cutoff,
                                               });
   if (!compiled) {
     return finish(tl::unexpected(make_error(compiled.error().message)));
@@ -462,7 +470,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     return finish(tl::unexpected(make_error(optimized.error().message)));
   }
 
-  if (options.write_bytecode_cache && paths.bytecode.has_value()) {
+  if (options.write_bytecode_cache && paths.bytecode.has_value() && value_ref_cache_compatible(options)) {
     if (const auto serialized = serialize_module(mod); serialized) {
       write_binary_file(*paths.bytecode, *serialized);
     }

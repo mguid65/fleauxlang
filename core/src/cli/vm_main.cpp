@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,8 @@ struct CliOptions {
   bool no_run = false;
   bool optimize = false;
   bool write_bytecode_cache = true;
+  bool enable_auto_value_ref = false;
+  std::size_t value_ref_byte_cutoff = 256;
   bool no_color = false;
   bool repl = false;
   bool show_help = false;
@@ -58,6 +61,7 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 
 auto usage_text() -> std::string {
   return "usage: fleaux [--repl] [--no-run] [--disassemble] [--no-emit-bytecode] [--no-color] "
+         "[--auto-value-ref] [--value-ref-byte-cutoff N] "
          "[file.fleaux|file.fleaux.bc] "
          "[-- "
          "<arg1> <arg2> ...]";
@@ -72,17 +76,24 @@ void print_help() {
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
+            << "  --auto-value-ref       Enable automatic by-ref promotion for large safe arguments\n"
+            << "  --value-ref-byte-cutoff N\n"
+            << "                         Set the byte-size cutoff used by --auto-value-ref (default: 256)\n"
             << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
             << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n";
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
-            const bool write_bytecode_cache) -> tl::expected<void, CliError> {
+            const bool write_bytecode_cache, const bool enable_auto_value_ref,
+            const std::size_t value_ref_byte_cutoff) -> tl::expected<void, CliError> {
   auto module_result = fleaux::bytecode::load_linked_module(
       source_file, fleaux::bytecode::ModuleLoadOptions{
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
                                         : fleaux::bytecode::OptimizationMode::kBaseline,
                        .write_bytecode_cache = write_bytecode_cache,
+                       .enable_value_ref_gate = enable_auto_value_ref,
+                       .enable_auto_value_ref = enable_auto_value_ref,
+                       .value_ref_byte_cutoff = value_ref_byte_cutoff,
                    });
   if (!module_result) {
     return tl::unexpected(CliError{
@@ -160,6 +171,21 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
 auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
+  const auto parse_size = [](const std::string_view token) -> tl::expected<std::size_t, CliError> {
+    std::size_t value = 0;
+    const auto* begin = token.data();
+    const auto* end = token.data() + token.size();
+    const auto [ptr, ec] = std::from_chars(begin, end, value);
+    if (ec != std::errc{} || ptr != end) {
+      return tl::unexpected(CliError{
+          .message = std::string("invalid value-ref byte cutoff: ") + std::string(token),
+          .hint = "pass a non-negative integer to --value-ref-byte-cutoff",
+          .span = std::nullopt,
+      });
+    }
+    return value;
+  };
+
   if (argc < 2) {
     options.repl = true;
   }
@@ -194,6 +220,28 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
 
     if (token == "--no-emit-bytecode") {
       options.write_bytecode_cache = false;
+      continue;
+    }
+
+    if (token == "--auto-value-ref") {
+      options.enable_auto_value_ref = true;
+      continue;
+    }
+
+    if (token == "--value-ref-byte-cutoff") {
+      if (arg_index + 1 >= argc) {
+        return tl::unexpected(CliError{
+            .message = "missing value for --value-ref-byte-cutoff",
+            .hint = "pass a non-negative integer after --value-ref-byte-cutoff",
+            .span = std::nullopt,
+        });
+      }
+      const auto parsed_cutoff = parse_size(argv[++arg_index]);
+      if (!parsed_cutoff) {
+        return tl::unexpected(parsed_cutoff.error());
+      }
+      options.enable_auto_value_ref = true;
+      options.value_ref_byte_cutoff = *parsed_cutoff;
       continue;
     }
 
@@ -248,8 +296,8 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, no_color, repl, show_help,
-               disassemble] = *parsed;
+  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, enable_auto_value_ref,
+               value_ref_byte_cutoff, no_color, repl, show_help, disassemble] = *parsed;
   if (show_help) {
     print_help();
     return 0;
@@ -276,7 +324,12 @@ auto main(int argc, char** argv) -> int {
       return 0;
     }
     constexpr fleaux::cli::ReplDriver repl_driver;
-    return repl_driver.run(process_args, !no_color);
+    return repl_driver.run(process_args, !no_color,
+                           fleaux::vm::RuntimeCompileOptions{
+                               .enable_value_ref_gate = enable_auto_value_ref,
+                               .enable_auto_value_ref = enable_auto_value_ref,
+                               .value_ref_byte_cutoff = value_ref_byte_cutoff,
+                           });
   }
 
   if (!source_path.has_value()) {
@@ -292,7 +345,10 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache); !result) {
+  if (const auto result =
+          run_vm(*source_path, process_args, optimize, write_bytecode_cache, enable_auto_value_ref,
+                 value_ref_byte_cutoff);
+      !result) {
     return print_diag_and_return("vm-run", result.error());
   }
   return 0;

@@ -26,9 +26,16 @@ struct RuntimeError {
 
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 
+struct RuntimeCompileOptions {
+  bool enable_value_ref_gate{false};
+  bool enable_auto_value_ref{false};
+  std::size_t value_ref_byte_cutoff{256};
+};
+
 class RuntimeSession {
 public:
-  explicit RuntimeSession(const std::vector<std::string>& process_args = {});
+  explicit RuntimeSession(const std::vector<std::string>& process_args = {},
+                          const RuntimeCompileOptions& compile_options = {});
   RuntimeSession(const RuntimeSession& other);
   RuntimeSession(RuntimeSession&& other) noexcept;
   auto operator=(const RuntimeSession& other) -> RuntimeSession&;
@@ -49,7 +56,8 @@ public:
   [[nodiscard]] auto execute(const bytecode::Module& bytecode_module) const -> RuntimeResult;
   auto execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult;
 
-  [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {}) const -> RuntimeSession;
+  [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {},
+                                    const RuntimeCompileOptions& compile_options = {}) const -> RuntimeSession;
 };
 
 }  // namespace fleaux::vm
