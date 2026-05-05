@@ -30,8 +30,8 @@ export const initialNodes: Node<FleauxNodeData>[] = [
       kind: 'let',
       name: 'Add',
       params: [
-        { name: 'a', type: 'Float64' },
-        { name: 'b', type: 'Float64' },
+        { id: 'let-add-param-0', name: 'a', type: 'Float64' },
+        { id: 'let-add-param-1', name: 'b', type: 'Float64' },
       ],
       returnType: 'Float64',
       label: 'let Add',
@@ -80,8 +80,8 @@ export const initialNodes: Node<FleauxNodeData>[] = [
       functionName: 'Add',
       functionNodeId: 'let-add',
       params: [
-        { name: 'a', type: 'Float64' },
-        { name: 'b', type: 'Float64' },
+        { id: 'let-add-param-0', name: 'a', type: 'Float64' },
+        { id: 'let-add-param-1', name: 'b', type: 'Float64' },
       ],
       returnType: 'Float64',
       label: 'Add',

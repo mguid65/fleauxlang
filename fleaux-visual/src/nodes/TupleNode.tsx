@@ -17,8 +17,8 @@ export function TupleNode({ id, data }: NodeProps<Node<TupleData>>) {
 
   return (
     <div 
-      className="rounded-lg border border-orange-500 bg-orange-950 text-orange-200 px-3 py-2 shadow-lg min-w-[120px]"
-      style={{ minHeight: `${60 + Math.max(0, data.arity - 1) * 20}px` }}
+      className="rounded-lg border border-orange-500 bg-orange-950 text-orange-200 shadow-lg min-w-[120px]"
+      style={{ minHeight: `${60 + Math.max(0, data.arity - 1) * 20}px`, padding: '4px' }}
     >
       <div className="text-[10px] font-bold text-orange-400 mb-1">TUPLE VALUE</div>
       <div className="text-xs font-mono font-bold mb-1">( {data.arity} )</div>

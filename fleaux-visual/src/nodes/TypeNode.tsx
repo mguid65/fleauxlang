@@ -24,7 +24,9 @@ export function TypeNode({ data, id }: NodeProps<Node<TypeDeclData>>) {
   };
 
   return (
-    <div className="rounded-lg border border-cyan-500 bg-cyan-950 text-cyan-100 px-4 py-3 shadow-lg min-w-[240px] max-w-[320px]">
+    <div className="rounded-lg border border-cyan-500 bg-cyan-950 text-cyan-100 shadow-lg min-w-[240px] max-w-[320px]"
+         style={{padding: '4px'}}
+    >
       <div className="text-[10px] font-bold text-cyan-300 mb-1">TYPE DECL</div>
       <input
         value={data.name}

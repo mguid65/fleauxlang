@@ -31,8 +31,8 @@ export function StdFuncNode({ data }: NodeProps<Node<StdFuncData>>) {
 
   return (
     <div 
-      className={`rounded-lg border px-3 py-2 shadow-lg min-w-40 max-w-65 ${colors}`}
-      style={{ minHeight: `${80 + Math.max(0, data.params.length - 1) * 20}px` }}
+      className={`rounded-lg border shadow-lg min-w-40 max-w-65 ${colors}`}
+      style={{ minHeight: `${80 + Math.max(0, data.params.length - 1) * 20}px`, padding: '4px'}}
     >
       <div className="text-[9px] font-bold opacity-60 mb-0.5 uppercase tracking-wider">{data.namespace}</div>
       <div className="text-sm font-mono font-bold leading-tight">{nodeTitle}</div>

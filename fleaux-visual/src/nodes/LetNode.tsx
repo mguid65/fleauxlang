@@ -3,16 +3,16 @@ import type { LetData } from '../lib/types';
 import { useFlowStore } from '../store/flowStore';
 
 export function LetNode({ data, id }: NodeProps<Node<LetData>>) {
-  const updateNodeData = useFlowStore((s) => s.updateNodeData);
+  const updateLetNodeSignature = useFlowStore((s) => s.updateLetNodeSignature);
 
   const typeParamsText = (data.typeParams ?? []).join(', ');
 
   const updateName = (name: string) => {
-    updateNodeData(id, { name, label: `let ${name || 'Unnamed'}` });
+    updateLetNodeSignature(id, { name });
   };
 
   const updateReturnType = (returnType: string) => {
-    updateNodeData(id, { returnType: returnType || 'Any' });
+    updateLetNodeSignature(id, { returnType: returnType || 'Any' });
   };
 
   const updateTypeParams = (value: string) => {
@@ -20,31 +20,31 @@ export function LetNode({ data, id }: NodeProps<Node<LetData>>) {
       .split(',')
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
-    updateNodeData(id, { typeParams });
+    updateLetNodeSignature(id, { typeParams });
   };
 
   const updateParam = (index: number, patch: Partial<LetData['params'][number]>) => {
     const params = data.params.map((param, paramIndex) =>
       paramIndex === index ? { ...param, ...patch } : param,
     );
-    updateNodeData(id, { params });
+    updateLetNodeSignature(id, { params });
   };
 
   const addParam = () => {
     const nextIndex = data.params.length + 1;
-    const params = [...data.params, { name: `p${nextIndex}`, type: 'Any' }];
-    updateNodeData(id, { params });
+    const params = [...data.params, { id: `${id}-param-${crypto.randomUUID()}`, name: `p${nextIndex}`, type: 'Any' }];
+    updateLetNodeSignature(id, { params });
   };
 
   const removeParam = (index: number) => {
     const params = data.params.filter((_, paramIndex) => paramIndex !== index);
-    updateNodeData(id, { params });
+    updateLetNodeSignature(id, { params });
   };
 
   return (
     <div
       className="rounded-lg border border-fuchsia-500 bg-fuchsia-950 text-fuchsia-200 px-4 py-3 shadow-lg min-w-[240px]"
-      style={{ minHeight: `${84 + Math.max(1, data.params.length) * 34}px` }}
+      style={{ minHeight: `${84 + Math.max(1, data.params.length) * 34}px`, padding: '4px' }}
     >
       <div className="text-[10px] font-bold text-fuchsia-400 mb-1">FUNCTION DEF</div>
       <input

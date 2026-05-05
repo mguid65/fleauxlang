@@ -25,6 +25,12 @@ export type NumericLiteralValueType = 'Float64' | 'Int64' | 'UInt64';
 export type LegacyNumericLiteralValueType = 'Number';
 export type LiteralValueType = NumericLiteralValueType | LegacyNumericLiteralValueType | 'String' | 'Bool' | 'Null';
 
+export interface FunctionParam {
+  id: string;
+  name: string;
+  type: string;
+}
+
 // Data carried on every node (union-narrowed by `kind`)
 export interface LiteralData extends FleauxNodeDataBase {
   kind: 'literal';
@@ -55,7 +61,7 @@ export interface LetData extends FleauxNodeDataBase {
   kind: 'let';
   name: string;
   typeParams?: string[];
-  params: { name: string; type: string }[];
+  params: FunctionParam[];
   returnType: string;
 }
 
@@ -107,7 +113,7 @@ export interface UserFuncData extends FleauxNodeDataBase {
   functionNodeId: string;
   typeParams?: string[];
   appliedTypeArgs?: string[];
-  params: { name: string; type: string }[];
+  params: FunctionParam[];
   returnType: string;
   // True when node represents a function value/reference, not a call invocation.
   isReference?: boolean;
