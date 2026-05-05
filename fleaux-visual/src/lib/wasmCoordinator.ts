@@ -54,7 +54,7 @@ function shouldPreferDirectRuntimeByDefault(): boolean {
 function ensureThreadedWasmPrerequisites(): void {
   if (typeof globalThis.crossOriginIsolated === 'boolean' && globalThis.crossOriginIsolated === false) {
     throw new Error(
-      'Fleaux threaded WASM requires a cross-origin isolated page. Ensure Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp are enabled.',
+      'Fleaux threaded WASM requires a cross-origin isolated page. Ensure Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp are enabled, or load the GitHub Pages build once so the cross-origin isolation service worker can register and reload the page.',
     );
   }
 }
