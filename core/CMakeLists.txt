@@ -68,6 +68,14 @@ else()
   find_package(PCRE2 REQUIRED)
 endif()
 
+if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
+  add_library(fleaux_emscripten_threads INTERFACE)
+  # Every object that participates in the threaded coordinator link must be
+  # compiled with Emscripten pthread support, not just the final executable.
+  target_compile_options(fleaux_emscripten_threads INTERFACE -pthread)
+  target_link_options(fleaux_emscripten_threads INTERFACE -pthread)
+endif()
+
 set(FLEAUX_PCRE2_TARGET "")
 if(TARGET PCRE2::8BIT)
   set(FLEAUX_PCRE2_TARGET PCRE2::8BIT)
@@ -93,6 +101,9 @@ set(FLEAUX_COMMON_SOURCES
 add_library(fleaux_common STATIC)
 target_include_directories(fleaux_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_common PRIVATE ${FLEAUX_COMMON_SOURCES})
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_common PUBLIC fleaux_emscripten_threads)
+endif()
 
 set(FLEAUX_GENERATED_RESOURCE_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_resources.cpp")
 add_custom_command(
@@ -113,6 +124,9 @@ add_library(fleaux_frontend_diagnostics STATIC)
 target_include_directories(fleaux_frontend_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
 target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected datatree)
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_frontend_diagnostics PUBLIC fleaux_emscripten_threads)
+endif()
 
 set(FLEAUX_FRONTEND_PARSER_SOURCES
         src/frontend/parser.cpp
@@ -122,6 +136,9 @@ add_library(fleaux_frontend_parser STATIC)
 target_include_directories(fleaux_frontend_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
 target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected datatree)
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_emscripten_threads)
+endif()
 
 set(FLEAUX_FRONTEND_LOWERING_SOURCES
         src/frontend/lowering.cpp
@@ -140,6 +157,9 @@ add_library(fleaux_frontend_lowering STATIC)
 target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
 target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected datatree)
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_emscripten_threads)
+endif()
 
 if(BUILD_TESTING)
   find_package(Catch2 CONFIG REQUIRED)
@@ -194,6 +214,9 @@ add_library(fleaux_bytecode STATIC)
 target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected datatree)
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_bytecode PUBLIC fleaux_emscripten_threads)
+endif()
 
 if(FLEAUX_PCRE2_TARGET)
   add_library(fleaux_vm STATIC)
@@ -207,6 +230,9 @@ if(FLEAUX_PCRE2_TARGET)
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
   target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
+  if(TARGET fleaux_emscripten_threads)
+    target_link_libraries(fleaux_vm PUBLIC fleaux_emscripten_threads)
+  endif()
 
   set(FLEAUX_MAIN_SOURCES
           src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
@@ -238,6 +264,9 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       fleaux_bytecode
       datatree
       tl_expected)
+  if(TARGET fleaux_emscripten_threads)
+    target_link_libraries(fleaux_wasm_coordinator PRIVATE fleaux_emscripten_threads)
+  endif()
 
   if(TARGET fleaux_vm)
     target_sources(fleaux_wasm_coordinator PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
@@ -247,13 +276,15 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
     target_compile_definitions(fleaux_wasm_coordinator PRIVATE FLEAUX_WASM_HAS_RUNTIME=0)
   endif()
 
-  target_link_options(fleaux_wasm_coordinator PRIVATE
+  target_link_options(fleaux_wasm_coordinator PRIVATE "-pthread"
       "SHELL:-sWASM=1"
       "SHELL:-sALLOW_MEMORY_GROWTH=1"
+      "SHELL:-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
       "SHELL:-sMODULARIZE=1"
       "SHELL:-sEXPORT_ES6=1"
       "SHELL:-sENVIRONMENT=web,worker"
       "SHELL:-sNO_EXIT_RUNTIME=1"
+      "SHELL:-sASSERTIONS=1"
       "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_last_status\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\"]"
       "SHELL:-sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\"]")
   set_target_properties(fleaux_wasm_coordinator PROPERTIES

@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { ClosureData, FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, UserFuncData } from './types';
+import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, TypeDeclData, UserFuncData } from './types';
 import { formatFunctionDisplayName, matchesArity } from './functionSignatures';
 import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
@@ -17,6 +17,8 @@ export interface FleauxGraphImportResult {
 
 type Param = { name: string; type: string };
 type LetDef = { name: string; typeParams?: string[]; params: Param[]; returnType: string; body: string };
+type TypeDecl = { name: string; targetType: string; separator: '=' | '::' };
+type AliasDecl = { name: string; targetType: string };
 
 type SourceRef = {
   nodeId: string;
@@ -76,7 +78,7 @@ function selectStdFunctionOverload(
 
   const matches = overloads.filter((entry) => matchesArity(entry.params, inferredArity));
   if (matches.length === 0) {
-    return null;
+    return overloads.length === 1 ? overloads[0] : null;
   }
 
   if (matches.length === 1) {
@@ -223,6 +225,71 @@ function parseParams(paramText: string): Param[] {
 
 type ClosureSyntax = { params: Param[]; returnType: string; body: string };
 
+type DefinitionSeparator = { index: number; length: 1 | 2 };
+
+function findMatchingParen(text: string, openIndex: number): number {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let index = openIndex; index < text.length; index += 1) {
+    const ch = text[index];
+    if (inString) {
+      if (escape) { escape = false; }
+      else if (ch === '\\') { escape = true; }
+      else if (ch === '"') { inString = false; }
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '(') { depth += 1; continue; }
+    if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function findTopLevelDefinitionSeparator(text: string): DefinitionSeparator | null {
+  let parenDepth = 0;
+  let angleDepth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (inString) {
+      if (escape) { escape = false; }
+      else if (ch === '\\') { escape = true; }
+      else if (ch === '"') { inString = false; }
+      continue;
+    }
+
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '(') { parenDepth += 1; continue; }
+    if (ch === ')') { parenDepth = Math.max(0, parenDepth - 1); continue; }
+    if (ch === '<') { angleDepth += 1; continue; }
+    if (ch === '>') { angleDepth = Math.max(0, angleDepth - 1); continue; }
+
+    if (parenDepth !== 0 || angleDepth !== 0) {
+      continue;
+    }
+
+    if (text.startsWith('::', index)) {
+      return { index, length: 2 };
+    }
+
+    if (ch === '=' && text[index + 1] !== '=' && text[index + 1] !== '>') {
+      return { index, length: 1 };
+    }
+  }
+
+  return null;
+}
+
 /**
  * If `text` is a closure expression `(params): ReturnType = body`, parse and return its parts.
  * Returns null if the text doesn't match the closure pattern.
@@ -259,21 +326,11 @@ function tryParseClosureSyntax(text: string): ClosureSyntax | null {
   const afterColon = afterParen.slice(1).trimStart();
 
   // Find the `=` separator (not `==`) at depth 0 to locate the body
-  let depth2 = 0;
-  let eqIndex = -1;
-  for (let i = 0; i < afterColon.length; i += 1) {
-    const ch = afterColon[i];
-    if (ch === '(') { depth2 += 1; continue; }
-    if (ch === ')') { depth2 = Math.max(0, depth2 - 1); continue; }
-    if (ch === '=' && depth2 === 0 && afterColon[i + 1] !== '=') {
-      eqIndex = i;
-      break;
-    }
-  }
-  if (eqIndex === -1) return null;
+  const separator = findTopLevelDefinitionSeparator(afterColon);
+  if (!separator || separator.length !== 1) return null;
 
-  const returnType = afterColon.slice(0, eqIndex).trim();
-  const body = afterColon.slice(eqIndex + 1).trim();
+  const returnType = afterColon.slice(0, separator.index).trim();
+  const body = afterColon.slice(separator.index + separator.length).trim();
   if (!returnType || !body) return null;
 
   // Validate the paren content looks like closure params (every comma-part has `:`)
@@ -321,15 +378,83 @@ function splitNameAndTypeParams(rawName: string): { name: string; typeParams: st
 }
 
 function parseLet(stmt: string): LetDef {
-  const letMatch = /^let\s+(.+?)\s*\((.*)\)\s*:\s*(.+?)\s*(?:::|=)\s*(.+)$/s.exec(stmt);
-  if (!letMatch) throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
-  const { name, typeParams } = splitNameAndTypeParams(letMatch[1]);
+  const trimmed = stmt.trim();
+  if (!trimmed.startsWith('let ')) {
+    throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  }
+
+  const afterLet = trimmed.slice(4).trimStart();
+  let angleDepth = 0;
+  let paramsOpenIndex = -1;
+  for (let index = 0; index < afterLet.length; index += 1) {
+    const ch = afterLet[index];
+    if (ch === '<') {
+      angleDepth += 1;
+      continue;
+    }
+    if (ch === '>') {
+      angleDepth = Math.max(0, angleDepth - 1);
+      continue;
+    }
+    if (ch === '(' && angleDepth === 0) {
+      paramsOpenIndex = index;
+      break;
+    }
+  }
+
+  if (paramsOpenIndex === -1) {
+    throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  }
+
+  const paramsCloseIndex = findMatchingParen(afterLet, paramsOpenIndex);
+  if (paramsCloseIndex === -1) {
+    throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  }
+
+  const rawName = afterLet.slice(0, paramsOpenIndex).trim();
+  const afterParams = afterLet.slice(paramsCloseIndex + 1).trimStart();
+  if (!afterParams.startsWith(':')) {
+    throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  }
+
+  const afterColon = afterParams.slice(1).trimStart();
+  const separator = findTopLevelDefinitionSeparator(afterColon);
+  if (!separator) {
+    throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+  }
+
+  const { name, typeParams } = splitNameAndTypeParams(rawName);
   return {
     name,
     typeParams,
-    params: parseParams(letMatch[2]),
-    returnType: letMatch[3].trim(),
-    body: letMatch[4].trim(),
+    params: parseParams(afterLet.slice(paramsOpenIndex + 1, paramsCloseIndex)),
+    returnType: afterColon.slice(0, separator.index).trim(),
+    body: afterColon.slice(separator.index + separator.length).trim(),
+  };
+}
+
+function parseTypeDecl(stmt: string): TypeDecl {
+  const match = /^type\s+([A-Za-z_][\w]*)\s*(=|::)\s*(.+)$/s.exec(stmt);
+  if (!match) {
+    throw new FleauxImportError(`Unsupported type declaration: ${stmt}`);
+  }
+
+  return {
+    name: match[1].trim(),
+    separator: match[2] as '=' | '::',
+    targetType: match[3].trim(),
+  };
+}
+
+function parseAliasDecl(stmt: string): AliasDecl {
+  const match = /^alias\s+([A-Za-z_][\w]*)\s*=\s*(.+)$/s.exec(stmt);
+  if (!match) {
+    throw new FleauxImportError(`Unsupported alias declaration: ${stmt}`);
+  }
+
+  return {
+    name: match[1].trim(),
+    targetType: match[2].trim(),
   };
 }
 
@@ -378,6 +503,26 @@ function addEdge(ctx: BuildContext, source: SourceRef, target: string, targetHan
   });
 }
 
+function addClosureBodyRootEdge(
+  ctx: BuildContext,
+  closureNodeId: string,
+  bodySource: SourceRef,
+): void {
+  ctx.edges.push({
+    id: `e-${ctx.edges.length + 1}`,
+    source: closureNodeId,
+    sourceHandle: bodySource.nodeId === closureNodeId ? bodySource.sourceHandle : 'closure-body-anchor',
+    target: bodySource.nodeId,
+    targetHandle: 'closure-body-root',
+    animated: true,
+    data: {
+      kind: 'pipeline',
+      bodySourceNodeId: bodySource.nodeId,
+      bodySourceHandle: bodySource.sourceHandle,
+    },
+  });
+}
+
 function createLiteralNode(
   ctx: BuildContext,
   id: string,
@@ -390,6 +535,19 @@ function createLiteralNode(
     type: 'literalNode',
     position: { x: 380, y: 130 + ctx.nodes.length * 48 },
     data: { kind: 'literal', valueType, value, label },
+  });
+  return { nodeId: id };
+}
+
+function createWildcardNode(
+  ctx: BuildContext,
+  id: string,
+): SourceRef {
+  ctx.nodes.push({
+    id,
+    type: 'wildcardNode',
+    position: { x: 380, y: 130 + ctx.nodes.length * 48 },
+    data: { kind: 'wildcard', label: '_' },
   });
   return { nodeId: id };
 }
@@ -436,30 +594,36 @@ function resolveIdentifierAsSource(
   nextId: (prefix: string) => string,
   pipelineSource: SourceRef | null,
 ): SourceRef {
+  const splitToken = splitNameAndTypeParams(token);
+  const resolvedToken = splitToken.name;
+  const appliedTypeArgs = splitToken.typeParams.length > 0 ? splitToken.typeParams : undefined;
+
   // _ refers to the current flowing pipeline value
-  if (token === '_') {
-    if (!pipelineSource) throw new FleauxImportError('_ used with no current pipeline value.');
+  if (resolvedToken === '_') {
+    if (!pipelineSource) {
+      return createWildcardNode(ctx, nextId('wildcard'));
+    }
     return pipelineSource;
   }
 
   // Check innermost closure scope first (supports captures from multiple levels)
   for (let i = ctx.closureScopes.length - 1; i >= 0; i -= 1) {
     const scope = ctx.closureScopes[i];
-    const closureParamIndex = scope.paramIndexByName.get(token);
+    const closureParamIndex = scope.paramIndexByName.get(resolvedToken);
     if (closureParamIndex !== undefined) {
       return { nodeId: scope.nodeId, sourceHandle: `closure-param-${closureParamIndex}` };
     }
   }
 
   // Let parameter reference
-  const paramIndex = ctx.letSourceRef?.paramIndexByName.get(token);
+  const paramIndex = ctx.letSourceRef?.paramIndexByName.get(resolvedToken);
   if (paramIndex !== undefined && ctx.letSourceRef) {
     return { nodeId: ctx.letSourceRef.nodeId, sourceHandle: `let-param-${paramIndex}` };
   }
 
   // Std constant/value
-  if (stdValueByName.has(token)) {
-    const stdValue = stdValueByName.get(token)!;
+  if (stdValueByName.has(resolvedToken) && !appliedTypeArgs) {
+    const stdValue = stdValueByName.get(resolvedToken)!;
     const nodeId = nextId('stdval');
     ctx.nodes.push({
       id: nodeId,
@@ -477,7 +641,7 @@ function resolveIdentifierAsSource(
   }
 
   // Std function used as a value (callback)
-  const stdReference = selectStdFunctionOverload(token);
+  const stdReference = selectStdFunctionOverload(resolvedToken);
   if (stdReference) {
     const nodeId = nextId('stdfuncref');
     ctx.nodes.push({
@@ -489,10 +653,11 @@ function resolveIdentifierAsSource(
         qualifiedName: stdReference.qualifiedName,
         namespace: stdReference.namespace,
         typeParams: stdReference.typeParams,
+        appliedTypeArgs,
         params: stdReference.params,
         returnType: stdReference.returnType,
         signatureKey: stdReference.signatureKey,
-        displayName: stdReference.displayName,
+        displayName: formatFunctionDisplayName(stdReference.qualifiedName, appliedTypeArgs ?? stdReference.typeParams),
         displaySignature: stdReference.displaySignature,
         hasVariadicTail: stdReference.hasVariadicTail,
         minimumArity: stdReference.minimumArity,
@@ -506,13 +671,13 @@ function resolveIdentifierAsSource(
     return { nodeId };
   }
 
-  if (stdFunctionsByName.has(token)) {
+  if (stdFunctionsByName.has(resolvedToken)) {
     throw new FleauxImportError(`Ambiguous overloaded Std function reference '${token}'. Call it with arguments so the visual importer can choose an overload.`);
   }
 
   // User function used as a value (callback)
-  if (ctx.userFunctions.has(token)) {
-    const user = ctx.userFunctions.get(token)!;
+  if (ctx.userFunctions.has(resolvedToken)) {
+    const user = ctx.userFunctions.get(resolvedToken)!;
     const nodeId = nextId('userfuncref');
     ctx.nodes.push({
       id: nodeId,
@@ -523,17 +688,18 @@ function resolveIdentifierAsSource(
         functionName: user.name,
         functionNodeId: '',
         typeParams: user.typeParams,
+        appliedTypeArgs,
         params: user.params,
         returnType: user.returnType,
         isReference: true,
-        label: formatFunctionDisplayName(user.name, user.typeParams),
+        label: formatFunctionDisplayName(user.name, appliedTypeArgs ?? user.typeParams),
       },
     });
     return { nodeId };
   }
 
   // Imported symbols may not be present in local source; represent them as external user funcs.
-  if (ctx.importedModules.size > 0 && isQualifiedIdentifier(token)) {
+  if (ctx.importedModules.size > 0 && isQualifiedIdentifier(resolvedToken)) {
     const nodeId = nextId('extfuncref');
     ctx.nodes.push({
       id: nodeId,
@@ -541,12 +707,13 @@ function resolveIdentifierAsSource(
       position: { x: 380, y: 130 + ctx.nodes.length * 40 },
       data: {
         kind: 'userFunc',
-        functionName: token,
+        functionName: resolvedToken,
         functionNodeId: '',
+        appliedTypeArgs,
         params: [{ name: 'arg1', type: 'Any' }],
         returnType: 'Any',
         isReference: true,
-        label: token,
+        label: formatFunctionDisplayName(resolvedToken, appliedTypeArgs),
       },
     });
     return { nodeId };
@@ -583,6 +750,9 @@ function parseValueAsSource(
       return createTupleNode(ctx, nextId('tuple'), []);
     }
     const parts = splitTopLevel(inner, ',');
+    if (parts.length === 1) {
+      return parseExpressionAsSource(ctx, inner, nextId, pipelineSource);
+    }
     // Each tuple element may itself be a pipeline expression
     const args = parts.map((part) => parseExpressionAsSource(ctx, part, nextId, pipelineSource));
     return createTupleNode(ctx, nextId('tuple'), args);
@@ -614,7 +784,10 @@ function tryParseCallTarget(
   ctx: BuildContext,
   inferredArity?: number,
 ): { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData } | null {
-  const resolvedToken = OPERATOR_TO_STD_TARGET.get(targetToken) ?? targetToken;
+  const splitTarget = splitNameAndTypeParams(targetToken);
+  const baseTargetToken = splitTarget.name;
+  const appliedTypeArgs = splitTarget.typeParams.length > 0 ? splitTarget.typeParams : undefined;
+  const resolvedToken = OPERATOR_TO_STD_TARGET.get(baseTargetToken) ?? baseTargetToken;
 
   const std = selectStdFunctionOverload(resolvedToken, inferredArity);
   if (std) {
@@ -625,10 +798,11 @@ function tryParseCallTarget(
         qualifiedName: std.qualifiedName,
         namespace: std.namespace,
         typeParams: std.typeParams,
+        appliedTypeArgs,
         params: std.params,
         returnType: std.returnType,
         signatureKey: std.signatureKey,
-        displayName: std.displayName,
+        displayName: formatFunctionDisplayName(std.qualifiedName, appliedTypeArgs ?? std.typeParams),
         displaySignature: std.displaySignature,
         hasVariadicTail: std.hasVariadicTail,
         minimumArity: std.minimumArity,
@@ -655,9 +829,10 @@ function tryParseCallTarget(
         functionName: user.name,
         functionNodeId: '',
         typeParams: user.typeParams,
+        appliedTypeArgs,
         params: user.params,
         returnType: user.returnType,
-        label: formatFunctionDisplayName(user.name, user.typeParams),
+        label: formatFunctionDisplayName(user.name, appliedTypeArgs ?? user.typeParams),
       },
     };
   }
@@ -670,9 +845,10 @@ function tryParseCallTarget(
         kind: 'userFunc',
         functionName: resolvedToken,
         functionNodeId: '',
+        appliedTypeArgs,
         params: Array.from({ length: arity }, (_, index) => ({ name: `arg${index + 1}`, type: 'Any' })),
         returnType: 'Any',
-        label: resolvedToken,
+        label: formatFunctionDisplayName(resolvedToken, appliedTypeArgs),
       },
     };
   }
@@ -709,6 +885,7 @@ function parseTupleArgsIfPresent(
   const inner = token.slice(1, -1).trim();
   if (!inner) return [];
   const parts = splitTopLevel(inner, ',');
+  if (parts.length === 1) return null;
   return parts.map((part) => parseExpressionAsSource(ctx, part, nextId, pipelineSource));
 }
 
@@ -752,12 +929,7 @@ function createClosureNodeFromSyntax(
   }
 
   // Wire body-root edge (from closure-body-anchor → body root node's closure-body-root handle)
-  addEdge(
-    ctx,
-    { nodeId: closureNodeId, sourceHandle: 'closure-body-anchor' },
-    bodySource.nodeId,
-    'closure-body-root',
-  );
+  addClosureBodyRootEdge(ctx, closureNodeId, bodySource);
 
   return { nodeId: closureNodeId };
 }
@@ -879,6 +1051,57 @@ function parsePipelineExpression(
       }
       current = { kind: 'source', source: { nodeId } };
     } else {
+      const materializeCurrentSource = (): SourceRef => {
+        if (current.kind === 'source') {
+          return current.source;
+        }
+        return createTupleNode(ctx, nextId('tuple'), current.args);
+      };
+      let consumedInlineClosureStage = false;
+
+      if (part.startsWith('(')) {
+        let closureCandidate = '';
+        let matchedClosureSyntax: ClosureSyntax | null = null;
+        let matchedClosureEndIndex = -1;
+        let matchedClosureWithRemainderSyntax: ClosureSyntax | null = null;
+        let matchedClosureWithRemainderEndIndex = -1;
+        for (let lookaheadIndex = stageIndex; lookaheadIndex < parts.length; lookaheadIndex += 1) {
+          closureCandidate = lookaheadIndex === stageIndex
+            ? parts[lookaheadIndex].trim()
+            : `${closureCandidate} -> ${parts[lookaheadIndex].trim()}`;
+          const closureSyntax = tryParseClosureSyntax(closureCandidate);
+          if (!closureSyntax) {
+            continue;
+          }
+
+          matchedClosureSyntax = closureSyntax;
+          matchedClosureEndIndex = lookaheadIndex;
+          if (lookaheadIndex < parts.length - 1) {
+            matchedClosureWithRemainderSyntax = closureSyntax;
+            matchedClosureWithRemainderEndIndex = lookaheadIndex;
+          }
+        }
+
+        const selectedClosureSyntax = matchedClosureWithRemainderSyntax ?? matchedClosureSyntax;
+        const selectedClosureEndIndex = matchedClosureWithRemainderSyntax ? matchedClosureWithRemainderEndIndex : matchedClosureEndIndex;
+
+        if (selectedClosureSyntax && selectedClosureEndIndex >= stageIndex) {
+          const closureRef = createClosureNodeFromSyntax(ctx, selectedClosureSyntax, nextId);
+          const applyTarget = parseCallTarget('Std.Apply', ctx, 2);
+          const nodeId = nextId('call');
+          pushCallNode(ctx, nodeId, applyTarget, selectedClosureEndIndex);
+          const currentSource = materializeCurrentSource();
+          wireInputs(ctx, nodeId, applyTarget, nextId, [currentSource, closureRef], null);
+          current = { kind: 'source', source: { nodeId } };
+          stageIndex = selectedClosureEndIndex + 1;
+          consumedInlineClosureStage = true;
+        }
+      }
+
+      if (consumedInlineClosureStage) {
+        continue;
+      }
+
       // Direct call target; if not callable, treat this stage as a value source.
       const target = tryParseCallTarget(part, ctx, current.kind === 'args' ? current.args.length : 1);
 
@@ -897,14 +1120,15 @@ function parsePipelineExpression(
         current = { kind: 'source', source: { nodeId } };
       } else {
         // Materialize args to a source so '_' can bind if used in the value expression.
-        const currentSource = current.kind === 'source'
-          ? current.source
-          : createTupleNode(ctx, nextId('tuple'), current.args);
+        const currentSource = materializeCurrentSource();
         const valueRef = parseExpressionAsSource(ctx, part, nextId, currentSource);
         current = { kind: 'source', source: valueRef };
       }
     }
 
+    if (stageIndex >= parts.length) {
+      break;
+    }
     stageIndex += 1;
   }
 
@@ -939,7 +1163,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
 
   //  Second pass: build nodes and edges
   let importY = 60;
-  let letY = 200;
+  let declarationY = 200;
 
   for (const stmt of statements) {
     const importMatch = /^import\s+([^\s]+)$/.exec(stmt);
@@ -955,13 +1179,48 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
       continue;
     }
 
+    if (stmt.startsWith('type ')) {
+      const typeDecl = parseTypeDecl(stmt);
+      nodes.push({
+        id: nextId('type'),
+        type: 'typeNode',
+        position: { x: 60, y: declarationY },
+        data: {
+          kind: 'typeDecl',
+          name: typeDecl.name,
+          targetType: typeDecl.targetType,
+          separator: typeDecl.separator,
+          label: 'type ' + typeDecl.name + ' ' + typeDecl.separator + ' ' + typeDecl.targetType,
+        } as TypeDeclData,
+      });
+      declarationY += 110;
+      continue;
+    }
+
+    if (stmt.startsWith('alias ')) {
+      const aliasDecl = parseAliasDecl(stmt);
+      nodes.push({
+        id: nextId('alias'),
+        type: 'aliasNode',
+        position: { x: 60, y: declarationY },
+        data: {
+          kind: 'aliasDecl',
+          name: aliasDecl.name,
+          targetType: aliasDecl.targetType,
+          label: 'alias ' + aliasDecl.name + ' = ' + aliasDecl.targetType,
+        } as AliasDeclData,
+      });
+      declarationY += 110;
+      continue;
+    }
+
     if (stmt.startsWith('let ')) {
       const letDef = parsedLetsByStatement.get(stmt) ?? parseLet(stmt);
       const letNodeId = nextId('let');
       nodes.push({
         id: letNodeId,
         type: 'letNode',
-        position: { x: 60, y: letY },
+        position: { x: 60, y: declarationY },
         data: {
           kind: 'let',
           name: letDef.name,
@@ -987,7 +1246,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
       );
 
       ctx.letSourceRef = undefined;
-      letY += 180;
+      declarationY += 180;
       continue;
     }
 

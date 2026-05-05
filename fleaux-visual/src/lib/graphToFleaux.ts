@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react';
 import type {
+  AliasDeclData,
   ClosureData,
   FleauxEdge,
   FleauxNodeData,
@@ -7,6 +8,7 @@ import type {
   LiteralData,
   StdFuncData,
   StdValueData,
+  TypeDeclData,
   TupleData,
   UserFuncData,
 } from './types';
@@ -22,6 +24,8 @@ export class GraphSerializationError extends Error {
 export interface GraphSerializationResult {
   sourceText: string;
   imports: string[];
+  typeStatements: string[];
+  aliasStatements: string[];
   letStatements: string[];
   expressionStatements: string[];
 }
@@ -221,6 +225,10 @@ function resolveEdgeSourceExpression(
   return serializeNodeExpression(edge.source, ctx, letCtx, visiting);
 }
 
+function formatCallableTarget(baseName: string, appliedTypeArgs: string[] | undefined): string {
+  return baseName + formatTypeParams(appliedTypeArgs);
+}
+
 function serializeNodeExpression(
   nodeId: string,
   ctx: GraphContext,
@@ -241,6 +249,8 @@ function serializeNodeExpression(
     switch (node.data.kind) {
       case 'literal':
         return renderLiteral(node.data);
+      case 'wildcard':
+        return '_';
       case 'stdValue':
         return (node.data as StdValueData).qualifiedName;
       case 'tuple':
@@ -250,9 +260,13 @@ function serializeNodeExpression(
       case 'userFunc':
         return serializeCallNode(node as Node<UserFuncData>, ctx, letCtx, visiting, 'userfunc-in-');
       case 'closure':
-        return serializeClosureNode(node as Node<ClosureData>, ctx, letCtx, visiting);
+        return serializeClosureNode(node as Node<ClosureData>, ctx, letCtx);
       case 'import':
         throw new GraphSerializationError(`Import node '${node.data.label}' cannot be used as an expression.`);
+      case 'typeDecl':
+        throw new GraphSerializationError(`Type declaration node '${node.data.label}' cannot be used as an expression.`);
+      case 'aliasDecl':
+        throw new GraphSerializationError(`Alias declaration node '${node.data.label}' cannot be used as an expression.`);
       case 'let':
         throw new GraphSerializationError(`Let node '${node.data.label}' cannot be embedded as an expression.`);
       default:
@@ -276,11 +290,34 @@ function getClosureBodyRootEdge(closureNodeId: string, ctx: GraphContext): Fleau
   return null;
 }
 
+function resolveClosureBodyRootExpression(
+  markerEdge: FleauxEdge,
+  ctx: GraphContext,
+  letCtx: LetContext | null,
+): string {
+  const bodySourceNodeId = typeof markerEdge.data?.bodySourceNodeId === 'string'
+    ? markerEdge.data.bodySourceNodeId
+    : markerEdge.target;
+  const bodySourceHandle = typeof markerEdge.data?.bodySourceHandle === 'string'
+    ? markerEdge.data.bodySourceHandle
+    : markerEdge.sourceHandle ?? undefined;
+
+  return resolveEdgeSourceExpression(
+    {
+      ...markerEdge,
+      source: bodySourceNodeId,
+      sourceHandle: bodySourceHandle,
+    },
+    ctx,
+    letCtx,
+    new Set<string>(),
+  );
+}
+
 function serializeClosureNode(
   node: Node<ClosureData>,
   ctx: GraphContext,
   letCtx: LetContext | null,
-  visiting: Set<string>,
 ): string {
   const paramText = node.data.params.map((p) => `${p.name}: ${p.type}`).join(', ');
   const bodyRootEdge = getClosureBodyRootEdge(node.id, ctx);
@@ -288,7 +325,31 @@ function serializeClosureNode(
     // Empty/stub closure — emit a placeholder
     return `(${paramText}): ${node.data.returnType} = null`;
   }
-  const bodyExpr = serializeNodeExpression(bodyRootEdge.target, ctx, letCtx, visiting);
+
+  const bodySourceNodeId = typeof bodyRootEdge.data?.bodySourceNodeId === 'string'
+    ? bodyRootEdge.data.bodySourceNodeId
+    : bodyRootEdge.target;
+  const bodySourceHandle = typeof bodyRootEdge.data?.bodySourceHandle === 'string'
+    ? bodyRootEdge.data.bodySourceHandle
+    : bodyRootEdge.sourceHandle ?? undefined;
+
+  if (bodySourceNodeId === node.id) {
+    const paramIndex = parseIndexedHandle(bodySourceHandle, 'closure-param-');
+    if (paramIndex == null) {
+      throw new GraphSerializationError(
+        `Closure node '${node.id}' body marker points to self but does not reference a parameter handle.`,
+      );
+    }
+    const param = node.data.params[paramIndex];
+    if (!param) {
+      throw new GraphSerializationError(
+        `Closure node '${node.id}' body marker references missing parameter index ${paramIndex}.`,
+      );
+    }
+    return `(${paramText}): ${node.data.returnType} = ${param.name}`;
+  }
+
+  const bodyExpr = resolveClosureBodyRootExpression(bodyRootEdge, ctx, letCtx);
   return `(${paramText}): ${node.data.returnType} = ${bodyExpr}`;
 }
 
@@ -368,8 +429,8 @@ function serializeCallNode(
   handlePrefix: string,
 ): string {
   const targetName = node.data.kind === 'stdFunc'
-    ? node.data.qualifiedName
-    : node.data.functionName;
+    ? formatCallableTarget(node.data.qualifiedName, node.data.appliedTypeArgs)
+    : formatCallableTarget(node.data.functionName, node.data.appliedTypeArgs);
 
   // Function-reference nodes serialize as bare symbols (e.g. `Double`, `Std.String.Trim`).
   if (isFunctionReferenceNode(node)) {
@@ -442,6 +503,15 @@ function serializeCallNode(
 
 
   throw new GraphSerializationError(`Call node '${node.data.label}' has no input.`);
+}
+
+function serializeTypeStatement(node: Node<TypeDeclData>): string {
+  const separator = node.data.separator === '::' ? '::' : '=';
+  return 'type ' + node.data.name + ' ' + separator + ' ' + node.data.targetType + ';';
+}
+
+function serializeAliasStatement(node: Node<AliasDeclData>): string {
+  return 'alias ' + node.data.name + ' = ' + node.data.targetType + ';';
 }
 
 function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge | null {
@@ -585,6 +655,89 @@ function collectDependencyNodeIds(rootNodeId: string, letNodeId: string, ctx: Gr
   return visited;
 }
 
+function collectClosureBodyNodeIds(ctx: GraphContext): Set<string> {
+  const closureBodyNodes = new Set<string>();
+
+  for (const node of ctx.nodesById.values()) {
+    if (node.data.kind !== 'closure') {
+      continue;
+    }
+
+    const bodyRootEdge = getClosureBodyRootEdge(node.id, ctx);
+    if (!bodyRootEdge) {
+      continue;
+    }
+
+    for (const bodyNodeId of collectDependencyNodeIds(bodyRootEdge.target, node.id, ctx)) {
+      closureBodyNodes.add(bodyNodeId);
+    }
+  }
+
+  return closureBodyNodes;
+}
+
+function collectSymbolicInputTargetNodeIds(ctx: GraphContext): Set<string> {
+  const symbolicTargets = new Set<string>();
+  const pending: string[] = [];
+
+  for (const edges of ctx.incomingByTarget.values()) {
+    for (const edge of edges) {
+      if (edge.sourceHandle?.startsWith('let-param-')) {
+        pending.push(edge.target);
+      }
+    }
+  }
+
+  while (pending.length > 0) {
+    const nodeId = pending.pop();
+    if (!nodeId || symbolicTargets.has(nodeId)) {
+      continue;
+    }
+
+    symbolicTargets.add(nodeId);
+
+    for (const edge of ctx.outgoingBySource.get(nodeId) ?? []) {
+      if (edge.targetHandle === LET_BODY_ROOT_HANDLE || edge.targetHandle === CLOSURE_BODY_ROOT_HANDLE) {
+        continue;
+      }
+      pending.push(edge.target);
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of ctx.nodesById.values()) {
+      if (node.data.kind !== 'closure' || symbolicTargets.has(node.id)) {
+        continue;
+      }
+
+      const bodyRootEdge = getClosureBodyRootEdge(node.id, ctx);
+      if (!bodyRootEdge) {
+        continue;
+      }
+
+      const bodySourceNodeId = typeof bodyRootEdge.data?.bodySourceNodeId === 'string'
+        ? bodyRootEdge.data.bodySourceNodeId
+        : bodyRootEdge.target;
+      const bodySourceHandle = typeof bodyRootEdge.data?.bodySourceHandle === 'string'
+        ? bodyRootEdge.data.bodySourceHandle
+        : bodyRootEdge.sourceHandle ?? undefined;
+
+      const capturesLetScopedSymbol = bodySourceHandle?.startsWith('let-param-')
+        || symbolicTargets.has(bodySourceNodeId);
+      if (!capturesLetScopedSymbol) {
+        continue;
+      }
+
+      symbolicTargets.add(node.id);
+      changed = true;
+    }
+  }
+
+  return symbolicTargets;
+}
+
 
 function serializeLetStatement(
   node: Node<LetData>,
@@ -625,13 +778,33 @@ export function serializeGraphToFleaux(
 ): GraphSerializationResult {
   const ctx = buildGraphContext(nodes, edges);
   const imports: string[] = [];
+  const typeStatements: string[] = [];
+  const aliasStatements: string[] = [];
+  const declarationStatements: string[] = [];
   const letStatements: string[] = [];
   const expressionStatements: string[] = [];
   const letBodyNodes = new Set<string>();
+  const closureBodyNodes = collectClosureBodyNodeIds(ctx);
+  const symbolicInputTargets = collectSymbolicInputTargetNodeIds(ctx);
 
   for (const node of nodes) {
     if (node.data.kind === 'import') {
       imports.push(`import ${node.data.moduleName};`);
+    }
+  }
+
+  for (const node of nodes) {
+    if (node.data.kind === 'typeDecl') {
+      const statement = serializeTypeStatement(node as Node<TypeDeclData>);
+      typeStatements.push(statement);
+      declarationStatements.push(statement);
+      continue;
+    }
+
+    if (node.data.kind === 'aliasDecl') {
+      const statement = serializeAliasStatement(node as Node<AliasDeclData>);
+      aliasStatements.push(statement);
+      declarationStatements.push(statement);
     }
   }
 
@@ -647,10 +820,16 @@ export function serializeGraphToFleaux(
   }
 
   for (const node of nodes) {
-    if (node.data.kind === 'import' || node.data.kind === 'let') {
+    if (node.data.kind === 'import' || node.data.kind === 'typeDecl' || node.data.kind === 'aliasDecl' || node.data.kind === 'let') {
       continue;
     }
     if (letBodyNodes.has(node.id)) {
+      continue;
+    }
+    if (closureBodyNodes.has(node.id)) {
+      continue;
+    }
+    if (symbolicInputTargets.has(node.id)) {
       continue;
     }
 
@@ -666,7 +845,7 @@ export function serializeGraphToFleaux(
     expressionStatements.push(serializeTopLevelExpression(node, ctx));
   }
 
-  const statements = [...imports, ...letStatements, ...expressionStatements];
+  const statements = [...imports, ...declarationStatements, ...letStatements, ...expressionStatements];
   if (statements.length === 0) {
     throw new GraphSerializationError('The graph does not contain any serializable Fleaux statements.');
   }
@@ -674,6 +853,8 @@ export function serializeGraphToFleaux(
   return {
     sourceText: `${statements.join('\n')}\n`,
     imports,
+    typeStatements,
+    aliasStatements,
     letStatements,
     expressionStatements,
   };

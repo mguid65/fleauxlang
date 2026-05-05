@@ -568,6 +568,29 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "overloadCount": 1
   },
   {
+    "qualifiedName": "Std.Cast",
+    "namespace": "Std",
+    "name": "Cast",
+    "typeParams": [
+      "T"
+    ],
+    "params": [
+      {
+        "name": "value",
+        "type": "Any"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.Cast<T>",
+    "displaySignature": "Std.Cast<T>(value: Any) -> T",
+    "signatureKey": "Std.Cast<T>(value: Any):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
     "qualifiedName": "Std.ToInt64",
     "namespace": "Std",
     "name": "ToInt64",
@@ -1884,6 +1907,69 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "displayName": "Std.ToString",
     "displaySignature": "Std.ToString(val: Any) -> String",
     "signatureKey": "Std.ToString(val: Any):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.String.ParseInt64",
+    "namespace": "Std.String",
+    "name": "ParseInt64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "s",
+        "type": "String"
+      }
+    ],
+    "returnType": "Int64",
+    "displayName": "Std.String.ParseInt64",
+    "displaySignature": "Std.String.ParseInt64(s: String) -> Int64",
+    "signatureKey": "Std.String.ParseInt64(s: String):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.String.ParseUInt64",
+    "namespace": "Std.String",
+    "name": "ParseUInt64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "s",
+        "type": "String"
+      }
+    ],
+    "returnType": "UInt64",
+    "displayName": "Std.String.ParseUInt64",
+    "displaySignature": "Std.String.ParseUInt64(s: String) -> UInt64",
+    "signatureKey": "Std.String.ParseUInt64(s: String):UInt64",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.String.ParseFloat64",
+    "namespace": "Std.String",
+    "name": "ParseFloat64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "s",
+        "type": "String"
+      }
+    ],
+    "returnType": "Float64",
+    "displayName": "Std.String.ParseFloat64",
+    "displaySignature": "Std.String.ParseFloat64(s: String) -> Float64",
+    "signatureKey": "Std.String.ParseFloat64(s: String):Float64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3709,7 +3795,61 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "minimumArity": 1,
     "isTerminal": false,
     "overloadIndex": 1,
-    "overloadCount": 1
+    "overloadCount": 3
+  },
+  {
+    "qualifiedName": "Std.Tuple.Range",
+    "namespace": "Std.Tuple",
+    "name": "Range",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "start",
+        "type": "Int64"
+      },
+      {
+        "name": "stop",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Int64...)",
+    "displayName": "Std.Tuple.Range",
+    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64) -> Tuple(Int64...)",
+    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64):Tuple(Int64...)",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 2,
+    "overloadCount": 3
+  },
+  {
+    "qualifiedName": "Std.Tuple.Range",
+    "namespace": "Std.Tuple",
+    "name": "Range",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "start",
+        "type": "Int64"
+      },
+      {
+        "name": "stop",
+        "type": "Int64"
+      },
+      {
+        "name": "step",
+        "type": "Int64"
+      }
+    ],
+    "returnType": "Tuple(Int64...)",
+    "displayName": "Std.Tuple.Range",
+    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) -> Tuple(Int64...)",
+    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64):Tuple(Int64...)",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 3,
+    "overloadCount": 3
   },
   {
     "qualifiedName": "Std.Take",
@@ -4937,8 +5077,8 @@ export const STD_NAMESPACES = [
   "Std.Result",
   "Std.Parallel",
   "Std.Task",
-  "Std.Math",
   "Std.String",
+  "Std.Math",
   "Std.String.Regex",
   "Std.OS",
   "Std.Path",

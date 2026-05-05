@@ -5,7 +5,7 @@ import { formatFunctionDisplayName, formatParamSignature } from '../lib/function
 export function UserFuncNode({ data }: NodeProps<Node<UserFuncData>>) {
   const isReference = data.isReference === true;
   const paramSig = formatParamSignature(data.params);
-  const functionLabel = formatFunctionDisplayName(data.functionName, data.typeParams);
+  const functionLabel = formatFunctionDisplayName(data.functionName, data.appliedTypeArgs ?? data.typeParams);
 
   return (
     <div 

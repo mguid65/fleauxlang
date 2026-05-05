@@ -1,6 +1,3 @@
-// Foundation: type aliases, registries, construction/extraction helpers, printing/format utilities.
-// Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
-
 #pragma once
 
 // Fleaux runtime layer built on mguid::DataTree.
@@ -35,10 +32,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <string_view>
 
 #include "data_tree/data_tree.hpp"
 

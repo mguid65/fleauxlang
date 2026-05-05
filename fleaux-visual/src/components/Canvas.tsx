@@ -16,6 +16,12 @@ import { EditorPanel } from './EditorPanel';
 import { Toolbar } from './Toolbar';
 import type { FleauxEdge, FleauxNodeData } from '../lib/types';
 
+const INTERNAL_BODY_ROOT_TARGET_HANDLES = new Set(['let-body-root', 'closure-body-root']);
+
+function isInternalBodyRootEdge(edge: FleauxEdge): boolean {
+  return edge.targetHandle != null && INTERNAL_BODY_ROOT_TARGET_HANDLES.has(edge.targetHandle);
+}
+
 export function Canvas() {
   const nodes = useFlowStore((s) => s.nodes);
   const edges = useFlowStore((s) => s.edges);
@@ -26,6 +32,7 @@ export function Canvas() {
     () => edges.map((edge) => ({
       ...edge,
       animated: false,
+      hidden: isInternalBodyRootEdge(edge),
       markerEnd: edge.markerEnd ?? { type: MarkerType.ArrowClosed },
     })),
     [edges],

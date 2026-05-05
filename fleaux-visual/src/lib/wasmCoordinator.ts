@@ -1,184 +1,224 @@
-type FleauxWasmModule = {
-  ccall: <T = number | string>(
-    ident: string,
-    returnType: 'number' | 'string' | null,
-    argTypes: Array<'string' | 'number'>,
-    args: Array<string | number>,
-  ) => T;
+import {
+  WasmCoordinatorError,
+  WasmStatusCode,
+} from './wasmCoordinatorCommon';
+import type { WasmRunResult, WasmValidationResult } from './wasmCoordinatorCommon';
+import {
+  wasmCoordinatorVersionImpl,
+  wasmParseAndLowerImpl,
+  wasmRunSourceImpl,
+  wasmValidateSourceImpl,
+} from './wasmCoordinatorRuntime';
+
+type WorkerRequestPayload =
+  | { kind: 'version' }
+  | { kind: 'parseAndLower'; sourceText: string; sourceName?: string }
+  | { kind: 'validate'; sourceText: string; sourceName?: string }
+  | { kind: 'run'; sourceText: string; sourceName?: string };
+
+type WorkerRequest = WorkerRequestPayload & { id: number };
+
+type WorkerResponse =
+  | { id: number; ok: true; value: unknown }
+  | {
+      id: number;
+      ok: false;
+      error: {
+        name: string;
+        message: string;
+        statusCode?: number;
+        statusLabel?: string;
+      };
+    };
+
+type PendingRequest = {
+  resolve: (value: unknown) => void;
+  reject: (reason?: unknown) => void;
 };
 
-type FleauxWasmOptions = {
-  locateFile?: (path: string, scriptDirectory: string) => string;
-  [key: string]: unknown;
-};
+const WORKER_REQUEST_TIMEOUT_MS = 12_000;
 
-type FleauxWasmFactory = (opts?: FleauxWasmOptions) => Promise<FleauxWasmModule>;
+let workerPromise: Promise<Worker> | null = null;
+let nextRequestId = 1;
+let preferDirectRuntime = shouldPreferDirectRuntimeByDefault();
+const pendingRequests = new Map<number, PendingRequest>();
 
-// Status codes must match WasmStatus in fleaux_wasm_coordinator.cpp.
-export const WasmStatusCode = {
-  Ok: 0,
-  EmptySource: 2,
-  ParseError: 3,
-  LowerError: 4,
-  CompileError: 5,
-  RuntimeError: 6,
-  RuntimeUnavailable: 7,
-} as const;
-export type WasmStatusCode = (typeof WasmStatusCode)[keyof typeof WasmStatusCode];
+function shouldPreferDirectRuntimeByDefault(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
 
-const WASM_STATUS_LABELS: Record<number, string> = {
-  [WasmStatusCode.Ok]: 'ok',
-  [WasmStatusCode.EmptySource]: 'empty_source',
-  [WasmStatusCode.ParseError]: 'parse_error',
-  [WasmStatusCode.LowerError]: 'lower_error',
-  [WasmStatusCode.CompileError]: 'compile_error',
-  [WasmStatusCode.RuntimeError]: 'runtime_error',
-  [WasmStatusCode.RuntimeUnavailable]: 'runtime_unavailable',
-};
-
-export interface WasmValidationResult {
-  version: string;
+  return /\bFirefox\//.test(navigator.userAgent);
 }
 
-export interface WasmRunResult {
-  version: string;
-  exitCode: number;
-  output: string;
-}
-
-export class WasmCoordinatorError extends Error {
-  readonly statusCode: number;
-  readonly statusLabel: string;
-
-  constructor(message: string, statusCode: number, statusLabel: string) {
-    super(message);
-    this.name = 'WasmCoordinatorError';
-    this.statusCode = statusCode;
-    this.statusLabel = statusLabel;
+function ensureThreadedWasmPrerequisites(): void {
+  if (typeof globalThis.crossOriginIsolated === 'boolean' && globalThis.crossOriginIsolated === false) {
+    throw new Error(
+      'Fleaux threaded WASM requires a cross-origin isolated page. Ensure Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp are enabled.',
+    );
   }
 }
 
-// The WASM coordinator lives in public/wasm/ — we load it via a blob URL so
-// Vite's dev-server module interception (which appends ?import and can break
-// Emscripten's import.meta.url path resolution) is completely bypassed.
-//
-// We do NOT cache rejected module loads. A transient fetch/import failure should
-// still allow later retries to re-attempt the load.
-let modulePromise: Promise<FleauxWasmModule> | null = null;
+function shouldFallbackToDirectRuntime(error: unknown): boolean {
+  if (error instanceof WasmCoordinatorError || !(error instanceof Error)) {
+    return false;
+  }
 
-function buildWasmCoordinatorError(action: string, rc: number, detail: string): WasmCoordinatorError {
-  const label = WASM_STATUS_LABELS[rc] ?? 'unknown_error';
-  const message = detail
-    ? `${action} failed (${label}, rc=${rc}): ${detail}`
-    : `${action} failed (${label}, rc=${rc})`;
-  return new WasmCoordinatorError(message, rc, label);
+  const message = error.message;
+  return (
+    message.includes('DataCloneError')
+    || message.includes('loading-workers')
+    || message.includes('bootstrap failure')
+    || message.includes('unreadable message')
+    || message.includes('timed out waiting for the WASM coordinator worker')
+    || message.includes('WASM coordinator worker failed')
+    || message.includes('Failed to construct')
+  );
 }
 
-function resolvePublicAssetUrl(path: string): string {
-  const normalizedPath = path.replace(/^\/+/, '');
-  return new URL(normalizedPath, window.location.origin + import.meta.env.BASE_URL).toString();
+function toWorkerError(error: WorkerResponse & { ok: false }): Error {
+  if (typeof error.error.statusCode === 'number' && typeof error.error.statusLabel === 'string') {
+    return new WasmCoordinatorError(error.error.message, error.error.statusCode, error.error.statusLabel);
+  }
+  return new Error(error.error.message);
 }
 
-export async function loadFleauxWasmCoordinator(): Promise<FleauxWasmModule> {
-  if (!modulePromise) {
-    modulePromise = (async () => {
-      const coordinatorUrl = resolvePublicAssetUrl('wasm/fleaux_wasm_coordinator.js');
+function rejectAllPending(error: unknown): void {
+  for (const { reject } of pendingRequests.values()) {
+    reject(error);
+  }
+  pendingRequests.clear();
+}
 
-      const response = await fetch(coordinatorUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch WASM coordinator (${response.status}): ${coordinatorUrl}`);
+function resetWorker(error: unknown): void {
+  if (workerPromise) {
+    workerPromise
+      .then((worker) => worker.terminate())
+      .catch(() => undefined);
+  }
+  workerPromise = null;
+  rejectAllPending(error);
+}
+
+async function getWorker(): Promise<Worker> {
+  if (!workerPromise) {
+    workerPromise = Promise.resolve(
+      new Worker(new URL('./wasmCoordinator.worker.ts', import.meta.url), { type: 'module' }),
+    );
+
+    const worker = await workerPromise;
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      const pending = pendingRequests.get(response.id);
+      if (!pending) {
+        return;
       }
-      const jsText = await response.text();
 
-      // Create a transient blob URL so the browser can import it as an ES
-      // module without Vite transforming or intercepting the request.
-      const blob = new Blob([jsText], { type: 'application/javascript' });
-      const blobUrl = URL.createObjectURL(blob);
-
-      let instance: FleauxWasmModule;
-      try {
-        const mod = await import(/* @vite-ignore */ blobUrl);
-        const factory = (mod.default ?? mod) as FleauxWasmFactory;
-
-        // Pass locateFile so the WASM binary is always fetched from the known
-        // public path, regardless of what import.meta.url resolved to inside
-        // the blob module.
-        instance = await factory({
-          locateFile: (filename: string) => resolvePublicAssetUrl(`wasm/${filename}`),
-        });
-      } finally {
-        URL.revokeObjectURL(blobUrl);
+      pendingRequests.delete(response.id);
+      if (response.ok) {
+        pending.resolve(response.value);
+        return;
       }
 
-      return instance;
-    })().catch((error: unknown) => {
-      modulePromise = null;
-      throw error;
+      pending.reject(toWorkerError(response));
+    };
+
+    worker.onerror = (event: ErrorEvent) => {
+      event.preventDefault();
+      resetWorker(new Error(event.message || 'WASM coordinator worker failed'));
+    };
+
+    worker.onmessageerror = () => {
+      resetWorker(new Error('WASM coordinator worker produced an unreadable message'));
+    };
+  }
+
+  return workerPromise;
+}
+
+async function callWorker<T>(request: WorkerRequestPayload): Promise<T> {
+  ensureThreadedWasmPrerequisites();
+
+  const worker = await getWorker();
+  const id = nextRequestId++;
+
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      resetWorker(new Error('Fleaux timed out waiting for the WASM coordinator worker to become ready.'));
+    }, WORKER_REQUEST_TIMEOUT_MS);
+
+    pendingRequests.set(id, {
+      resolve: (value) => {
+        globalThis.clearTimeout(timeoutId);
+        resolve(value as T);
+      },
+      reject: (reason) => {
+        globalThis.clearTimeout(timeoutId);
+        reject(reason);
+      },
     });
+
+    worker.postMessage({ ...request, id } satisfies WorkerRequest);
+  });
+}
+
+async function callCoordinator<T>(
+  request: WorkerRequestPayload,
+  directCall: () => Promise<T>,
+): Promise<T> {
+  ensureThreadedWasmPrerequisites();
+
+  if (preferDirectRuntime) {
+    return await directCall();
   }
-  return modulePromise;
-}
 
-function callString(wasm: FleauxWasmModule, ident: string): string {
-  return wasm.ccall<string>(ident, 'string', [], []);
-}
+  try {
+    return await callWorker<T>(request);
+  } catch (error) {
+    if (!shouldFallbackToDirectRuntime(error)) {
+      throw error;
+    }
 
-function callNumber(wasm: FleauxWasmModule, ident: string): number {
-  return wasm.ccall<number>(ident, 'number', [], []);
-}
-
-function callWithSource(
-  wasm: FleauxWasmModule,
-  ident: string,
-  sourceText: string,
-  sourceName: string,
-): number {
-  return wasm.ccall<number>(ident, 'number', ['string', 'string'], [sourceText, sourceName]);
-}
-
-function readLastError(wasm: FleauxWasmModule): string {
-  return callString(wasm, 'fleaux_wasm_last_error');
-}
-
-function throwIfFailed(wasm: FleauxWasmModule, action: string, rc: number): void {
-  if (rc !== WasmStatusCode.Ok) {
-    throw buildWasmCoordinatorError(action, rc, readLastError(wasm));
+    preferDirectRuntime = true;
+    resetWorker(error);
+    return await directCall();
   }
 }
+
+export { WasmCoordinatorError, WasmStatusCode };
+export type { WasmValidationResult, WasmRunResult };
 
 export async function wasmCoordinatorVersion(): Promise<string> {
-  const wasm = await loadFleauxWasmCoordinator();
-  return callString(wasm, 'fleaux_wasm_version');
+  return await callCoordinator<string>({ kind: 'version' }, () => wasmCoordinatorVersionImpl());
 }
 
 export async function wasmParseAndLower(sourceText: string, sourceName = 'visual_graph.fleaux'): Promise<void> {
-  const wasm = await loadFleauxWasmCoordinator();
-  const rc = callWithSource(wasm, 'fleaux_wasm_parse_and_lower', sourceText, sourceName);
-  throwIfFailed(wasm, 'parse and lower', rc);
+  await callCoordinator<null>(
+    { kind: 'parseAndLower', sourceText, sourceName },
+    async () => {
+      await wasmParseAndLowerImpl(sourceText, sourceName);
+      return null;
+    },
+  );
 }
 
 export async function wasmValidateSource(
   sourceText: string,
   sourceName = 'visual_graph.fleaux',
 ): Promise<WasmValidationResult> {
-  const wasm = await loadFleauxWasmCoordinator();
-  const version = callString(wasm, 'fleaux_wasm_version');
-  const rc = callWithSource(wasm, 'fleaux_wasm_parse_and_lower', sourceText, sourceName);
-  throwIfFailed(wasm, 'validate', rc);
-  return { version };
+  return await callCoordinator<WasmValidationResult>(
+    { kind: 'validate', sourceText, sourceName },
+    () => wasmValidateSourceImpl(sourceText, sourceName),
+  );
 }
 
 export async function wasmRunSource(
   sourceText: string,
   sourceName = 'visual_graph.fleaux',
 ): Promise<WasmRunResult> {
-  const wasm = await loadFleauxWasmCoordinator();
-  const version = callString(wasm, 'fleaux_wasm_version');
-  const rc = callWithSource(wasm, 'fleaux_wasm_run_source', sourceText, sourceName);
-  throwIfFailed(wasm, 'run', rc);
-
-  const output = callString(wasm, 'fleaux_wasm_last_output');
-  const exitCode = callNumber(wasm, 'fleaux_wasm_last_exit_code');
-  return { version, exitCode, output };
+  return await callCoordinator<WasmRunResult>(
+    { kind: 'run', sourceText, sourceName },
+    () => wasmRunSourceImpl(sourceText, sourceName),
+  );
 }
 
