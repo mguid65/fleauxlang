@@ -30,7 +30,7 @@ export function ClosureNode({ data, id }: NodeProps<Node<ClosureData>>) {
   return (
     <div
       className="rounded-lg border border-violet-500 bg-violet-950 text-violet-200 px-4 py-3 shadow-lg min-w-[240px]"
-      style={{ minHeight: `${84 + Math.max(1, data.params.length) * 34}px` }}
+      style={{ minHeight: `${84 + Math.max(1, data.params.length) * 34}px`, padding: '4px' }}
     >
       <div className="text-[10px] font-bold text-violet-400 mb-1">λ CLOSURE</div>
 

@@ -1,8 +1,28 @@
 import type { Node } from '@xyflow/react';
+import { formatFunctionDisplayName } from './functionSignatures';
 import { STD_FUNCTIONS } from './stdCatalogue';
-import type { FleauxNodeData } from './types';
+import type { FleauxNodeData, FunctionParam, LetData, UserFuncData } from './types';
 
 const stdApplyEntry = STD_FUNCTIONS.find((entry) => entry.qualifiedName === 'Std.Apply' && entry.params.length === 2);
+
+function createParamId(ownerNodeId: string, index: number): string {
+  return `${ownerNodeId}-param-${index}`;
+}
+
+function normalizeFunctionParams(ownerNodeId: string, params: unknown): FunctionParam[] {
+  if (!Array.isArray(params)) {
+    return [];
+  }
+
+  return params.map((param, index) => {
+    const record = (param ?? {}) as Record<string, unknown>;
+    return {
+      id: typeof record.id === 'string' && record.id.trim().length > 0 ? record.id : createParamId(ownerNodeId, index),
+      name: typeof record.name === 'string' ? record.name : `p${index + 1}`,
+      type: typeof record.type === 'string' ? record.type : 'Any',
+    };
+  });
+}
 
 /**
  * Migrate old graph data where `std` namespace nodes existed.
@@ -11,7 +31,7 @@ const stdApplyEntry = STD_FUNCTIONS.find((entry) => entry.qualifiedName === 'Std
 export function migrateGraphNodes(
   nodes: Array<Node<Record<string, unknown>>>,
 ): Node<FleauxNodeData>[] {
-  return nodes.map((node): Node<FleauxNodeData> => {
+  const basicMigrated = nodes.map((node): Node<FleauxNodeData> => {
     const data = node.data as Record<string, unknown>;
 
     if (data.kind === 'literal' && data.valueType === 'Number') {
@@ -20,6 +40,29 @@ export function migrateGraphNodes(
         data: {
           ...data,
           valueType: 'Float64',
+        } as FleauxNodeData,
+      };
+    }
+
+    if (data.kind === 'let') {
+      const letData = data as unknown as LetData;
+      return {
+        ...node,
+        data: {
+          ...letData,
+          params: normalizeFunctionParams(node.id, letData.params),
+        } as FleauxNodeData,
+      };
+    }
+
+    if (data.kind === 'userFunc') {
+      const userFuncData = data as unknown as UserFuncData;
+      return {
+        ...node,
+        data: {
+          ...userFuncData,
+          functionNodeId: typeof userFuncData.functionNodeId === 'string' ? userFuncData.functionNodeId : '',
+          params: normalizeFunctionParams(node.id, userFuncData.params),
         } as FleauxNodeData,
       };
     }
@@ -67,6 +110,59 @@ export function migrateGraphNodes(
     return {
       ...node,
       data: data as FleauxNodeData,
+    };
+  });
+
+  const letNodesById = new Map<string, Node<FleauxNodeData>>();
+  const letNodeIdsByName = new Map<string, string[]>();
+  for (const node of basicMigrated) {
+    if (node.data.kind !== 'let') {
+      continue;
+    }
+    letNodesById.set(node.id, node);
+    const group = letNodeIdsByName.get(node.data.name) ?? [];
+    group.push(node.id);
+    letNodeIdsByName.set(node.data.name, group);
+  }
+
+  return basicMigrated.map((node): Node<FleauxNodeData> => {
+    if (node.data.kind !== 'userFunc') {
+      return node;
+    }
+
+    const userFuncData = node.data as UserFuncData;
+    const linkedLetId = (() => {
+      if (userFuncData.functionNodeId && letNodesById.has(userFuncData.functionNodeId)) {
+        return userFuncData.functionNodeId;
+      }
+      const matches = letNodeIdsByName.get(userFuncData.functionName) ?? [];
+      return matches.length === 1 ? matches[0] : '';
+    })();
+
+    const linkedLet = linkedLetId ? letNodesById.get(linkedLetId) : undefined;
+    if (!linkedLet || linkedLet.data.kind !== 'let') {
+      return {
+        ...node,
+        data: {
+          ...userFuncData,
+          functionNodeId: linkedLetId,
+          params: normalizeFunctionParams(node.id, userFuncData.params),
+        },
+      };
+    }
+
+    const letData = linkedLet.data as LetData;
+    return {
+      ...node,
+      data: {
+        ...userFuncData,
+        functionName: letData.name,
+        functionNodeId: linkedLet.id,
+        typeParams: letData.typeParams,
+        params: letData.params.map((param) => ({ ...param })),
+        returnType: letData.returnType,
+        label: formatFunctionDisplayName(letData.name, letData.typeParams),
+      } as FleauxNodeData,
     };
   });
 }

@@ -118,7 +118,7 @@ export function Toolbar() {
           functionName: funcName,
           functionNodeId: nodeId,
           typeParams,
-          params,
+          params: params.map((param) => ({ ...param })),
           returnType,
           label: formatFunctionDisplayName(funcName, typeParams),
         },
@@ -163,8 +163,12 @@ export function Toolbar() {
   };
 
   return (
-    <aside className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-[#1a1d2e] border border-[#2d3148] rounded-xl p-3 shadow-xl w-52 max-h-[92vh] overflow-auto">
-      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Add Node</div>
+    <aside className="absolute top-4 left-4 z-10 flex flex-col gap-2 bg-[#1a1d2e] border border-[#2d3148] rounded-xl shadow-xl w-52 max-h-[92vh] overflow-auto"
+        style={{
+            padding: '4px 8px 4px 4px'
+        }}
+    >
+      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Nodes</div>
 
       {/*  Primitive nodes  */}
       <div className="text-[10px] text-slate-500 uppercase tracking-wider">Primitives</div>
@@ -201,9 +205,10 @@ export function Toolbar() {
           <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-2">User Functions</div>
           {userFunctions.map((uf) => (
             <button
+                style={{paddingLeft: '3px'}}
               key={uf.nodeId}
               onClick={() => addUserFunc(uf.name, uf.nodeId, uf.typeParams, uf.params, uf.returnType)}
-              className="text-xs font-mono border border-purple-600 text-purple-300 hover:bg-purple-900 rounded px-3 py-1.5 transition-colors cursor-pointer text-left"
+              className="text-xs font-mono border border-purple-600 text-purple-300 hover:bg-purple-900 rounded transition-colors cursor-pointer text-left"
               title={formatFunctionDisplaySignature(uf.name, {
                 params: uf.params,
                 returnType: uf.returnType,
@@ -226,6 +231,7 @@ export function Toolbar() {
           <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-2">User Types</div>
           {userTypes.map((entry) => (
             <div
+              style={{paddingLeft: '3px'}}
               key={entry.nodeId}
               className="text-[11px] font-mono border border-cyan-800 text-cyan-200 bg-cyan-950/30 rounded px-2 py-1"
               title={'type ' + entry.name + ' ' + entry.separator + ' ' + entry.targetType}
@@ -242,9 +248,9 @@ export function Toolbar() {
         <>
           <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-2">User Aliases</div>
           {userAliases.map((entry) => (
-            <div
+            <div style={{paddingLeft: '3px'}}
               key={entry.nodeId}
-              className="text-[11px] font-mono border border-lime-800 text-lime-200 bg-lime-950/30 rounded px-2 py-1"
+              className="text-[11px] font-mono border border-lime-800 text-lime-200 bg-lime-950/30 rounded"
               title={'alias ' + entry.name + ' = ' + entry.targetType}
             >
               <div className="font-bold">{entry.name}</div>
@@ -258,6 +264,7 @@ export function Toolbar() {
       <div className="text-[10px] text-slate-500 uppercase tracking-wider">Standard Library</div>
 
       <input
+        style={{paddingLeft: '3px'}}
         type="text"
         placeholder="Filter functions…"
         value={query}
@@ -274,10 +281,11 @@ export function Toolbar() {
             const border = nsColor.split(' ')[0] ?? 'border-slate-700';
             return (
               <button
+                  style={{paddingLeft: '3px'}}
                 key={value.qualifiedName}
                 title={`${value.qualifiedName}: ${value.valueType}`}
                 onClick={() => addStdValue(value)}
-                className={`text-left text-[11px] font-mono border ${border} text-slate-200 hover:bg-white/10 rounded px-2 py-1 transition-colors cursor-pointer`}
+                className={`text-left text-[11px] font-mono border ${border} text-slate-200 hover:bg-white/10 rounded transition-colors cursor-pointer`}
               >
                 {value.qualifiedName}
               </button>
@@ -293,6 +301,7 @@ export function Toolbar() {
             const meta = formatStdFunctionMeta(fn);
             return (
               <button
+                  style={{paddingLeft: '3px'}}
                 key={fn.signatureKey}
                 title={fn.displaySignature}
                 onClick={() => addStdFunc(fn)}
@@ -311,7 +320,8 @@ export function Toolbar() {
           const isOpen = openNs === ns;
           return (
             <div key={ns}>
-              <button
+              <button style={{paddingLeft: '3px'}}
+
                 onClick={() => toggle(ns)}
                 className={`w-full text-left text-[11px] font-mono border ${NS_BORDER[ns] ?? 'border-slate-700'} ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/5 rounded px-2 py-1.5 transition-colors cursor-pointer flex justify-between items-center`}
               >
@@ -319,23 +329,27 @@ export function Toolbar() {
                 <span className="opacity-50 text-[9px]">{isOpen ? '▲' : '▼'} {values.length + fns.length}</span>
               </button>
               {isOpen && (
-                <div className="flex flex-col gap-0.5 mt-0.5 pl-2 border-l border-[#2d3148]">
+                <div className="flex flex-col gap-0.5 mt-0.5 border-l border-[#2d3148]">
                   {values.map((value) => (
                     <button
+                        style={{padding: '2px 2px 2px 3px', verticalAlign: 'center'}}
+
                       key={value.qualifiedName}
                       title={`${value.qualifiedName}: ${value.valueType}`}
                       onClick={() => addStdValue(value)}
-                      className={`text-left text-[11px] font-mono ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/10 rounded px-2 py-0.5 transition-colors cursor-pointer`}
+                      className={`text-left text-[11px] font-mono ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/10 rounded transition-colors cursor-pointer`}
                     >
                       {value.name}
                     </button>
                   ))}
                   {fns.map((fn) => (
                     <button
-                      key={fn.signatureKey}
+                        style={{padding: '2px 2px 2px 3px', verticalAlign: 'center'}}
+
+                        key={fn.signatureKey}
                       title={fn.displaySignature}
                       onClick={() => addStdFunc(fn)}
-                      className={`text-left text-[11px] font-mono ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/10 rounded px-2 py-0.5 transition-colors cursor-pointer`}
+                      className={`text-left text-[11px] font-mono ${NS_TEXT[ns] ?? 'text-slate-300'} hover:bg-white/10 rounded transition-colors cursor-pointer`}
                     >
                       <div>{formatCompactFunctionLabel(fn.name, fn)}</div>
                       {formatStdFunctionMeta(fn).length > 0 && (

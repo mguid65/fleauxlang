@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, LiteralValueType, StdFuncData, TypeDeclData, UserFuncData } from './types';
+import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, FunctionParam, LiteralValueType, StdFuncData, TypeDeclData, UserFuncData } from './types';
 import { formatFunctionDisplayName, matchesArity } from './functionSignatures';
 import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
@@ -19,6 +19,14 @@ type Param = { name: string; type: string };
 type LetDef = { name: string; typeParams?: string[]; params: Param[]; returnType: string; body: string };
 type TypeDecl = { name: string; targetType: string; separator: '=' | '::' };
 type AliasDecl = { name: string; targetType: string };
+
+function createFunctionParams(ownerNodeId: string, params: Param[]): FunctionParam[] {
+  return params.map((param, index) => ({
+    id: `${ownerNodeId}-param-${index}`,
+    name: param.name,
+    type: param.type,
+  }));
+}
 
 type SourceRef = {
   nodeId: string;
@@ -679,6 +687,7 @@ function resolveIdentifierAsSource(
   if (ctx.userFunctions.has(resolvedToken)) {
     const user = ctx.userFunctions.get(resolvedToken)!;
     const nodeId = nextId('userfuncref');
+    const params = createFunctionParams(nodeId, user.params);
     ctx.nodes.push({
       id: nodeId,
       type: 'userFuncNode',
@@ -689,7 +698,7 @@ function resolveIdentifierAsSource(
         functionNodeId: '',
         typeParams: user.typeParams,
         appliedTypeArgs,
-        params: user.params,
+        params,
         returnType: user.returnType,
         isReference: true,
         label: formatFunctionDisplayName(user.name, appliedTypeArgs ?? user.typeParams),
@@ -710,7 +719,7 @@ function resolveIdentifierAsSource(
         functionName: resolvedToken,
         functionNodeId: '',
         appliedTypeArgs,
-        params: [{ name: 'arg1', type: 'Any' }],
+        params: [{ id: `${nodeId}-param-0`, name: 'arg1', type: 'Any' }],
         returnType: 'Any',
         isReference: true,
         label: formatFunctionDisplayName(resolvedToken, appliedTypeArgs),
@@ -822,6 +831,7 @@ function tryParseCallTarget(
 
   const user = ctx.userFunctions.get(resolvedToken);
   if (user) {
+    const params = createFunctionParams('', user.params);
     return {
       kind: 'userFunc',
       data: {
@@ -830,7 +840,7 @@ function tryParseCallTarget(
         functionNodeId: '',
         typeParams: user.typeParams,
         appliedTypeArgs,
-        params: user.params,
+        params,
         returnType: user.returnType,
         label: formatFunctionDisplayName(user.name, appliedTypeArgs ?? user.typeParams),
       },
@@ -846,7 +856,7 @@ function tryParseCallTarget(
         functionName: resolvedToken,
         functionNodeId: '',
         appliedTypeArgs,
-        params: Array.from({ length: arity }, (_, index) => ({ name: `arg${index + 1}`, type: 'Any' })),
+        params: Array.from({ length: arity }, (_, index) => ({ id: `external-param-${index}`, name: `arg${index + 1}`, type: 'Any' })),
         returnType: 'Any',
         label: formatFunctionDisplayName(resolvedToken, appliedTypeArgs),
       },
@@ -1217,6 +1227,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
     if (stmt.startsWith('let ')) {
       const letDef = parsedLetsByStatement.get(stmt) ?? parseLet(stmt);
       const letNodeId = nextId('let');
+      const letParams = createFunctionParams(letNodeId, letDef.params);
       nodes.push({
         id: letNodeId,
         type: 'letNode',
@@ -1225,14 +1236,14 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
           kind: 'let',
           name: letDef.name,
           typeParams: letDef.typeParams,
-          params: letDef.params,
+          params: letParams,
           returnType: letDef.returnType,
           label: `let ${formatFunctionDisplayName(letDef.name, letDef.typeParams)}`,
         },
       });
 
       const paramIndexByName = new Map<string, number>();
-      letDef.params.forEach((param, index) => paramIndexByName.set(param.name, index));
+      letParams.forEach((param, index) => paramIndexByName.set(param.name, index));
       ctx.letSourceRef = { nodeId: letNodeId, paramIndexByName };
 
       const bodySource = parsePipelineExpression(letDef.body, ctx, nextId);

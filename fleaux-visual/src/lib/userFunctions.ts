@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { AliasDeclData, FleauxNodeData, LetData, TypeDeclData } from './types';
+import type { AliasDeclData, FleauxNodeData, FunctionParam, LetData, TypeDeclData } from './types';
 
 /**
  * Extract user-defined functions from let nodes in the graph.
@@ -10,7 +10,7 @@ export interface UserFunctionEntry {
   qualifiedName: string;
   name: string;
   typeParams?: string[];
-  params: { name: string; type: string }[];
+  params: FunctionParam[];
   returnType: string;
 }
 

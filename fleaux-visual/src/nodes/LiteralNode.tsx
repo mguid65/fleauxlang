@@ -84,7 +84,9 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
   };
 
   return (
-    <div className={`rounded-lg border px-4 py-2 shadow-lg min-w-[120px] ${colors}`}>
+    <div className={`rounded-lg border shadow-lg min-w-[120px] ${colors}`}
+         style={{padding: '4px'}}
+    >
       <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${badge} mb-1 inline-block`}>
         {data.valueType}
       </span>

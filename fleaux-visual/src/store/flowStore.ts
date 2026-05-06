@@ -10,7 +10,8 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import { canCreatePipelineEdge } from '../lib/edgeValidation';
-import type { FleauxEdge, FleauxNodeData } from '../lib/types';
+import { formatFunctionDisplayName } from '../lib/functionSignatures';
+import type { FleauxEdge, FleauxNodeData, LetData, UserFuncData } from '../lib/types';
 import { initialNodes, initialEdges } from './initialGraph';
 import { migrateGraphNodes } from '../lib/graphMigration';
 import { serializeGraphToFleaux } from '../lib/graphToFleaux';
@@ -34,6 +35,7 @@ export interface FlowState {
   onConnect: (connection: Connection) => void;
   addNode: (node: Node<FleauxNodeData>) => void;
   updateNodeData: (id: string, data: Partial<FleauxNodeData>) => void;
+  updateLetNodeSignature: (id: string, patch: Partial<Pick<LetData, 'name' | 'typeParams' | 'params' | 'returnType'>>) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
   clearGraph: () => void;
@@ -99,6 +101,86 @@ export const useFlowStore = create<FlowState>()(
       });
     },
 
+    updateLetNodeSignature(id, patch) {
+      set((state) => {
+        const letNode = state.nodes.find((node): node is Node<LetData> => node.id === id && node.data.kind === 'let');
+        if (!letNode) {
+          return;
+        }
+
+        const oldLetData = letNode.data;
+        const nextLetData: LetData = {
+          ...oldLetData,
+          ...patch,
+          name: patch.name ?? oldLetData.name,
+          typeParams: patch.typeParams ?? oldLetData.typeParams,
+          params: patch.params ?? oldLetData.params,
+          returnType: patch.returnType ?? oldLetData.returnType,
+          label: `let ${(patch.name ?? oldLetData.name) || 'Unnamed'}`,
+        };
+
+        const oldParamIdsByIndex = oldLetData.params.map((param) => param.id);
+        const nextParamIndexById = new Map(nextLetData.params.map((param, index) => [param.id, index]));
+
+        const linkedUserFuncNodes = state.nodes.filter(
+          (node): node is Node<UserFuncData> => node.data.kind === 'userFunc' && node.data.functionNodeId === id,
+        );
+        const oldUserFuncParamIdsByNodeId = new Map(
+          linkedUserFuncNodes.map((node) => [node.id, node.data.params.map((param) => param.id)]),
+        );
+
+        letNode.data = nextLetData;
+
+        for (const userFuncNode of linkedUserFuncNodes) {
+          userFuncNode.data = {
+            ...userFuncNode.data,
+            functionName: nextLetData.name,
+            functionNodeId: id,
+            typeParams: nextLetData.typeParams,
+            params: nextLetData.params.map((param) => ({ ...param })),
+            returnType: nextLetData.returnType,
+            label: formatFunctionDisplayName(nextLetData.name, nextLetData.typeParams),
+          };
+        }
+
+        state.edges = state.edges.filter((edge) => {
+          if (edge.source === id && edge.sourceHandle?.startsWith('let-param-')) {
+            const oldIndex = Number.parseInt(edge.sourceHandle.slice('let-param-'.length), 10);
+            if (Number.isNaN(oldIndex)) {
+              return false;
+            }
+            const paramId = oldParamIdsByIndex[oldIndex];
+            const nextIndex = paramId ? nextParamIndexById.get(paramId) : undefined;
+            if (nextIndex === undefined) {
+              return false;
+            }
+            edge.sourceHandle = `let-param-${nextIndex}`;
+            return true;
+          }
+
+          if (edge.targetHandle?.startsWith('userfunc-in-')) {
+            const oldParamIds = oldUserFuncParamIdsByNodeId.get(edge.target);
+            if (!oldParamIds) {
+              return true;
+            }
+            const oldIndex = Number.parseInt(edge.targetHandle.slice('userfunc-in-'.length), 10);
+            if (Number.isNaN(oldIndex)) {
+              return false;
+            }
+            const paramId = oldParamIds[oldIndex];
+            const nextIndex = paramId ? nextParamIndexById.get(paramId) : undefined;
+            if (nextIndex === undefined) {
+              return false;
+            }
+            edge.targetHandle = `userfunc-in-${nextIndex}`;
+            return true;
+          }
+
+          return true;
+        });
+      });
+    },
+
     removeNode(id) {
       set((state) => {
         state.nodes = state.nodes.filter((n) => n.id !== id);
@@ -122,13 +204,14 @@ export const useFlowStore = create<FlowState>()(
     loadGraphFromSource(sourceText) {
       try {
         const imported = importFleauxSourceToGraph(sourceText);
+        const migratedNodes = migrateGraphNodes(imported.nodes as Array<Node<Record<string, unknown>>>);
         set((state) => {
-          state.nodes = imported.nodes;
+          state.nodes = migratedNodes;
           state.edges = imported.edges;
           state.sourceText = sourceText;
           state.wasmOutput = '';
           state.wasmStatus = 'success';
-          state.wasmMessage = `Loaded ${imported.nodes.length} nodes from source`;
+          state.wasmMessage = `Loaded ${migratedNodes.length} nodes from source`;
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

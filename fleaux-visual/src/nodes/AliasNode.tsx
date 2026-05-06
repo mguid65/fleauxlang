@@ -20,7 +20,9 @@ export function AliasNode({ data, id }: NodeProps<Node<AliasDeclData>>) {
   };
 
   return (
-    <div className="rounded-lg border border-lime-500 bg-lime-950 text-lime-100 px-4 py-3 shadow-lg min-w-[240px] max-w-[320px]">
+    <div className="rounded-lg border border-lime-500 bg-lime-950 text-lime-100 shadow-lg min-w-60 max-w-[320px]"
+         style={{padding: '4px'}}
+    >
       <div className="text-[10px] font-bold text-lime-300 mb-1">ALIAS DECL</div>
       <input
         value={data.name}
