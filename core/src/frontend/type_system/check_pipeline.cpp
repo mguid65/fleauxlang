@@ -54,7 +54,7 @@ auto match_handler_return_type(const Type& handler_type, const Type& subject_typ
                                      span));
   }
 
-  return **handler_type.function_return;
+  return *handler_type.function_return;
 }
 
 auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_type,
@@ -200,7 +200,7 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 
   if (func_type->kind == TypeKind::kFunction && callable_has_fixed_arity(*func_type, 0U) &&
       func_type->function_return.has_value()) {
-    return **func_type->function_return;
+    return *func_type->function_return;
   }
 
   return std::nullopt;

@@ -55,7 +55,7 @@ auto callable_returns_type(const Type& callable_type, const Type& expected_retur
   if (!callable_type.function_return.has_value()) {
     return true;
   }
-  return is_consistent(expected_return, **callable_type.function_return);
+  return is_consistent(expected_return, *callable_type.function_return);
 }
 
 }  // namespace fleaux::frontend::type_system

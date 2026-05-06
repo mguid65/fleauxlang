@@ -167,7 +167,8 @@ if(BUILD_TESTING)
 
   add_executable(fleaux_common_tests
       tests/test_main.cpp
-      tests/embedded_resource_tests.cpp)
+      tests/embedded_resource_tests.cpp
+      tests/indirect_optional_tests.cpp)
   target_link_libraries(fleaux_common_tests PRIVATE Catch2::Catch2 fleaux_common)
 
   catch_discover_tests(fleaux_common_tests

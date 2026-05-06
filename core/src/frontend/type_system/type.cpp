@@ -112,7 +112,7 @@ auto type_sort_key(const Type& type) -> std::string {
       }
       key += ")->";
       if (type.function_return.has_value()) {
-        key += type_sort_key(**type.function_return);
+        key += type_sort_key(*type.function_return);
       } else {
         key += "Any";
       }
@@ -153,7 +153,7 @@ auto normalize_type(Type type) -> Type {
   }
 
   if (type.function_return.has_value()) {
-    type.function_return = make_box<Type>(normalize_type(std::move(**type.function_return)));
+    type.function_return = common::make_indirect_optional<Type>(normalize_type(std::move(*type.function_return)));
   }
 
   if (type.kind != TypeKind::kUnion) {
@@ -224,7 +224,7 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
     for (const auto& param_type : type.function_sig->param_types) {
       out.function_params.push_back(from_ir_type(param_type));
     }
-    out.function_return = make_box<Type>(from_ir_type(*type.function_sig->return_type));
+    out.function_return = common::make_indirect_optional<Type>(from_ir_type(*type.function_sig->return_type));
     return normalize_type(std::move(out));
   }
 
@@ -380,8 +380,8 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
       }
     }
 
-    return is_consistent(**expected.function_return, **actual.function_return) &&
-           is_consistent(**actual.function_return, **expected.function_return);
+    return is_consistent(*expected.function_return, *actual.function_return) &&
+           is_consistent(*actual.function_return, *expected.function_return);
   }
 
   return expected.kind == actual.kind;
