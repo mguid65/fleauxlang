@@ -126,11 +126,11 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
     REQUIRE(callable.function_params[1].kind == TypeKind::kString);
     REQUIRE(callable.function_params[1].variadic);
     REQUIRE(callable.function_return.has_value());
-    REQUIRE((**callable.function_return).kind == TypeKind::kApplied);
-    REQUIRE((**callable.function_return).applied_name == "Dict");
-    REQUIRE((**callable.function_return).applied_args.size() == 2);
-    REQUIRE((**callable.function_return).applied_args[0].kind == TypeKind::kString);
-    REQUIRE((**callable.function_return).applied_args[1].kind == TypeKind::kFloat64);
+    REQUIRE((*callable.function_return).kind == TypeKind::kApplied);
+    REQUIRE((*callable.function_return).applied_name == "Dict");
+    REQUIRE((*callable.function_return).applied_args.size() == 2);
+    REQUIRE((*callable.function_return).applied_args[0].kind == TypeKind::kString);
+    REQUIRE((*callable.function_return).applied_args[1].kind == TypeKind::kFloat64);
 
     REQUIRE(structured_union.kind == TypeKind::kUnion);
     REQUIRE(structured_union.union_members.size() == 2);
@@ -178,7 +178,9 @@ TEST_CASE("Type consistency handles unions tuples applied names and function sig
 
   const auto mk_function = [](std::vector<Type> params, std::optional<Type> return_type) -> Type {
     Type out{.kind = TypeKind::kFunction, .function_params = std::move(params)};
-    if (return_type.has_value()) { out.function_return = fleaux::frontend::make_box<Type>(std::move(*return_type)); }
+    if (return_type.has_value()) {
+      out.function_return = fleaux::common::make_indirect_optional<Type>(std::move(*return_type));
+    }
     return out;
   };
 

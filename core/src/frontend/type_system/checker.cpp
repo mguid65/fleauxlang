@@ -31,7 +31,7 @@ auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -
     collect_type_vars(param, out);
   }
   if (type.function_return.has_value()) {
-    collect_type_vars(**type.function_return, out);
+    collect_type_vars(*type.function_return, out);
   }
 }
 
@@ -93,7 +93,7 @@ auto is_type_resolved(const Type& type, const TypeBindings& bindings,
     }
   }
   if (type.function_return.has_value() &&
-      !is_type_resolved(**type.function_return, bindings, allowed_unbound, visiting, resolved_cache)) {
+      !is_type_resolved(*type.function_return, bindings, allowed_unbound, visiting, resolved_cache)) {
     return false;
   }
   return true;
@@ -142,7 +142,7 @@ auto collect_unbound_type_vars(const Type& type, const TypeBindings& bindings, s
     collect_unbound_type_vars(param, bindings, out);
   }
   if (type.function_return.has_value()) {
-    collect_unbound_type_vars(**type.function_return, bindings, out);
+    collect_unbound_type_vars(*type.function_return, bindings, out);
   }
 }
 
@@ -240,7 +240,7 @@ auto type_debug_name(const Type& type) -> std::string {
         }
       }
       out += ") => ";
-      out += type.function_return.has_value() ? type_debug_name(**type.function_return) : "Any";
+      out += type.function_return.has_value() ? type_debug_name(*type.function_return) : "Any";
       return out;
     }
     default:
@@ -414,12 +414,12 @@ auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_stro
     param.variadic = variadic;
   }
   if (expanded.function_return.has_value()) {
-    auto resolved_return = expand_aliases_in_type_impl(**expanded.function_return, known_strong_type_names, alias_index,
+    auto resolved_return = expand_aliases_in_type_impl(*expanded.function_return, known_strong_type_names, alias_index,
                                                        generic_params, span, visiting, resolved_cache);
     if (!resolved_return) {
       return tl::unexpected(resolved_return.error());
     }
-    expanded.function_return = make_box<Type>(*resolved_return);
+    expanded.function_return = common::make_indirect_optional<Type>(*resolved_return);
   }
 
   return normalize_type(std::move(expanded));
@@ -479,7 +479,7 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
         }
       }
       if (expanded->function_return.has_value()) {
-        return validate_declared_type_against_names(**expanded->function_return, known_strong_type_names, alias_index,
+        return validate_declared_type_against_names(*expanded->function_return, known_strong_type_names, alias_index,
                                                     generic_params, span);
       }
       return {};
@@ -528,7 +528,7 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
     param_type.variadic = param.variadic;
     out.function_params.push_back(std::move(param_type));
   }
-  out.function_return = make_box<Type>(sig.return_type);
+  out.function_return = common::make_indirect_optional<Type>(sig.return_type);
   return out;
 }
 
@@ -974,7 +974,7 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
     param = rewrite_generic_type(param, generic_params);
   }
   if (out.function_return.has_value()) {
-    out.function_return = make_box<Type>(rewrite_generic_type(**out.function_return, generic_params));
+    out.function_return = common::make_indirect_optional<Type>(rewrite_generic_type(*out.function_return, generic_params));
   }
 
   return out;
@@ -995,7 +995,7 @@ auto type_complexity(const Type& type) -> std::size_t {
     total += type_complexity(param);
   }
   if (type.function_return.has_value()) {
-    total += type_complexity(**type.function_return);
+    total += type_complexity(*type.function_return);
   }
   return total;
 }
@@ -1120,7 +1120,8 @@ auto instantiate_generic_type(const Type& type, const TypeBindings& bindings) ->
     param.variadic = variadic;
   }
   if (out.function_return.has_value()) {
-    out.function_return = make_box<Type>(instantiate_generic_type(**out.function_return, bindings));
+    out.function_return =
+        common::make_indirect_optional<Type>(instantiate_generic_type(*out.function_return, bindings));
   }
   return normalize_type(std::move(out));
 }
@@ -1148,7 +1149,7 @@ auto bind_function_type(const Type& expected, const Type& actual, TypeBindings& 
   if (!expected.function_return.has_value()) {
     return true;
   }
-  return bind_generic_type(**expected.function_return, **actual.function_return, bindings);
+  return bind_generic_type(*expected.function_return, *actual.function_return, bindings);
 }
 
 auto bind_generic_type(const Type& expected, const Type& actual, TypeBindings& bindings) -> bool {

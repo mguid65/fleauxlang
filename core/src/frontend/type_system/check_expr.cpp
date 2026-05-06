@@ -34,7 +34,8 @@ auto instantiate_type_preserving_unbound(const Type& type, const TypeBindings& b
     param.variadic = variadic;
   }
   if (out.function_return.has_value()) {
-    out.function_return = make_box<Type>(instantiate_type_preserving_unbound(**out.function_return, bindings));
+    out.function_return =
+        common::make_indirect_optional<Type>(instantiate_type_preserving_unbound(*out.function_return, bindings));
   }
   return normalize_type(std::move(out));
 }

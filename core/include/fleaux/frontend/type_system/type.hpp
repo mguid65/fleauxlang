@@ -1,11 +1,10 @@
 #pragma once
 
-#include <optional>
 #include <string>
 #include <vector>
 
+#include "fleaux/common/indirect_optional.hpp"
 #include "fleaux/frontend/ast.hpp"
-#include "fleaux/frontend/box.hpp"
 
 namespace fleaux::frontend::type_system {
 
@@ -36,7 +35,7 @@ struct Type {
   std::string applied_name;
   std::vector<Type> applied_args;
   std::vector<Type> function_params;
-  std::optional<Box<Type>> function_return;
+  common::IndirectOptional<Type> function_return;
 };
 
 [[nodiscard]] auto normalize_type(Type type) -> Type;

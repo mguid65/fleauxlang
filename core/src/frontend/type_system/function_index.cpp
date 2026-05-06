@@ -32,7 +32,7 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
     param = rewrite_generic_type(param, generic_params);
   }
   if (out.function_return.has_value()) {
-    out.function_return = make_box<Type>(rewrite_generic_type(**out.function_return, generic_params));
+    out.function_return = common::make_indirect_optional<Type>(rewrite_generic_type(*out.function_return, generic_params));
   }
 
   return out;
