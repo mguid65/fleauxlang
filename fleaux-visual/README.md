@@ -88,6 +88,21 @@ bash scripts/deploy-gh-pages.sh --dry-run
 Important note:
 
 - The deployed site serves the committed assets in `public/`, including `public/wasm/`. If you rebuild the WASM coordinator locally, commit the updated files before deploying.
+- The build also ships `public/coi-serviceworker.js`. On GitHub Pages, the first secure-page load may register that service worker and then reload once before threaded WASM becomes available. This is expected.
+- The service worker must be reachable at the deployed site root for its scope. For a repo Pages deployment, Vite's `base` must stay aligned with the repository path so `%BASE_URL%coi-serviceworker.js` resolves under that site root.
+
+Local static-host verification without real response headers:
+
+```bash
+cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
+VITE_BASE_PATH=/fleauxlang/ npm run build:pages
+tmpdir="$(mktemp -d)"
+mkdir -p "$tmpdir/fleauxlang"
+cp -R dist/. "$tmpdir/fleauxlang/"
+python3 -m http.server 4173 --directory "$tmpdir"
+```
+
+Then open `http://127.0.0.1:4173/fleauxlang/`. The page may reload once after registering the service worker.
 
 ## Current Features
 
