@@ -11,6 +11,7 @@
     "wasm:build": "cmake --build ../core/cmake-build-wasm/Release --target fleaux_wasm_coordinator",
     "wasm:smoke": "npm run wasm:configure && npm run wasm:build",
     "test:wasm": "npm run wasm:smoke && playwright test tests/wasm-coordinator.spec.ts",
+    "samples:roundtrip": "node scripts/roundtrip-samples.mjs",
     "test:wasm:install": "playwright install chromium",
     "typecheck": "tsc -b --pretty",
     "build": "npm run generate:std && tsc -b && vite build",

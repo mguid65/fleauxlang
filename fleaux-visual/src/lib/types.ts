@@ -4,9 +4,13 @@ import type { Edge } from '@xyflow/react';
 
 export type FleauxNodeKind =
   | 'literal'   // A constant value: number, string, bool, null
+  | 'wildcard'  // Match wildcard pattern value `_`
+  | 'typeDecl'  // type Name = TargetType
+  | 'aliasDecl' // alias Name = TargetType
   | 'let'       // let FunctionName(params): ReturnType = expr
   | 'closure'   // (params): ReturnType = expr — inline anonymous function
   | 'import'    // import ModuleName
+  | 'rawSource' // Opaque top-level statement preserved verbatim for round-trip fidelity
   | 'tuple'     // (a, b, c) — argument grouping
   | 'stdValue'  // A concrete Std constant/value symbol
   | 'stdFunc'   // A concrete Std built-in function call node
@@ -28,6 +32,25 @@ export interface LiteralData extends FleauxNodeDataBase {
   value: string;
 }
 
+export interface WildcardData extends FleauxNodeDataBase {
+  kind: 'wildcard';
+}
+
+export type TypeDeclarationSeparator = '=' | '::';
+
+export interface TypeDeclData extends FleauxNodeDataBase {
+  kind: 'typeDecl';
+  name: string;
+  targetType: string;
+  separator: TypeDeclarationSeparator;
+}
+
+export interface AliasDeclData extends FleauxNodeDataBase {
+  kind: 'aliasDecl';
+  name: string;
+  targetType: string;
+}
+
 export interface LetData extends FleauxNodeDataBase {
   kind: 'let';
   name: string;
@@ -39,6 +62,11 @@ export interface LetData extends FleauxNodeDataBase {
 export interface ImportData extends FleauxNodeDataBase {
   kind: 'import';
   moduleName: string;
+}
+
+export interface RawSourceData extends FleauxNodeDataBase {
+  kind: 'rawSource';
+  statementText: string;
 }
 
 export interface TupleData extends FleauxNodeDataBase {
@@ -58,6 +86,7 @@ export interface StdFuncData extends FleauxNodeDataBase {
   qualifiedName: string;
   namespace: string;
   typeParams?: string[];
+  appliedTypeArgs?: string[];
   params: { name: string; type: string }[];
   returnType: string;
   signatureKey?: string;
@@ -77,6 +106,7 @@ export interface UserFuncData extends FleauxNodeDataBase {
   functionName: string;
   functionNodeId: string;
   typeParams?: string[];
+  appliedTypeArgs?: string[];
   params: { name: string; type: string }[];
   returnType: string;
   // True when node represents a function value/reference, not a call invocation.
@@ -91,8 +121,12 @@ export interface ClosureData extends FleauxNodeDataBase {
 
 export type FleauxNodeData =
   | LiteralData
+  | WildcardData
+  | TypeDeclData
+  | AliasDeclData
   | LetData
   | ImportData
+  | RawSourceData
   | TupleData
   | StdValueData
   | StdFuncData
@@ -105,6 +139,8 @@ export type FleauxEdgeKind = 'pipeline';
 
 export interface FleauxEdgeData extends Record<string, unknown> {
   kind: FleauxEdgeKind;
+  bodySourceNodeId?: string;
+  bodySourceHandle?: string;
 }
 
 export type FleauxEdge = Edge<FleauxEdgeData>;

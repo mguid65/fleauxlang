@@ -31,4 +31,16 @@ function detectGitHubPagesBasePath(): string {
 export default defineConfig({
   base: normalizeBasePath(process.env.VITE_BASE_PATH ?? (process.env.GITHUB_ACTIONS ? detectGitHubPagesBasePath() : '/')),
   plugins: [react(), tailwindcss()],
+  server: {
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
+  },
 })

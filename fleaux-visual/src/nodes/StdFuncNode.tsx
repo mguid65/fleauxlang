@@ -27,7 +27,7 @@ export function StdFuncNode({ data }: NodeProps<Node<StdFuncData>>) {
   }
 
   const nodeTitle = data.displayName
-    ?? formatFunctionDisplayName(data.qualifiedName, data.typeParams);
+    ?? formatFunctionDisplayName(data.qualifiedName, data.appliedTypeArgs ?? data.typeParams);
 
   return (
     <div 

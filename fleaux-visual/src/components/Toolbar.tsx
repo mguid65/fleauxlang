@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { useFlowStore } from '../store/flowStore';
 import type { FleauxNodeData } from '../lib/types';
 import type { Node } from '@xyflow/react';
-import { extractUserFunctions } from '../lib/userFunctions';
+import { extractUserAliases, extractUserFunctions, extractUserTypes } from '../lib/userFunctions';
 import {
   STD_BY_NAMESPACE,
   STD_FUNCTIONS,
@@ -142,6 +142,8 @@ export function Toolbar() {
   const hasQuery = lq.length > 0;
   const nodes = useFlowStore((s) => s.nodes);
   const userFunctions = extractUserFunctions(nodes);
+  const userTypes = extractUserTypes(nodes);
+  const userAliases = extractUserAliases(nodes);
   const isRunningWasm = wasmStatus === 'running';
   const handleLoadFile = async (evt: ChangeEvent<HTMLInputElement>) => {
     const file = evt.target.files?.[0];
@@ -168,6 +170,10 @@ export function Toolbar() {
       <div className="text-[10px] text-slate-500 uppercase tracking-wider">Primitives</div>
       <button onClick={() => addPrimitive({ type: 'importNode', data: { kind: 'import', moduleName: 'Std', label: 'import Std' } })}
         className="text-xs font-mono border border-teal-600 text-teal-300 hover:bg-teal-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Import</button>
+      <button onClick={() => addPrimitive({ type: 'typeNode', data: { kind: 'typeDecl', name: 'MyType', targetType: 'Any', separator: '=', label: 'type MyType = Any' } })}
+        className="text-xs font-mono border border-cyan-600 text-cyan-300 hover:bg-cyan-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Type</button>
+      <button onClick={() => addPrimitive({ type: 'aliasNode', data: { kind: 'aliasDecl', name: 'MyAlias', targetType: 'Any', label: 'alias MyAlias = Any' } })}
+        className="text-xs font-mono border border-lime-600 text-lime-300 hover:bg-lime-950 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Alias</button>
       <button onClick={() => addPrimitive({ type: 'letNode', data: { kind: 'let', name: 'MyFunc', params: [], returnType: 'Any', label: 'let MyFunc' } })}
         className="text-xs font-mono border border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900 rounded px-3 py-1.5 transition-colors cursor-pointer">+ Let</button>
       <button onClick={() => addPrimitive({ type: 'closureNode', data: { kind: 'closure', params: [{ name: 'x', type: 'Any' }], returnType: 'Any', label: '(x: Any): Any' } })}
@@ -210,6 +216,40 @@ export function Toolbar() {
                 typeParams: uf.typeParams,
               })}
             </button>
+          ))}
+          <div className="border-t border-[#2d3148] my-1" />
+        </>
+      )}
+
+      {userTypes.length > 0 && (
+        <>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-2">User Types</div>
+          {userTypes.map((entry) => (
+            <div
+              key={entry.nodeId}
+              className="text-[11px] font-mono border border-cyan-800 text-cyan-200 bg-cyan-950/30 rounded px-2 py-1"
+              title={'type ' + entry.name + ' ' + entry.separator + ' ' + entry.targetType}
+            >
+              <div className="font-bold">{entry.name}</div>
+              <div className="text-[10px] opacity-70">{entry.separator + ' ' + entry.targetType}</div>
+            </div>
+          ))}
+          <div className="border-t border-[#2d3148] my-1" />
+        </>
+      )}
+
+      {userAliases.length > 0 && (
+        <>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-2">User Aliases</div>
+          {userAliases.map((entry) => (
+            <div
+              key={entry.nodeId}
+              className="text-[11px] font-mono border border-lime-800 text-lime-200 bg-lime-950/30 rounded px-2 py-1"
+              title={'alias ' + entry.name + ' = ' + entry.targetType}
+            >
+              <div className="font-bold">{entry.name}</div>
+              <div className="text-[10px] opacity-70">{'= ' + entry.targetType}</div>
+            </div>
           ))}
           <div className="border-t border-[#2d3148] my-1" />
         </>

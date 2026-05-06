@@ -8,8 +8,10 @@ type PipelineLinkCandidate = {
   targetHandle?: string | null;
 };
 
+const NON_PIPELINE_NODE_KINDS = new Set(['import', 'typeDecl', 'aliasDecl']);
+
 // Pipeline edges are directional; keep graph clean by rejecting self-loops,
-// duplicate source->target links, and any edge involving an import node.
+// duplicate source->target links, and any edge involving a declaration-only node.
 export function canCreatePipelineEdge(
   candidate: PipelineLinkCandidate,
   edges: FleauxEdge[],
@@ -25,7 +27,10 @@ export function canCreatePipelineEdge(
 
   const sourceNode = nodes.find((n) => n.id === candidate.source);
   const targetNode = nodes.find((n) => n.id === candidate.target);
-  if (sourceNode?.data.kind === 'import' || targetNode?.data.kind === 'import') {
+  if (
+    (sourceNode && NON_PIPELINE_NODE_KINDS.has(sourceNode.data.kind))
+    || (targetNode && NON_PIPELINE_NODE_KINDS.has(targetNode.data.kind))
+  ) {
     return false;
   }
 

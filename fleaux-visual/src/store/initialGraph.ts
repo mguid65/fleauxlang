@@ -158,6 +158,7 @@ export const initialEdges: FleauxEdge[] = [
     id: 'e-add-println',
     source: 'user-add-call',
     target: 'std-println',
+    targetHandle: 'stdfunc-in-0',
     animated: true,
     data: { kind: 'pipeline' },
   },

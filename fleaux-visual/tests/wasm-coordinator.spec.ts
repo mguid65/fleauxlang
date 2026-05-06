@@ -140,3 +140,4 @@ test('returns a clear unsupported-result payload for Std.OS.Exec on web', async 
     expect(result.value.output).toContain('Std.OS.Exec is unavailable on web/WASM targets');
   }
 });
+

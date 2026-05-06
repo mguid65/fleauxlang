@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react';
-import type { FleauxNodeData, LetData } from './types';
+import type { AliasDeclData, FleauxNodeData, LetData, TypeDeclData } from './types';
 
 /**
  * Extract user-defined functions from let nodes in the graph.
@@ -12,6 +12,19 @@ export interface UserFunctionEntry {
   typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
+}
+
+export interface UserTypeEntry {
+  nodeId: string;
+  name: string;
+  targetType: string;
+  separator: '=' | '::';
+}
+
+export interface UserAliasEntry {
+  nodeId: string;
+  name: string;
+  targetType: string;
 }
 
 export function extractUserFunctions(nodes: Node<FleauxNodeData>[]): UserFunctionEntry[] {
@@ -32,5 +45,40 @@ export function extractUserFunctions(nodes: Node<FleauxNodeData>[]): UserFunctio
   }
 
   return userFuncs;
+}
+
+export function extractUserTypes(nodes: Node<FleauxNodeData>[]): UserTypeEntry[] {
+  const userTypes: UserTypeEntry[] = [];
+
+  for (const node of nodes) {
+    if (node.data.kind === 'typeDecl') {
+      const typeData = node.data as TypeDeclData;
+      userTypes.push({
+        nodeId: node.id,
+        name: typeData.name,
+        targetType: typeData.targetType,
+        separator: typeData.separator,
+      });
+    }
+  }
+
+  return userTypes;
+}
+
+export function extractUserAliases(nodes: Node<FleauxNodeData>[]): UserAliasEntry[] {
+  const userAliases: UserAliasEntry[] = [];
+
+  for (const node of nodes) {
+    if (node.data.kind === 'aliasDecl') {
+      const aliasData = node.data as AliasDeclData;
+      userAliases.push({
+        nodeId: node.id,
+        name: aliasData.name,
+        targetType: aliasData.targetType,
+      });
+    }
+  }
+
+  return userAliases;
 }
 
