@@ -7,22 +7,48 @@
     <script>
       (function () {
         const scope = '%BASE_URL%';
+        const serviceWorkerUrl = scope + 'coi-serviceworker.js';
+        const reloadMarkerKey = 'fleaux:coi-reload-pending';
 
         if (!window.isSecureContext || window.crossOriginIsolated || !('serviceWorker' in navigator)) {
+          if (window.crossOriginIsolated) {
+            sessionStorage.removeItem(reloadMarkerKey);
+          }
           return;
         }
 
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register(scope + 'coi-serviceworker.js', { scope }).then(function (registration) {
-            console.log('COI service worker registered.', registration.scope);
+        function reloadOnce() {
+          if (sessionStorage.getItem(reloadMarkerKey) === '1') {
+            return;
+          }
 
-            if (registration.active && !navigator.serviceWorker.controller) {
-              window.location.reload();
+          sessionStorage.setItem(reloadMarkerKey, '1');
+          window.location.reload();
+        }
+
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (!window.crossOriginIsolated) {
+            reloadOnce();
+          }
+        });
+
+        navigator.serviceWorker.register(serviceWorkerUrl, { scope }).then(function (registration) {
+          console.log('COI service worker registered.', registration.scope);
+
+          if (registration.active && !navigator.serviceWorker.controller) {
+            reloadOnce();
+            return registration;
+          }
+
+          return navigator.serviceWorker.ready.then(function () {
+            if (!window.crossOriginIsolated) {
+              reloadOnce();
             }
-          }).catch(function (error) {
+            return registration;
+          });
+        }).catch(function (error) {
             console.error('COI service worker registration failed.', error);
           });
-        });
       })();
     </script>
   </head>
