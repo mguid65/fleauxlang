@@ -51,3 +51,18 @@ TEST_CASE("All opcodes can be serialized", "[bytecode][opcodes][stringify]") {
     REQUIRE(dumped.find(std::string{expected_name}) != std::string::npos);
   }
 }
+
+TEST_CASE("Invalid opcodes stringify safely and disassemble without throwing", "[bytecode][opcodes][stringify]") {
+  using namespace fleaux::bytecode;
+
+  constexpr auto kInvalidOpcode = static_cast<Opcode>(9999);
+  REQUIRE(stringify_opcode(kInvalidOpcode) == "<invalid-opcode>");
+
+  Module module;
+  module.instructions = {{.opcode = kInvalidOpcode, .operand = 0}};
+
+  std::ostringstream dump;
+  const auto disassembly = disassemble_module(module, dump);
+  REQUIRE(disassembly.has_value());
+  REQUIRE(dump.str().find("<invalid-opcode>") != std::string::npos);
+}

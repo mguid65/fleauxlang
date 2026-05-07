@@ -1098,6 +1098,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
       case bytecode::Opcode::kHalt:
         return LoopExit{std::monostate{}};
+      default:
+        return tl::unexpected(RuntimeError{.message = std::format("invalid opcode {}", static_cast<int>(opcode))});
     }
   }
 

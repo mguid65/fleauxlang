@@ -206,21 +206,24 @@ void write_instruction_stream(std::vector<std::uint8_t>& buffer, const std::vect
 }
 
 auto read_instruction_stream(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
-                             std::vector<Instruction>& instructions) -> bool {
+                             std::vector<Instruction>& instructions) -> std::optional<std::string> {
   std::uint32_t count = 0;
   if (!read_pod(buffer, offset, count)) {
-    return false;
+    return "Cannot read instruction count";
   }
   instructions.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
     std::uint32_t opcode_val = 0;
     std::int64_t operand = 0;
     if (!read_pod(buffer, offset, opcode_val) || !read_pod(buffer, offset, operand)) {
-      return false;
+      return std::format("Cannot read instruction {}", i);
+    }
+    if (!opcode_index_is_valid(static_cast<std::size_t>(opcode_val))) {
+      return std::format("Invalid opcode value {} at instruction {}", opcode_val, i);
     }
     instructions.push_back({.opcode = static_cast<Opcode>(opcode_val), .operand = operand});
   }
-  return true;
+  return std::nullopt;
 }
 
 void write_string_list(std::vector<std::uint8_t>& buffer, const std::vector<std::string>& list) {
@@ -445,8 +448,9 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     }
   }
 
-  if (!read_instruction_stream(buffer, offset, deserialized.instructions)) {
-    return tl::unexpected(SerializationError{.message = "Cannot read instruction stream"});
+  if (const auto instruction_error = read_instruction_stream(buffer, offset, deserialized.instructions);
+      instruction_error.has_value()) {
+    return tl::unexpected(SerializationError{.message = *instruction_error});
   }
 
   {
@@ -473,9 +477,15 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     for (std::uint32_t i = 0; i < count; ++i) {
       FunctionDef fn;
       if (!read_string(buffer, offset, fn.name) || !read_pod(buffer, offset, fn.arity) ||
-          !read_pod(buffer, offset, fn.has_variadic_tail) || !read_pod(buffer, offset, fn.is_import_placeholder) ||
-          !read_instruction_stream(buffer, offset, fn.instructions) ||
-          !read_string_list(buffer, offset, fn.generic_params) ||
+          !read_pod(buffer, offset, fn.has_variadic_tail) || !read_pod(buffer, offset, fn.is_import_placeholder)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read function"});
+      }
+      if (const auto instruction_error = read_instruction_stream(buffer, offset, fn.instructions);
+          instruction_error.has_value()) {
+        return tl::unexpected(SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name,
+                                                                        *instruction_error)});
+      }
+      if (!read_string_list(buffer, offset, fn.generic_params) ||
           !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }

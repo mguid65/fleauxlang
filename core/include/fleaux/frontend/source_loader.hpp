@@ -20,13 +20,21 @@
 
 namespace fleaux::frontend::source_loader {
 
-[[nodiscard]] inline auto read_text_file(const std::filesystem::path& file) -> std::string {
+struct TextFileReadError {
+  std::string message;
+};
+
+[[nodiscard]] inline auto read_text_file(const std::filesystem::path& file)
+    -> tl::expected<std::string, TextFileReadError> {
   std::ifstream in(file);
   if (!in) {
-    return {};
+    return tl::unexpected(TextFileReadError{.message = "Failed to read source file: " + file.string()});
   }
   std::ostringstream buffer;
   buffer << in.rdbuf();
+  if (!in.good() && !in.eof()) {
+    return tl::unexpected(TextFileReadError{.message = "Failed to read source file: " + file.string()});
+  }
   return buffer.str();
 }
 
@@ -129,26 +137,26 @@ template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto parse_file_to_ir(const std::filesystem::path& source_file, ErrorFactory&& make_error)
     -> tl::expected<ir::IRProgram, ErrorT> {
   const auto source_text = read_text_file(source_file);
-  if (source_text.empty()) {
-    return tl::unexpected(make_error("Failed to read source file.",
-                                     std::optional<std::string>{"Check the file path and ensure it is not empty."},
+  if (!source_text) {
+    return tl::unexpected(make_error(source_text.error().message,
+                                     std::optional<std::string>{"Check the file path and permissions."},
                                      std::nullopt));
   }
 
-  return parse_text_to_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
+  return parse_text_to_ir<ErrorT>(*source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
 }
 
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto parse_file_to_lowered_ir(const std::filesystem::path& source_file, ErrorFactory&& make_error)
     -> tl::expected<ir::IRProgram, ErrorT> {
   const auto source_text = read_text_file(source_file);
-  if (source_text.empty()) {
-    return tl::unexpected(make_error("Failed to read source file.",
-                                     std::optional<std::string>{"Check the file path and ensure it is not empty."},
+  if (!source_text) {
+    return tl::unexpected(make_error(source_text.error().message,
+                                     std::optional<std::string>{"Check the file path and permissions."},
                                      std::nullopt));
   }
 
-  return parse_text_to_lowered_ir<ErrorT>(source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
+  return parse_text_to_lowered_ir<ErrorT>(*source_text, source_file.string(), std::forward<ErrorFactory>(make_error));
 }
 
 [[nodiscard]] inline auto cached_lowered_symbolic_std_program() -> const tl::expected<ir::IRProgram, std::string>& {

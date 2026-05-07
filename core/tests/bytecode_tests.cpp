@@ -2389,6 +2389,81 @@ TEST_CASE("Bytecode deserialization rejects payload checksum mismatch", "[byteco
   REQUIRE(result.error().message.find("checksum") != std::string::npos);
 }
 
+TEST_CASE("Bytecode deserialization rejects invalid opcode values", "[bytecode][serialization][opcodes]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {{static_cast<fleaux::bytecode::Opcode>(9999), 0}};
+
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+
+  const auto result = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Invalid opcode value 9999") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader accepts empty entry source files", "[bytecode][loader][empty]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_empty_entry_module";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "empty_entry.fleaux";
+  {
+    std::ofstream out(entry_path);
+    REQUIRE(out.good());
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  if (!loaded) {
+    INFO(loaded.error().message);
+  }
+  REQUIRE(loaded.has_value());
+  REQUIRE(loaded->header.source_path == entry_path.string());
+
+  std::ostringstream output;
+  constexpr fleaux::vm::Runtime runtime;
+  const auto executed = runtime.execute(*loaded, output);
+  if (!executed) {
+    INFO(executed.error().message);
+  }
+  REQUIRE(executed.has_value());
+  REQUIRE(output.str().empty());
+}
+
+TEST_CASE("Bytecode module loader accepts imported empty source files", "[bytecode][loader][empty][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_empty_import_module";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dep_path = temp_dir / "empty_dep.fleaux";
+  {
+    std::ofstream out(dep_path);
+    REQUIRE(out.good());
+  }
+
+  const auto entry_path = temp_dir / "entry.fleaux";
+  {
+    std::ofstream out(entry_path);
+    REQUIRE(out.good());
+    out << "import empty_dep;\n";
+    REQUIRE(out.good());
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  if (!loaded) {
+    INFO(loaded.error().message);
+  }
+  REQUIRE(loaded.has_value());
+
+  std::ostringstream output;
+  constexpr fleaux::vm::Runtime runtime;
+  const auto executed = runtime.execute(*loaded, output);
+  if (!executed) {
+    INFO(executed.error().message);
+  }
+  REQUIRE(executed.has_value());
+  REQUIRE(output.str().empty());
+}
+
 TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", "[bytecode][serialization]") {
   const std::string source_text =
       "import Std;\n"

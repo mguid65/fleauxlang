@@ -1,12 +1,12 @@
 #include "fleaux/frontend/parser.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cstdint>
 #include <format>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -53,9 +53,9 @@ struct Token {
   [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
 };
 
-const std::unordered_set<std::string> kKeywords = {"let",    "import", "type",      "alias", "Int64",
-                                                   "UInt64", "Float64", "String",    "Bool",  "Null",
-                                                   "Any",    "Tuple",  "__builtin__"};
+const std::unordered_set<std::string> kKeywords = {"let",    "import",  "type",       "alias", "Int64",
+                                                   "UInt64", "Float64", "String",     "Bool",  "Null",
+                                                   "Any",    "Tuple",   "__builtin__"};
 
 const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "alias", "__builtin__"};
 
@@ -962,33 +962,68 @@ private:
       model::Constant c;
       const bool is_u64 = num.value.ends_with("u64");
       const std::string digits = is_u64 ? num.value.substr(0, num.value.size() - 3) : num.value;
-      try {
-        if (is_u64) {
-          if (negate) {
-            return tl::unexpected(
-                err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
-          }
-          if (digits.find_first_of(".eE") != std::string::npos) {
-            return tl::unexpected(
-                err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
-          }
-          const auto parsed = std::stoull(digits);
-          if (parsed > std::numeric_limits<std::uint64_t>::max()) {
-            return tl::unexpected(err("Numeric literal is out of range", num, "Use a smaller UInt64 literal."));
-          }
-          c.val = static_cast<std::uint64_t>(parsed);
-        } else if (digits.find_first_of(".eE") != std::string::npos) {
-          const double parsed = std::stod(digits);
-          c.val = negate ? -parsed : parsed;
-        } else {
-          const std::int64_t parsed = std::stoll(digits);
-          c.val = negate ? -parsed : parsed;
+      const auto parse_uint64_literal = [&](const std::string& text) -> PResult<std::uint64_t> {
+        std::uint64_t result{0};
+        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid UInt64 literal."));
         }
-      } catch (const std::out_of_range&) {
-        return tl::unexpected(err("Numeric literal is out of range", num,
-                                  "Use a smaller value or write the literal as Float64 if appropriate."));
-      } catch (const std::invalid_argument&) {
-        return tl::unexpected(err("Invalid numeric literal", num, "Check number formatting."));
+        if (ec == std::errc::result_out_of_range) {
+          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of UInt64."));
+        }
+        return result;
+      };
+      const auto parse_int64_literal = [&](const std::string& text) -> PResult<std::int64_t> {
+        std::int64_t result{0};
+        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Int64 literal."));
+        }
+        if (ec == std::errc::result_out_of_range) {
+          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
+        }
+        return result;
+      };
+      const auto parse_float64_literal = [&](const std::string& text) -> PResult<double> {
+        double result{0.0};
+        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Float64 literal."));
+        }
+        if (ec == std::errc::result_out_of_range) {
+          return tl::unexpected(
+              err("Numeric literal is out of range", num, "Use a value within the range of Float64."));
+        }
+        return result;
+      };
+
+      if (is_u64) {
+        if (negate) {
+          return tl::unexpected(
+              err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
+        }
+        if (digits.find_first_of(".eE") != std::string::npos) {
+          return tl::unexpected(
+              err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
+        }
+        FLEAUX_TRY_ASSIGN(result, parse_uint64_literal(digits));
+        c.val = result;
+      } else if (digits.find_first_of(".eE") != std::string::npos) {
+        FLEAUX_TRY_ASSIGN(result, parse_float64_literal(digits));
+        c.val = negate ? -result : result;
+      } else if (negate) {
+        FLEAUX_TRY_ASSIGN(unsigned_result, parse_uint64_literal(digits));
+        if (constexpr auto kInt64AbsMin = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U;
+            unsigned_result == kInt64AbsMin) {
+          c.val = std::numeric_limits<std::int64_t>::min();
+        } else if (unsigned_result <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+          c.val = -static_cast<std::int64_t>(unsigned_result);
+        } else {
+          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
+        }
+      } else {
+        FLEAUX_TRY_ASSIGN(result, parse_int64_literal(digits));
+        c.val = negate ? -result : result;
       }
       c.span = span_from_mark(start);
       return c;
@@ -1165,8 +1200,9 @@ private:
     out.name = std::move(alias_name);
 
     if (is_symbol("<")) {
-      return tl::unexpected(err("Transparent aliases do not support generic parameter lists.", peek(),
-                                "Remove '<...>' from the alias declaration. Generic aliases are not supported in phase 1."));
+      return tl::unexpected(
+          err("Transparent aliases do not support generic parameter lists.", peek(),
+              "Remove '<...>' from the alias declaration. Generic aliases are not supported in phase 1."));
     }
     if (is_symbol("::")) {
       return tl::unexpected(err("Transparent aliases use '=' as their declaration separator.", peek(),
@@ -1354,10 +1390,7 @@ private:
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || kOperators.contains(tok.value))) {
-      return true;
-    }
-    return false;
+    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || kOperators.contains(tok.value));
   }
 
   [[nodiscard]] static auto is_statement_start(const Token& tok) -> bool {
@@ -1365,10 +1398,7 @@ private:
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    if (tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value))) {
-      return true;
-    }
-    return false;
+    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value));
   }
 };
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <string_view>
+
 namespace fleaux::bytecode {
 
 enum class Opcode {
@@ -159,8 +163,19 @@ inline constexpr std::array opcode_names{
   std::string_view{"DerefValueRef"}
 };
 
+[[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {
+  return opcode_index < opcode_names.size();
+}
+
+[[nodiscard]] inline constexpr auto is_valid_opcode(const Opcode opcode) -> bool {
+  return opcode_index_is_valid(static_cast<std::size_t>(opcode));
+}
+
 inline auto stringify_opcode(Opcode opcode) -> std::string_view {
-  return opcode_names.at(static_cast<std::size_t>(opcode));
+  if (!is_valid_opcode(opcode)) {
+    return "<invalid-opcode>";
+  }
+  return opcode_names[static_cast<std::size_t>(opcode)];
 }
 
 }  // namespace fleaux::bytecode

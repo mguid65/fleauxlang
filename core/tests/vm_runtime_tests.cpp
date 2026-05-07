@@ -68,6 +68,20 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
   REQUIRE(output.str() == "10\n");
 }
 
+TEST_CASE("VM rejects invalid opcode values with a controlled runtime error", "[vm][opcodes]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.instructions = {
+      {.opcode = static_cast<fleaux::bytecode::Opcode>(9999), .operand = 0},
+  };
+
+  std::ostringstream output;
+  constexpr fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("invalid opcode 9999") != std::string::npos);
+}
+
 TEST_CASE("VM Std.Printf does not append trailing newline", "[vm][printf]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintfBuiltin = builtin(fleaux::vm::BuiltinId::Printf);

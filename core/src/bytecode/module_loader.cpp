@@ -235,7 +235,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
         }
 
         if (const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
-            !source_text.empty() && deserialized->header.source_hash == hash_text(source_text) &&
+            source_text && deserialized->header.source_hash == hash_text(*source_text) &&
             deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
           return finish(deserialized.value());
         }
@@ -252,8 +252,8 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
   }
 
   const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
-  if (source_text.empty()) {
-    return finish(tl::unexpected(make_error("Failed to read source file: " + paths.source->string())));
+  if (!source_text) {
+    return finish(tl::unexpected(make_error(source_text.error().message)));
   }
 
   const auto make_parse_error = [](const std::string& message, const std::optional<std::string>& hint,
@@ -261,7 +261,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
   };
   const auto ir_program = fleaux::frontend::source_loader::parse_text_to_lowered_ir<ModuleLoadError>(
-      source_text, paths.source->string(), make_parse_error);
+      *source_text, paths.source->string(), make_parse_error);
   if (!ir_program) {
     return finish(tl::unexpected(ir_program.error()));
   }
@@ -451,7 +451,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
   constexpr BytecodeCompiler compiler;
   auto compiled = compiler.compile(*analyzed, CompileOptions{
                                                   .source_path = *paths.source,
-                                                  .source_text = source_text,
+                                                   .source_text = *source_text,
                                                   .module_name = paths.source->stem().string(),
                                                   .imported_modules = std::move(imported_modules),
                                                   .enable_value_ref_gate =

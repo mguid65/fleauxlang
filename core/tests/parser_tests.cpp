@@ -313,6 +313,24 @@ TEST_CASE("Parser rejects out-of-range integer literals with diagnostics", "[par
   REQUIRE(parsed.error().hint.has_value());
 }
 
+TEST_CASE("Parser accepts Int64 minimum literal with unary negation", "[parser]") {
+  const std::string src = "(-9223372036854775808) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "int64_min_literal_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+}
+
+TEST_CASE("Parser accepts Float64 literals with a trailing decimal point", "[parser]") {
+  const std::string src = "(1.) -> Std.Println;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "float64_trailing_dot_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+}
+
 TEST_CASE("Parser accepts UInt64 literal suffix", "[parser]") {
   const std::string src = "(42u64) -> Std.Println;\n";
 
