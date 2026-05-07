@@ -679,12 +679,13 @@ private:
       }
       FLEAUX_TRY_ASSIGN(return_type, type());
 
-      model::FunctionTypeNode func;
-      func.params = param_types;
+      model::FunctionTypeNode func{
+          .params = std::move(param_types),
+          .return_type = model::TypeBox(std::move(return_type)),
+      };
       func.params.span = span_from_mark(start);
-      func.return_type = model::TypeBox(std::move(return_type));
       func.span = span_from_mark(start);
-      base.value = std::move(func);
+      base.value = model::FunctionTypeNodeBox(std::move(func));
       base.span = span_from_mark(start);
       return base;
     }
@@ -704,7 +705,7 @@ private:
       }
       FLEAUX_TRYV(eat_symbol(")"));
       type_list.span = span_from_mark(start);
-      base.value = std::move(type_list);
+      base.value = model::TypeListBox(std::move(type_list));
       base.span = span_from_mark(start);
     } else if (is(TokenKind::kIdent) && kSimpleTypes.contains(peek().value)) {
       const auto token = next();
@@ -730,7 +731,7 @@ private:
           FLEAUX_TRYV(eat_symbol(")"));
           applied.span = span_from_mark(start);
           applied.args.span = applied.span;
-          base.value = std::move(applied);
+          base.value = model::AppliedTypeNodeBox(std::move(applied));
         } else {
           base.value = *simple;
         }
@@ -757,7 +758,7 @@ private:
       }
       union_list.span = span_from_mark(start);
       model::TypeNode union_node;
-      union_node.value = std::move(union_list);
+      union_node.value = model::UnionTypeListBox(std::move(union_list));
       union_node.span = span_from_mark(start);
       return union_node;
     }
@@ -857,36 +858,45 @@ private:
     FLEAUX_TRYV(eat_symbol(")"));
     FLEAUX_TRYV(eat_symbol(":"));
 
-    model::ClosureExpression closure;
-    closure.generic_params = std::move(generic_params);
-    closure.params.params = std::move(params);
-    closure.params.span = span_from_mark(open_paren_index);
     auto parsed_rtype = type();
     if (!parsed_rtype) {
       return tl::unexpected(parsed_rtype.error());
     }
-    closure.rtype = std::move(*parsed_rtype);
+    model::ParameterDeclList closure_params{
+        .params = std::move(params),
+        .span = span_from_mark(open_paren_index),
+    };
+    model::TypeNode closure_rtype = std::move(*parsed_rtype);
 
     // Committed: we have parsed a full closure signature; any failure after this is a hard error.
     committed = true;
 
     FLEAUX_TRYV(eat_one_of("::", "="));
 
+    model::Expression parsed_body_expr;
+
     if (allow_ungrouped_closure_stage_split) {
       auto parsed_body = closure_stage_expr();
       if (!parsed_body) {
         return tl::unexpected(parsed_body.error());
       }
-      closure.body = std::move(*parsed_body);
+      parsed_body_expr = std::move(*parsed_body);
     } else {
       auto parsed_body = expr();
       if (!parsed_body) {
         return tl::unexpected(parsed_body.error());
       }
-      closure.body = std::move(*parsed_body);
+      parsed_body_expr = std::move(*parsed_body);
     }
-    closure.span = span_from_mark(closure_start_index);
-    out_atom.value = std::move(closure);
+
+    model::ClosureExpression closure{
+        .generic_params = std::move(generic_params),
+        .params = std::move(closure_params),
+        .rtype = std::move(closure_rtype),
+        .body = model::ExpressionBox(std::move(parsed_body_expr)),
+        .span = span_from_mark(closure_start_index),
+    };
+    out_atom.value = model::make_closure_expression_box(std::move(closure));
     out_atom.span = span_from_mark(closure_start_index);
     return out_atom;
   }
@@ -1009,7 +1019,7 @@ private:
       }
       FLEAUX_TRYV(eat_symbol(")"));
       inner.span = span_from_mark(start);
-      out.value = std::move(inner);
+      out.value = model::DelimitedExpressionBox(std::move(inner));
       out.span = span_from_mark(start);
       return out;
     }

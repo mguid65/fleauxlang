@@ -372,13 +372,11 @@ TEST_CASE("Parser accepts variadic suffix on composite tuple element types", "[p
   REQUIRE(parsed.has_value());
   REQUIRE(parsed->statements.size() == 1);
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* outer_tuple =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::TypeList>>(&let_stmt.rtype.value);
+  const auto* outer_tuple = std::get_if<fleaux::frontend::model::TypeListBox>(&let_stmt.rtype.value);
   REQUIRE(outer_tuple != nullptr);
   REQUIRE((*outer_tuple)->types.size() == 1);
   REQUIRE((*outer_tuple)->types[0]->variadic);
-  const auto* inner_tuple =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::TypeList>>(&(*outer_tuple)->types[0]->value);
+  const auto* inner_tuple = std::get_if<fleaux::frontend::model::TypeListBox>(&(*outer_tuple)->types[0]->value);
   REQUIRE(inner_tuple != nullptr);
   REQUIRE((*inner_tuple)->types.size() == 2);
 }

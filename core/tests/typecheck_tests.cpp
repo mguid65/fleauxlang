@@ -100,7 +100,7 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
             IRSimpleType{.name = "Int64"},
             IRSimpleType{.name = "String", .variadic = true},
         },
-        .return_type = fleaux::frontend::make_box<IRSimpleType>(IRSimpleType{
+        .return_type = fleaux::frontend::ir::IRSimpleTypeBox(IRSimpleType{
             .name = "Dict",
             .type_args = {
                 IRSimpleType{.name = "String"},

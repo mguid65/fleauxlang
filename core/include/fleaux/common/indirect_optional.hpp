@@ -6,9 +6,13 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace fleaux::common {
+
+template <class T>
+class IndirectOptional;
 
 namespace detail {
 
@@ -20,6 +24,29 @@ concept indirect_optional_value_or_lvalue = complete_type<T> && std::copy_constr
 
 template <class T, class U>
 concept indirect_optional_value_or_rvalue = complete_type<T> && std::move_constructible<T> && std::constructible_from<T, U&&>;
+
+template <class T, class U>
+concept indirect_optional_direct_value_source = std::same_as<std::remove_cvref_t<U>, T>;
+
+template <class T, class U>
+concept indirect_optional_direct_value_lvalue_construction = complete_type<T> &&
+                                                             indirect_optional_direct_value_source<T, U> &&
+                                                             std::is_lvalue_reference_v<U&&> &&
+                                                             std::constructible_from<T, U&&>;
+
+template <class T, class U>
+concept indirect_optional_direct_value_rvalue_construction = complete_type<T> &&
+                                                             indirect_optional_direct_value_source<T, U> &&
+                                                             !std::is_lvalue_reference_v<U&&> &&
+                                                             std::constructible_from<T, U&&>;
+
+template <class T, class U>
+concept indirect_optional_direct_value_lvalue_assignment = indirect_optional_direct_value_lvalue_construction<T, U> &&
+                                                          std::assignable_from<T&, U&&>;
+
+template <class T, class U>
+concept indirect_optional_direct_value_rvalue_assignment = indirect_optional_direct_value_rvalue_construction<T, U> &&
+                                                          std::assignable_from<T&, U&&>;
 
 template <class T, class... Args>
 concept indirect_optional_factory = complete_type<T> && std::constructible_from<T, Args&&...>;
@@ -36,17 +63,28 @@ public:
   using value_type = T;
 
   constexpr IndirectOptional() noexcept = default;
-  constexpr IndirectOptional(std::nullopt_t) noexcept {}
+  explicit constexpr IndirectOptional(std::nullopt_t) noexcept {}
 
-  IndirectOptional(const T& value) { (void)construct(value); }
-  IndirectOptional(T&& value) { (void)construct(std::move(value)); }
+  template <class U>
+    requires detail::indirect_optional_direct_value_lvalue_construction<T, U>
+  explicit IndirectOptional(U&& value) {
+    (void)construct(std::forward<U>(value));
+  }
+
+  template <class U>
+    requires detail::indirect_optional_direct_value_rvalue_construction<T, U>
+  explicit IndirectOptional(U&& value) {
+    (void)construct(std::forward<U>(value));
+  }
 
   template <class... Args>
+    requires detail::indirect_optional_factory<T, Args...>
   explicit IndirectOptional(std::in_place_t, Args&&... args) {
     (void)construct(std::forward<Args>(args)...);
   }
 
   template <class U, class... Args>
+    requires detail::indirect_optional_initializer_list_factory<T, U, Args...>
   explicit IndirectOptional(std::in_place_t, std::initializer_list<U> init, Args&&... args) {
     (void)construct(init, std::forward<Args>(args)...);
   }
@@ -92,23 +130,28 @@ public:
     return *this;
   }
 
-  auto operator=(const T& value) -> IndirectOptional& {
+  template <class U>
+    requires detail::indirect_optional_direct_value_lvalue_assignment<T, U>
+  auto operator=(U&& value) -> IndirectOptional& {
     if (has_value()) {
-      *ptr_ = value;
+      *ptr_ = std::forward<U>(value);
     } else {
-      (void)construct(value);
+      (void)construct(std::forward<U>(value));
     }
     return *this;
   }
 
-  auto operator=(T&& value) -> IndirectOptional& {
+  template <class U>
+    requires detail::indirect_optional_direct_value_rvalue_assignment<T, U>
+  auto operator=(U&& value) -> IndirectOptional& {
     if (has_value()) {
-      *ptr_ = std::move(value);
+      *ptr_ = std::forward<U>(value);
     } else {
-      (void)construct(std::move(value));
+      (void)construct(std::forward<U>(value));
     }
     return *this;
   }
+
 
   [[nodiscard]] constexpr auto has_value() const noexcept -> bool { return ptr_ != nullptr; }
 
@@ -195,12 +238,14 @@ public:
   }
 
   template <class... Args>
+    requires detail::indirect_optional_factory<T, Args...>
   auto emplace(Args&&... args) -> T& {
     reset();
     return construct(std::forward<Args>(args)...);
   }
 
   template <class U, class... Args>
+    requires detail::indirect_optional_initializer_list_factory<T, U, Args...>
   auto emplace(std::initializer_list<U> init, Args&&... args) -> T& {
     reset();
     return construct(init, std::forward<Args>(args)...);
@@ -284,8 +329,7 @@ template <class T>
 }
 
 template <class T>
-[[nodiscard]] auto operator<(const IndirectOptional<T>& value, std::nullopt_t) noexcept -> bool {
-  (void)value;
+[[nodiscard]] auto operator<(const IndirectOptional<T>&, std::nullopt_t) noexcept -> bool {
   return false;
 }
 

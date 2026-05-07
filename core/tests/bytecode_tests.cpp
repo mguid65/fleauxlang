@@ -99,7 +99,7 @@ auto make_ir_box(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend
                              fleaux::frontend::ir::IRClosureExprBox>
                     node,
                 std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
-  return fleaux::frontend::make_box<fleaux::frontend::ir::IRExpr>(make_ir_expr(std::move(node), std::move(span)));
+  return fleaux::frontend::ir::IRExprBox(make_ir_expr(std::move(node), std::move(span)));
 }
 
 auto make_int_constant_box(const std::int64_t value) -> fleaux::frontend::ir::IRExprBox {
@@ -602,7 +602,7 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
           },
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                                .name = "head",
                                                                .resolved_symbol_key = std::nullopt,
                                                                .span = std::nullopt}),
@@ -655,7 +655,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                                .name = "x",
                                                                .resolved_symbol_key = std::nullopt,
                                                                .span = std::nullopt}),
@@ -670,7 +670,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                                .name = "x",
                                                                .resolved_symbol_key = std::nullopt,
                                                                .span = std::nullopt}),
@@ -688,7 +688,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           },
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                                .name = "lhs",
                                                                .resolved_symbol_key = std::nullopt,
                                                                .span = std::nullopt}),
@@ -703,7 +703,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "value", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
+          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                                .name = "value",
                                                                .resolved_symbol_key = std::nullopt,
                                                                .span = std::nullopt}),
@@ -718,7 +718,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "payload", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+          .body = make_ir_box(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_name_ref_box(std::nullopt, "payload"),
               .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
                                                     .name = "NeedSized",
@@ -796,7 +796,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
 
 TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtins reached through recursive bodies",
           "[bytecode][value_ref][analyzer]") {
-  auto nested_capture = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+  auto nested_capture = fleaux::frontend::ir::IRClosureExprBox(fleaux::frontend::ir::IRClosureExpr{
       .generic_params = {},
       .params = {},
       .return_type = make_simple_type("String"),
@@ -804,7 +804,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
       .captures = {"v"},
       .span = std::nullopt,
   });
-  auto nested_escape = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+  auto nested_escape = fleaux::frontend::ir::IRClosureExprBox(fleaux::frontend::ir::IRClosureExpr{
       .generic_params = {},
       .params = {},
       .return_type = make_simple_type("String"),
@@ -833,7 +833,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
           .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRTupleExpr{
+          .body = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
               .items = {make_ir_box(fleaux::frontend::ir::IRClosureExprBox{std::move(nested_capture)})},
               .span = std::nullopt,
           }),
@@ -848,7 +848,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
           .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRTupleExpr{
+          .body = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
               .items = {make_ir_box(fleaux::frontend::ir::IRClosureExprBox{std::move(nested_escape)})},
               .span = std::nullopt,
           }),
@@ -1309,7 +1309,7 @@ TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecod
 }
 
 TEST_CASE("Bytecode compiler rejects closure captures that are unavailable in the enclosing locals", "[bytecode]") {
-  auto closure = fleaux::frontend::make_box<fleaux::frontend::ir::IRClosureExpr>(fleaux::frontend::ir::IRClosureExpr{
+  auto closure = fleaux::frontend::ir::IRClosureExprBox(fleaux::frontend::ir::IRClosureExpr{
       .generic_params = {},
       .params = {},
       .return_type = make_simple_type("Int64"),
@@ -1362,7 +1362,7 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{1}, .span = std::nullopt}),
+          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{1}, .span = std::nullopt}),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -1374,7 +1374,7 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{0}, .span = std::nullopt}),
+          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{0}, .span = std::nullopt}),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -1809,7 +1809,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
-          .body = std::nullopt,
+          .body = fleaux::frontend::ir::IRExprBox(std::nullopt),
           .is_builtin = true,
           .span = local_span,
       },
@@ -1821,7 +1821,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
-          .body = std::nullopt,
+          .body = fleaux::frontend::ir::IRExprBox(std::nullopt),
           .is_builtin = true,
           .span = foreign_span,
       },
@@ -1833,7 +1833,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{7}, .span = local_span}, local_span),
+          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{7}, .span = local_span}, local_span),
           .is_builtin = false,
           .span = local_span,
       },
@@ -1845,7 +1845,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{9}, .span = foreign_span}, foreign_span),
+          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{9}, .span = foreign_span}, foreign_span),
           .is_builtin = false,
           .span = foreign_span,
       },
@@ -1857,7 +1857,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
-          .body = std::nullopt,
+          .body = fleaux::frontend::ir::IRExprBox(std::nullopt),
           .is_builtin = true,
           .span = std::nullopt,
       },
@@ -1869,7 +1869,7 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_expr(fleaux::frontend::ir::IRConstant{.val = std::int64_t{11}, .span = std::nullopt}),
+          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{11}, .span = std::nullopt}),
           .is_builtin = false,
           .span = std::nullopt,
       },

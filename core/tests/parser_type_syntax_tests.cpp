@@ -18,8 +18,7 @@ TEST_CASE("Parser accepts applied named type syntax in parameter position", "[pa
   REQUIRE(let_stmt.params.params.size() == 2);
 
   const auto& options_param = let_stmt.params.params[1];
-  const auto* applied =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::AppliedTypeNode>>(&options_param.type.value);
+  const auto* applied = std::get_if<fleaux::frontend::model::AppliedTypeNodeBox>(&options_param.type.value);
   REQUIRE(applied != nullptr);
   REQUIRE((*applied)->name == "Dict");
   REQUIRE((*applied)->args.types.size() == 2);
@@ -33,8 +32,7 @@ TEST_CASE("Parser accepts applied named type syntax in return position", "[parse
   REQUIRE(parsed.has_value());
 
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* applied =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::AppliedTypeNode>>(&let_stmt.rtype.value);
+  const auto* applied = std::get_if<fleaux::frontend::model::AppliedTypeNodeBox>(&let_stmt.rtype.value);
   REQUIRE(applied != nullptr);
   REQUIRE((*applied)->name == "Dict");
   REQUIRE((*applied)->args.types.size() == 2);
@@ -52,8 +50,7 @@ TEST_CASE("Parser accepts function type syntax in parameter position", "[parser]
   REQUIRE(let_stmt.params.params.size() == 2);
 
   const auto& func_param = let_stmt.params.params[1];
-  const auto* func_type =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(&func_param.type.value);
+  const auto* func_type = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&func_param.type.value);
   REQUIRE(func_type != nullptr);
   REQUIRE((*func_type)->params.types.size() == 1);
 }
@@ -66,8 +63,7 @@ TEST_CASE("Parser accepts function type syntax in return position", "[parser][ty
   REQUIRE(parsed.has_value());
 
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* func_type =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(&let_stmt.rtype.value);
+  const auto* func_type = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&let_stmt.rtype.value);
   REQUIRE(func_type != nullptr);
   REQUIRE((*func_type)->params.types.size() == 1);
 }
@@ -80,8 +76,7 @@ TEST_CASE("Parser accepts function type with multiple parameters", "[parser][typ
   REQUIRE(parsed.has_value());
 
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* func_type = std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(
-      &let_stmt.params.params[2].type.value);
+  const auto* func_type = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&let_stmt.params.params[2].type.value);
   REQUIRE(func_type != nullptr);
   REQUIRE((*func_type)->params.types.size() == 2);
 }
@@ -94,8 +89,7 @@ TEST_CASE("Parser accepts function type with no parameters", "[parser][type_synt
   REQUIRE(parsed.has_value());
 
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* func_type =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(&let_stmt.rtype.value);
+  const auto* func_type = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&let_stmt.rtype.value);
   REQUIRE(func_type != nullptr);
   REQUIRE((*func_type)->params.types.empty());
 }
@@ -108,14 +102,13 @@ TEST_CASE("Parser accepts nested function type syntax", "[parser][type_syntax][f
   REQUIRE(parsed.has_value());
 
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
-  const auto* outer_func = std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(
-      &let_stmt.params.params[0].type.value);
+  const auto* outer_func =
+      std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&let_stmt.params.params[0].type.value);
   REQUIRE(outer_func != nullptr);
   REQUIRE((*outer_func)->params.types.size() == 1);
 
   // The parameter should be a function type.
-  const auto* inner_func = std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(
-      &(*outer_func)->params.types[0]->value);
+  const auto* inner_func = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&(*outer_func)->params.types[0]->value);
   REQUIRE(inner_func != nullptr);
   REQUIRE((*inner_func)->params.types.size() == 1);
 }
@@ -129,8 +122,7 @@ TEST_CASE("Parser accepts function type syntax in alias targets", "[parser][alia
   REQUIRE(parsed->statements.size() == 1);
 
   const auto& alias_stmt = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[0]);
-  const auto* func_type = std::get_if<fleaux::frontend::Box<fleaux::frontend::model::FunctionTypeNode>>(
-      &alias_stmt.target.value);
+  const auto* func_type = std::get_if<fleaux::frontend::model::FunctionTypeNodeBox>(&alias_stmt.target.value);
   REQUIRE(func_type != nullptr);
   REQUIRE((*func_type)->params.types.size() == 2);
   REQUIRE(std::holds_alternative<std::string>((*func_type)->return_type->value));
@@ -146,8 +138,7 @@ TEST_CASE("Parser accepts union type syntax in alias targets", "[parser][aliases
   REQUIRE(parsed->statements.size() == 1);
 
   const auto& alias_stmt = std::get<fleaux::frontend::model::AliasStatement>(parsed->statements[0]);
-  const auto* union_type =
-      std::get_if<fleaux::frontend::Box<fleaux::frontend::model::UnionTypeList>>(&alias_stmt.target.value);
+  const auto* union_type = std::get_if<fleaux::frontend::model::UnionTypeListBox>(&alias_stmt.target.value);
   REQUIRE(union_type != nullptr);
   REQUIRE((*union_type)->alternatives.size() == 2);
 }

@@ -3,10 +3,11 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include "fleaux/frontend/box.hpp"
+#include "fleaux/common/indirect_optional.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/type_node.hpp"
 
@@ -24,10 +25,24 @@ struct QualifiedId {
 };
 
 struct TypeNode;
-using TypeBox = Box<TypeNode>;
-
+struct TypeList;
+struct UnionTypeList;
+struct AppliedTypeNode;
+struct FunctionTypeNode;
 struct NamedTarget;
-using NamedTargetBox = Box<NamedTarget>;
+struct Expression;
+struct ClosureExpression;
+struct DelimitedExpression;
+
+using TypeBox = common::IndirectOptional<TypeNode>;
+using TypeListBox = common::IndirectOptional<TypeList>;
+using UnionTypeListBox = common::IndirectOptional<UnionTypeList>;
+using AppliedTypeNodeBox = common::IndirectOptional<AppliedTypeNode>;
+using FunctionTypeNodeBox = common::IndirectOptional<FunctionTypeNode>;
+using NamedTargetBox = common::IndirectOptional<NamedTarget>;
+using ExpressionBox = common::IndirectOptional<Expression>;
+using ClosureExpressionBox = common::IndirectOptional<ClosureExpression>;
+using DelimitedExpressionBox = common::IndirectOptional<DelimitedExpression>;
 
 struct TypeList {
   std::vector<TypeBox> types;
@@ -54,8 +69,7 @@ struct FunctionTypeNode {
 };
 
 struct TypeNode {
-  std::variant<std::string, QualifiedId, Box<TypeList>, Box<UnionTypeList>, Box<AppliedTypeNode>, Box<FunctionTypeNode>>
-      value;
+  std::variant<std::string, QualifiedId, TypeListBox, UnionTypeListBox, AppliedTypeNodeBox, FunctionTypeNodeBox> value;
   bool variadic = false;
   std::optional<diag::SourceSpan> span;
 };
@@ -82,19 +96,13 @@ struct Constant {
   std::optional<diag::SourceSpan> span;
 };
 
-struct Expression;
-using ExpressionBox = Box<Expression>;
-
-struct ClosureExpression;
-using ClosureExpressionBox = Box<ClosureExpression>;
-
 struct DelimitedExpression {
   std::vector<ExpressionBox> items;
   std::optional<diag::SourceSpan> span;
 };
 
 struct Atom {
-  std::variant<std::monostate, Box<DelimitedExpression>, ClosureExpressionBox, Constant, QualifiedId, std::string,
+  std::variant<std::monostate, DelimitedExpressionBox, ClosureExpressionBox, Constant, QualifiedId, std::string,
                NamedTargetBox>
       value;
   std::optional<diag::SourceSpan> span;
@@ -107,6 +115,10 @@ struct ClosureExpression {
   ExpressionBox body;
   std::optional<diag::SourceSpan> span;
 };
+
+[[nodiscard]] inline auto make_closure_expression_box(ClosureExpression value) -> ClosureExpressionBox {
+  return ClosureExpressionBox(std::in_place, std::move(value));
+}
 
 struct Primary {
   Atom base;
@@ -136,7 +148,7 @@ struct LetStatement {
   ParameterDeclList params;
   TypeNode rtype;
   std::vector<std::string> doc_comments;
-  std::optional<Expression> expr;
+  ExpressionBox expr;
   bool is_builtin = false;
   std::optional<diag::SourceSpan> span;
 };
@@ -171,6 +183,9 @@ struct Program {
 
 namespace fleaux::frontend::ir {
 
+struct IRSimpleType;
+using IRSimpleTypeBox = common::IndirectOptional<IRSimpleType>;
+
 struct IRSimpleType {
   std::string name;
   bool variadic = false;
@@ -191,7 +206,7 @@ struct IRSimpleType {
   // A non-nullopt function_sig means this IRSimpleType represents a callable.
   struct FunctionSignature {
     std::vector<IRSimpleType> param_types;
-    Box<IRSimpleType> return_type;
+    IRSimpleTypeBox return_type;
   };
   std::optional<FunctionSignature> function_sig;
   // Phase 2 bridge artifact: structured type node preserved from lowering.
@@ -212,10 +227,9 @@ struct IRImport {
 };
 
 struct IRExpr;
-using IRExprBox = Box<IRExpr>;
-
 struct IRClosureExpr;
-using IRClosureExprBox = Box<IRClosureExpr>;
+using IRExprBox = common::IndirectOptional<IRExpr>;
+using IRClosureExprBox = common::IndirectOptional<IRClosureExpr>;
 
 struct IRConstant {
   std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> val;
@@ -262,6 +276,10 @@ struct IRClosureExpr {
   std::optional<diag::SourceSpan> span;
 };
 
+[[nodiscard]] inline auto make_ir_closure_expr_box(IRClosureExpr value) -> IRClosureExprBox {
+  return IRClosureExprBox(std::in_place, std::move(value));
+}
+
 struct IRLet {
   std::optional<std::string> qualifier;
   std::string name;
@@ -270,7 +288,7 @@ struct IRLet {
   std::vector<IRParam> params;
   IRSimpleType return_type;
   std::vector<std::string> doc_comments;
-  std::optional<IRExpr> body;
+  IRExprBox body;
   bool is_builtin = false;
   std::optional<diag::SourceSpan> span;
 };
