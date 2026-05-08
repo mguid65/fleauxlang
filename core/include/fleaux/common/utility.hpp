@@ -19,7 +19,17 @@ namespace detail {
 template <class...>
 inline constexpr bool always_false_v = false;
 
-[[noreturn]] inline void unreachable() { std::abort(); }
+[[noreturn]] inline void unreachable() {
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+  std::unreachable();
+#elif defined(_MSC_VER) && !defined(__clang__)
+  __assume(false);
+#elif defined(__GNUC__) || defined(__clang__)
+  __builtin_unreachable();
+#else
+  std::abort();
+#endif
+}
 
 template <std::size_t I, class T>
 constexpr decltype(auto) adl_get(T&& value) {
