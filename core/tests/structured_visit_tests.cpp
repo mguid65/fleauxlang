@@ -220,28 +220,32 @@ TEST_CASE("structured_visit binds const Point lvalue elements when unpacking",
 
 TEST_CASE("structured_visit forwards Point rvalue elements when unpacking",
           "[common][utility][structured_visit]") {
-  std::variant<Point> value{Point{4, 6}};
-
   const auto result = fleaux::utility::structured_visit<int>(
       fleaux::common::overloaded{
           [](int&& x, int&& y) { return x * 10 + y; },
           [](const int&, const int&) { return -1; },
       },
-      std::move(value));
+      std::variant<Point>{Point{4, 6}});
 
   REQUIRE(result == 46);
 }
 
-TEST_CASE("structured_visit forwards const Point rvalue elements when unpacking",
+TEST_CASE("structured_visit binds const Point xvalue elements as const rvalue references when unpacking",
           "[common][utility][structured_visit]") {
-  const std::variant<Point> value{Point{7, 9}};
+  const auto make_const_point_variant = []() -> const std::variant<Point> {
+    return std::variant<Point>{Point{7, 9}};
+  };
 
   const auto result = fleaux::utility::structured_visit<int>(
       fleaux::common::overloaded{
-          [](const int&& x, const int&& y) { return x * 10 + y; },
+          [](const int&& x, const int&& y) {
+            static_assert(std::is_same_v<decltype(x), const int&&>);
+            static_assert(std::is_same_v<decltype(y), const int&&>);
+            return x * 10 + y;
+          },
           [](const int&, const int&) { return -1; },
       },
-      std::move(value));
+      make_const_point_variant());
 
   REQUIRE(result == 79);
 }
