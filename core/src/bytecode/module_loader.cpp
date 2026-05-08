@@ -415,8 +415,8 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
       }
 
       for (const auto& imported_alias_decl : imported_ir->alias_decls) {
-        if (const auto key = fleaux::frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
-            imported_alias_decl_keys.insert(key).second) {
+        if (const auto id_key = fleaux::frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
+            imported_alias_decl_keys.insert(id_key).second) {
           imported_alias_decls.push_back(imported_alias_decl);
         }
       }

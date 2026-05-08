@@ -13,6 +13,9 @@
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/cli/repl_driver.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/frontend/lowering.hpp"
+#include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/value.hpp"
 #include "fleaux/vm/runtime.hpp"
 
@@ -62,7 +65,7 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--no-emit-bytecode] [--no-color] "
+  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] "
          "[--auto-value-ref] [--value-ref-byte-cutoff N] "
          "[file.fleaux|file.fleaux.bc] "
          "[-- "
@@ -82,7 +85,87 @@ void print_help() {
             << "  --value-ref-byte-cutoff N\n"
             << "                         Set the byte-size cutoff used by --auto-value-ref (default: 256)\n"
             << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
+            << "  --dump-ast             Parse a .fleaux source file, print the AST, and exit\n"
+            << "  --dump-ir              Parse/lower a .fleaux source file, print the IR, and exit\n"
             << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n";
+}
+
+auto load_source_text_for_dump(const std::filesystem::path& source_file, const std::string_view mode_name)
+    -> tl::expected<std::string, CliError> {
+  if (source_file.extension() == ".bc") {
+    return tl::unexpected(CliError{
+        .message = std::string(mode_name) + " requires a .fleaux source file",
+        .hint = "Pass a source file path rather than a .fleaux.bc bytecode cache.",
+        .span = std::nullopt,
+    });
+  }
+
+  const auto source_text = fleaux::frontend::source_loader::read_text_file(source_file);
+  if (!source_text) {
+    return tl::unexpected(CliError{
+        .message = source_text.error().message,
+        .hint = "Check the file path and permissions.",
+        .span = std::nullopt,
+    });
+  }
+
+  return *source_text;
+}
+
+auto run_ast_dump(const std::filesystem::path& source_file) -> tl::expected<void, CliError> {
+  const auto source_text = load_source_text_for_dump(source_file, "AST dump mode");
+  if (!source_text) {
+    return tl::unexpected(source_text.error());
+  }
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(*source_text, source_file.string());
+  if (!parsed) {
+    return tl::unexpected(CliError{
+        .message = parsed.error().message,
+        .hint = parsed.error().hint,
+        .span = parsed.error().span,
+    });
+  }
+
+  std::cout << parser.dump_ast(*parsed);
+  if (std::cout.good()) {
+    std::cout << '\n';
+  }
+  return {};
+}
+
+auto run_ir_dump(const std::filesystem::path& source_file) -> tl::expected<void, CliError> {
+  const auto source_text = load_source_text_for_dump(source_file, "IR dump mode");
+  if (!source_text) {
+    return tl::unexpected(source_text.error());
+  }
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(*source_text, source_file.string());
+  if (!parsed) {
+    return tl::unexpected(CliError{
+        .message = parsed.error().message,
+        .hint = parsed.error().hint,
+        .span = parsed.error().span,
+    });
+  }
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(*parsed);
+  if (!lowered) {
+    return tl::unexpected(CliError{
+        .message = lowered.error().message,
+        .hint = lowered.error().hint,
+        .span = lowered.error().span,
+    });
+  }
+
+  std::cout << lowerer.dump_ir(*lowered);
+  if (std::cout.good()) {
+    std::cout << '\n';
+  }
+  return {};
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
@@ -230,12 +313,12 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
       continue;
     }
 
-    if (token == "--ast") {
+    if (token == "--dump-ast") {
       options.dump_ast = true;
       continue;
     }
 
-    if (token == "--ir") {
+    if (token == "--dump-ir") {
       options.dump_ir = true;
       continue;
     }
@@ -292,6 +375,16 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
     });
   }
 
+  const auto primary_mode_count = static_cast<int>(options.repl) + static_cast<int>(options.disassemble) +
+                                  static_cast<int>(options.dump_ast) + static_cast<int>(options.dump_ir);
+  if (primary_mode_count > 1) {
+    return tl::unexpected(CliError{
+        .message = "options --repl, --disassemble, --dump-ast, and --dump-ir are mutually exclusive",
+        .hint = "Choose exactly one primary mode.",
+        .span = std::nullopt,
+    });
+  }
+
   return options;
 }
 }  // namespace
@@ -326,6 +419,36 @@ auto main(int argc, char** argv) -> int {
     }
     if (const auto result = run_disassembly(*source_path); !result) {
       return print_diag_and_return("vm-disassemble", result.error());
+    }
+    return 0;
+  }
+
+  if (dump_ast) {
+    if (!source_path.has_value()) {
+      return print_diag_and_return("vm-ast",
+                                   CliError{
+                                       .message = "AST dump mode requires a source path",
+                                       .hint = "Pass a .fleaux source file.",
+                                       .span = std::nullopt,
+                                   });
+    }
+    if (const auto result = run_ast_dump(*source_path); !result) {
+      return print_diag_and_return("vm-ast", result.error());
+    }
+    return 0;
+  }
+
+  if (dump_ir) {
+    if (!source_path.has_value()) {
+      return print_diag_and_return("vm-ir",
+                                   CliError{
+                                       .message = "IR dump mode requires a source path",
+                                       .hint = "Pass a .fleaux source file.",
+                                       .span = std::nullopt,
+                                   });
+    }
+    if (const auto result = run_ir_dump(*source_path); !result) {
+      return print_diag_and_return("vm-ir", result.error());
     }
     return 0;
   }
