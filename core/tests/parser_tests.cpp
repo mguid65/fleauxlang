@@ -430,3 +430,45 @@ TEST_CASE("Parser drops doc comments if a blank line separates comments from let
   const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
   REQUIRE(let_stmt.doc_comments.empty());
 }
+
+TEST_CASE("Parser dump_ast emits a readable structural tree for statements and expressions", "[parser][dump_ast]") {
+  const std::string src =
+      "import Std;\n"
+      "// @brief Increment a value\n"
+      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+      "(41) -> Inc;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ast_program.fleaux");
+
+  REQUIRE(parsed.has_value());
+
+  const std::string dumped = parser.dump_ast(*parsed);
+  REQUIRE(dumped.find("Program {") != std::string::npos);
+  REQUIRE(dumped.find("source_name: \"dump_ast_program.fleaux\"") != std::string::npos);
+  REQUIRE(dumped.find("ImportStatement {") != std::string::npos);
+  REQUIRE(dumped.find("module_name: \"Std\"") != std::string::npos);
+  REQUIRE(dumped.find("LetStatement {") != std::string::npos);
+  REQUIRE(dumped.find("doc_comments: [") != std::string::npos);
+  REQUIRE(dumped.find("\"@brief Increment a value\"") != std::string::npos);
+  REQUIRE(dumped.find("FlowExpression {") != std::string::npos);
+  REQUIRE(dumped.find("NamedTarget {") != std::string::npos);
+  REQUIRE(dumped.find("target: \"Inc\"") != std::string::npos);
+}
+
+TEST_CASE("Parser dump_ast includes inline closure structure", "[parser][dump_ast]") {
+  const std::string src = "(10, <T>(x: T): T = x) -> Std.Apply;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ast_closure.fleaux");
+
+  REQUIRE(parsed.has_value());
+
+  const std::string dumped = parser.dump_ast(*parsed);
+  REQUIRE(dumped.find("ClosureExpression {") != std::string::npos);
+  REQUIRE(dumped.find("generic_params: [") != std::string::npos);
+  REQUIRE(dumped.find("\"T\"") != std::string::npos);
+  REQUIRE(dumped.find("ParameterDeclList {") != std::string::npos);
+  REQUIRE(dumped.find("return_type: TypeNode {") != std::string::npos);
+}
+

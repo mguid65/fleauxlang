@@ -22,6 +22,7 @@ using ParseResult = tl::expected<model::Program, ParseError>;
 class Parser {
 public:
   [[nodiscard]] auto parse_program(const std::string& source, const std::string& source_name) const -> ParseResult;
+  [[nodiscard]] auto dump_ast(const model::Program& program) const -> std::string;
 };
 
 }  // namespace fleaux::frontend::parse

@@ -140,7 +140,79 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--no-emit-bytecode"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--auto-value-ref"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--value-ref-byte-cutoff"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--dump-ast"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--dump-ir"));
   REQUIRE(stdout_text.find("--mode") == std::string::npos);
+}
+
+TEST_CASE("CLI AST and IR dump modes stop before execution", "[vm][cli][dump]") {
+  SECTION("AST dump") {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_dump_ast";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto source_path = temp_dir / "entry.fleaux";
+    fleaux::tests::write_text_file(source_path,
+                                   "import missing_dep;\n"
+                                   "(1) -> MissingCall;\n");
+
+    REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+    const auto result = run_cli("--dump-ast " + shell_quote(source_path.string()), temp_dir);
+    INFO("stdout: " << result.stdout_text);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code == 0);
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Program {"));
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("ImportStatement {"));
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("module_name: \"missing_dep\""));
+    REQUIRE(result.stderr_text.empty());
+  }
+
+  SECTION("IR dump") {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_dump_ir";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto source_path = temp_dir / "entry.fleaux";
+    fleaux::tests::write_text_file(source_path,
+                                   "import missing_dep;\n"
+                                   "(1) -> MissingCall;\n");
+
+    REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+    const auto result = run_cli("--dump-ir " + shell_quote(source_path.string()), temp_dir);
+    INFO("stdout: " << result.stdout_text);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code == 0);
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("IRProgram {"));
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("IRImport {"));
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("module_name: \"missing_dep\""));
+    REQUIRE(result.stderr_text.empty());
+  }
+}
+
+TEST_CASE("CLI rejects removed AST and IR aliases", "[vm][cli][dump]") {
+  SECTION("removed --ast alias") {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_removed_ast_alias";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto result = run_cli("--ast", temp_dir);
+    INFO("stdout: " << result.stdout_text);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code != 0);
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("unknown option: --ast"));
+  }
+
+  SECTION("removed --ir alias") {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_removed_ir_alias";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto result = run_cli("--ir", temp_dir);
+    INFO("stdout: " << result.stdout_text);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code != 0);
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("unknown option: --ir"));
+  }
 }
 
 TEST_CASE("CLI vm mode threads auto value-ref options into compilation", "[vm][cli][value_ref]") {

@@ -143,3 +143,20 @@ TEST_CASE("Parser accepts union type syntax in alias targets", "[parser][aliases
   REQUIRE((*union_type)->alternatives.size() == 2);
 }
 
+TEST_CASE("Parser dump_ast prints composite type syntax nodes", "[parser][dump_ast][type_syntax]") {
+  const std::string src =
+      "alias Handler = (String, Int64) => Bool;\n"
+      "alias MaybeMap = Dict(String, Any) | Null;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ast_types.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const std::string dumped = parser.dump_ast(*parsed);
+  REQUIRE(dumped.find("FunctionTypeNode {") != std::string::npos);
+  REQUIRE(dumped.find("AppliedTypeNode {") != std::string::npos);
+  REQUIRE(dumped.find("UnionTypeList {") != std::string::npos);
+  REQUIRE(dumped.find("kind: \"RawType\"") != std::string::npos);
+  REQUIRE(dumped.find("name: \"Dict\"") != std::string::npos);
+}
+

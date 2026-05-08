@@ -1,8 +1,9 @@
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/common/overloaded.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cctype>
+#include <charconv>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -1401,6 +1402,394 @@ private:
   }
 };
 
+class AstDumper {
+public:
+  [[nodiscard]] auto dump(const model::Program& program) const -> std::string {
+    return format_program(program, 0);
+  }
+
+private:
+  [[nodiscard]] static auto indent(const int level) -> std::string { return std::string(static_cast<std::size_t>(level) * 2U, ' '); }
+
+  [[nodiscard]] static auto escape_string(const std::string_view text) -> std::string {
+    std::string escaped;
+    escaped.reserve(text.size());
+    for (const char ch : text) {
+      switch (ch) {
+        case '\\':
+          escaped += "\\\\";
+          break;
+        case '\"':
+          escaped += "\\\"";
+          break;
+        case '\n':
+          escaped += "\\n";
+          break;
+        case '\r':
+          escaped += "\\r";
+          break;
+        case '\t':
+          escaped += "\\t";
+          break;
+        default:
+          escaped.push_back(ch);
+          break;
+      }
+    }
+    return escaped;
+  }
+
+  [[nodiscard]] static auto quote(const std::string_view text) -> std::string {
+    return std::format("\"{}\"", escape_string(text));
+  }
+
+  [[nodiscard]] static auto format_string_list(const std::vector<std::string>& items, const int level) -> std::string {
+    std::vector<std::string> formatted;
+    formatted.reserve(items.size());
+    for (const auto& item : items) {
+      formatted.push_back(quote(item));
+    }
+    return format_list(formatted, level);
+  }
+
+  [[nodiscard]] static auto format_list(const std::vector<std::string>& items, const int level) -> std::string {
+    if (items.empty()) {
+      return "[]";
+    }
+
+    std::string out = "[\n";
+    for (std::size_t idx = 0; idx < items.size(); ++idx) {
+      out += indent(level + 1) + items[idx];
+      if (idx + 1 < items.size()) {
+        out += ',';
+      }
+      out += '\n';
+    }
+    out += indent(level) + ']';
+    return out;
+  }
+
+  [[nodiscard]] static auto format_block(const std::string_view name, const std::vector<std::string>& fields,
+                                         const int level) -> std::string {
+    if (fields.empty()) {
+      return std::format("{} {{}}", name);
+    }
+
+    std::string out = std::format("{} {{\n", name);
+    for (std::size_t idx = 0; idx < fields.size(); ++idx) {
+      out += indent(level + 1) + fields[idx];
+      if (idx + 1 < fields.size()) {
+        out += ',';
+      }
+      out += '\n';
+    }
+    out += indent(level) + '}';
+    return out;
+  }
+
+  [[nodiscard]] auto format_program(const model::Program& program, const int level) const -> std::string {
+    std::vector<std::string> fields;
+    fields.push_back(std::format("source_name: {}", quote(program.source_name)));
+
+    std::vector<std::string> statements;
+    statements.reserve(program.statements.size());
+    for (const auto& stmt : program.statements) {
+      statements.push_back(format_statement(stmt, level + 1));
+    }
+    fields.push_back(std::format("statements: {}", format_list(statements, level + 1)));
+
+    return format_block("Program", fields, level);
+  }
+
+  [[nodiscard]] auto format_statement(const model::Statement& stmt, const int level) const -> std::string {
+    return std::visit([&](const auto& concrete) { return format_statement_impl(concrete, level); }, stmt);
+  }
+
+  [[nodiscard]] auto format_statement_impl(const model::ImportStatement& stmt, const int level) const -> std::string {
+    return format_block("ImportStatement", {std::format("module_name: {}", quote(stmt.module_name))}, level);
+  }
+
+  [[nodiscard]] auto format_statement_impl(const model::TypeStatement& stmt, const int level) const -> std::string {
+    return format_block("TypeStatement",
+                        {std::format("name: {}", quote(stmt.name)),
+                         std::format("target: {}", format_type(stmt.target, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_statement_impl(const model::AliasStatement& stmt, const int level) const -> std::string {
+    return format_block("AliasStatement",
+                        {std::format("name: {}", quote(stmt.name)),
+                         std::format("target: {}", format_type(stmt.target, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_statement_impl(const model::LetStatement& stmt, const int level) const -> std::string {
+    std::vector<std::string> fields;
+    fields.push_back(std::format("id: {}", format_let_id(stmt.id, level + 1)));
+    fields.push_back(std::format("generic_params: {}", format_string_list(stmt.generic_params, level + 1)));
+    fields.push_back(std::format("params: {}", format_parameter_decl_list(stmt.params, level + 1)));
+    fields.push_back(std::format("return_type: {}", format_type(stmt.rtype, level + 1)));
+    fields.push_back(std::format("doc_comments: {}", format_string_list(stmt.doc_comments, level + 1)));
+    fields.push_back(std::format("is_builtin: {}", stmt.is_builtin));
+    fields.push_back(std::format("expr: {}", stmt.expr ? format_expression(*stmt.expr, level + 1) : std::string{"null"}));
+    return format_block("LetStatement", fields, level);
+  }
+
+  [[nodiscard]] auto format_statement_impl(const model::ExpressionStatement& stmt, const int level) const
+      -> std::string {
+    return format_block("ExpressionStatement", {std::format("expr: {}", format_expression(stmt.expr, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_let_id(const std::variant<std::string, model::QualifiedId>& id, const int level) const
+      -> std::string {
+    return std::visit(common::overloaded{[](const std::string& name) -> std::string { return quote(name); },
+                                         [&](const model::QualifiedId& qualified) -> std::string {
+                                           return format_qualified_id(qualified, level);
+                                         }},
+                      id);
+  }
+
+  [[nodiscard]] auto format_qualified_id(const model::QualifiedId& qualified, const int level) const -> std::string {
+    return format_block("QualifiedId",
+                        {std::format("qualifier: {}", quote(qualified.qualifier.qualifier)),
+                         std::format("id: {}", quote(qualified.id))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_type(const model::TypeNode& type_node, const int level) const -> std::string {
+    std::vector<std::string> fields;
+    fields.push_back(std::format("kind: {}", quote(type_kind_name(type_node.value))));
+    fields.push_back(std::format("value: {}", format_type_value(type_node.value, level + 1)));
+    fields.push_back(std::format("variadic: {}", type_node.variadic));
+    return format_block("TypeNode", fields, level);
+  }
+
+  [[nodiscard]] static auto type_kind_name(const std::variant<std::string, model::QualifiedId, model::TypeListBox,
+                                                             model::UnionTypeListBox, model::AppliedTypeNodeBox,
+                                                             model::FunctionTypeNodeBox>& value) -> std::string_view {
+    return std::visit(common::overloaded{
+                          [](const std::string&) -> std::string_view { return "RawType"; },
+                          [](const model::QualifiedId&) -> std::string_view { return "QualifiedType"; },
+                          [](const model::TypeListBox&) -> std::string_view { return "TupleType"; },
+                          [](const model::UnionTypeListBox&) -> std::string_view { return "UnionType"; },
+                          [](const model::AppliedTypeNodeBox&) -> std::string_view { return "AppliedType"; },
+                          [](const model::FunctionTypeNodeBox&) -> std::string_view { return "FunctionType"; }},
+                      value);
+  }
+
+  [[nodiscard]] auto format_type_value(const std::variant<std::string, model::QualifiedId, model::TypeListBox,
+                                                            model::UnionTypeListBox, model::AppliedTypeNodeBox,
+                                                            model::FunctionTypeNodeBox>& value,
+                                       const int level) const -> std::string {
+    return std::visit(common::overloaded{
+                          [](const std::string& raw_type) -> std::string { return quote(raw_type); },
+                          [&](const model::QualifiedId& qualified) -> std::string {
+                            return format_qualified_id(qualified, level);
+                          },
+                          [&](const model::TypeListBox& type_list) -> std::string {
+                            if (!type_list) {
+                              return std::string{"null"};
+                            }
+                            std::vector<std::string> items;
+                            items.reserve(type_list->types.size());
+                            for (const auto& item : type_list->types) {
+                              items.push_back(item ? format_type(*item, level + 1) : std::string{"null"});
+                            }
+                            return format_block("TypeList", {std::format("items: {}", format_list(items, level + 1))}, level);
+                          },
+                          [&](const model::UnionTypeListBox& union_type) -> std::string {
+                            if (!union_type) {
+                              return std::string{"null"};
+                            }
+                            std::vector<std::string> items;
+                            items.reserve(union_type->alternatives.size());
+                            for (const auto& alternative : union_type->alternatives) {
+                              items.push_back(alternative ? format_type(*alternative, level + 1) : std::string{"null"});
+                            }
+                            return format_block("UnionTypeList",
+                                                {std::format("alternatives: {}", format_list(items, level + 1))}, level);
+                          },
+                          [&](const model::AppliedTypeNodeBox& applied_type) -> std::string {
+                            if (!applied_type) {
+                              return std::string{"null"};
+                            }
+                            std::vector<std::string> args;
+                            args.reserve(applied_type->args.types.size());
+                            for (const auto& arg : applied_type->args.types) {
+                              args.push_back(arg ? format_type(*arg, level + 1) : std::string{"null"});
+                            }
+                            return format_block("AppliedTypeNode",
+                                                {std::format("name: {}", quote(applied_type->name)),
+                                                 std::format("args: {}", format_list(args, level + 1))},
+                                                level);
+                          },
+                          [&](const model::FunctionTypeNodeBox& function_type) -> std::string {
+                            if (!function_type) {
+                              return std::string{"null"};
+                            }
+                            std::vector<std::string> params;
+                            params.reserve(function_type->params.types.size());
+                            for (const auto& param : function_type->params.types) {
+                              params.push_back(param ? format_type(*param, level + 1) : std::string{"null"});
+                            }
+                            return format_block("FunctionTypeNode",
+                                                {std::format("params: {}", format_list(params, level + 1)),
+                                                 std::format("return_type: {}",
+                                                             function_type->return_type
+                                                                 ? format_type(*function_type->return_type, level + 1)
+                                                                 : std::string{"null"})},
+                                                level);
+                          }},
+                      value);
+  }
+
+  [[nodiscard]] auto format_parameter_decl_list(const model::ParameterDeclList& params, const int level) const
+      -> std::string {
+    std::vector<std::string> items;
+    items.reserve(params.params.size());
+    for (const auto& param : params.params) {
+      items.push_back(format_parameter(param, level + 1));
+    }
+    return format_block("ParameterDeclList", {std::format("params: {}", format_list(items, level + 1))}, level);
+  }
+
+  [[nodiscard]] auto format_parameter(const model::Parameter& param, const int level) const -> std::string {
+    return format_block("Parameter",
+                        {std::format("name: {}", quote(param.param_name)),
+                         std::format("type: {}", format_type(param.type, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_expression(const model::Expression& expr, const int level) const -> std::string {
+    return format_block("Expression", {std::format("flow: {}", format_flow(expr.expr, level + 1))}, level);
+  }
+
+  [[nodiscard]] auto format_flow(const model::FlowExpression& flow, const int level) const -> std::string {
+    std::vector<std::string> rhs;
+    rhs.reserve(flow.rhs.size());
+    for (const auto& stage : flow.rhs) {
+      rhs.push_back(format_primary(stage, level + 1));
+    }
+    return format_block("FlowExpression",
+                        {std::format("lhs: {}", format_primary(flow.lhs, level + 1)),
+                         std::format("rhs: {}", format_list(rhs, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_primary(const model::Primary& primary, const int level) const -> std::string {
+    return format_block("Primary",
+                        {std::format("base: {}", format_atom(primary.base, level + 1)),
+                         std::format("extra: {}", format_string_list(primary.extra, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_atom(const model::Atom& atom, const int level) const -> std::string {
+    std::vector<std::string> fields;
+    fields.push_back(std::format("kind: {}", quote(atom_kind_name(atom.value))));
+    fields.push_back(std::format("value: {}", format_atom_value(atom.value, level + 1)));
+    return format_block("Atom", fields, level);
+  }
+
+  [[nodiscard]] static auto atom_kind_name(const std::variant<std::monostate, model::DelimitedExpressionBox,
+                                                             model::ClosureExpressionBox, model::Constant,
+                                                             model::QualifiedId, std::string, model::NamedTargetBox>&
+                                                value) -> std::string_view {
+    return std::visit(common::overloaded{
+                          [](const std::monostate&) -> std::string_view { return "Unit"; },
+                          [](const model::DelimitedExpressionBox&) -> std::string_view { return "DelimitedExpression"; },
+                          [](const model::ClosureExpressionBox&) -> std::string_view { return "ClosureExpression"; },
+                          [](const model::Constant&) -> std::string_view { return "Constant"; },
+                          [](const model::QualifiedId&) -> std::string_view { return "QualifiedId"; },
+                          [](const std::string&) -> std::string_view { return "RawString"; },
+                          [](const model::NamedTargetBox&) -> std::string_view { return "NamedTarget"; }},
+                      value);
+  }
+
+  [[nodiscard]] auto format_atom_value(const std::variant<std::monostate, model::DelimitedExpressionBox,
+                                                            model::ClosureExpressionBox, model::Constant,
+                                                            model::QualifiedId, std::string, model::NamedTargetBox>& value,
+                                       const int level) const -> std::string {
+    return std::visit(common::overloaded{
+                          [](const std::monostate&) -> std::string { return std::string{"null"}; },
+                          [&](const model::DelimitedExpressionBox& delimited) -> std::string {
+                            if (!delimited) {
+                              return std::string{"null"};
+                            }
+                            std::vector<std::string> items;
+                            items.reserve(delimited->items.size());
+                            for (const auto& item : delimited->items) {
+                              items.push_back(item ? format_expression(*item, level + 1) : std::string{"null"});
+                            }
+                            return format_block("DelimitedExpression",
+                                                {std::format("items: {}", format_list(items, level + 1))}, level);
+                          },
+                          [&](const model::ClosureExpressionBox& closure) -> std::string {
+                            if (!closure) {
+                              return std::string{"null"};
+                            }
+                            return format_block(
+                                "ClosureExpression",
+                                {std::format("generic_params: {}", format_string_list(closure->generic_params, level + 1)),
+                                 std::format("params: {}", format_parameter_decl_list(closure->params, level + 1)),
+                                 std::format("return_type: {}", format_type(closure->rtype, level + 1)),
+                                 std::format("body: {}",
+                                             closure->body ? format_expression(*closure->body, level + 1)
+                                                           : std::string{"null"})},
+                                level);
+                          },
+                          [&](const model::Constant& constant) -> std::string { return format_constant(constant, level); },
+                          [&](const model::QualifiedId& qualified) -> std::string {
+                            return format_qualified_id(qualified, level);
+                          },
+                          [](const std::string& raw) -> std::string { return quote(raw); },
+                          [&](const model::NamedTargetBox& named_target) -> std::string {
+                            if (!named_target) {
+                              return std::string{"null"};
+                            }
+                            return format_named_target(*named_target, level);
+                          }},
+                      value);
+  }
+
+  [[nodiscard]] auto format_named_target(const model::NamedTarget& named_target, const int level) const -> std::string {
+    std::vector<std::string> type_args;
+    type_args.reserve(named_target.explicit_type_args.size());
+    for (const auto& type_arg : named_target.explicit_type_args) {
+      type_args.push_back(type_arg ? format_type(*type_arg, level + 1) : std::string{"null"});
+    }
+
+    return format_block(
+        "NamedTarget",
+        {std::format(
+             "target: {}",
+             std::visit(common::overloaded{[](const std::string& name) -> std::string { return quote(name); },
+                                           [&](const model::QualifiedId& qualified) -> std::string {
+                                             return format_qualified_id(qualified, level + 1);
+                                           }},
+                        named_target.target)),
+         std::format("explicit_type_args: {}", format_list(type_args, level + 1))},
+        level);
+  }
+
+  [[nodiscard]] auto format_constant(const model::Constant& constant, const int level) const -> std::string {
+    return format_block(
+        "Constant",
+        {std::format(
+            "value: {}",
+            std::visit(common::overloaded{[](const std::int64_t value) -> std::string { return std::format("{}", value); },
+                                          [](const std::uint64_t value) -> std::string {
+                                            return std::format("{}u64", value);
+                                          },
+                                          [](const double value) -> std::string { return std::format("{}", value); },
+                                          [](const bool value) -> std::string { return value ? "true" : "false"; },
+                                          [](const std::string& value) -> std::string { return quote(value); },
+                                          [](const std::monostate&) -> std::string { return std::string{"null"}; }},
+                       constant.val))},
+        level);
+  }
+};
+
 }  // namespace
 
 auto Parser::parse_program(const std::string& source, const std::string& source_name) const -> ParseResult {
@@ -1411,6 +1800,10 @@ auto Parser::parse_program(const std::string& source, const std::string& source_
 
   ParserImpl impl(source, source_name, std::move(*tokens));
   return impl.parse();
+}
+
+auto Parser::dump_ast(const model::Program& program) const -> std::string {
+  return AstDumper{}.dump(program);
 }
 
 }  // namespace fleaux::frontend::parse
