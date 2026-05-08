@@ -679,10 +679,9 @@ private:
       }
       FLEAUX_TRY_ASSIGN(return_type, type());
 
-      model::FunctionTypeNode func{
-          .params = std::move(param_types),
-          .return_type = model::TypeBox(std::move(return_type)),
-      };
+      model::FunctionTypeNode func{};
+      func.params = std::move(param_types);
+      func.return_type = model::TypeBox(std::move(return_type));
       func.params.span = span_from_mark(start);
       func.span = span_from_mark(start);
       base.value = model::FunctionTypeNodeBox(std::move(func));

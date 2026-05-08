@@ -122,8 +122,8 @@ constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
 auto hash_text(const std::string& text) -> std::uint64_t {
   std::uint64_t hash = kFnvOffsetBasis;
-  for (const unsigned char ch : text) {
-    hash ^= static_cast<std::uint64_t>(ch);
+  for (const char ch : text) {
+    hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(ch));
     hash *= kFnvPrime;
   }
   return hash;
@@ -177,13 +177,15 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
 
       const auto& imported_fn = imported_module.functions[index];
       const auto fn_idx = static_cast<std::uint32_t>(bytecode_module.functions.size());
-      bytecode_module.functions.push_back(FunctionDef{
-          .name = link_name,
-          .arity = imported_fn.arity,
-          .has_variadic_tail = imported_fn.has_variadic_tail,
-          .is_import_placeholder = true,
-          .instructions = {},
-      });
+      FunctionDef imported_placeholder{};
+      imported_placeholder.name = link_name;
+      imported_placeholder.arity = imported_fn.arity;
+      imported_placeholder.has_variadic_tail = imported_fn.has_variadic_tail;
+      imported_placeholder.is_import_placeholder = true;
+      imported_placeholder.generic_params = imported_fn.generic_params;
+      imported_placeholder.param_type_names = imported_fn.param_type_names;
+      imported_placeholder.return_type_name = imported_fn.return_type_name;
+      bytecode_module.functions.push_back(std::move(imported_placeholder));
       state.function_idx[link_name] = fn_idx;
       state.register_public_function_name(name, fn_idx);
     }
@@ -320,7 +322,7 @@ auto can_emit_native_branch_call(const std::string& full_name, const IRTupleExpr
 // Call-target emission
 
 auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out, const LocalSlots& locals,
-                      CompileState& state, Module& bytecode_module) -> EmitResult {
+                      CompileState& state, Module&) -> EmitResult {
   (void)locals;
   // Helper: emit kCallBuiltin with a resolved BuiltinId.
   auto emit_builtin = [&](const std::string& symbol_key) -> EmitResult {
@@ -777,7 +779,6 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   bytecode_module.closures.reserve(closure_count);
 
   // Pass 2: compile function bodies
-  std::size_t fn_slot = 0;
   for (const auto& let : program.lets) {
     if (let.is_builtin)
       continue;
@@ -802,7 +803,6 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
     state.current_function_idx = previous_fn_idx;
     bytecode_module.functions[current_fn_idx].instructions.push_back(
         Instruction{.opcode = Opcode::kReturn, .operand = 0});
-    ++fn_slot;
   }
 
   // Pass 3: compile top-level expression statements

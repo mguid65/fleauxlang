@@ -7,36 +7,36 @@ namespace {
 
 auto from_name(const std::string& name) -> Type {
   if (name == "Never") {
-    return Type{.kind = TypeKind::kNever};
+    return make_type(TypeKind::kNever);
   }
   if (name == "Any") {
-    return Type{.kind = TypeKind::kAny};
+    return make_type(TypeKind::kAny);
   }
   if (name == "Int64") {
-    return Type{.kind = TypeKind::kInt64};
+    return make_type(TypeKind::kInt64);
   }
   if (name == "UInt64") {
-    return Type{.kind = TypeKind::kUInt64};
+    return make_type(TypeKind::kUInt64);
   }
   if (name == "Float64") {
-    return Type{.kind = TypeKind::kFloat64};
+    return make_type(TypeKind::kFloat64);
   }
   if (name == "String") {
-    return Type{.kind = TypeKind::kString};
+    return make_type(TypeKind::kString);
   }
   if (name == "Bool") {
-    return Type{.kind = TypeKind::kBool};
+    return make_type(TypeKind::kBool);
   }
   if (name == "Null") {
-    return Type{.kind = TypeKind::kNull};
+    return make_type(TypeKind::kNull);
   }
   if (name == "Tuple") {
-    return Type{.kind = TypeKind::kTuple};
+    return make_type(TypeKind::kTuple);
   }
   if (name == "Function") {
-    return Type{.kind = TypeKind::kFunction};
+    return make_type(TypeKind::kFunction);
   }
-  return Type{.kind = TypeKind::kNominal, .nominal_name = name};
+  return make_nominal_type(name);
 }
 
 auto type_sort_key(const Type& type) -> std::string {

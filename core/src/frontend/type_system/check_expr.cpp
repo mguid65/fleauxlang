@@ -106,12 +106,12 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
       common::overloaded{
           [&](const ir::IRConstant& constant) -> tl::expected<Type, type_check::AnalysisError> {
             return std::visit(
-                common::overloaded{[](std::int64_t) -> Type { return Type{.kind = TypeKind::kInt64}; },
-                                   [](std::uint64_t) -> Type { return Type{.kind = TypeKind::kUInt64}; },
-                                   [](double) -> Type { return Type{.kind = TypeKind::kFloat64}; },
-                                   [](bool) -> Type { return Type{.kind = TypeKind::kBool}; },
-                                   [](const std::string&) -> Type { return Type{.kind = TypeKind::kString}; },
-                                   [](std::monostate) -> Type { return Type{.kind = TypeKind::kNull}; }},
+                common::overloaded{[](std::int64_t) -> Type { return make_type(TypeKind::kInt64); },
+                                   [](std::uint64_t) -> Type { return make_type(TypeKind::kUInt64); },
+                                   [](double) -> Type { return make_type(TypeKind::kFloat64); },
+                                   [](bool) -> Type { return make_type(TypeKind::kBool); },
+                                   [](const std::string&) -> Type { return make_type(TypeKind::kString); },
+                                   [](std::monostate) -> Type { return make_type(TypeKind::kNull); }},
                 constant.val);
           },
           [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
@@ -206,13 +206,13 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
                     qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
               }
               if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) {
-                return Type{.kind = TypeKind::kAny};
+                return make_type(TypeKind::kAny);
               }
               return tl::unexpected(make_unresolved_symbol_error(
                   qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
             }
             if (index.has_unqualified_symbol(name_ref.name)) {
-              return Type{.kind = TypeKind::kAny};
+              return make_type(TypeKind::kAny);
             }
             return tl::unexpected(make_unresolved_symbol_error(name_ref.name, name_ref.span));
           },

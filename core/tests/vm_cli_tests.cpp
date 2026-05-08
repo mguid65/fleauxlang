@@ -1,7 +1,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -50,6 +50,7 @@ auto shell_quote(const std::string_view text) -> std::string {
 #endif
 }
 
+#ifdef _WIN32
 auto powershell_quote(const std::string_view text) -> std::string {
   std::string quoted{"'"};
   for (const char ch : text) {
@@ -62,6 +63,7 @@ auto powershell_quote(const std::string_view text) -> std::string {
   quoted.push_back('\'');
   return quoted;
 }
+#endif
 
 struct CommandResult {
   int exit_code;
@@ -106,11 +108,12 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
 
   auto read_file = [](const std::filesystem::path& path) -> std::string {
     std::ifstream in(path);
-    std::string text;
-    if (in.good()) {
-      text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    if (!in.good()) {
+      return {};
     }
-    return text;
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
   };
 
   return CommandResult{

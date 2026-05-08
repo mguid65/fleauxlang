@@ -26,12 +26,12 @@
 namespace {
 
 auto push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_t value) -> std::int64_t {
-  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
+  bytecode_module.constants.emplace_back(value);
   return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 }
 
 auto push_u64_const(fleaux::bytecode::Module& bytecode_module, const std::uint64_t value) -> std::int64_t {
-  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
+  bytecode_module.constants.emplace_back(value);
   return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 }
 
@@ -3083,7 +3083,6 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{","}});
   const auto cComma = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"-"}});
-  const auto cDash = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"_"}});
   const auto cUnderscore = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});

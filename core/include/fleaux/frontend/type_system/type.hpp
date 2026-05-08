@@ -38,6 +38,18 @@ struct Type {
   common::IndirectOptional<Type> function_return;
 };
 
+[[nodiscard]] inline auto make_type(const TypeKind kind) -> Type {
+  Type type{};
+  type.kind = kind;
+  return type;
+}
+
+[[nodiscard]] inline auto make_nominal_type(std::string name) -> Type {
+  Type type = make_type(TypeKind::kNominal);
+  type.nominal_name = std::move(name);
+  return type;
+}
+
 [[nodiscard]] auto normalize_type(Type type) -> Type;
 
 [[nodiscard]] auto from_ir_type(const ir::IRSimpleType& type) -> Type;

@@ -13,22 +13,106 @@
 #include "fleaux/frontend/type_system/function_index.hpp"
 #include "fleaux/frontend/type_system/type.hpp"
 
+namespace {
+
+using fleaux::frontend::ir::IRSimpleType;
+using fleaux::frontend::type_system::Type;
+using fleaux::frontend::type_system::TypeKind;
+
+auto make_simple_type(const TypeKind kind) -> Type { return fleaux::frontend::type_system::make_type(kind); }
+
+auto make_nominal_type(std::string name) -> Type {
+  return fleaux::frontend::type_system::make_nominal_type(std::move(name));
+}
+
+auto make_type_var(std::string name) -> Type {
+  Type type = make_simple_type(TypeKind::kTypeVar);
+  type.nominal_name = std::move(name);
+  return type;
+}
+
+auto make_variadic_type(Type type) -> Type {
+  type.variadic = true;
+  return type;
+}
+
+auto make_union_type(std::vector<Type> members) -> Type {
+  Type type = make_simple_type(TypeKind::kUnion);
+  type.union_members = std::move(members);
+  return type;
+}
+
+auto make_tuple_type(std::vector<Type> items) -> Type {
+  Type type = make_simple_type(TypeKind::kTuple);
+  type.items = std::move(items);
+  return type;
+}
+
+auto make_applied_type(std::string name, std::vector<Type> args) -> Type {
+  Type type = make_simple_type(TypeKind::kApplied);
+  type.applied_name = std::move(name);
+  type.applied_args = std::move(args);
+  return type;
+}
+
+auto make_function_type(std::vector<Type> params, std::optional<Type> return_type = std::nullopt) -> Type {
+  Type type = make_simple_type(TypeKind::kFunction);
+  type.function_params = std::move(params);
+  if (return_type.has_value()) {
+    type.function_return = fleaux::common::make_indirect_optional<Type>(std::move(*return_type));
+  }
+  return type;
+}
+
+auto make_ir_simple_type(std::string name, const bool variadic = false) -> IRSimpleType {
+  IRSimpleType type{};
+  type.name = std::move(name);
+  type.variadic = variadic;
+  return type;
+}
+
+auto make_ir_applied_type(std::string name, std::vector<IRSimpleType> args) -> IRSimpleType {
+  IRSimpleType type{};
+  type.name = std::move(name);
+  type.type_args = std::move(args);
+  return type;
+}
+
+auto make_ir_param(std::string name, IRSimpleType type) -> fleaux::frontend::ir::IRParam {
+  fleaux::frontend::ir::IRParam param{};
+  param.name = std::move(name);
+  param.type = std::move(type);
+  param.span = std::nullopt;
+  return param;
+}
+
+auto make_ir_type_decl(std::string name, IRSimpleType target) -> fleaux::frontend::ir::IRTypeDecl {
+  fleaux::frontend::ir::IRTypeDecl decl{};
+  decl.name = std::move(name);
+  decl.target = std::move(target);
+  decl.span = std::nullopt;
+  return decl;
+}
+
+auto make_ir_alias_decl(std::string name, IRSimpleType target) -> fleaux::frontend::ir::IRAliasDecl {
+  fleaux::frontend::ir::IRAliasDecl decl{};
+  decl.name = std::move(name);
+  decl.target = std::move(target);
+  decl.span = std::nullopt;
+  return decl;
+}
+
+}  // namespace
+
 TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typecheck][types]") {
-  using fleaux::frontend::ir::IRSimpleType;
-  using fleaux::frontend::type_system::Type;
-  using fleaux::frontend::type_system::TypeKind;
   using fleaux::frontend::type_system::from_ir_type;
   using fleaux::frontend::type_system::is_integer_like;
   using fleaux::frontend::type_system::normalize_type;
 
   SECTION("normalize_type flattens, sorts, and deduplicates union members") {
-    Type union_type{.kind = TypeKind::kUnion,
-                    .union_members = {
-                        Type{.kind = TypeKind::kFloat64},
-                        Type{.kind = TypeKind::kInt64},
-                        Type{.kind = TypeKind::kUnion,
-                             .union_members = {Type{.kind = TypeKind::kUInt64}, Type{.kind = TypeKind::kInt64}}},
-                    }};
+    Type union_type = make_union_type({make_simple_type(TypeKind::kFloat64), make_simple_type(TypeKind::kInt64),
+                                       make_union_type({make_simple_type(TypeKind::kUInt64),
+                                                        make_simple_type(TypeKind::kInt64)})});
 
     const auto normalized = normalize_type(std::move(union_type));
     REQUIRE(normalized.kind == TypeKind::kUnion);
@@ -39,32 +123,22 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
   }
 
   SECTION("normalize_type collapses a single remaining union member") {
-    Type union_type{.kind = TypeKind::kUnion,
-                    .union_members = {
-                        Type{.kind = TypeKind::kInt64},
-                        Type{.kind = TypeKind::kUnion, .union_members = {Type{.kind = TypeKind::kInt64}}},
-                    }};
+    Type union_type =
+        make_union_type({make_simple_type(TypeKind::kInt64), make_union_type({make_simple_type(TypeKind::kInt64)})});
 
     const auto normalized = normalize_type(std::move(union_type));
     REQUIRE(normalized.kind == TypeKind::kInt64);
   }
 
   SECTION("normalize_type orders mixed structured members through the internal sort keys") {
-    Type variadic_item{.kind = TypeKind::kString, .variadic = true};
-    Type variadic_param{.kind = TypeKind::kString, .variadic = true};
-    Type union_type{.kind = TypeKind::kUnion,
-                    .union_members = {
-                        Type{.kind = TypeKind::kFunction, .function_params = {variadic_param}},
-                        Type{.kind = TypeKind::kTuple, .items = {variadic_item}},
-                        Type{.kind = TypeKind::kApplied,
-                             .applied_name = "Box",
-                             .applied_args = {Type{.kind = TypeKind::kInt64}}},
-                        Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
-                        Type{.kind = TypeKind::kBool},
-                        Type{.kind = TypeKind::kUnknown},
-                        Type{.kind = TypeKind::kUnion,
-                             .union_members = {Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kNull}}},
-                    }};
+    Type variadic_item = make_variadic_type(make_simple_type(TypeKind::kString));
+    Type variadic_param = make_variadic_type(make_simple_type(TypeKind::kString));
+    Type union_type = make_union_type({make_function_type({variadic_param}), make_tuple_type({variadic_item}),
+                                       make_applied_type("Box", {make_simple_type(TypeKind::kInt64)}),
+                                       make_type_var("T"), make_simple_type(TypeKind::kBool),
+                                       make_simple_type(TypeKind::kUnknown),
+                                       make_union_type({make_simple_type(TypeKind::kString),
+                                                        make_simple_type(TypeKind::kNull)})});
 
     const auto normalized = normalize_type(std::move(union_type));
     REQUIRE(normalized.kind == TypeKind::kUnion);
@@ -97,28 +171,23 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
     IRSimpleType callable_type;
     callable_type.function_sig = IRSimpleType::FunctionSignature{
         .param_types = {
-            IRSimpleType{.name = "Int64"},
-            IRSimpleType{.name = "String", .variadic = true},
+            make_ir_simple_type("Int64"),
+            make_ir_simple_type("String", true),
         },
-        .return_type = fleaux::frontend::ir::IRSimpleTypeBox(IRSimpleType{
-            .name = "Dict",
-            .type_args = {
-                IRSimpleType{.name = "String"},
-                IRSimpleType{.name = "Float64"},
-            },
-        }),
+        .return_type = fleaux::frontend::ir::IRSimpleTypeBox(
+            make_ir_applied_type("Dict", {make_ir_simple_type("String"), make_ir_simple_type("Float64")})),
     };
 
     IRSimpleType union_type;
     union_type.alternative_types = {
-        IRSimpleType{.name = "UInt64"},
-        IRSimpleType{.name = "Int64"},
-        IRSimpleType{.name = "UInt64"},
+        make_ir_simple_type("UInt64"),
+        make_ir_simple_type("Int64"),
+        make_ir_simple_type("UInt64"),
     };
 
     const auto callable = from_ir_type(callable_type);
     const auto structured_union = from_ir_type(union_type);
-    const auto nominal = from_ir_type(IRSimpleType{.name = "Widget"});
+    const auto nominal = from_ir_type(make_ir_simple_type("Widget"));
 
     REQUIRE(callable.kind == TypeKind::kFunction);
     REQUIRE(callable.function_params.size() == 2);
@@ -164,10 +233,10 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
   }
 
   SECTION("is_integer_like recognizes only Int64 and UInt64") {
-    REQUIRE(is_integer_like(Type{.kind = TypeKind::kInt64}));
-    REQUIRE(is_integer_like(Type{.kind = TypeKind::kUInt64}));
-    REQUIRE_FALSE(is_integer_like(Type{.kind = TypeKind::kFloat64}));
-    REQUIRE_FALSE(is_integer_like(Type{.kind = TypeKind::kNominal, .nominal_name = "Int64"}));
+    REQUIRE(is_integer_like(make_simple_type(TypeKind::kInt64)));
+    REQUIRE(is_integer_like(make_simple_type(TypeKind::kUInt64)));
+    REQUIRE_FALSE(is_integer_like(make_simple_type(TypeKind::kFloat64)));
+    REQUIRE_FALSE(is_integer_like(make_nominal_type("Int64")));
   }
 }
 
@@ -177,105 +246,84 @@ TEST_CASE("Type consistency handles unions tuples applied names and function sig
   using fleaux::frontend::type_system::is_consistent;
 
   const auto mk_function = [](std::vector<Type> params, std::optional<Type> return_type) -> Type {
-    Type out{.kind = TypeKind::kFunction, .function_params = std::move(params)};
-    if (return_type.has_value()) {
-      out.function_return = fleaux::common::make_indirect_optional<Type>(std::move(*return_type));
-    }
-    return out;
+    return make_function_type(std::move(params), std::move(return_type));
   };
 
   SECTION("Any and Never follow the top and bottom consistency rules") {
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kAny}, Type{.kind = TypeKind::kString}));
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kAny}));
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kNever}));
-    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kNever}, Type{.kind = TypeKind::kString}));
+    REQUIRE(is_consistent(make_simple_type(TypeKind::kAny), make_simple_type(TypeKind::kString)));
+    REQUIRE(is_consistent(make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kAny)));
+    REQUIRE(is_consistent(make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kNever)));
+    REQUIRE_FALSE(is_consistent(make_simple_type(TypeKind::kNever), make_simple_type(TypeKind::kString)));
   }
 
   SECTION("union consistency handles subsets and empty unions") {
-    const Type expected_union{.kind = TypeKind::kUnion,
-                              .union_members = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kString}}};
-    const Type actual_union{.kind = TypeKind::kUnion,
-                            .union_members = {Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kInt64}}};
-    const Type smaller_union{.kind = TypeKind::kUnion, .union_members = {Type{.kind = TypeKind::kInt64}}};
-    const Type empty_union{.kind = TypeKind::kUnion};
+    const Type expected_union = make_union_type({make_simple_type(TypeKind::kInt64), make_simple_type(TypeKind::kString)});
+    const Type actual_union = make_union_type({make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kInt64)});
+    const Type smaller_union = make_union_type({make_simple_type(TypeKind::kInt64)});
+    const Type empty_union = make_union_type({});
 
     REQUIRE(is_consistent(expected_union, actual_union));
     REQUIRE(is_consistent(expected_union, smaller_union));
-    REQUIRE(is_consistent(expected_union, Type{.kind = TypeKind::kInt64}));
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kInt64}, smaller_union));
+    REQUIRE(is_consistent(expected_union, make_simple_type(TypeKind::kInt64)));
+    REQUIRE(is_consistent(make_simple_type(TypeKind::kInt64), smaller_union));
     REQUIRE_FALSE(is_consistent(expected_union, empty_union));
-    REQUIRE_FALSE(is_consistent(empty_union, Type{.kind = TypeKind::kInt64}));
+    REQUIRE_FALSE(is_consistent(empty_union, make_simple_type(TypeKind::kInt64)));
   }
 
   SECTION("tuple consistency enforces variadic placement and repeated item matching") {
-    Type repeated_string{.kind = TypeKind::kString, .variadic = true};
-    const Type variadic_tuple{.kind = TypeKind::kTuple,
-                              .items = {Type{.kind = TypeKind::kInt64}, repeated_string}};
-    const Type matching_actual{.kind = TypeKind::kTuple,
-                               .items = {Type{.kind = TypeKind::kInt64},
-                                         Type{.kind = TypeKind::kString},
-                                         Type{.kind = TypeKind::kString}}};
-    const Type too_short_actual{.kind = TypeKind::kTuple};
+    Type repeated_string = make_variadic_type(make_simple_type(TypeKind::kString));
+    const Type variadic_tuple = make_tuple_type({make_simple_type(TypeKind::kInt64), repeated_string});
+    const Type matching_actual = make_tuple_type(
+        {make_simple_type(TypeKind::kInt64), make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kString)});
+    const Type too_short_actual = make_tuple_type({});
 
-    Type invalid_variadic_head{.kind = TypeKind::kString, .variadic = true};
-    const Type invalid_expected{.kind = TypeKind::kTuple,
-                                .items = {invalid_variadic_head, Type{.kind = TypeKind::kInt64}}};
+    Type invalid_variadic_head = make_variadic_type(make_simple_type(TypeKind::kString));
+    const Type invalid_expected = make_tuple_type({invalid_variadic_head, make_simple_type(TypeKind::kInt64)});
 
     REQUIRE(is_consistent(variadic_tuple, matching_actual));
     REQUIRE_FALSE(is_consistent(variadic_tuple, too_short_actual));
     REQUIRE_FALSE(is_consistent(invalid_expected, matching_actual));
-    REQUIRE_FALSE(is_consistent(variadic_tuple, Type{.kind = TypeKind::kInt64}));
+    REQUIRE_FALSE(is_consistent(variadic_tuple, make_simple_type(TypeKind::kInt64)));
   }
 
   SECTION("applied, type-variable, and nominal consistency require matching identities") {
-    const Type dict_int_string{.kind = TypeKind::kApplied,
-                               .applied_name = "Dict",
-                               .applied_args = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kString}}};
-    const Type dict_int_float{.kind = TypeKind::kApplied,
-                              .applied_name = "Dict",
-                              .applied_args = {Type{.kind = TypeKind::kInt64}, Type{.kind = TypeKind::kFloat64}}};
-    const Type maybe_int{.kind = TypeKind::kApplied,
-                         .applied_name = "Maybe",
-                         .applied_args = {Type{.kind = TypeKind::kInt64}}};
+    const Type dict_int_string =
+        make_applied_type("Dict", {make_simple_type(TypeKind::kInt64), make_simple_type(TypeKind::kString)});
+    const Type dict_int_float =
+        make_applied_type("Dict", {make_simple_type(TypeKind::kInt64), make_simple_type(TypeKind::kFloat64)});
+    const Type maybe_int = make_applied_type("Maybe", {make_simple_type(TypeKind::kInt64)});
 
     REQUIRE(is_consistent(dict_int_string, dict_int_string));
     REQUIRE_FALSE(is_consistent(dict_int_string, dict_int_float));
     REQUIRE_FALSE(is_consistent(dict_int_string, maybe_int));
-    REQUIRE_FALSE(is_consistent(dict_int_string, Type{.kind = TypeKind::kInt64}));
+    REQUIRE_FALSE(is_consistent(dict_int_string, make_simple_type(TypeKind::kInt64)));
 
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
-                          Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"}));
-    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kTypeVar, .nominal_name = "T"},
-                                Type{.kind = TypeKind::kTypeVar, .nominal_name = "U"}));
+    REQUIRE(is_consistent(make_type_var("T"), make_type_var("T")));
+    REQUIRE_FALSE(is_consistent(make_type_var("T"), make_type_var("U")));
 
-    REQUIRE(is_consistent(Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"},
-                          Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"}));
-    REQUIRE_FALSE(is_consistent(Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"},
-                                Type{.kind = TypeKind::kNominal, .nominal_name = "Gadget"}));
+    REQUIRE(is_consistent(make_nominal_type("Widget"), make_nominal_type("Widget")));
+    REQUIRE_FALSE(is_consistent(make_nominal_type("Widget"), make_nominal_type("Gadget")));
   }
 
   SECTION("function consistency handles missing returns and exact symmetric signatures") {
-    const Type missing_return_expected =
-        mk_function({Type{.kind = TypeKind::kInt64}}, std::nullopt);
-    const Type mismatched_actual =
-        mk_function({Type{.kind = TypeKind::kString}, Type{.kind = TypeKind::kString}}, Type{.kind = TypeKind::kBool});
+    const Type missing_return_expected = mk_function({make_simple_type(TypeKind::kInt64)}, std::nullopt);
+    const Type mismatched_actual = mk_function(
+        {make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kString)}, make_simple_type(TypeKind::kBool));
 
-    Type variadic_string{.kind = TypeKind::kString, .variadic = true};
-    const Type variadic_fn = mk_function({variadic_string}, Type{.kind = TypeKind::kInt64});
-    const Type non_variadic_fn = mk_function({Type{.kind = TypeKind::kString}}, Type{.kind = TypeKind::kInt64});
-    const Type short_fn = mk_function({}, Type{.kind = TypeKind::kInt64});
+    Type variadic_string = make_variadic_type(make_simple_type(TypeKind::kString));
+    const Type variadic_fn = mk_function({variadic_string}, make_simple_type(TypeKind::kInt64));
+    const Type non_variadic_fn = mk_function({make_simple_type(TypeKind::kString)}, make_simple_type(TypeKind::kInt64));
+    const Type short_fn = mk_function({}, make_simple_type(TypeKind::kInt64));
 
-    const Type named_widget_fn = mk_function({Type{.kind = TypeKind::kNominal, .nominal_name = "Widget"}},
-                                             Type{.kind = TypeKind::kInt64});
-    const Type named_gadget_fn = mk_function({Type{.kind = TypeKind::kNominal, .nominal_name = "Gadget"}},
-                                             Type{.kind = TypeKind::kInt64});
+    const Type named_widget_fn = mk_function({make_nominal_type("Widget")}, make_simple_type(TypeKind::kInt64));
+    const Type named_gadget_fn = mk_function({make_nominal_type("Gadget")}, make_simple_type(TypeKind::kInt64));
 
     REQUIRE(is_consistent(missing_return_expected, mismatched_actual));
     REQUIRE_FALSE(is_consistent(variadic_fn, non_variadic_fn));
     REQUIRE_FALSE(is_consistent(named_widget_fn, short_fn));
     REQUIRE(is_consistent(named_widget_fn, named_widget_fn));
     REQUIRE_FALSE(is_consistent(named_widget_fn, named_gadget_fn));
-    REQUIRE_FALSE(is_consistent(named_widget_fn, Type{.kind = TypeKind::kInt64}));
+    REQUIRE_FALSE(is_consistent(named_widget_fn, make_simple_type(TypeKind::kInt64)));
   }
 }
 
@@ -3271,9 +3319,9 @@ TEST_CASE("Type checker matrix: Stage-4b symbolic qualifier ownership", "[typech
     imported_add.qualifier = std::string{"Std"};
     imported_add.name = "Add";
     imported_add.is_builtin = true;
-    imported_add.params = {{.name = "lhs", .type = {.name = "Int64"}},
-                           {.name = "rhs", .type = {.name = "Int64"}}};
-    imported_add.return_type = {.name = "Int64"};
+    imported_add.params = {make_ir_param("lhs", make_ir_simple_type("Int64")),
+                           make_ir_param("rhs", make_ir_simple_type("Int64"))};
+    imported_add.return_type = make_ir_simple_type("Int64");
 
     const std::unordered_set<std::string> imported_symbols = {"Std.Add"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add};
@@ -3319,8 +3367,8 @@ TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[ty
     fleaux::frontend::ir::IRLet imported_add4;
     imported_add4.qualifier = std::string{"Foo"};
     imported_add4.name = "Add4";
-    imported_add4.params = {{.name = "x", .type = {.name = "String"}}};
-    imported_add4.return_type = {.name = "Int64"};
+    imported_add4.params = {make_ir_param("x", make_ir_simple_type("String"))};
+    imported_add4.return_type = make_ir_simple_type("Int64");
 
     const std::unordered_set<std::string> imported_symbols = {"Foo.Add4"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add4};
@@ -3347,8 +3395,8 @@ TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[ty
     fleaux::frontend::ir::IRLet imported_add4;
     imported_add4.qualifier = std::string{"Foo"};
     imported_add4.name = "Add4";
-    imported_add4.params = {{.name = "x", .type = {.name = "Int64"}}};
-    imported_add4.return_type = {.name = "Int64"};
+    imported_add4.params = {make_ir_param("x", make_ir_simple_type("Int64"))};
+    imported_add4.return_type = make_ir_simple_type("Int64");
 
     const std::unordered_set<std::string> imported_symbols = {"Foo.Add4"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_add4};
@@ -3389,7 +3437,7 @@ TEST_CASE("Type checker validates strong type environments across local and impo
     REQUIRE(lowered.has_value());
 
     const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
-        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+        make_ir_type_decl("UserId", make_ir_simple_type("Int64")),
     };
 
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, {}, {}, imported_type_decls);
@@ -3408,7 +3456,7 @@ TEST_CASE("Type checker validates strong type environments across local and impo
     REQUIRE(lowered.has_value());
 
     const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
-        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+        make_ir_type_decl("UserId", make_ir_simple_type("Int64")),
     };
 
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, {}, {}, imported_type_decls);
@@ -3433,13 +3481,13 @@ TEST_CASE("Type checker validates strong type environments across local and impo
     imported_cast.qualifier = std::string{"Std"};
     imported_cast.name = "Cast";
     imported_cast.generic_params = {"T"};
-    imported_cast.params = {{.name = "x", .type = {.name = "Any"}}};
-    imported_cast.return_type = {.name = "T"};
+    imported_cast.params = {make_ir_param("x", make_ir_simple_type("Any"))};
+    imported_cast.return_type = make_ir_simple_type("T");
 
     const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_cast};
     const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
-        fleaux::frontend::ir::IRTypeDecl{.name = "UserId", .target = {.name = "Int64"}},
+        make_ir_type_decl("UserId", make_ir_simple_type("Int64")),
     };
 
     const auto analyzed =
@@ -3552,13 +3600,13 @@ TEST_CASE("Type checker expands transparent local aliases before structural comp
 
     fleaux::frontend::ir::IRLet imported_echo;
     imported_echo.name = "ImportedEcho";
-    imported_echo.params = {{.name = "x", .type = {.name = "Distance"}}};
-    imported_echo.return_type = {.name = "Distance"};
+    imported_echo.params = {make_ir_param("x", make_ir_simple_type("Distance"))};
+    imported_echo.return_type = make_ir_simple_type("Distance");
 
     const std::unordered_set<std::string> imported_symbols = {"ImportedEcho"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_echo};
     const std::vector<fleaux::frontend::ir::IRAliasDecl> imported_alias_decls = {
-        fleaux::frontend::ir::IRAliasDecl{.name = "Distance", .target = {.name = "Int64"}},
+        make_ir_alias_decl("Distance", make_ir_simple_type("Int64")),
     };
 
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols,
@@ -3643,8 +3691,8 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     imported_cast.qualifier = std::string{"Std"};
     imported_cast.name = "Cast";
     imported_cast.generic_params = {"T"};
-    imported_cast.params = {{.name = "value", .type = {.name = "Any"}}};
-    imported_cast.return_type = {.name = "T"};
+    imported_cast.params = {make_ir_param("value", make_ir_simple_type("Any"))};
+    imported_cast.return_type = make_ir_simple_type("T");
     return imported_cast;
   };
 

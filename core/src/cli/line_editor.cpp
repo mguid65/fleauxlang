@@ -691,14 +691,34 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
 
 #endif
 
+auto make_line_editor_result(const LineEditorAction action = LineEditorAction::kContinue,
+                             const bool needs_redraw = false,
+                             std::optional<std::string> submitted_line = std::nullopt,
+                             std::vector<std::string> completion_suggestions = {}) -> LineEditorResult {
+  LineEditorResult result{};
+  result.action = action;
+  result.needs_redraw = needs_redraw;
+  result.submitted_line = std::move(submitted_line);
+  result.completion_suggestions = std::move(completion_suggestions);
+  return result;
+}
+
+auto make_interactive_read_result(const LineEditorAction action,
+                                  std::optional<std::string> line = std::nullopt) -> InteractiveReadResult {
+  InteractiveReadResult result{};
+  result.action = action;
+  result.line = std::move(line);
+  return result;
+}
+
 auto read_fallback_line(const std::string_view prompt) -> InteractiveReadResult {
   std::cout << prompt;
   std::string line;
   if (!std::getline(std::cin, line)) {
     std::cout << '\n';
-    return {.action = LineEditorAction::kEndOfInput};
+    return make_interactive_read_result(LineEditorAction::kEndOfInput);
   }
-  return {.action = LineEditorAction::kSubmit, .line = std::move(line)};
+  return make_interactive_read_result(LineEditorAction::kSubmit, std::move(line));
 }
 
 }  // namespace
@@ -844,9 +864,10 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       if (const auto partial_replacement = [&]() -> std::optional<std::string> {
             const auto& shortest = completions.front();
             const auto& longest = completions.back();
+            const auto shared_limit = std::min(shortest.size(), longest.size());
 
-            auto idx{0};
-            for (; idx < longest.length(); ++idx) {
+            std::size_t idx = 0;
+            for (; idx < shared_limit; ++idx) {
               if (shortest[idx] != longest[idx]) {
                 break;
               }
@@ -861,7 +882,7 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
         cursor_ = start + partial_replacement->size();
       }
 
-      return {.needs_redraw = true, .completion_suggestions = std::move(completions)};
+      return make_line_editor_result(LineEditorAction::kContinue, true, std::nullopt, std::move(completions));
     }
 
     const std::string& replacement = completions.front();
@@ -873,14 +894,14 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
 
     buffer_.replace(start, end - start, replacement);
     cursor_ = start + replacement.size();
-    return {.needs_redraw = true};
+    return make_line_editor_result(LineEditorAction::kContinue, true);
   };
 
   switch (event.key) {
     case InputKey::kCharacter:
       buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), event.ch);
       ++cursor_;
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kBackspace:
       if (cursor_ == 0) {
@@ -888,28 +909,28 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       }
       buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_ - 1));
       --cursor_;
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kDelete:
       if (cursor_ >= buffer_.size()) {
         return {};
       }
       buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kArrowLeft:
       if (cursor_ == 0) {
         return {};
       }
       --cursor_;
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kArrowRight:
       if (cursor_ >= buffer_.size()) {
         return {};
       }
       ++cursor_;
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kArrowUp:
       if (history_.empty()) {
@@ -934,30 +955,30 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       history_index_.reset();
       buffer_ = history_edit_buffer_;
       cursor_ = buffer_.size();
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kTokenLeft:
-      return {.needs_redraw = move_token_left()};
+      return make_line_editor_result(LineEditorAction::kContinue, move_token_left());
 
     case InputKey::kTokenRight:
-      return {.needs_redraw = move_token_right()};
+      return make_line_editor_result(LineEditorAction::kContinue, move_token_right());
 
     case InputKey::kTokenBackspace:
-      return {.needs_redraw = delete_token_left()};
+      return make_line_editor_result(LineEditorAction::kContinue, delete_token_left());
 
     case InputKey::kHome:
       if (cursor_ == 0) {
         return {};
       }
       cursor_ = 0;
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kEnd:
       if (cursor_ == buffer_.size()) {
         return {};
       }
       cursor_ = buffer_.size();
-      return {.needs_redraw = true};
+      return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kTab:
       return apply_completion();
@@ -970,9 +991,7 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       history_index_.reset();
       history_edit_buffer_.clear();
       return {
-          .action = LineEditorAction::kSubmit,
-          .submitted_line = std::move(submitted_line),
-      };
+          make_line_editor_result(LineEditorAction::kSubmit, false, std::move(submitted_line))};
     }
 
     case InputKey::kCtrlC:
@@ -980,11 +999,11 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       cursor_ = 0;
       history_index_.reset();
       history_edit_buffer_.clear();
-      return {.action = LineEditorAction::kClearBuffer};
+      return make_line_editor_result(LineEditorAction::kClearBuffer);
 
     case InputKey::kCtrlD:
       if (buffer_.empty()) {
-        return {.action = LineEditorAction::kEndOfInput};
+        return make_line_editor_result(LineEditorAction::kEndOfInput);
       }
       return {};
 
@@ -1023,7 +1042,7 @@ void LineEditor::push_history_entry(const std::string& entry) {
 auto LineEditor::restore_history_entry(const std::size_t index) -> LineEditorResult {
   buffer_ = history_.at(index);
   cursor_ = buffer_.size();
-  return {.needs_redraw = true};
+  return make_line_editor_result(LineEditorAction::kContinue, true);
 }
 
 auto stdin_is_interactive() -> bool {
@@ -1062,7 +1081,7 @@ auto read_interactive_line(LineEditor& editor, const std::string_view prompt) ->
 #endif
     if (!event.has_value()) {
       std::cout << "\r\n";
-      return {.action = LineEditorAction::kEndOfInput};
+      return make_interactive_read_result(LineEditorAction::kEndOfInput);
     }
 
     const auto [action, needs_redraw, submitted_line_opt, completion_suggestions] = editor.handle_event(*event);
@@ -1088,19 +1107,19 @@ auto read_interactive_line(LineEditor& editor, const std::string_view prompt) ->
       (void)submitted_line;
       std::cout << "\r\n";
       std::cout.flush();
-      return {.action = action, .line = submitted_line};
+      return make_interactive_read_result(action, submitted_line);
     }
 
     if (action == LineEditorAction::kClearBuffer) {
       std::cout << "\r\x1b[K^C\r\n";
       std::cout.flush();
-      return {.action = action};
+      return make_interactive_read_result(action);
     }
 
     if (action == LineEditorAction::kEndOfInput) {
       std::cout << "\r\n";
       std::cout.flush();
-      return {.action = action};
+      return make_interactive_read_result(action);
     }
   }
   (void)raw_mode;  // This is here so the IDE will shutup about putting it in the if-init

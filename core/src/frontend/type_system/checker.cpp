@@ -327,12 +327,12 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
                             std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (generic_params.contains(name) || known_strong_type_names.contains(name) || is_builtin_opaque_nominal_type_name(name)) {
-    return Type{.kind = TypeKind::kNominal, .nominal_name = name};
+    return make_nominal_type(name);
   }
 
   const auto* alias_decl = alias_index.resolve_name(name);
   if (alias_decl == nullptr) {
-    return Type{.kind = TypeKind::kNominal, .nominal_name = name};
+    return make_nominal_type(name);
   }
 
   if (const auto cached = resolved_cache.find(name); cached != resolved_cache.end()) {
@@ -1099,7 +1099,7 @@ auto instantiate_generic_type(const Type& type, const TypeBindings& bindings) ->
     if (const auto it = bindings.find(type.nominal_name); it != bindings.end()) {
       return normalize_type(it->second);
     }
-    return Type{.kind = TypeKind::kAny};
+    return make_type(TypeKind::kAny);
   }
 
   Type out = type;

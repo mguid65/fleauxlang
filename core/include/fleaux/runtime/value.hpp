@@ -817,7 +817,7 @@ struct HandleRegistry {
     entry.mode = mode;
     entry.generation = 0;
     open_stream(entry);
-    const auto slot = static_cast<UInt>(entries.size() - 1);
+    const auto slot = entries.size() - 1;
     registration_log.push_back(slot);
     return slot;
   }
@@ -1354,24 +1354,24 @@ inline auto to_string(const Value& value) -> std::string {
 }
 
 enum class SortTag {
-  Array,
-  Generic,
-  Object,
-  Null,
-  Bool,
-  Number,
-  String,
+  kArray,
+  kGeneric,
+  kObject,
+  kNull,
+  kBool,
+  kNumber,
+  kString,
 };
 
 [[nodiscard]] inline auto sort_tag_of(const Value& value) -> SortTag {
-  const auto tag = value.Visit([](const Array&) -> SortTag { return SortTag::Array; },
-                               [](const Generic&) -> SortTag { return SortTag::Generic; },
-                               [](const Object&) -> SortTag { return SortTag::Object; },
+  const auto tag = value.Visit([](const Array&) -> SortTag { return SortTag::kArray; },
+                               [](const Generic&) -> SortTag { return SortTag::kGeneric; },
+                               [](const Object&) -> SortTag { return SortTag::kObject; },
                                [](const ValueNode& vn) -> SortTag {
-                                 return vn.Visit([](const Null&) -> SortTag { return SortTag::Null; },
-                                                 [](const Bool&) -> SortTag { return SortTag::Bool; },
-                                                 [](const Number&) -> SortTag { return SortTag::Number; },
-                                                 [](const String&) -> SortTag { return SortTag::String; });
+                                 return vn.Visit([](const Null&) -> SortTag { return SortTag::kNull; },
+                                                 [](const Bool&) -> SortTag { return SortTag::kBool; },
+                                                 [](const Number&) -> SortTag { return SortTag::kNumber; },
+                                                 [](const String&) -> SortTag { return SortTag::kString; });
                                });
   return tag;
 }
@@ -1401,26 +1401,26 @@ enum class SortTag {
   }
 
   switch (lhs_tag) {
-    case SortTag::Null:
+    case SortTag::kNull:
       return 0;
-    case SortTag::Bool: {
+    case SortTag::kBool: {
       const bool lhs_bool = as_bool(lhs);
       const bool rhs_bool = as_bool(rhs);
       return (lhs_bool < rhs_bool) ? -1 : ((lhs_bool > rhs_bool) ? 1 : 0);
     }
-    case SortTag::Number: {
+    case SortTag::kNumber: {
       return compare_numbers(lhs, rhs);
     }
-    case SortTag::String: {
+    case SortTag::kString: {
       const String& lhs_string = as_string(lhs);
       const String& rhs_string = as_string(rhs);
       return (lhs_string < rhs_string) ? -1 : ((lhs_string > rhs_string) ? 1 : 0);
     }
-    case SortTag::Array:
+    case SortTag::kArray:
       return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
-    case SortTag::Generic:
+    case SortTag::kGeneric:
       throw std::invalid_argument{"TupleSort does not support sorting generic values"};
-    case SortTag::Object:
+    case SortTag::kObject:
       throw std::invalid_argument{"TupleSort does not support sorting object values"};
   }
   throw std::invalid_argument{"TupleSort internal error"};

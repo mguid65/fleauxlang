@@ -231,8 +231,8 @@ TEST_CASE("Runtime builtins: FileReadChunk rejects fractional nbytes", "[runtime
 TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]") {
   const Value is_even =
       make_callable_ref([](const Value& v) -> Value { return make_bool(static_cast<Int>(to_double(v)) % 2 == 0); });
-  const Value even_handler = make_callable_ref([](const Value& _v) -> Value { return make_string("even"); });
-  const Value odd_handler = make_callable_ref([](const Value& _v) -> Value { return make_string("odd"); });
+  const Value even_handler = make_callable_ref([](const Value&) -> Value { return make_string("even"); });
+  const Value odd_handler = make_callable_ref([](const Value&) -> Value { return make_string("odd"); });
 
   SECTION("Predicate pattern matches before wildcard") {
     Value arg = make_tuple(make_int(6), make_tuple(is_even, even_handler),

@@ -116,14 +116,68 @@ auto make_string_constant_box(std::string value) -> fleaux::frontend::ir::IRExpr
 
 auto make_name_ref_box(std::optional<std::string> qualifier, std::string name,
                        std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
-  return make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::move(qualifier),
-                                                     .name = std::move(name),
-                                                     .resolved_symbol_key = std::move(resolved_symbol_key),
-                                                     .span = std::nullopt});
+  fleaux::frontend::ir::IRNameRef name_ref{};
+  name_ref.qualifier = std::move(qualifier);
+  name_ref.name = std::move(name);
+  name_ref.resolved_symbol_key = std::move(resolved_symbol_key);
+  name_ref.span = std::nullopt;
+  return make_ir_box(std::move(name_ref));
 }
 
 auto make_simple_type(std::string name) -> fleaux::frontend::ir::IRSimpleType {
-  return fleaux::frontend::ir::IRSimpleType{.name = std::move(name)};
+  fleaux::frontend::ir::IRSimpleType type{};
+  type.name = std::move(name);
+  return type;
+}
+
+auto make_variadic_simple_type(std::string name) -> fleaux::frontend::ir::IRSimpleType {
+  auto type = make_simple_type(std::move(name));
+  type.variadic = true;
+  return type;
+}
+
+auto make_ir_name_ref(std::optional<std::string> qualifier, std::string name,
+                      std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRNameRef {
+  fleaux::frontend::ir::IRNameRef name_ref{};
+  name_ref.qualifier = std::move(qualifier);
+  name_ref.name = std::move(name);
+  name_ref.resolved_symbol_key = std::move(resolved_symbol_key);
+  name_ref.span = std::nullopt;
+  return name_ref;
+}
+
+auto make_compile_options(const bool enable_value_ref_gate = false, const bool enable_auto_value_ref = false,
+                          const std::size_t value_ref_byte_cutoff = 256,
+                          std::optional<std::filesystem::path> source_path = std::nullopt,
+                          std::optional<std::string> source_text = std::nullopt,
+                          std::optional<std::string> module_name = std::nullopt,
+                          std::vector<fleaux::bytecode::Module> imported_modules = {})
+    -> fleaux::bytecode::CompileOptions {
+  fleaux::bytecode::CompileOptions options{};
+  options.source_path = std::move(source_path);
+  options.source_text = std::move(source_text);
+  options.module_name = std::move(module_name);
+  options.imported_modules = std::move(imported_modules);
+  options.enable_value_ref_gate = enable_value_ref_gate;
+  options.enable_auto_value_ref = enable_auto_value_ref;
+  options.value_ref_byte_cutoff = value_ref_byte_cutoff;
+  return options;
+}
+
+auto read_binary_file_bytes(const std::filesystem::path& path) -> std::vector<std::uint8_t> {
+  std::ifstream in(path, std::ios::binary);
+  REQUIRE(in.good());
+  in.seekg(0, std::ios::end);
+  const auto size = in.tellg();
+  REQUIRE(size >= 0);
+  in.seekg(0, std::ios::beg);
+
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+  if (!bytes.empty()) {
+    in.read(reinterpret_cast<char*>(bytes.data()), size);
+    REQUIRE((in.good() || in.eof()));
+  }
+  return bytes;
 }
 
 void require_copy_vs_auto_byref_equivalent(const std::string& source_text, const std::string& source_name,
@@ -131,15 +185,8 @@ void require_copy_vs_auto_byref_equivalent(const std::string& source_text, const
   const auto ir_program = lower_source_to_ir(source_text, source_name);
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                            .enable_value_ref_gate = false,
-                                                            .enable_auto_value_ref = false,
-                                                        });
-  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                             .enable_value_ref_gate = true,
-                                                             .enable_auto_value_ref = true,
-                                                             .value_ref_byte_cutoff = cutoff,
-                                                         });
+  const auto result_copy = compiler.compile(ir_program, make_compile_options(false, false));
+  const auto result_byref = compiler.compile(ir_program, make_compile_options(true, true, cutoff));
 
   REQUIRE(result_copy.has_value());
   REQUIRE(result_byref.has_value());
@@ -380,10 +427,7 @@ TEST_CASE("Bytecode compiler rejects explicit Std.Ref and Std.Deref without cata
   const fleaux::bytecode::BytecodeCompiler compiler;
 
   for (const bool gate_on : {false, true}) {
-    const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                         .enable_value_ref_gate = gate_on,
-                                                         .enable_auto_value_ref = false,
-                                                     });
+    const auto result = compiler.compile(ir_program, make_compile_options(gate_on, false));
     INFO("enable_value_ref_gate = " << gate_on);
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "Unknown builtin in bytecode compiler: 'Std.Ref'.");
@@ -397,11 +441,7 @@ TEST_CASE("Bytecode compiler rejects auto value-ref when gate is disabled", "[by
       "bytecode_value_ref_invalid_option_gate.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = false,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 32,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(false, true, 32));
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message.find("enable_auto_value_ref requires enable_value_ref_gate=true") !=
           std::string::npos);
@@ -415,11 +455,7 @@ TEST_CASE("Bytecode compiler rejects zero value_ref_byte_cutoff when auto by-ref
       "bytecode_value_ref_invalid_option_cutoff.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = true,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 0,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(true, true, 0));
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message.find("value_ref_byte_cutoff must be > 0") != std::string::npos);
 }
@@ -433,11 +469,7 @@ TEST_CASE("Bytecode compiler auto-emits value-ref ops for large safe user-functi
       "bytecode_value_ref_auto_on.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = true,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 32,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(true, true, 32));
   REQUIRE(result.has_value());
 
   bool saw_make_value_ref = false;
@@ -473,11 +505,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics when auto by-ref safety/size c
       "bytecode_value_ref_auto_fallback.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = true,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 32,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(true, true, 32));
   REQUIRE(result.has_value());
 
   bool saw_make_value_ref = false;
@@ -514,11 +542,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics when parameter flows through S
       "bytecode_value_ref_escape_apply.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = true,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 32,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(true, true, 32));
   REQUIRE(result.has_value());
 
   bool saw_make_value_ref = false;
@@ -553,11 +577,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics when parameter is captured by 
       "bytecode_value_ref_nested_closure_capture.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .enable_value_ref_gate = true,
-                                                       .enable_auto_value_ref = true,
-                                                       .value_ref_byte_cutoff = 32,
-                                                   });
+  const auto result = compiler.compile(ir_program, make_compile_options(true, true, 32));
   REQUIRE(result.has_value());
 
   bool saw_make_value_ref = false;
@@ -597,15 +617,12 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
               fleaux::frontend::ir::IRParam{.name = "tail", .type = make_simple_type("String"), .span = std::nullopt},
               fleaux::frontend::ir::IRParam{.name = "anything", .type = make_simple_type("Any"), .span = std::nullopt},
               fleaux::frontend::ir::IRParam{.name = "rest",
-                                            .type = fleaux::frontend::ir::IRSimpleType{.name = "String", .variadic = true},
+                                            .type = make_variadic_simple_type("String"),
                                             .span = std::nullopt},
           },
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "head",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .body = make_ir_box(make_ir_name_ref(std::nullopt, "head")),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -620,10 +637,7 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
                             make_string_constant_box(std::string(80, 'c'))},
                   .span = std::nullopt,
               }),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Process",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Process"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -655,10 +669,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "x",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -670,10 +681,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "x",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -688,10 +696,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           },
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "lhs",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .body = make_ir_box(make_ir_name_ref(std::nullopt, "lhs")),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -703,10 +708,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .params = {fleaux::frontend::ir::IRParam{.name = "value", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("String"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "value",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .body = make_ir_box(make_ir_name_ref(std::nullopt, "value")),
           .is_builtin = false,
           .span = std::nullopt,
       },
@@ -720,10 +722,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
           .doc_comments = {},
           .body = make_ir_box(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_name_ref_box(std::nullopt, "payload"),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "NeedSized",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "NeedSized"),
               .span = std::nullopt,
           }),
           .is_builtin = false,
@@ -734,10 +733,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_string_constant_box(std::string(80, 'd')),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Dup",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Dup"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -748,10 +744,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
                   .items = {make_string_constant_box(std::string(80, 'e'))},
                   .span = std::nullopt,
               }),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "NeedPair",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "NeedPair"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -759,10 +752,7 @@ TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argu
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_string_constant_box(std::string(80, 'f')),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Caller",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Caller"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -813,10 +803,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
               .items = {make_name_ref_box(std::nullopt, "v"), make_name_ref_box(std::nullopt, "Echo")},
               .span = std::nullopt,
           }),
-          .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
-                                                .name = "Apply",
-                                                .resolved_symbol_key = std::string{"Std.Apply"},
-                                                .span = std::nullopt},
+          .rhs = make_ir_name_ref(std::string{"Std"}, "Apply", std::string{"Std.Apply"}),
           .span = std::nullopt,
       }),
       .captures = {},
@@ -860,10 +847,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_string_constant_box(std::string(80, 'g')),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Captured",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Captured"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -871,10 +855,7 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_string_constant_box(std::string(80, 'h')),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Escaped",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Escaped"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -895,11 +876,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
                                                const std::string& wrapper_name) {
     INFO("source=" << source_name << ", wrapper=" << wrapper_name);
     const auto ir_program = lower_source_to_ir(source_text, source_name);
-    const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                         .enable_value_ref_gate = true,
-                                                         .enable_auto_value_ref = true,
-                                                         .value_ref_byte_cutoff = 32,
-                                                     });
+    const auto result = compiler.compile(ir_program, make_compile_options(true, true, 32));
     REQUIRE(result.has_value());
 
     bool saw_make_value_ref = false;
@@ -985,15 +962,8 @@ TEST_CASE("Auto by-ref semantic equivalence: tuple passthrough same result with/
   const auto ir_program = lower_source_to_ir(source, "bytecode_semantic_equiv_tuple.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                            .enable_value_ref_gate = false,
-                                                            .enable_auto_value_ref = false,
-                                                        });
-  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                             .enable_value_ref_gate = true,
-                                                             .enable_auto_value_ref = true,
-                                                             .value_ref_byte_cutoff = 32,
-                                                         });
+  const auto result_copy = compiler.compile(ir_program, make_compile_options(false, false));
+  const auto result_byref = compiler.compile(ir_program, make_compile_options(true, true, 32));
 
   REQUIRE(result_copy.has_value());
   REQUIRE(result_byref.has_value());
@@ -1123,15 +1093,8 @@ TEST_CASE("Auto by-ref benchmark: large tuple processing", "[bytecode][value_ref
       "bytecode_benchmark_tuple.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                            .enable_value_ref_gate = false,
-                                                            .enable_auto_value_ref = false,
-                                                        });
-  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                             .enable_value_ref_gate = true,
-                                                             .enable_auto_value_ref = true,
-                                                             .value_ref_byte_cutoff = 64,
-                                                         });
+  const auto result_copy = compiler.compile(ir_program, make_compile_options(false, false));
+  const auto result_byref = compiler.compile(ir_program, make_compile_options(true, true, 64));
 
   REQUIRE(result_copy.has_value());
   REQUIRE(result_byref.has_value());
@@ -1162,15 +1125,8 @@ TEST_CASE("Auto by-ref benchmark: pipeline chain with strings", "[bytecode][valu
   const auto ir_program = lower_source_to_ir(source, "bytecode_benchmark_pipeline.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result_copy = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                            .enable_value_ref_gate = false,
-                                                            .enable_auto_value_ref = false,
-                                                        });
-  const auto result_byref = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                             .enable_value_ref_gate = true,
-                                                             .enable_auto_value_ref = true,
-                                                             .value_ref_byte_cutoff = 16,
-                                                         });
+  const auto result_copy = compiler.compile(ir_program, make_compile_options(false, false));
+  const auto result_byref = compiler.compile(ir_program, make_compile_options(true, true, 16));
 
   REQUIRE(result_copy.has_value());
   REQUIRE(result_byref.has_value());
@@ -1292,10 +1248,7 @@ TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecod
   fleaux::frontend::ir::IRProgram ir_program;
   ir_program.expressions = {
       fleaux::frontend::ir::IRExprStatement{
-          .expr = make_ir_expr(fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                               .name = "MissingValue",
-                                                               .resolved_symbol_key = std::nullopt,
-                                                               .span = std::nullopt}),
+          .expr = make_ir_expr(make_ir_name_ref(std::nullopt, "MissingValue")),
           .span = std::nullopt,
       },
   };
@@ -1388,10 +1341,7 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
                             make_name_ref_box(std::nullopt, "Dec", "Dec#0")},
                   .span = std::nullopt,
               }),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
-                                                    .name = "Select",
-                                                    .resolved_symbol_key = std::string{"Std.Select"},
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::string{"Std"}, "Select", std::string{"Std.Select"}),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -1657,10 +1607,7 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_int_constant_box(5),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Identity",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Identity"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -1668,10 +1615,7 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_int_constant_box(5),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::nullopt,
-                                                    .name = "Neg",
-                                                    .resolved_symbol_key = std::nullopt,
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::nullopt, "Neg"),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -1682,10 +1626,7 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
                   .items = {make_int_constant_box(5), make_name_ref_box(std::nullopt, "Identity")},
                   .span = std::nullopt,
               }),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
-                                                    .name = "Apply",
-                                                    .resolved_symbol_key = std::string{"Std.Apply"},
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::string{"Std"}, "Apply", std::string{"Std.Apply"}),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -1696,10 +1637,7 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
                   .items = {make_int_constant_box(5), make_name_ref_box(std::nullopt, "Neg")},
                   .span = std::nullopt,
               }),
-              .rhs = fleaux::frontend::ir::IRNameRef{.qualifier = std::string{"Std"},
-                                                    .name = "Apply",
-                                                    .resolved_symbol_key = std::string{"Std.Apply"},
-                                                    .span = std::nullopt},
+              .rhs = make_ir_name_ref(std::string{"Std"}, "Apply", std::string{"Std.Apply"}),
               .span = std::nullopt,
           }),
           .span = std::nullopt,
@@ -1713,6 +1651,9 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
       .has_variadic_tail = false,
       .is_import_placeholder = false,
       .instructions = {},
+      .generic_params = {},
+      .param_type_names = {},
+      .return_type_name = {},
   });
   imported_module.exports = {
       fleaux::bytecode::ExportedSymbol{
@@ -1746,9 +1687,9 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
   };
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                       .imported_modules = {imported_module},
-                                                   });
+  const auto result = compiler.compile(ir_program,
+                                       make_compile_options(false, false, 256, std::nullopt, std::nullopt,
+                                                            std::nullopt, {imported_module}));
 
   REQUIRE(result.has_value());
   const auto identity_it = std::find_if(result->functions.begin(), result->functions.end(),
@@ -1758,7 +1699,7 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
   REQUIRE(identity_it != result->functions.end());
   REQUIRE(identity_it->arity == 1);
   REQUIRE(identity_it->is_import_placeholder);
-  const auto identity_index = static_cast<std::int64_t>(std::distance(result->functions.begin(), identity_it));
+  const auto identity_index = std::distance(result->functions.begin(), identity_it);
   REQUIRE(std::none_of(result->functions.begin(), result->functions.end(),
                        [](const fleaux::bytecode::FunctionDef& fn) -> bool {
                          return fn.name == "AliasIdentity" || fn.name == "Missing";
@@ -1876,9 +1817,8 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
   };
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto filtered = compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                                         .source_path = std::filesystem::path("main.fleaux"),
-                                                     });
+  const auto filtered =
+      compiler.compile(ir_program, make_compile_options(false, false, 256, std::filesystem::path("main.fleaux")));
   const auto unfiltered = compiler.compile(ir_program);
 
   REQUIRE(filtered.has_value());
@@ -2234,12 +2174,14 @@ TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][
   original.exports = {
       fleaux::bytecode::ExportedSymbol{
           .name = "RoundTrip.Double",
+          .link_name = {},
           .kind = fleaux::bytecode::ExportKind::kFunction,
           .index = 0,
           .builtin_name = {},
       },
       fleaux::bytecode::ExportedSymbol{
           .name = "RoundTrip.Println",
+          .link_name = {},
           .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
           .index = 0,
           .builtin_name = "RoundTrip.Println",
@@ -2474,11 +2416,9 @@ TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", 
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled =
-      compiler.compile(ir_program, fleaux::bytecode::CompileOptions{
-                                       .source_path = std::filesystem::path("bytecode_roundtrip.fleaux"),
-                                       .source_text = source_text,
-                                       .module_name = "bytecode_roundtrip",
-                                   });
+      compiler.compile(ir_program,
+                       make_compile_options(false, false, 256, std::filesystem::path("bytecode_roundtrip.fleaux"),
+                                            std::string{source_text}, std::string{"bytecode_roundtrip"}));
   REQUIRE(compiled.has_value());
 
   const auto& original = compiled.value();
@@ -2677,12 +2617,7 @@ TEST_CASE("Bytecode module loader preserves exported user overload link names", 
   REQUIRE(loaded.has_value());
   REQUIRE(std::filesystem::exists(dependency_bytecode_path));
 
-  std::vector<std::uint8_t> dependency_bytes;
-  {
-    std::ifstream in(dependency_bytecode_path, std::ios::binary);
-    REQUIRE(in.good());
-    dependency_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  auto dependency_bytes = read_binary_file_bytes(dependency_bytecode_path);
 
   const auto deserialized = fleaux::bytecode::deserialize_module(dependency_bytes);
   REQUIRE(deserialized.has_value());
@@ -2837,12 +2772,7 @@ TEST_CASE("Bytecode module loader reports missing typed import seed declaration 
   REQUIRE(std::filesystem::exists(entry_bytecode_path));
   REQUIRE(std::filesystem::exists(dependency_bytecode_path));
 
-  std::vector<std::uint8_t> dependency_bytes;
-  {
-    std::ifstream in(dependency_bytecode_path, std::ios::binary);
-    REQUIRE(in.good());
-    dependency_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  auto dependency_bytes = read_binary_file_bytes(dependency_bytecode_path);
 
   const auto deserialized = fleaux::bytecode::deserialize_module(dependency_bytes);
   REQUIRE(deserialized.has_value());
@@ -2850,6 +2780,7 @@ TEST_CASE("Bytecode module loader reports missing typed import seed declaration 
 
   corrupted_dependency.exports.push_back(fleaux::bytecode::ExportedSymbol{
       .name = "Ghost.Export",
+      .link_name = {},
       .kind = fleaux::bytecode::ExportKind::kFunction,
       .index = 0,
       .builtin_name = {},
@@ -3045,12 +2976,7 @@ TEST_CASE("Bytecode module loader reports bytecode-only entry corruption when so
   REQUIRE(initial_load.has_value());
   REQUIRE(std::filesystem::exists(entry_bytecode_path));
 
-  std::vector<std::uint8_t> entry_bytes;
-  {
-    std::ifstream in(entry_bytecode_path, std::ios::binary);
-    REQUIRE(in.good());
-    entry_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  auto entry_bytes = read_binary_file_bytes(entry_bytecode_path);
   REQUIRE(entry_bytes.size() > 16U);
   entry_bytes.back() ^= 0x01U;
 
@@ -3092,12 +3018,7 @@ TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch withou
   REQUIRE(baseline_load->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
 
-  std::vector<std::uint8_t> baseline_bytes;
-  {
-    std::ifstream in(entry_bytecode_path, std::ios::binary);
-    REQUIRE(in.good());
-    baseline_bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  auto baseline_bytes = read_binary_file_bytes(entry_bytecode_path);
   const auto baseline_deserialized = fleaux::bytecode::deserialize_module(baseline_bytes);
   REQUIRE(baseline_deserialized.has_value());
   REQUIRE(baseline_deserialized->header.optimization_mode ==
@@ -3113,12 +3034,7 @@ TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch withou
   REQUIRE(extended_load->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kExtended));
 
-  std::vector<std::uint8_t> cache_bytes_after_extended_load;
-  {
-    std::ifstream in(entry_bytecode_path, std::ios::binary);
-    REQUIRE(in.good());
-    cache_bytes_after_extended_load.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  auto cache_bytes_after_extended_load = read_binary_file_bytes(entry_bytecode_path);
   const auto cached_after_extended = fleaux::bytecode::deserialize_module(cache_bytes_after_extended_load);
   REQUIRE(cached_after_extended.has_value());
   REQUIRE(cached_after_extended->header.optimization_mode ==

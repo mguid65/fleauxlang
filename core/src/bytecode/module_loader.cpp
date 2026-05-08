@@ -41,8 +41,8 @@ auto make_error(const std::string& message) -> ModuleLoadError { return ModuleLo
 
 auto hash_text(const std::string& text) -> std::uint64_t {
   std::uint64_t hash = kFnvOffsetBasis;
-  for (const unsigned char ch : text) {
-    hash ^= static_cast<std::uint64_t>(ch);
+  for (const char ch : text) {
+    hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(ch));
     hash *= kFnvPrime;
   }
   return hash;
@@ -154,13 +154,15 @@ auto merge_module_into(Module& target, const Module& source,
     }
 
     maps.functions[index] = static_cast<std::uint32_t>(target.functions.size());
-    target.functions.push_back(FunctionDef{
-        .name = function.name,
-        .arity = function.arity,
-        .has_variadic_tail = function.has_variadic_tail,
-        .is_import_placeholder = false,
-        .instructions = {},
-    });
+    FunctionDef merged_function{};
+    merged_function.name = function.name;
+    merged_function.arity = function.arity;
+    merged_function.has_variadic_tail = function.has_variadic_tail;
+    merged_function.is_import_placeholder = false;
+    merged_function.generic_params = function.generic_params;
+    merged_function.param_type_names = function.param_type_names;
+    merged_function.return_type_name = function.return_type_name;
+    target.functions.push_back(std::move(merged_function));
   }
 
   maps.closures.reserve(source.closures.size());
@@ -415,8 +417,8 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
       }
 
       for (const auto& imported_alias_decl : imported_ir->alias_decls) {
-        if (const auto key = fleaux::frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
-            imported_alias_decl_keys.insert(key).second) {
+        if (const auto alias_key = fleaux::frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
+            imported_alias_decl_keys.insert(alias_key).second) {
           imported_alias_decls.push_back(imported_alias_decl);
         }
       }

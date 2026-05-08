@@ -36,7 +36,7 @@ auto match_handler_return_type(const Type& handler_type, const Type& subject_typ
                                const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (is_deferred_callable_type(handler_type)) {
-    return Type{.kind = TypeKind::kAny};
+    return make_type(TypeKind::kAny);
   }
 
   if (handler_type.kind != TypeKind::kFunction || !handler_type.function_return.has_value()) {
@@ -67,7 +67,7 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
   if (pattern_type.kind == TypeKind::kFunction) {
     const bool accepts_subject =
         callable_has_fixed_arity(pattern_type, 1U) && callable_accepts_arg(pattern_type, 0U, subject_type);
-    if (!accepts_subject || !callable_returns_type(pattern_type, Type{.kind = TypeKind::kBool})) {
+    if (!accepts_subject || !callable_returns_type(pattern_type, make_type(TypeKind::kBool))) {
       return tl::unexpected(make_error(
           "Invalid Std.Match predicate pattern.",
           std::optional<std::string>{"Predicate patterns must be callable as '(S) => Bool' and return Bool."}, span));
@@ -150,7 +150,7 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
     result_type = *merged;
   }
 
-  return result_type.value_or(Type{.kind = TypeKind::kAny});
+  return result_type.value_or(make_type(TypeKind::kAny));
 }
 
 auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
@@ -195,7 +195,7 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   }
 
   if (is_deferred_callable_type(*func_type)) {
-    return Type{.kind = TypeKind::kAny};
+    return make_type(TypeKind::kAny);
   }
 
   if (func_type->kind == TypeKind::kFunction && callable_has_fixed_arity(*func_type, 0U) &&
@@ -245,7 +245,7 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
               make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
         }
         if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) {
-          return Type{.kind = TypeKind::kAny};
+          return make_type(TypeKind::kAny);
         }
         return tl::unexpected(
             make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
@@ -254,7 +254,7 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
         return tl::unexpected(make_unresolved_symbol_error(name_ref->name, name_ref->span));
       }
     }
-    return Type{.kind = TypeKind::kAny};
+    return make_type(TypeKind::kAny);
   }
 
   std::vector<Type> args;

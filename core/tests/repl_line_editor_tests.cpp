@@ -207,7 +207,9 @@ TEST_CASE("LineEditor tab completes symbols from the configured completion handl
   fleaux::cli::CompletionHandler completion;
   completion.load_symbols({"Std.Print", "Std.Println", "Square"});
 
-  LineEditor editor(LineEditorConfig{.completion_handler = &completion});
+  LineEditorConfig config{};
+  config.completion_handler = &completion;
+  LineEditor editor(config);
   for (const char ch : std::string{"Std.Pr"}) {
     REQUIRE(editor.handle_event(InputEvent::character(ch)).needs_redraw);
   }
@@ -228,7 +230,9 @@ TEST_CASE("LineEditor tab completes symbols from the configured completion handl
 TEST_CASE("LineEditor tab completion is a no-op without a symbol prefix", "[repl][line-editor]") {
   fleaux::cli::CompletionHandler completion;
   completion.load_symbols({"Std.Println"});
-  LineEditor editor(LineEditorConfig{.completion_handler = &completion});
+  LineEditorConfig config{};
+  config.completion_handler = &completion;
+  LineEditor editor(config);
 
   REQUIRE_FALSE(editor.handle_event({.key = InputKey::kTab}).needs_redraw);
   REQUIRE(editor.handle_event({.key = InputKey::kTab}).completion_suggestions.empty());

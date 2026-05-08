@@ -58,7 +58,7 @@ auto const_to_value(const bytecode::ConstValue& const_value) -> Value {
 
 auto pop_stack(std::vector<Value>& stack, const char* context) -> tl::expected<Value, RuntimeError> {
   if (stack.empty()) {
-    return tl::unexpected(RuntimeError{.message = std::string("stack underflow on ") + context});
+    return tl::unexpected(make_runtime_error(std::string("stack underflow on ") + context));
   }
   Value value = std::move(stack.back());
   stack.pop_back();
@@ -70,7 +70,7 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
   try {
     return fn();
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{.message = std::string("native '") + opname + "' threw: " + ex.what()});
+    return tl::unexpected(make_runtime_error(std::string("native '") + opname + "' threw: " + ex.what()));
   }
 }
 
@@ -243,7 +243,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
     try {
       auto& arr = fleaux::runtime::as_array(arg);
       if (arr.Size() < arity) {
-        return tl::unexpected(RuntimeError{.message = "too few arguments for '" + fn_name + "'"});
+        return tl::unexpected(make_runtime_error("too few arguments for '" + fn_name + "'"));
       }
       for (std::uint32_t arg_index = 0; arg_index < arity; ++arg_index) {
         locals.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
@@ -251,7 +251,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
       return {};
     } catch (const std::exception& ex) {
       return tl::unexpected(
-          RuntimeError{.message = std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
+          make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
     }
   }
 
@@ -269,7 +269,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
   try {
     auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
-      return tl::unexpected(RuntimeError{.message = "too few arguments for '" + fn_name + "'"});
+      return tl::unexpected(make_runtime_error("too few arguments for '" + fn_name + "'"));
     }
     for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
       locals.emplace_back(std::move(arr[arg_index]));
@@ -279,7 +279,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
     return {};
   } catch (const std::exception& ex) {
     return tl::unexpected(
-        RuntimeError{.message = std::string("argument unpacking for '") + fn_name + "': " + ex.what()});
+        make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
   }
 }
 
@@ -297,10 +297,10 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
     try {
       auto& arr = fleaux::runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
-        return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+        return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
       }
       if (arr.Size() == declared_arity) {
-        return std::move(arg);
+        return arg;
       }
 
       Value out{Array{}};
@@ -311,8 +311,7 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
       }
       return out;
     } catch (const std::exception& ex) {
-      return tl::unexpected(
-          RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+      return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
     }
   }
 
@@ -324,7 +323,7 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
   try {
     auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
-      return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+      return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
     }
 
     Value out{Array{}};
@@ -336,7 +335,7 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
     out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+    return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
   }
 }
 
@@ -368,7 +367,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
 
       auto& arr = fleaux::runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
-        return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+        return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
       }
 
       out_array.Reserve(prefix.Size() + declared_arity);
@@ -378,8 +377,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
       }
       return out;
     } catch (const std::exception& ex) {
-      return tl::unexpected(
-          RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+      return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
     }
   }
 
@@ -397,7 +395,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
   try {
     auto& arr = fleaux::runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
-      return tl::unexpected(RuntimeError{.message = "too few arguments for inline closure"});
+      return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
     }
 
     for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
@@ -406,7 +404,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
     out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{.message = std::string("argument unpacking for inline closure: ") + ex.what()});
+    return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
   }
 }
 
@@ -426,7 +424,7 @@ auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& st
     }
     return state;
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{.message = std::string("native 'loop' threw: ") + ex.what()});
+    return tl::unexpected(make_runtime_error(std::string("native 'loop' threw: ") + ex.what()));
   }
 }
 
@@ -435,7 +433,7 @@ auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& st
 auto run_user_function(const bytecode::Module& bytecode_module, const std::size_t fn_idx, Value arg,
                        std::ostream& output) -> tl::expected<Value, RuntimeError> {
   if (fn_idx >= bytecode_module.functions.size()) {
-    return tl::unexpected(RuntimeError{.message = "function index out of range"});
+    return tl::unexpected(make_runtime_error("function index out of range"));
   }
   const auto& function = bytecode_module.functions[fn_idx];
   const auto& name = function.name;
@@ -458,12 +456,12 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
     return tl::unexpected(loop_result.error());
 
   if (std::get_if<std::monostate>(&*loop_result) != nullptr) {
-    return tl::unexpected(RuntimeError{.message = "halt inside function '" + name + "'"});
+    return tl::unexpected(make_runtime_error("halt inside function '" + name + "'"));
   }
   if (auto* value = std::get_if<Value>(&*loop_result); value != nullptr) {
     return std::move(*value);
   }
-  return tl::unexpected(RuntimeError{.message = "invalid loop result variant"});
+  return tl::unexpected(make_runtime_error("invalid loop result variant"));
 }
 
 // run_loop
@@ -476,7 +474,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
     const auto& instr_list = *frames.back().instructions;
     if (curr_ip >= instr_list.size()) {
-      return tl::unexpected(RuntimeError{.message = "program terminated without halt"});
+      return tl::unexpected(make_runtime_error("program terminated without halt"));
     }
 
     const auto opcode = instr_list[curr_ip].opcode;
@@ -489,7 +487,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kPushConst: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= bytecode_module.constants.size()) {
-          return tl::unexpected(RuntimeError{.message = "constant pool index out of range"});
+          return tl::unexpected(make_runtime_error("constant pool index out of range"));
         }
         stack.push_back(const_to_value(bytecode_module.constants[idx]));
         break;
@@ -503,7 +501,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
       case bytecode::Opcode::kDup: {
         if (stack.empty()) {
-          return tl::unexpected(RuntimeError{.message = "stack underflow on dup"});
+          return tl::unexpected(make_runtime_error("stack underflow on dup"));
         }
         stack.push_back(stack.back());
         break;
@@ -512,7 +510,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kBuildTuple: {
         const auto tuple_size = static_cast<std::size_t>(operand);
         if (stack.size() < tuple_size) {
-          return tl::unexpected(RuntimeError{.message = "stack underflow on build_tuple"});
+          return tl::unexpected(make_runtime_error("stack underflow on build_tuple"));
         }
         collapse_stack_tail_into_tuple(stack, tuple_size);
         break;
@@ -541,7 +539,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kCallBuiltin: {
         const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
-          return tl::unexpected(RuntimeError{.message = "builtin index out of range"});
+          return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
 
         auto arg = pop_stack(stack, "call_builtin");
@@ -558,7 +556,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kCallUserFunc: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
-          return tl::unexpected(RuntimeError{.message = "function index out of range"});
+          return tl::unexpected(make_runtime_error("function index out of range"));
         }
         auto arg = pop_stack(stack, "call_user_func");
         if (!arg)
@@ -582,7 +580,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kMakeUserFuncRef: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
-          return tl::unexpected(RuntimeError{.message = "function index out of range"});
+          return tl::unexpected(make_runtime_error("function index out of range"));
         }
         // Callable captures bytecode_module, builtins, and output by reference.
         // Safety contract: these refs remain valid for the entire duration of the
@@ -604,7 +602,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
         const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
-          return tl::unexpected(RuntimeError{.message = "builtin index out of range"});
+          return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
         auto callable = [builtin_id = *builtin_id](Value arg) -> Value {
           auto result = dispatch_builtin(builtin_id, std::move(arg));
@@ -620,7 +618,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kMakeClosureRef: {
         const auto closure_idx = static_cast<std::size_t>(operand);
         if (closure_idx >= bytecode_module.closures.size()) {
-          return tl::unexpected(RuntimeError{.message = "closure index out of range"});
+          return tl::unexpected(make_runtime_error("closure index out of range"));
         }
 
         auto captured_tuple = pop_stack(stack, "make_closure_ref");
@@ -632,7 +630,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
             bytecode_module.closures[closure_idx];
         if (const auto& capture_array = fleaux::runtime::as_array(*captured_tuple);
             capture_array.Size() != capture_count) {
-          return tl::unexpected(RuntimeError{.message = "closure capture tuple size mismatch"});
+          return tl::unexpected(make_runtime_error("closure capture tuple size mismatch"));
         }
 
         auto captured_args = std::move(*captured_tuple);
@@ -677,7 +675,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         const auto slot = static_cast<std::size_t>(operand);
         const auto& locals = frames.back().locals;
         if (slot >= locals.size()) {
-          return tl::unexpected(RuntimeError{.message = "local slot index out of range"});
+          return tl::unexpected(make_runtime_error("local slot index out of range"));
         }
         stack.push_back(locals[slot]);
         break;
@@ -686,7 +684,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kJump: {
         const auto target = static_cast<std::size_t>(operand);
         if (target > instr_list.size()) {
-          return tl::unexpected(RuntimeError{.message = "jump target out of range"});
+          return tl::unexpected(make_runtime_error("jump target out of range"));
         }
         frames.back().ip = target;
         break;
@@ -698,7 +696,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(cond.error());
         const auto target = static_cast<std::size_t>(operand);
         if (target > instr_list.size()) {
-          return tl::unexpected(RuntimeError{.message = "jump_if target out of range"});
+          return tl::unexpected(make_runtime_error("jump_if target out of range"));
         }
         if (fleaux::runtime::as_bool(*cond)) {
           frames.back().ip = target;
@@ -712,7 +710,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(cond.error());
         const auto target = static_cast<std::size_t>(operand);
         if (target > instr_list.size()) {
-          return tl::unexpected(RuntimeError{.message = "jump_if_not target out of range"});
+          return tl::unexpected(make_runtime_error("jump_if_not target out of range"));
         }
         if (!fleaux::runtime::as_bool(*cond)) {
           frames.back().ip = target;
@@ -1051,7 +1049,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (msg.starts_with(prefix)) {
             msg.replace(0, prefix.size(), "native 'loop_call' threw: ");
           }
-          return tl::unexpected(RuntimeError{.message = std::move(msg)});
+          return tl::unexpected(make_runtime_error(std::move(msg)));
         }
         stack.push_back(std::move(*result));
         break;
@@ -1076,11 +1074,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           const auto as_int = fleaux::runtime::as_int_value_strict(*max_iters, "LoopN max_iters");
           if (as_int < 0) {
             return tl::unexpected(
-                RuntimeError{.message = "native 'loop_n_call' threw: LoopN: max_iters must be non-negative"});
+                make_runtime_error("native 'loop_n_call' threw: LoopN: max_iters must be non-negative"));
           }
           limit = static_cast<std::size_t>(as_int);
         } catch (const std::exception& ex) {
-          return tl::unexpected(RuntimeError{.message = std::string("native 'loop_n_call' threw: ") + ex.what()});
+          return tl::unexpected(make_runtime_error(std::string("native 'loop_n_call' threw: ") + ex.what()));
         }
 
         auto result = run_loop_intrinsic(std::move(*state), *continue_func, *step_func, limit);
@@ -1090,7 +1088,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (msg.starts_with(prefix)) {
             msg.replace(0, prefix.size(), "native 'loop_n_call' threw: ");
           }
-          return tl::unexpected(RuntimeError{.message = std::move(msg)});
+          return tl::unexpected(make_runtime_error(std::move(msg)));
         }
         stack.push_back(std::move(*result));
         break;
@@ -1099,11 +1097,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       case bytecode::Opcode::kHalt:
         return LoopExit{std::monostate{}};
       default:
-        return tl::unexpected(RuntimeError{.message = std::format("invalid opcode {}", static_cast<int>(opcode))});
+        return tl::unexpected(make_runtime_error(std::format("invalid opcode {}", static_cast<int>(opcode))));
     }
   }
 
-  return tl::unexpected(RuntimeError{.message = "program terminated without halt"});
+  return tl::unexpected(make_runtime_error("program terminated without halt"));
 }
 
 auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
@@ -1489,20 +1487,20 @@ auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::
         if (const auto constant_value = constant_builtin_value(builtin_id); constant_value.has_value()) {
           return fleaux::runtime::make_float(*constant_value);
         }
-        return tl::unexpected(RuntimeError{.message = "unknown builtin id"});
+        return tl::unexpected(make_runtime_error("unknown builtin id"));
     }
   } catch (const std::exception& ex) {
-    return tl::unexpected(RuntimeError{.message = std::string("builtin '") +
-                                                  std::string(fleaux::vm::builtin_name(builtin_id)) +
-                                                  "' threw: " + ex.what()});
+    return tl::unexpected(make_runtime_error(std::string("builtin '") +
+                                             std::string(fleaux::vm::builtin_name(builtin_id)) +
+                                             "' threw: " + ex.what()));
   }
 }
 
 }  // namespace
 
 struct RuntimeSession::Impl {
-  explicit Impl(const std::vector<std::string>& process_args, const RuntimeCompileOptions& compile_options)
-      : compile_options(compile_options),
+  explicit Impl(const std::vector<std::string>& process_args, const RuntimeCompileOptions& session_compile_options)
+      : compile_options(session_compile_options),
         source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
     std::vector<std::string> args_storage;
     args_storage.reserve(process_args.size() + 1U);
@@ -1560,6 +1558,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
                                                            .source_path = impl_->source_path,
                                                            .source_text = snippet_text,
                                                            .module_name = std::string{"repl"},
+                                                           .imported_modules = {},
                                                            .enable_value_ref_gate =
                                                                impl_->compile_options.enable_value_ref_gate ||
                                                                impl_->compile_options.enable_auto_value_ref,
@@ -1612,7 +1611,7 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
 
   if (std::get_if<Value>(&*loop_result) != nullptr) {
     // A top-level kReturn would be a compiler bug.
-    return tl::unexpected(RuntimeError{.message = "top-level code returned a value instead of halting"});
+    return tl::unexpected(make_runtime_error("top-level code returned a value instead of halting"));
   }
   return ExecutionResult{0};
 }

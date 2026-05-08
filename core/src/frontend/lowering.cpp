@@ -9,6 +9,7 @@
 #include <string>
 #include <type_traits>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
@@ -28,6 +29,16 @@ auto make_error(const std::string& message, const std::optional<std::string>& hi
   err.hint = hint;
   err.span = span;
   return err;
+}
+
+auto make_name_ref(std::optional<std::string> qualifier, std::string name, std::optional<diag::SourceSpan> span,
+                   std::vector<ir::IRSimpleType> explicit_type_args = {}) -> ir::IRNameRef {
+  ir::IRNameRef name_ref{};
+  name_ref.qualifier = std::move(qualifier);
+  name_ref.name = std::move(name);
+  name_ref.explicit_type_args = std::move(explicit_type_args);
+  name_ref.span = std::move(span);
+  return name_ref;
 }
 
 auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::AnalysisResult {
@@ -83,7 +94,7 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                             out.kind = types::TypeNodeKind::kNamed;
                                             out.name = qualified.qualifier.qualifier + "." + qualified.id;
                                           },
-                                           [&](const model::TypeListBox& type_list) -> void {
+                                          [&](const model::TypeListBox& type_list) -> void {
                                             out.kind = types::TypeNodeKind::kTuple;
                                             out.name = "Tuple";
                                             out.items.reserve(type_list->types.size());
@@ -91,7 +102,7 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                               out.items.push_back(self(self, *item));
                                             }
                                           },
-                                           [&](const model::UnionTypeListBox& union_list) -> void {
+                                          [&](const model::UnionTypeListBox& union_list) -> void {
                                             out.kind = types::TypeNodeKind::kUnion;
                                             for (const auto& alt : union_list->alternatives) {
                                               out.items.push_back(self(self, *alt));
@@ -100,7 +111,7 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                               out.name = out.items.front().name;
                                             }
                                           },
-                                           [&](const model::AppliedTypeNodeBox& applied) -> void {
+                                          [&](const model::AppliedTypeNodeBox& applied) -> void {
                                             out.kind = types::TypeNodeKind::kApplied;
                                             out.name = applied->name;
                                             out.items.reserve(applied->args.types.size());
@@ -108,7 +119,7 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
                                               out.items.push_back(self(self, *arg));
                                             }
                                           },
-                                           [&](const model::FunctionTypeNodeBox& func) -> void {
+                                          [&](const model::FunctionTypeNodeBox& func) -> void {
                                             out.kind = types::TypeNodeKind::kFunction;
                                             out.name = "Function";
                                             out.items.reserve(func->params.types.size() + 1);
@@ -125,61 +136,61 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
   out.span = type.span;
   out.variadic = type.variadic;
   out.bridge_type_node = lower_bridge_type_node(lower_bridge_type_node, type);
-  std::visit(
-      fleaux::common::overloaded{[&](const std::string& simple) -> void {
-                                   std::string raw = simple;
-                                   if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
-                                     out.variadic = true;
-                                     raw = raw.substr(0, raw.size() - 3U);
-                                   }
-                                   out.name = raw;
-                                 },
-                                 [&](const model::QualifiedId& qualified) -> void {
-                                   out.name = qualified.qualifier.qualifier + "." + qualified.id;
-                                 },
-                                 [&](const model::UnionTypeListBox& union_list) -> void {
-                                   for (const auto& alt : union_list->alternatives) {
-                                     const ir::IRSimpleType lowered = lower_simple_type(*alt);
-                                     out.alternative_types.push_back(lowered);
-                                     if (!lowered.alternatives.empty()) {
-                                       out.alternatives.insert(out.alternatives.end(), lowered.alternatives.begin(),
-                                                               lowered.alternatives.end());
-                                     } else {
-                                       out.alternatives.push_back(lowered.name);
-                                     }
-                                   }
-                                   if (!out.alternatives.empty()) {
-                                     out.name = out.alternatives.front();
-                                   }
-                                 },
-                                 [&](const model::TypeListBox& type_list) -> void {
-                                   out.name = "Tuple";
-                                   out.tuple_items.reserve(type_list->types.size());
-                                   for (const auto& item : type_list->types) {
-                                     out.tuple_items.push_back(lower_simple_type(*item));
-                                   }
-                                 },
-                                 [&](const model::AppliedTypeNodeBox& applied) -> void {
-                                   out.name = applied->name;
-                                   out.type_args.reserve(applied->args.types.size());
-                                   for (const auto& arg : applied->args.types) {
-                                     out.type_args.push_back(lower_simple_type(*arg));
-                                   }
-                                 },
-                                 [&](const model::FunctionTypeNodeBox& func) -> void {
-                                   out.name = "Function";
-                                   std::vector<ir::IRSimpleType> param_types;
-                                   param_types.reserve(func->params.types.size());
-                                   for (const auto& param : func->params.types) {
-                                     param_types.push_back(lower_simple_type(*param));
-                                   }
-                                   out.function_sig = ir::IRSimpleType::FunctionSignature{
-                                       .param_types = std::move(param_types),
-                                       .return_type = ir::IRSimpleTypeBox(lower_simple_type(*func->return_type)),
-                                   };
-                                 },
-                                 [&](const auto&) -> void { out.name = "Tuple"; }},
-      type.value);
+  std::visit(fleaux::common::overloaded{[&](const std::string& simple) -> void {
+                                          std::string raw = simple;
+                                          if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                                            out.variadic = true;
+                                            raw = raw.substr(0, raw.size() - 3U);
+                                          }
+                                          out.name = raw;
+                                        },
+                                        [&](const model::QualifiedId& qualified) -> void {
+                                          out.name = qualified.qualifier.qualifier + "." + qualified.id;
+                                        },
+                                        [&](const model::UnionTypeListBox& union_list) -> void {
+                                          for (const auto& alt : union_list->alternatives) {
+                                            const ir::IRSimpleType lowered = lower_simple_type(*alt);
+                                            out.alternative_types.push_back(lowered);
+                                            if (!lowered.alternatives.empty()) {
+                                              out.alternatives.insert(out.alternatives.end(),
+                                                                      lowered.alternatives.begin(),
+                                                                      lowered.alternatives.end());
+                                            } else {
+                                              out.alternatives.push_back(lowered.name);
+                                            }
+                                          }
+                                          if (!out.alternatives.empty()) {
+                                            out.name = out.alternatives.front();
+                                          }
+                                        },
+                                        [&](const model::TypeListBox& type_list) -> void {
+                                          out.name = "Tuple";
+                                          out.tuple_items.reserve(type_list->types.size());
+                                          for (const auto& item : type_list->types) {
+                                            out.tuple_items.push_back(lower_simple_type(*item));
+                                          }
+                                        },
+                                        [&](const model::AppliedTypeNodeBox& applied) -> void {
+                                          out.name = applied->name;
+                                          out.type_args.reserve(applied->args.types.size());
+                                          for (const auto& arg : applied->args.types) {
+                                            out.type_args.push_back(lower_simple_type(*arg));
+                                          }
+                                        },
+                                        [&](const model::FunctionTypeNodeBox& func) -> void {
+                                          out.name = "Function";
+                                          std::vector<ir::IRSimpleType> param_types;
+                                          param_types.reserve(func->params.types.size());
+                                          for (const auto& param : func->params.types) {
+                                            param_types.push_back(lower_simple_type(*param));
+                                          }
+                                          out.function_sig = ir::IRSimpleType::FunctionSignature{
+                                              .param_types = std::move(param_types),
+                                              .return_type = ir::IRSimpleTypeBox(lower_simple_type(*func->return_type)),
+                                          };
+                                        },
+                                        [&](const auto&) -> void { out.name = "Tuple"; }},
+             type.value);
 
   return out;
 }
@@ -286,12 +297,8 @@ auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expe
             return std::visit(
                 fleaux::common::overloaded{
                     [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                      return ir::IRNameRef{
-                          .qualifier = qualified.qualifier.qualifier,
-                          .name = qualified.id,
-                          .explicit_type_args = std::move(explicit_type_args),
-                          .span = value->span,
-                      };
+                      return make_name_ref(qualified.qualifier.qualifier, qualified.id, value->span,
+                                           std::move(explicit_type_args));
                     },
                     [&](const std::string& simple) -> tl::expected<ir::IRCallTarget, LoweringError> {
                       if (kOperators.contains(simple)) {
@@ -299,27 +306,18 @@ auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expe
                             "Explicit type argument application is only supported on named call targets.",
                             "Use explicit type arguments only with names such as 'Std.Cast<Id>'.", value->span));
                       }
-                      return ir::IRNameRef{
-                          .qualifier = std::nullopt,
-                          .name = simple,
-                          .explicit_type_args = std::move(explicit_type_args),
-                          .span = value->span,
-                      };
+                      return make_name_ref(std::nullopt, simple, value->span, std::move(explicit_type_args));
                     }},
                 value->target);
           },
           [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-            return ir::IRNameRef{
-                .qualifier = qualified.qualifier.qualifier,
-                .name = qualified.id,
-                .span = qualified.span,
-            };
+            return make_name_ref(qualified.qualifier.qualifier, qualified.id, qualified.span);
           },
           [&](const std::string& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
             if (kOperators.contains(value)) {
               return ir::IROperatorRef{.op = value, .span = primary.span};
             }
-            return ir::IRNameRef{.qualifier = std::nullopt, .name = value, .span = primary.span};
+            return make_name_ref(std::nullopt, value, primary.span);
           },
           [&](const auto&) -> tl::expected<ir::IRCallTarget, LoweringError> {
             return tl::unexpected(
@@ -365,7 +363,8 @@ auto contains_placeholder(const ir::IRExpr& expr) -> bool {
       fleaux::common::overloaded{
           [](const ir::IRNameRef& name_ref) -> bool { return !name_ref.qualifier.has_value() && name_ref.name == "_"; },
           [](const ir::IRTupleExpr& tuple_expr) -> bool {
-            return std::ranges::any_of(tuple_expr.items, [](const auto& item) -> bool { return contains_placeholder(*item); });
+            return std::ranges::any_of(tuple_expr.items,
+                                       [](const auto& item) -> bool { return contains_placeholder(*item); });
           },
           [](const ir::IRFlowExpr& flow_expr) -> bool { return contains_placeholder(*flow_expr.lhs); },
           [](const auto&) -> bool { return false; }},
@@ -387,8 +386,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
     -> tl::expected<ir::IRExpr, LoweringError> {
   return std::visit(
       fleaux::common::overloaded{
-          [&](const model::DelimitedExpressionBox& inner)
-              -> tl::expected<ir::IRExpr, LoweringError> {
+          [&](const model::DelimitedExpressionBox& inner) -> tl::expected<ir::IRExpr, LoweringError> {
             if (inner->items.size() == 1) {
               return lower_expr(*inner->items[0], bound_names);
             }
@@ -474,13 +472,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
               c.span = qid.span;
               return ir::IRExpr{.node = std::move(c), .span = atom.span};
             }
-            return ir::IRExpr{.node =
-                                  ir::IRNameRef{
-                                      .qualifier = qid.qualifier.qualifier,
-                                      .name = qid.id,
-                                      .span = qid.span,
-                                  },
-                              .span = atom.span};
+            return ir::IRExpr{.node = make_name_ref(qid.qualifier.qualifier, qid.id, qid.span), .span = atom.span};
           },
           [&](const model::NamedTargetBox& target) -> tl::expected<ir::IRExpr, LoweringError> {
             std::vector<ir::IRSimpleType> explicit_type_args;
@@ -489,44 +481,29 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
               explicit_type_args.push_back(lower_simple_type(*type_arg));
             }
 
-            return std::visit(fleaux::common::overloaded{
-                                  [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
-                                    if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
-                                        (qid.id == "Ok" || qid.id == "Err")) {
-                                      ir::IRConstant c;
-                                      c.val = (qid.id == "Ok") ? true : false;
-                                      c.span = qid.span;
-                                      return ir::IRExpr{.node = std::move(c), .span = atom.span};
-                                    }
-                                    return ir::IRExpr{.node =
-                                                          ir::IRNameRef{
-                                                              .qualifier = qid.qualifier.qualifier,
-                                                              .name = qid.id,
-                                                              .explicit_type_args = std::move(explicit_type_args),
-                                                              .span = target->span,
-                                                          },
-                                                      .span = atom.span};
-                                  },
-                                  [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-                                    return ir::IRExpr{.node =
-                                                          ir::IRNameRef{
-                                                              .qualifier = std::nullopt,
-                                                              .name = name,
-                                                              .explicit_type_args = std::move(explicit_type_args),
-                                                              .span = target->span,
-                                                          },
-                                                      .span = atom.span};
-                                  }},
-                              target->target);
+            return std::visit(
+                fleaux::common::overloaded{
+                    [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+                      if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
+                          (qid.id == "Ok" || qid.id == "Err")) {
+                        ir::IRConstant c;
+                        c.val = (qid.id == "Ok") ? true : false;
+                        c.span = qid.span;
+                        return ir::IRExpr{.node = std::move(c), .span = atom.span};
+                      }
+                      return ir::IRExpr{.node = make_name_ref(qid.qualifier.qualifier, qid.id, target->span,
+                                                              std::move(explicit_type_args)),
+                                        .span = atom.span};
+                    },
+                    [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+                      return ir::IRExpr{
+                          .node = make_name_ref(std::nullopt, name, target->span, std::move(explicit_type_args)),
+                          .span = atom.span};
+                    }},
+                target->target);
           },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-            return ir::IRExpr{.node =
-                                  ir::IRNameRef{
-                                      .qualifier = std::nullopt,
-                                      .name = name,
-                                      .span = atom.span,
-                                  },
-                              .span = atom.span};
+            return ir::IRExpr{.node = make_name_ref(std::nullopt, name, atom.span), .span = atom.span};
           },
           [&](const std::monostate&) -> tl::expected<ir::IRExpr, LoweringError> {
             ir::IRTupleExpr tuple;
@@ -583,11 +560,7 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
 
     ir::IRFlowExpr apply_flow{
         .lhs = ir::IRExprBox(apply_lhs),
-        .rhs = ir::IRNameRef{
-            .qualifier = std::optional<std::string>{"Std"},
-            .name = "Apply",
-            .span = stage_primary.span,
-        },
+        .rhs = make_name_ref(std::optional<std::string>{"Std"}, "Apply", stage_primary.span),
         .span = stage_primary.span,
     };
 
@@ -729,13 +702,13 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                            let_bound_names.insert(p.name);
                          }
 
-                          ir::IRExprBox body;
+                         ir::IRExprBox body;
                          if (!is_builtin) {
                            auto lowered_body = lower_expr(*model_let.expr, let_bound_names);
                            if (!lowered_body) {
                              return tl::unexpected(lowered_body.error());
                            }
-                            body = std::move(*lowered_body);
+                           body = std::move(*lowered_body);
                          }
 
                          ir_program.lets.push_back(ir::IRLet{
@@ -746,7 +719,7 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
                              .params = std::move(params),
                              .return_type = lower_simple_type(model_let.rtype),
                              .doc_comments = model_let.doc_comments,
-                              .body = std::move(body),
+                             .body = std::move(body),
                              .is_builtin = is_builtin,
                              .span = model_let.span,
                          });

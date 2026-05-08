@@ -12,7 +12,7 @@ namespace {
 struct FailedTestEntry {
   std::string test_name;
   std::string file;
-  int line = 0;
+  std::size_t line = 0;
 };
 
 class FailureSummaryListener final : public Catch::EventListenerBase {

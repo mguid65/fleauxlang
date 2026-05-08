@@ -129,7 +129,7 @@ auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::option
         // Negating INT64_MIN overflows; preserve runtime behavior by skipping fold.
         return std::nullopt;
       }
-      return ConstValue{.data = static_cast<std::int64_t>(-*value)};
+      return ConstValue{.data = -*value};
     }
     if (const auto* value = std::get_if<double>(&input.data); value != nullptr) {
       return ConstValue{.data = -*value};
@@ -240,7 +240,7 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
         if (overflow) {
           return std::nullopt;
         }
-        return ConstValue{.data = static_cast<std::int64_t>(*lhs_i64 + *rhs_i64)};
+        return ConstValue{.data = *lhs_i64 + *rhs_i64};
       }
       case Opcode::kSub: {
         const bool overflow = (*rhs_i64 < 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() + *rhs_i64) ||
@@ -248,18 +248,18 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
         if (overflow) {
           return std::nullopt;
         }
-        return ConstValue{.data = static_cast<std::int64_t>(*lhs_i64 - *rhs_i64)};
+        return ConstValue{.data = *lhs_i64 - *rhs_i64};
       }
       case Opcode::kMul: {
         if (*lhs_i64 == 0 || *rhs_i64 == 0) {
-          return ConstValue{.data = static_cast<std::int64_t>(0)};
+          return ConstValue{.data = std::int64_t{0}};
         }
         if (const auto result = static_cast<long double>(*lhs_i64) * static_cast<long double>(*rhs_i64);
             result > static_cast<long double>(std::numeric_limits<std::int64_t>::max()) ||
             result < static_cast<long double>(std::numeric_limits<std::int64_t>::min())) {
           return std::nullopt;
         }
-        return ConstValue{.data = static_cast<std::int64_t>(*lhs_i64 * *rhs_i64)};
+        return ConstValue{.data = *lhs_i64 * *rhs_i64};
       }
       case Opcode::kCmpLt:
         return ConstValue{.data = (*lhs_i64 < *rhs_i64)};

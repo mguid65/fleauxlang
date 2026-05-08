@@ -145,13 +145,13 @@ auto refine_builtin_return_type(const std::string& full_name, const std::vector<
     return declared_return_type;
   }
   if (combined_mask == kNumericInt64) {
-    return Type{.kind = TypeKind::kInt64};
+    return make_type(TypeKind::kInt64);
   }
   if (combined_mask == kNumericUInt64) {
-    return Type{.kind = TypeKind::kUInt64};
+    return make_type(TypeKind::kUInt64);
   }
   if (combined_mask == kNumericFloat64) {
-    return Type{.kind = TypeKind::kFloat64};
+    return make_type(TypeKind::kFloat64);
   }
   return declared_return_type;
 }

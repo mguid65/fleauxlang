@@ -102,6 +102,90 @@ add_library(datatree INTERFACE)
 target_include_directories(datatree INTERFACE ${THIRD_PARTY}/datatree/include)
 target_link_libraries(datatree INTERFACE tl_expected)
 
+function(fleaux_set_project_warnings project_name)
+  set(options WARNINGS_AS_ERRORS)
+  set(one_value_args)
+  set(multi_value_args MSVC_WARNINGS CLANG_WARNINGS GCC_WARNINGS)
+  cmake_parse_arguments(FLEAUX_WARN "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+  if("${FLEAUX_WARN_MSVC_WARNINGS}" STREQUAL "")
+    set(FLEAUX_WARN_MSVC_WARNINGS
+        /W4
+        /w14242
+        /w14254
+        /w14263
+        /w14265
+        /w14287
+        /we4289
+        /w14296
+        /w14311
+        /w14545
+        /w14546
+        /w14547
+        /w14549
+        /w14555
+        /w14619
+        /w14640
+        /w14826
+        /w14905
+        /w14906
+        /w14928
+        /permissive-)
+  endif()
+
+  if("${FLEAUX_WARN_CLANG_WARNINGS}" STREQUAL "")
+    set(FLEAUX_WARN_CLANG_WARNINGS
+        -Wall
+        -Wextra
+        -Wshadow
+        -Wnon-virtual-dtor
+        -Wcast-align
+        -Wunused
+        -Woverloaded-virtual
+        -Wpedantic
+        -Wconversion
+        -Wnull-dereference
+        -Wdouble-promotion
+        -Wformat=2
+        -Wimplicit-fallthrough)
+  endif()
+
+  if("${FLEAUX_WARN_GCC_WARNINGS}" STREQUAL "")
+    set(FLEAUX_WARN_GCC_WARNINGS
+        ${FLEAUX_WARN_CLANG_WARNINGS}
+        -Wmisleading-indentation
+        -Wduplicated-cond
+        -Wduplicated-branches
+        -Wlogical-op
+        -Wuseless-cast
+        -Wsuggest-override)
+  endif()
+
+  if(MSVC)
+    set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_MSVC_WARNINGS})
+    set(FLEAUX_RELEASE_ERROR_FLAG /WX)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
+    set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_CLANG_WARNINGS})
+    set(FLEAUX_RELEASE_ERROR_FLAG -Werror)
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_GCC_WARNINGS})
+    set(FLEAUX_RELEASE_ERROR_FLAG -Werror)
+  else()
+    message(AUTHOR_WARNING "No compiler warnings configured for CXX compiler: '${CMAKE_CXX_COMPILER_ID}'")
+    return()
+  endif()
+
+  target_compile_options(${project_name} PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:${FLEAUX_PROJECT_WARNINGS}>)
+
+  if(FLEAUX_WARN_WARNINGS_AS_ERRORS)
+    target_compile_options(${project_name} PRIVATE
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:${FLEAUX_RELEASE_ERROR_FLAG}>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:RelWithDebInfo>>:${FLEAUX_RELEASE_ERROR_FLAG}>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:MinSizeRel>>:${FLEAUX_RELEASE_ERROR_FLAG}>)
+  endif()
+endfunction()
+
 set(FLEAUX_COMMON_SOURCES
         src/common/embedded_resource.cpp
 )
@@ -109,6 +193,7 @@ set(FLEAUX_COMMON_SOURCES
 add_library(fleaux_common STATIC)
 target_include_directories(fleaux_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_common PRIVATE ${FLEAUX_COMMON_SOURCES})
+fleaux_set_project_warnings(fleaux_common WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_common PUBLIC fleaux_emscripten_threads)
 endif()
@@ -132,6 +217,7 @@ add_library(fleaux_frontend_diagnostics STATIC)
 target_include_directories(fleaux_frontend_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
 target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected datatree)
+fleaux_set_project_warnings(fleaux_frontend_diagnostics WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_diagnostics PUBLIC fleaux_emscripten_threads)
 endif()
@@ -144,6 +230,7 @@ add_library(fleaux_frontend_parser STATIC)
 target_include_directories(fleaux_frontend_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
 target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected datatree)
+fleaux_set_project_warnings(fleaux_frontend_parser WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_emscripten_threads)
 endif()
@@ -165,6 +252,7 @@ add_library(fleaux_frontend_lowering STATIC)
 target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
 target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected datatree)
+fleaux_set_project_warnings(fleaux_frontend_lowering WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_emscripten_threads)
 endif()
@@ -178,6 +266,7 @@ if(BUILD_TESTING)
       tests/embedded_resource_tests.cpp
       tests/indirect_optional_tests.cpp)
   target_link_libraries(fleaux_common_tests PRIVATE Catch2::Catch2 fleaux_common)
+  fleaux_set_project_warnings(fleaux_common_tests WARNINGS_AS_ERRORS)
 
   catch_discover_tests(fleaux_common_tests
       TEST_PREFIX "fleaux_common_tests::"
@@ -204,6 +293,7 @@ if(BUILD_TESTING)
       fleaux_frontend_parser
       fleaux_frontend_lowering
       datatree)
+  fleaux_set_project_warnings(fleaux_core_tests WARNINGS_AS_ERRORS)
 
   catch_discover_tests(fleaux_core_tests
       TEST_SPEC ~[benchmark]
@@ -223,6 +313,7 @@ add_library(fleaux_bytecode STATIC)
 target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected datatree)
+fleaux_set_project_warnings(fleaux_bytecode WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_bytecode PUBLIC fleaux_emscripten_threads)
 endif()
@@ -239,6 +330,7 @@ if(FLEAUX_PCRE2_TARGET)
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
   target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
+  fleaux_set_project_warnings(fleaux_vm WARNINGS_AS_ERRORS)
   if(TARGET fleaux_emscripten_threads)
     target_link_libraries(fleaux_vm PUBLIC fleaux_emscripten_threads)
   endif()
@@ -252,6 +344,7 @@ if(FLEAUX_PCRE2_TARGET)
   add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
   target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_link_libraries(fleaux PRIVATE fleaux_vm)
+  fleaux_set_project_warnings(fleaux WARNINGS_AS_ERRORS)
 elseif(EMSCRIPTEN)
   message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm and fleaux targets")
 endif()
@@ -273,6 +366,7 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       fleaux_bytecode
       datatree
       tl_expected)
+  fleaux_set_project_warnings(fleaux_wasm_coordinator WARNINGS_AS_ERRORS)
   if(TARGET fleaux_emscripten_threads)
     target_link_libraries(fleaux_wasm_coordinator PRIVATE fleaux_emscripten_threads)
   endif()

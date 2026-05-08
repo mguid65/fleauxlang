@@ -2,6 +2,7 @@
 // Dictionary builtins (Create, Set, Get, Delete, Keys, Values, Entries, etc.).
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include "fleaux/runtime/value.hpp"
+
 namespace fleaux::runtime {
 // Dictionary builtins
 
@@ -13,17 +14,17 @@ namespace fleaux::runtime {
 //  null       -> "z:"
 [[nodiscard]] inline auto dict_key_from_value(const Value& key_val) -> std::string {
   switch (sort_tag_of(key_val)) {
-    case SortTag::String:
+    case SortTag::kString:
       return "s:" + as_string(key_val);
-    case SortTag::Number:
+    case SortTag::kNumber:
       return "n:" + to_string(key_val);
-    case SortTag::Bool:
+    case SortTag::kBool:
       return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
-    case SortTag::Null:
+    case SortTag::kNull:
       return "z:";
-    case SortTag::Array:
-    case SortTag::Object:
-    case SortTag::Generic:
+    case SortTag::kArray:
+    case SortTag::kObject:
+    case SortTag::kGeneric:
       throw std::invalid_argument{"Dict keys must be scalar values (null/bool/number/string)"};
   }
   throw std::invalid_argument{"Dict key conversion failed"};

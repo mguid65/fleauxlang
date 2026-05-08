@@ -15,7 +15,7 @@ struct TrulyIncomplete;
 
 struct RecursiveNode {
   int value = 0;
-  RecursiveNodeOptional next;
+  RecursiveNodeOptional next{std::nullopt};
 };
 
 struct Payload {
@@ -28,7 +28,7 @@ struct CopyOnly {
   int value = 0;
 
   CopyOnly() = default;
-  explicit CopyOnly(int value) : value(value) {}
+  explicit CopyOnly(const int initial_value) : value(initial_value) {}
 
   CopyOnly(const CopyOnly&) = default;
   CopyOnly(CopyOnly&&) = delete;
@@ -40,7 +40,7 @@ struct MoveOnly {
   int value = 0;
 
   MoveOnly() = default;
-  explicit MoveOnly(int value) : value(value) {}
+  explicit MoveOnly(const int initial_value) : value(initial_value) {}
 
   MoveOnly(const MoveOnly&) = delete;
   MoveOnly(MoveOnly&&) = default;
@@ -267,8 +267,8 @@ TEST_CASE("IndirectOptional behaves like a deep-copying optional holder", "[comm
 
   SECTION("recursive incomplete-style holders remain usable") {
     RecursiveNodeOptional root;
-    root.emplace(RecursiveNode{.value = 1});
-    root->next.emplace(RecursiveNode{.value = 2});
+    root.emplace(RecursiveNode{.value = 1, .next = RecursiveNodeOptional{std::nullopt}});
+    root->next.emplace(RecursiveNode{.value = 2, .next = RecursiveNodeOptional{std::nullopt}});
 
     auto copy = root;
     copy->next->value = 7;
