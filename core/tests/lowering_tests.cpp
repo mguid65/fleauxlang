@@ -570,3 +570,75 @@ TEST_CASE("Lowerer preserves multi-parameter function type signature", "[lowerin
   REQUIRE(func_param.type.function_sig->param_types[1].name == "Any");
   REQUIRE(func_param.type.function_sig->return_type->name == "Any");
 }
+
+TEST_CASE("Lowerer dump_ir emits readable program and flow structure", "[lowering][dump_ir]") {
+  const std::string src =
+      "import Std;\n"
+      "// @brief Increment a value\n"
+      "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
+      "(41.0) -> Inc;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ir_program.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(*parsed);
+  REQUIRE(lowered.has_value());
+
+  const std::string dumped = lowerer.dump_ir(*lowered);
+  REQUIRE(dumped.find("IRProgram {") != std::string::npos);
+  REQUIRE(dumped.find("IRImport {") != std::string::npos);
+  REQUIRE(dumped.find("module_name: \"Std\"") != std::string::npos);
+  REQUIRE(dumped.find("IRLet {") != std::string::npos);
+  REQUIRE(dumped.find("symbol_key: \"Inc#0\"") != std::string::npos);
+  REQUIRE(dumped.find("doc_comments: [") != std::string::npos);
+  REQUIRE(dumped.find("\"@brief Increment a value\"") != std::string::npos);
+  REQUIRE(dumped.find("IRFlowExpr {") != std::string::npos);
+  REQUIRE(dumped.find("IRNameRef {") != std::string::npos);
+  REQUIRE(dumped.find("name: \"Inc\"") != std::string::npos);
+}
+
+TEST_CASE("Lowerer dump_ir includes closure captures and apply desugaring", "[lowering][dump_ir]") {
+  const std::string src =
+      "import Std;\n"
+      "let MakeAdder(n: Float64): Any = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
+      "(10.0) -> (x: Float64): Float64 = (x, 1.0) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ir_closure.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(*parsed);
+  REQUIRE(lowered.has_value());
+
+  const std::string dumped = lowerer.dump_ir(*lowered);
+  REQUIRE(dumped.find("IRClosureExpr {") != std::string::npos);
+  REQUIRE(dumped.find("captures: [") != std::string::npos);
+  REQUIRE(dumped.find("\"n\"") != std::string::npos);
+  REQUIRE(dumped.find("name: \"Apply\"") != std::string::npos);
+}
+
+TEST_CASE("Lowerer dump_ir includes composite type structure", "[lowering][dump_ir][types]") {
+  const std::string src =
+      "alias MaybeMap = Dict(String, Any) | Null;\n"
+      "let Apply(value: Any, func: (Any) => Any) : Dict(String, Any) :: __builtin__;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ir_types.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(*parsed);
+  REQUIRE(lowered.has_value());
+
+  const std::string dumped = lowerer.dump_ir(*lowered);
+  REQUIRE(dumped.find("IRAliasDecl {") != std::string::npos);
+  REQUIRE(dumped.find("IRSimpleType {") != std::string::npos);
+  REQUIRE(dumped.find("alternatives: [") != std::string::npos);
+  REQUIRE(dumped.find("type_args: [") != std::string::npos);
+  REQUIRE(dumped.find("function_sig: FunctionSignature {") != std::string::npos);
+  REQUIRE(dumped.find("name: \"Dict\"") != std::string::npos);
+}
+

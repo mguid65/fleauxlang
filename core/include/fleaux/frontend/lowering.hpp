@@ -20,6 +20,7 @@ class Lowerer {
 public:
   [[nodiscard]] auto lower_only(const model::Program& program) const -> LoweringResult;
   [[nodiscard]] auto lower(const model::Program& program) const -> LoweringResult;
+  [[nodiscard]] auto dump_ir(const ir::IRProgram& program) const -> std::string;
 };
 
 }  // namespace fleaux::frontend::lowering

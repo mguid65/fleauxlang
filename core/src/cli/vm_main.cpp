@@ -29,6 +29,8 @@ struct CliOptions {
   bool repl = false;
   bool show_help = false;
   bool disassemble = false;
+  bool dump_ast = false;
+  bool dump_ir = false;
 };
 
 struct CliError {
@@ -84,8 +86,8 @@ void print_help() {
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
-            const bool write_bytecode_cache, const bool enable_auto_value_ref,
-            const std::size_t value_ref_byte_cutoff) -> tl::expected<void, CliError> {
+            const bool write_bytecode_cache, const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
+    -> tl::expected<void, CliError> {
   auto module_result = fleaux::bytecode::load_linked_module(
       source_file, fleaux::bytecode::ModuleLoadOptions{
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
@@ -228,6 +230,16 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
       continue;
     }
 
+    if (token == "--ast") {
+      options.dump_ast = true;
+      continue;
+    }
+
+    if (token == "--ir") {
+      options.dump_ir = true;
+      continue;
+    }
+
     if (token == "--value-ref-byte-cutoff") {
       if (arg_index + 1 >= argc) {
         return tl::unexpected(CliError{
@@ -297,7 +309,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, enable_auto_value_ref,
-               value_ref_byte_cutoff, no_color, repl, show_help, disassemble] = *parsed;
+               value_ref_byte_cutoff, no_color, repl, show_help, disassemble, dump_ast, dump_ir] = *parsed;
   if (show_help) {
     print_help();
     return 0;
@@ -345,9 +357,8 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  if (const auto result =
-          run_vm(*source_path, process_args, optimize, write_bytecode_cache, enable_auto_value_ref,
-                 value_ref_byte_cutoff);
+  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache, enable_auto_value_ref,
+                                 value_ref_byte_cutoff);
       !result) {
     return print_diag_and_return("vm-run", result.error());
   }
