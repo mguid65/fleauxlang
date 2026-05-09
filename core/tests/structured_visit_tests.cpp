@@ -123,14 +123,14 @@ TEST_CASE("structured_visit handles every alternative of a multi-alternative var
   using Value = std::variant<char, std::tuple<int, int, int>, float>;
 
   const auto visitor = fleaux::common::overloaded{
-      [](char) { return 101; },
-      [](int a, int b, int c) { return a * b + c; },
-      [](const std::tuple<int, int, int>& value) { return std::get<0>(value) * std::get<1>(value) + std::get<2>(value); },
-      [](float) { return 103; },
+      [](char) -> int { return 101; },
+      [](const int a, const int b, const int c) -> int { return a * b + c; },
+      [](float) -> int { return 103; },
   };
 
   REQUIRE(fleaux::utility::structured_visit<int>(visitor, Value{'x'}) == 101);
-  REQUIRE(fleaux::utility::structured_visit<int>(visitor, Value{std::in_place_type<std::tuple<int, int, int>>, 2, 3, 5}) == 11);
+  REQUIRE(fleaux::utility::structured_visit<int>(visitor,
+                                                 Value{std::in_place_type<std::tuple<int, int, int>>, 2, 3, 5}) == 11);
   REQUIRE(fleaux::utility::structured_visit<int>(visitor, Value{1.25F}) == 103);
 }
 
@@ -142,9 +142,7 @@ TEST_CASE("structured_visit can handle every combination from multiple multi-alt
   const auto visitor = fleaux::common::overloaded{
       [](bool, std::monostate) { return 101; },
       [](bool, int, int, int) { return 102; },
-      [](bool, const std::tuple<int, int, int>& value) {
-        return 100 + std::get<0>(value) - 2;
-      },
+      [](bool, const std::tuple<int, int, int>& value) { return 100 + std::get<0>(value) - 2; },
       [](bool, long) { return 103; },
       [](int, int, int, std::monostate) { return 104; },
       [](int, int, int, int, int, int) { return 105; },
@@ -205,47 +203,39 @@ TEST_CASE("structured_visit preserves Point lvalue element references when unpac
   REQUIRE(point.y == 22);
 }
 
-TEST_CASE("structured_visit binds const Point lvalue elements when unpacking",
-          "[common][utility][structured_visit]") {
+TEST_CASE("structured_visit binds const Point lvalue elements when unpacking", "[common][utility][structured_visit]") {
   const std::variant<Point> value{Point{3, 5}};
 
-  const auto result = fleaux::utility::structured_visit<int>(
-      [](const int& x, const int& y) {
-        return x * 10 + y;
-      },
-      value);
+  const auto result =
+      fleaux::utility::structured_visit<int>([](const int& x, const int& y) { return x * 10 + y; }, value);
 
   REQUIRE(result == 35);
 }
 
-TEST_CASE("structured_visit forwards Point rvalue elements when unpacking",
-          "[common][utility][structured_visit]") {
-  const auto result = fleaux::utility::structured_visit<int>(
-      fleaux::common::overloaded{
-          [](int&& x, int&& y) { return x * 10 + y; },
-          [](const int&, const int&) { return -1; },
-      },
-      std::variant<Point>{Point{4, 6}});
+TEST_CASE("structured_visit forwards Point rvalue elements when unpacking", "[common][utility][structured_visit]") {
+  const auto result = fleaux::utility::structured_visit<int>(fleaux::common::overloaded{
+                                                                 [](int&& x, int&& y) { return x * 10 + y; },
+                                                                 [](const int&, const int&) { return -1; },
+                                                             },
+                                                             std::variant<Point>{Point{4, 6}});
 
   REQUIRE(result == 46);
 }
 
 TEST_CASE("structured_visit binds const Point xvalue elements as const rvalue references when unpacking",
           "[common][utility][structured_visit]") {
-  const auto make_const_point_variant = []() -> const std::variant<Point> {
-    return std::variant<Point>{Point{7, 9}};
-  };
+  const auto make_const_point_variant = []() -> const std::variant<Point> { return std::variant<Point>{Point{7, 9}}; };
 
-  const auto result = fleaux::utility::structured_visit<int>(
-      fleaux::common::overloaded{
-          [](const int&& x, const int&& y) {
-            static_assert(std::is_same_v<decltype(x), const int&&>);
-            static_assert(std::is_same_v<decltype(y), const int&&>);
-            return x * 10 + y;
-          },
-          [](const int&, const int&) { return -1; },
-      },
-      make_const_point_variant());
+  const auto result =
+      fleaux::utility::structured_visit<int>(fleaux::common::overloaded{
+                                                 [](const int&& x, const int&& y) {
+                                                   static_assert(std::is_same_v<decltype(x), const int&&>);
+                                                   static_assert(std::is_same_v<decltype(y), const int&&>);
+                                                   return x * 10 + y;
+                                                 },
+                                                 [](const int&, const int&) { return -1; },
+                                             },
+                                             make_const_point_variant());
 
   REQUIRE(result == 79);
 }
@@ -280,7 +270,9 @@ TEST_CASE("structured_visit falls back to recursive dispatch for larger alternat
       [](int w, int x, int y, int z, const std::tuple<int, int, int>& tail) {
         return w + x + y + z + std::get<0>(tail) + std::get<1>(tail) + std::get<2>(tail);
       },
-      [](int w, int x, int y, int z, const std::pair<int, int>& tail) { return w + x + y + z + tail.first + tail.second; },
+      [](int w, int x, int y, int z, const std::pair<int, int>& tail) {
+        return w + x + y + z + tail.first + tail.second;
+      },
   };
 
   REQUIRE(fleaux::utility::structured_visit<int>(visitor, a, b, c, d, TailVariant{std::monostate{}}) == 10);

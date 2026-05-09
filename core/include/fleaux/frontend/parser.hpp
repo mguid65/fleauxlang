@@ -1,6 +1,6 @@
 #pragma once
 
-#include <exception>
+#include <optional>
 #include <string>
 
 #include <tl/expected.hpp>
@@ -9,12 +9,10 @@
 
 namespace fleaux::frontend::parse {
 
-struct ParseError : std::exception {
-  std::string message;
-  std::optional<std::string> hint;
-  std::optional<diag::SourceSpan> span;
-
-  [[nodiscard]] auto what() const noexcept -> const char* override { return message.c_str(); }
+struct ParseError {
+  std::string message{};
+  std::optional<std::string> hint{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
 using ParseResult = tl::expected<model::Program, ParseError>;

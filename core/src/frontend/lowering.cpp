@@ -24,16 +24,6 @@ const std::unordered_set<std::string> kOperators = {
 
 const std::string kMatchWildcardSentinel = "__fleaux_match_wildcard__";
 
-auto make_name_ref(std::optional<std::string> qualifier, std::string name, std::optional<diag::SourceSpan> span,
-                   std::vector<ir::IRSimpleType> explicit_type_args = {}) -> ir::IRNameRef {
-  ir::IRNameRef name_ref{};
-  name_ref.qualifier = std::move(qualifier);
-  name_ref.name = std::move(name);
-  name_ref.explicit_type_args = std::move(explicit_type_args);
-  name_ref.span = std::move(span);
-  return name_ref;
-}
-
 auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::AnalysisResult {
   std::unordered_set<std::string> imported_symbols;
   std::vector<ir::IRLet> imported_typed_lets;
@@ -216,22 +206,21 @@ auto rewrite_match_wildcards(ir::IRExpr& match_lhs, const std::optional<diag::So
     }
 
     auto& pattern_expr = case_tuple->items[0];
-    const auto* pattern_name = std::get_if<ir::IRNameRef>(&pattern_expr->node);
-    const bool is_wildcard_pattern =
-        pattern_name != nullptr && !pattern_name->qualifier.has_value() && pattern_name->name == "_";
-    if (is_wildcard_pattern && idx + 1U != match_args->items.size()) {
-      return tl::unexpected(LoweringError{.message = "Std.Match wildcard '_' must be the final case.",
-                                          .hint = "Move '(_, handler)' to the end so earlier cases can still match.",
-                                          .span = pattern_expr->span});
-    }
+    if (const auto* pattern_name = std::get_if<ir::IRNameRef>(&pattern_expr->node); pattern_name != nullptr) {
+      const bool is_wildcard_pattern = !pattern_name->qualifier.has_value() && pattern_name->name == "_";
 
-    if (is_wildcard_pattern) {
-      ir::IRConstant wildcard;
-      wildcard.val = kMatchWildcardSentinel;
-      // This is guarded by the check on line 90, specifically the bool in *this* if condition is guarding it, but not from race conditions,
-      // I hope one never happens
-      wildcard.span = pattern_name->span;
-      pattern_expr->node = std::move(wildcard);
+      if (is_wildcard_pattern && idx + 1U != match_args->items.size()) {
+        return tl::unexpected(LoweringError{.message = "Std.Match wildcard '_' must be the final case.",
+                                            .hint = "Move '(_, handler)' to the end so earlier cases can still match.",
+                                            .span = pattern_expr->span});
+      }
+
+      if (is_wildcard_pattern) {
+        ir::IRConstant wildcard;
+        wildcard.val = kMatchWildcardSentinel;
+        wildcard.span = pattern_name->span;
+        pattern_expr->node = std::move(wildcard);
+      }
     }
   }
 
@@ -487,7 +476,12 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
               c.span = qid.span;
               return ir::IRExpr{.node = std::move(c), .span = atom.span};
             }
-            return ir::IRExpr{.node = make_name_ref(qid.qualifier.qualifier, qid.id, qid.span), .span = atom.span};
+            return ir::IRExpr{.node = ir::IRNameRef{.qualifier = qid.qualifier.qualifier,
+                                                    .name = qid.id,
+                                                    .explicit_type_args = {},
+                                                    .resolved_symbol_key = std::nullopt,
+                                                    .span = qid.span},
+                              .span = atom.span};
           },
           [&](const model::NamedTargetBox& target) -> tl::expected<ir::IRExpr, LoweringError> {
             std::vector<ir::IRSimpleType> explicit_type_args;
@@ -506,19 +500,36 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
                                        return ir::IRExpr{.node = std::move(c), .span = atom.span};
                                      }
                                      return ir::IRExpr{
-                                         .node = make_name_ref(qid.qualifier.qualifier, qid.id, target->span,
-                                                               std::move(explicit_type_args)),
+                                         .node = ir::IRNameRef{.qualifier = qid.qualifier.qualifier,
+                                                               .name = qid.id,
+                                                               .explicit_type_args = std::move(explicit_type_args),
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = target->span},
                                          .span = atom.span};
                                    },
                                    [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-                                     return ir::IRExpr{.node = make_name_ref(std::nullopt, name, target->span,
-                                                                             std::move(explicit_type_args)),
+                                     return ir::IRExpr{.node =
+                                                           ir::IRNameRef{
+                                                               .qualifier = std::nullopt,
+                                                               .name = name,
+                                                               .explicit_type_args = std::move(explicit_type_args),
+                                                               .resolved_symbol_key = std::nullopt,
+                                                               .span = target->span,
+                                                           },
                                                        .span = atom.span};
                                    }},
                 target->target);
           },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-            return ir::IRExpr{.node = make_name_ref(std::nullopt, name, atom.span), .span = atom.span};
+            return ir::IRExpr{.node =
+                                  ir::IRNameRef{
+                                      .qualifier = std::nullopt,
+                                      .name = name,
+                                      .explicit_type_args = {},
+                                      .resolved_symbol_key = std::nullopt,
+                                      .span = atom.span,
+                                  },
+                              .span = atom.span};
           },
           [&](const std::monostate&) -> tl::expected<ir::IRExpr, LoweringError> {
             ir::IRTupleExpr tuple;
@@ -575,7 +586,14 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
 
     ir::IRFlowExpr apply_flow{
         .lhs = ir::IRExprBox(apply_lhs),
-        .rhs = make_name_ref(std::optional<std::string>{"Std"}, "Apply", stage_primary.span),
+        .rhs =
+            ir::IRNameRef{
+                .qualifier = "Std",
+                .name = "Apply",
+                .explicit_type_args = {},
+                .resolved_symbol_key = std::nullopt,
+                .span = stage_primary.span,
+            },
         .span = stage_primary.span,
     };
 
@@ -655,7 +673,7 @@ auto lower_expr(const model::Expression& expr, const std::unordered_set<std::str
 
 class IRDumper {
 public:
-  [[nodiscard]] auto dump(const ir::IRProgram& program) const -> std::string { return format_program(program, 0); }
+  [[nodiscard]] auto dump(const ir::IRProgram& program) const -> std::string { return format_program(program); }
 
 private:
   [[nodiscard]] static auto indent(const int level) -> std::string {
@@ -745,7 +763,7 @@ private:
     return qualifier ? quote(*qualifier) : std::string{"null"};
   }
 
-  [[nodiscard]] auto format_program(const ir::IRProgram& program, const int level) const -> std::string {
+  [[nodiscard]] auto format_program(const ir::IRProgram& program, const int level = 0) const -> std::string {
     std::vector<std::string> imports;
     imports.reserve(program.imports.size());
     for (const auto& import_stmt : program.imports) {
