@@ -237,16 +237,16 @@ struct IRConstant {
 };
 
 struct IRNameRef {
-  std::optional<std::string> qualifier;
-  std::string name;
-  std::vector<IRSimpleType> explicit_type_args;
-  std::optional<std::string> resolved_symbol_key;
-  std::optional<diag::SourceSpan> span;
+  std::optional<std::string> qualifier{std::nullopt};
+  std::string name{};
+  std::vector<IRSimpleType> explicit_type_args{};
+  std::optional<std::string> resolved_symbol_key{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
 struct IROperatorRef {
-  std::string op;
-  std::optional<diag::SourceSpan> span;
+  std::string op{};
+  std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
 using IRCallTarget = std::variant<IRNameRef, IROperatorRef>;

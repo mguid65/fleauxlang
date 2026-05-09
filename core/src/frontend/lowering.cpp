@@ -24,15 +24,6 @@ const std::unordered_set<std::string> kOperators = {
 
 const std::string kMatchWildcardSentinel = "__fleaux_match_wildcard__";
 
-auto make_error(const std::string& message, const std::optional<std::string>& hint,
-                const std::optional<diag::SourceSpan>& span) -> LoweringError {
-  LoweringError err;
-  err.message = message;
-  err.hint = hint;
-  err.span = span;
-  return err;
-}
-
 auto make_name_ref(std::optional<std::string> qualifier, std::string name, std::optional<diag::SourceSpan> span,
                    std::vector<ir::IRSimpleType> explicit_type_args = {}) -> ir::IRNameRef {
   ir::IRNameRef name_ref{};
@@ -68,14 +59,14 @@ auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::
 
 auto split_id(const std::variant<std::string, model::QualifiedId>& id)
     -> std::pair<std::optional<std::string>, std::string> {
-  return std::visit(fleaux::common::overloaded{
-                        [](const std::string& simple) -> std::pair<std::optional<std::string>, std::string> {
-                          return {std::nullopt, simple};
-                        },
-                        [](const model::QualifiedId& qualified) -> std::pair<std::optional<std::string>, std::string> {
-                          return {qualified.qualifier.qualifier, qualified.id};
-                        }},
-                    id);
+  return std::visit(
+      common::overloaded{[](const std::string& simple) -> std::pair<std::optional<std::string>, std::string> {
+                           return {std::nullopt, simple};
+                         },
+                         [](const model::QualifiedId& qualified) -> std::pair<std::optional<std::string>, std::string> {
+                           return {qualified.qualifier.qualifier, qualified.id};
+                         }},
+      id);
 }
 
 auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
@@ -83,53 +74,53 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
     types::TypeNode out;
     out.span = node.span;
     out.variadic = node.variadic;
-    std::visit(fleaux::common::overloaded{[&](const std::string& simple) -> void {
-                                            std::string raw = simple;
-                                            if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
-                                              out.variadic = true;
-                                              raw = raw.substr(0, raw.size() - 3U);
-                                            }
-                                            out.kind = types::TypeNodeKind::kNamed;
-                                            out.name = raw;
-                                          },
-                                          [&](const model::QualifiedId& qualified) -> void {
-                                            out.kind = types::TypeNodeKind::kNamed;
-                                            out.name = qualified.qualifier.qualifier + "." + qualified.id;
-                                          },
-                                          [&](const model::TypeListBox& type_list) -> void {
-                                            out.kind = types::TypeNodeKind::kTuple;
-                                            out.name = "Tuple";
-                                            out.items.reserve(type_list->types.size());
-                                            for (const auto& item : type_list->types) {
-                                              out.items.push_back(self(self, *item));
-                                            }
-                                          },
-                                          [&](const model::UnionTypeListBox& union_list) -> void {
-                                            out.kind = types::TypeNodeKind::kUnion;
-                                            for (const auto& alt : union_list->alternatives) {
-                                              out.items.push_back(self(self, *alt));
-                                            }
-                                            if (!out.items.empty()) {
-                                              out.name = out.items.front().name;
-                                            }
-                                          },
-                                          [&](const model::AppliedTypeNodeBox& applied) -> void {
-                                            out.kind = types::TypeNodeKind::kApplied;
-                                            out.name = applied->name;
-                                            out.items.reserve(applied->args.types.size());
-                                            for (const auto& arg : applied->args.types) {
-                                              out.items.push_back(self(self, *arg));
-                                            }
-                                          },
-                                          [&](const model::FunctionTypeNodeBox& func) -> void {
-                                            out.kind = types::TypeNodeKind::kFunction;
-                                            out.name = "Function";
-                                            out.items.reserve(func->params.types.size() + 1);
-                                            for (const auto& param : func->params.types) {
-                                              out.items.push_back(self(self, *param));
-                                            }
-                                            out.items.push_back(self(self, *func->return_type));
-                                          }},
+    std::visit(common::overloaded{[&](const std::string& simple) -> void {
+                                    std::string raw = simple;
+                                    if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                                      out.variadic = true;
+                                      raw = raw.substr(0, raw.size() - 3U);
+                                    }
+                                    out.kind = types::TypeNodeKind::kNamed;
+                                    out.name = raw;
+                                  },
+                                  [&](const model::QualifiedId& qualified) -> void {
+                                    out.kind = types::TypeNodeKind::kNamed;
+                                    out.name = qualified.qualifier.qualifier + "." + qualified.id;
+                                  },
+                                  [&](const model::TypeListBox& type_list) -> void {
+                                    out.kind = types::TypeNodeKind::kTuple;
+                                    out.name = "Tuple";
+                                    out.items.reserve(type_list->types.size());
+                                    for (const auto& item : type_list->types) {
+                                      out.items.push_back(self(self, *item));
+                                    }
+                                  },
+                                  [&](const model::UnionTypeListBox& union_list) -> void {
+                                    out.kind = types::TypeNodeKind::kUnion;
+                                    for (const auto& alt : union_list->alternatives) {
+                                      out.items.push_back(self(self, *alt));
+                                    }
+                                    if (!out.items.empty()) {
+                                      out.name = out.items.front().name;
+                                    }
+                                  },
+                                  [&](const model::AppliedTypeNodeBox& applied) -> void {
+                                    out.kind = types::TypeNodeKind::kApplied;
+                                    out.name = applied->name;
+                                    out.items.reserve(applied->args.types.size());
+                                    for (const auto& arg : applied->args.types) {
+                                      out.items.push_back(self(self, *arg));
+                                    }
+                                  },
+                                  [&](const model::FunctionTypeNodeBox& func) -> void {
+                                    out.kind = types::TypeNodeKind::kFunction;
+                                    out.name = "Function";
+                                    out.items.reserve(func->params.types.size() + 1);
+                                    for (const auto& param : func->params.types) {
+                                      out.items.push_back(self(self, *param));
+                                    }
+                                    out.items.push_back(self(self, *func->return_type));
+                                  }},
                node.value);
     return out;
   };
@@ -138,60 +129,59 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
   out.span = type.span;
   out.variadic = type.variadic;
   out.bridge_type_node = lower_bridge_type_node(lower_bridge_type_node, type);
-  std::visit(fleaux::common::overloaded{[&](const std::string& simple) -> void {
-                                          std::string raw = simple;
-                                          if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
-                                            out.variadic = true;
-                                            raw = raw.substr(0, raw.size() - 3U);
-                                          }
-                                          out.name = raw;
-                                        },
-                                        [&](const model::QualifiedId& qualified) -> void {
-                                          out.name = qualified.qualifier.qualifier + "." + qualified.id;
-                                        },
-                                        [&](const model::UnionTypeListBox& union_list) -> void {
-                                          for (const auto& alt : union_list->alternatives) {
-                                            const ir::IRSimpleType lowered = lower_simple_type(*alt);
-                                            out.alternative_types.push_back(lowered);
-                                            if (!lowered.alternatives.empty()) {
-                                              out.alternatives.insert(out.alternatives.end(),
-                                                                      lowered.alternatives.begin(),
-                                                                      lowered.alternatives.end());
-                                            } else {
-                                              out.alternatives.push_back(lowered.name);
-                                            }
-                                          }
-                                          if (!out.alternatives.empty()) {
-                                            out.name = out.alternatives.front();
-                                          }
-                                        },
-                                        [&](const model::TypeListBox& type_list) -> void {
-                                          out.name = "Tuple";
-                                          out.tuple_items.reserve(type_list->types.size());
-                                          for (const auto& item : type_list->types) {
-                                            out.tuple_items.push_back(lower_simple_type(*item));
-                                          }
-                                        },
-                                        [&](const model::AppliedTypeNodeBox& applied) -> void {
-                                          out.name = applied->name;
-                                          out.type_args.reserve(applied->args.types.size());
-                                          for (const auto& arg : applied->args.types) {
-                                            out.type_args.push_back(lower_simple_type(*arg));
-                                          }
-                                        },
-                                        [&](const model::FunctionTypeNodeBox& func) -> void {
-                                          out.name = "Function";
-                                          std::vector<ir::IRSimpleType> param_types;
-                                          param_types.reserve(func->params.types.size());
-                                          for (const auto& param : func->params.types) {
-                                            param_types.push_back(lower_simple_type(*param));
-                                          }
-                                          out.function_sig = ir::IRSimpleType::FunctionSignature{
-                                              .param_types = std::move(param_types),
-                                              .return_type = ir::IRSimpleTypeBox(lower_simple_type(*func->return_type)),
-                                          };
-                                        },
-                                        [&](const auto&) -> void { out.name = "Tuple"; }},
+  std::visit(common::overloaded{[&](const std::string& simple) -> void {
+                                  std::string raw = simple;
+                                  if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                                    out.variadic = true;
+                                    raw = raw.substr(0, raw.size() - 3U);
+                                  }
+                                  out.name = raw;
+                                },
+                                [&](const model::QualifiedId& qualified) -> void {
+                                  out.name = qualified.qualifier.qualifier + "." + qualified.id;
+                                },
+                                [&](const model::UnionTypeListBox& union_list) -> void {
+                                  for (const auto& alt : union_list->alternatives) {
+                                    const ir::IRSimpleType lowered = lower_simple_type(*alt);
+                                    out.alternative_types.push_back(lowered);
+                                    if (!lowered.alternatives.empty()) {
+                                      out.alternatives.insert(out.alternatives.end(), lowered.alternatives.begin(),
+                                                              lowered.alternatives.end());
+                                    } else {
+                                      out.alternatives.push_back(lowered.name);
+                                    }
+                                  }
+                                  if (!out.alternatives.empty()) {
+                                    out.name = out.alternatives.front();
+                                  }
+                                },
+                                [&](const model::TypeListBox& type_list) -> void {
+                                  out.name = "Tuple";
+                                  out.tuple_items.reserve(type_list->types.size());
+                                  for (const auto& item : type_list->types) {
+                                    out.tuple_items.push_back(lower_simple_type(*item));
+                                  }
+                                },
+                                [&](const model::AppliedTypeNodeBox& applied) -> void {
+                                  out.name = applied->name;
+                                  out.type_args.reserve(applied->args.types.size());
+                                  for (const auto& arg : applied->args.types) {
+                                    out.type_args.push_back(lower_simple_type(*arg));
+                                  }
+                                },
+                                [&](const model::FunctionTypeNodeBox& func) -> void {
+                                  out.name = "Function";
+                                  std::vector<ir::IRSimpleType> param_types;
+                                  param_types.reserve(func->params.types.size());
+                                  for (const auto& param : func->params.types) {
+                                    param_types.push_back(lower_simple_type(*param));
+                                  }
+                                  out.function_sig = ir::IRSimpleType::FunctionSignature{
+                                      .param_types = std::move(param_types),
+                                      .return_type = ir::IRSimpleTypeBox(lower_simple_type(*func->return_type)),
+                                  };
+                                },
+                                [&](const auto&) -> void { out.name = "Tuple"; }},
              type.value);
 
   return out;
@@ -211,16 +201,18 @@ auto rewrite_match_wildcards(ir::IRExpr& match_lhs, const std::optional<diag::So
     -> tl::expected<void, LoweringError> {
   auto* match_args = std::get_if<ir::IRTupleExpr>(&match_lhs.node);
   if (match_args == nullptr || match_args->items.size() < 2U) {
-    return tl::unexpected(make_error("Std.Match expects '(value, (pattern, handler), ... )'.",
-                                     "Add at least one '(pattern, handler)' case tuple.", span));
+    return tl::unexpected(LoweringError{.message = "Std.Match expects '(value, (pattern, handler), ... )'.",
+                                        .hint = "Add at least one '(pattern, handler)' case tuple.",
+                                        .span = span});
   }
 
   for (std::size_t idx = 1; idx < match_args->items.size(); ++idx) {
     auto& case_expr = match_args->items[idx];
     auto* case_tuple = std::get_if<ir::IRTupleExpr>(&case_expr->node);
     if (case_tuple == nullptr || case_tuple->items.size() != 2U) {
-      return tl::unexpected(make_error("Std.Match case must be a 2-item tuple '(pattern, handler)'.",
-                                       "Each case should look like '(0, (): Any = \"zero\")'.", case_expr->span));
+      return tl::unexpected(LoweringError{.message = "Std.Match case must be a 2-item tuple '(pattern, handler)'.",
+                                          .hint = "Each case should look like '(0, (): Any = \"zero\")'.",
+                                          .span = case_expr->span});
     }
 
     auto& pattern_expr = case_tuple->items[0];
@@ -228,9 +220,9 @@ auto rewrite_match_wildcards(ir::IRExpr& match_lhs, const std::optional<diag::So
     const bool is_wildcard_pattern =
         pattern_name != nullptr && !pattern_name->qualifier.has_value() && pattern_name->name == "_";
     if (is_wildcard_pattern && idx + 1U != match_args->items.size()) {
-      return tl::unexpected(make_error("Std.Match wildcard '_' must be the final case.",
-                                       "Move '(_, handler)' to the end so earlier cases can still match.",
-                                       pattern_expr->span));
+      return tl::unexpected(LoweringError{.message = "Std.Match wildcard '_' must be the final case.",
+                                          .hint = "Move '(_, handler)' to the end so earlier cases can still match.",
+                                          .span = pattern_expr->span});
     }
 
     if (is_wildcard_pattern) {
@@ -251,7 +243,7 @@ void collect_unqualified_names_from_expr(const model::Expression& expr, std::vec
 
 void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<std::string>& out,
                                          std::unordered_set<std::string>& seen) {
-  std::visit(fleaux::common::overloaded{
+  std::visit(common::overloaded{
                  [](const std::monostate&) -> void {},
                  [](const model::Constant&) -> void {},
                  [](const model::QualifiedId&) -> void {},
@@ -288,7 +280,7 @@ void collect_unqualified_names_from_expr(const model::Expression& expr, std::vec
 
 auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expected<ir::IRCallTarget, LoweringError> {
   return std::visit(
-      fleaux::common::overloaded{
+      common::overloaded{
           [&](const model::NamedTargetBox& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
             std::vector<ir::IRSimpleType> explicit_type_args;
             explicit_type_args.reserve(value->explicit_type_args.size());
@@ -299,32 +291,51 @@ auto extract_call_target_from_primary(const model::Primary& primary) -> tl::expe
             return std::visit(
                 fleaux::common::overloaded{
                     [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-                      return make_name_ref(qualified.qualifier.qualifier, qualified.id, value->span,
-                                           std::move(explicit_type_args));
+                      return ir::IRNameRef{.qualifier = qualified.qualifier.qualifier,
+                                           .name = qualified.id,
+                                           .explicit_type_args = std::move(explicit_type_args),
+                                           .resolved_symbol_key = std::nullopt,
+                                           .span = value->span};
                     },
                     [&](const std::string& simple) -> tl::expected<ir::IRCallTarget, LoweringError> {
                       if (kOperators.contains(simple)) {
-                        return tl::unexpected(make_error(
-                            "Explicit type argument application is only supported on named call targets.",
-                            "Use explicit type arguments only with names such as 'Std.Cast<Id>'.", value->span));
+                        return tl::unexpected(LoweringError{
+                            .message = "Explicit type argument application is only supported on named call targets.",
+                            .hint = "Use explicit type arguments only with names such as 'Std.Cast<Id>'.",
+                            .span = value->span});
                       }
-                      return make_name_ref(std::nullopt, simple, value->span, std::move(explicit_type_args));
+                      return ir::IRNameRef{.qualifier = std::nullopt,
+                                           .name = simple,
+                                           .explicit_type_args = std::move(explicit_type_args),
+                                           .resolved_symbol_key = std::nullopt,
+                                           .span = value->span};
                     }},
                 value->target);
           },
           [&](const model::QualifiedId& qualified) -> tl::expected<ir::IRCallTarget, LoweringError> {
-            return make_name_ref(qualified.qualifier.qualifier, qualified.id, qualified.span);
+            return ir::IRNameRef{.qualifier = qualified.qualifier.qualifier,
+                                 .name = qualified.id,
+                                 .explicit_type_args = {},
+                                 .resolved_symbol_key = std::nullopt,
+                                 .span = qualified.span};
           },
           [&](const std::string& value) -> tl::expected<ir::IRCallTarget, LoweringError> {
             if (kOperators.contains(value)) {
               return ir::IROperatorRef{.op = value, .span = primary.span};
             }
-            return make_name_ref(std::nullopt, value, primary.span);
+            return ir::IRNameRef{
+                .qualifier = std::nullopt,
+                .name = value,
+                .explicit_type_args = {},
+                .resolved_symbol_key = std::nullopt,
+                .span = primary.span,
+            };
           },
           [&](const auto&) -> tl::expected<ir::IRCallTarget, LoweringError> {
-            return tl::unexpected(
-                make_error("Primary used as flow target must be a simple name, qualified name, or operator.",
-                           "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.", primary.span));
+            return tl::unexpected(LoweringError{
+                .message = "Primary used as flow target must be a simple name, qualified name, or operator.",
+                .hint = "Valid targets: 'Std.Add', 'MyFunc', '+', '/', '&&'.",
+                .span = primary.span});
           }},
       primary.base.value);
 }
@@ -333,36 +344,36 @@ auto contains_placeholder(const ir::IRExpr& expr) -> bool;
 
 auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacement) -> ir::IRExpr {
   return std::visit(
-      fleaux::common::overloaded{[&](const ir::IRNameRef& name_ref) -> ir::IRExpr {
-                                   if (!name_ref.qualifier.has_value() && name_ref.name == "_") {
-                                     return replacement;
-                                   }
-                                   return expr;
-                                 },
-                                 [&](const ir::IRTupleExpr& tuple_expr) -> ir::IRExpr {
-                                   ir::IRTupleExpr out_tuple;
-                                   out_tuple.span = tuple_expr.span;
-                                   for (const auto& item : tuple_expr.items) {
-                                     out_tuple.items.emplace_back(replace_placeholder_impl(*item, replacement));
-                                   }
+      common::overloaded{[&](const ir::IRNameRef& name_ref) -> ir::IRExpr {
+                           if (!name_ref.qualifier.has_value() && name_ref.name == "_") {
+                             return replacement;
+                           }
+                           return expr;
+                         },
+                         [&](const ir::IRTupleExpr& tuple_expr) -> ir::IRExpr {
+                           ir::IRTupleExpr out_tuple;
+                           out_tuple.span = tuple_expr.span;
+                           for (const auto& item : tuple_expr.items) {
+                             out_tuple.items.emplace_back(replace_placeholder_impl(*item, replacement));
+                           }
 
-                                   return ir::IRExpr{.node = std::move(out_tuple), .span = expr.span};
-                                 },
-                                 [&](const ir::IRFlowExpr& flow_expr) -> ir::IRExpr {
-                                   ir::IRFlowExpr out_flow{
-                                       .lhs = ir::IRExprBox(replace_placeholder_impl(*flow_expr.lhs, replacement)),
-                                       .rhs = flow_expr.rhs,
-                                       .span = flow_expr.span,
-                                   };
-                                   return ir::IRExpr{.node = std::move(out_flow), .span = expr.span};
-                                 },
-                                 [&](const auto&) -> ir::IRExpr { return expr; }},
+                           return ir::IRExpr{.node = std::move(out_tuple), .span = expr.span};
+                         },
+                         [&](const ir::IRFlowExpr& flow_expr) -> ir::IRExpr {
+                           ir::IRFlowExpr out_flow{
+                               .lhs = ir::IRExprBox(replace_placeholder_impl(*flow_expr.lhs, replacement)),
+                               .rhs = flow_expr.rhs,
+                               .span = flow_expr.span,
+                           };
+                           return ir::IRExpr{.node = std::move(out_flow), .span = expr.span};
+                         },
+                         [&](const auto&) -> ir::IRExpr { return expr; }},
       expr.node);
 }
 
 auto contains_placeholder(const ir::IRExpr& expr) -> bool {
   return std::visit(
-      fleaux::common::overloaded{
+      common::overloaded{
           [](const ir::IRNameRef& name_ref) -> bool { return !name_ref.qualifier.has_value() && name_ref.name == "_"; },
           [](const ir::IRTupleExpr& tuple_expr) -> bool {
             return std::ranges::any_of(tuple_expr.items,
@@ -377,9 +388,10 @@ auto replace_placeholder(const ir::IRExpr& template_expr, const ir::IRExpr& curr
     -> tl::expected<ir::IRExpr, LoweringError> {
   auto replaced = replace_placeholder_impl(template_expr, current_value);
   if (contains_placeholder(replaced)) {
-    return tl::unexpected(make_error("Unresolved '_' placeholder remained in tuple template.",
-                                     "Use '_' only as an argument position inside tuple templates like '(_, 2)'.",
-                                     template_expr.span));
+    return tl::unexpected(
+        LoweringError{.message = "Unresolved '_' placeholder remained in tuple template.",
+                      .hint = "Use '_' only as an argument position inside tuple templates like '(_, 2)'.",
+                      .span = template_expr.span});
   }
   return replaced;
 }
@@ -387,7 +399,7 @@ auto replace_placeholder(const ir::IRExpr& template_expr, const ir::IRExpr& curr
 auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& bound_names)
     -> tl::expected<ir::IRExpr, LoweringError> {
   return std::visit(
-      fleaux::common::overloaded{
+      common::overloaded{
           [&](const model::DelimitedExpressionBox& inner) -> tl::expected<ir::IRExpr, LoweringError> {
             if (inner->items.size() == 1) {
               return lower_expr(*inner->items[0], bound_names);
@@ -420,8 +432,9 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             for (std::size_t idx = 0; idx < params.size(); ++idx) {
               if (params[idx].type.variadic && idx + 1U != params.size()) {
                 return tl::unexpected(
-                    make_error("Variadic parameter must be the final parameter in a closure declaration.",
-                               "Move the '...' parameter to the end of the closure parameter list.", params[idx].span));
+                    LoweringError{.message = "Variadic parameter must be the final parameter in a closure declaration.",
+                                  .hint = "Move the '...' parameter to the end of the closure parameter list.",
+                                  .span = params[idx].span});
               }
             }
 
@@ -484,24 +497,24 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             }
 
             return std::visit(
-                fleaux::common::overloaded{
-                    [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
-                      if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
-                          (qid.id == "Ok" || qid.id == "Err")) {
-                        ir::IRConstant c;
-                        c.val = (qid.id == "Ok") ? true : false;
-                        c.span = qid.span;
-                        return ir::IRExpr{.node = std::move(c), .span = atom.span};
-                      }
-                      return ir::IRExpr{.node = make_name_ref(qid.qualifier.qualifier, qid.id, target->span,
-                                                              std::move(explicit_type_args)),
-                                        .span = atom.span};
-                    },
-                    [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
-                      return ir::IRExpr{
-                          .node = make_name_ref(std::nullopt, name, target->span, std::move(explicit_type_args)),
-                          .span = atom.span};
-                    }},
+                common::overloaded{[&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+                                     if (target->explicit_type_args.empty() && qid.qualifier.qualifier == "Std" &&
+                                         (qid.id == "Ok" || qid.id == "Err")) {
+                                       ir::IRConstant c;
+                                       c.val = qid.id == "Ok";
+                                       c.span = qid.span;
+                                       return ir::IRExpr{.node = std::move(c), .span = atom.span};
+                                     }
+                                     return ir::IRExpr{
+                                         .node = make_name_ref(qid.qualifier.qualifier, qid.id, target->span,
+                                                               std::move(explicit_type_args)),
+                                         .span = atom.span};
+                                   },
+                                   [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+                                     return ir::IRExpr{.node = make_name_ref(std::nullopt, name, target->span,
+                                                                             std::move(explicit_type_args)),
+                                                       .span = atom.span};
+                                   }},
                 target->target);
           },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
@@ -573,9 +586,10 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
   const auto apply_template_stage = [&](const model::Primary& stage_primary, const ir::IRExpr& stage_expr,
                                         const model::Primary& next_primary) -> tl::expected<void, LoweringError> {
     if (std::get_if<ir::IRTupleExpr>(&stage_expr.node) == nullptr) {
-      return tl::unexpected(make_error(
-          "Invalid pipeline stage shape: non-call stages must be tuple templates.",
-          "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.", stage_primary.span));
+      return tl::unexpected(
+          LoweringError{.message = "Invalid pipeline stage shape: non-call stages must be tuple templates.",
+                        .hint = "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.",
+                        .span = stage_primary.span});
     }
 
     auto next_target = extract_call_target_from_primary(next_primary);
@@ -618,9 +632,9 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
     }
 
     if (stage_index + 1 >= flow.rhs.size()) {
-      return tl::unexpected(make_error("Tuple template stage is missing a following call target.",
-                                       "Append a call target, e.g. '-> (_, 2) -> Std.Divide'.",
-                                       flow.rhs[stage_index].span));
+      return tl::unexpected(LoweringError{.message = "Tuple template stage is missing a following call target.",
+                                          .hint = "Append a call target, e.g. '-> (_, 2) -> Std.Divide'.",
+                                          .span = flow.rhs[stage_index].span});
     }
 
     if (auto applied_template =
@@ -762,14 +776,13 @@ private:
       alias_decls.push_back(format_alias_decl(alias_decl, level + 1));
     }
 
-    return format_block(
-        "IRProgram",
-        {std::format("imports: {}", format_list(imports, level + 1)),
-         std::format("type_decls: {}", format_list(type_decls, level + 1)),
-         std::format("lets: {}", format_list(lets, level + 1)),
-         std::format("expressions: {}", format_list(expressions, level + 1)),
-         std::format("alias_decls: {}", format_list(alias_decls, level + 1))},
-        level);
+    return format_block("IRProgram",
+                        {std::format("imports: {}", format_list(imports, level + 1)),
+                         std::format("type_decls: {}", format_list(type_decls, level + 1)),
+                         std::format("lets: {}", format_list(lets, level + 1)),
+                         std::format("expressions: {}", format_list(expressions, level + 1)),
+                         std::format("alias_decls: {}", format_list(alias_decls, level + 1))},
+                        level);
   }
 
   [[nodiscard]] static auto format_import(const ir::IRImport& import_stmt, const int level) -> std::string {
@@ -797,17 +810,16 @@ private:
       params.push_back(format_param(param, level + 1));
     }
 
-    return format_block(
-        "IRLet",
-        {std::format("qualifier: {}", format_qualifier(let.qualifier)), std::format("name: {}", quote(let.name)),
-         std::format("symbol_key: {}", quote(let.symbol_key)),
-         std::format("generic_params: {}", format_string_list(let.generic_params, level + 1)),
-         std::format("params: {}", format_list(params, level + 1)),
-         std::format("return_type: {}", format_simple_type(let.return_type, level + 1)),
-         std::format("doc_comments: {}", format_string_list(let.doc_comments, level + 1)),
-         std::format("body: {}", let.body ? format_expr(*let.body, level + 1) : std::string{"null"}),
-         std::format("is_builtin: {}", let.is_builtin)},
-        level);
+    return format_block("IRLet",
+                        {std::format("qualifier: {}", format_qualifier(let.qualifier)),
+                         std::format("name: {}", quote(let.name)), std::format("symbol_key: {}", quote(let.symbol_key)),
+                         std::format("generic_params: {}", format_string_list(let.generic_params, level + 1)),
+                         std::format("params: {}", format_list(params, level + 1)),
+                         std::format("return_type: {}", format_simple_type(let.return_type, level + 1)),
+                         std::format("doc_comments: {}", format_string_list(let.doc_comments, level + 1)),
+                         std::format("body: {}", let.body ? format_expr(*let.body, level + 1) : std::string{"null"}),
+                         std::format("is_builtin: {}", let.is_builtin)},
+                        level);
   }
 
   [[nodiscard]] auto format_expr_statement(const ir::IRExprStatement& stmt, const int level) const -> std::string {
@@ -840,7 +852,7 @@ private:
       type_args.push_back(format_simple_type(arg, level + 1));
     }
 
-    std::vector<std::string> fields{
+    std::vector fields{
         std::format("name: {}", quote(type.name)),
         std::format("variadic: {}", type.variadic),
         std::format("alternatives: {}", format_string_list(type.alternatives, level + 1)),
@@ -860,10 +872,9 @@ private:
           format_block(
               "FunctionSignature",
               {std::format("param_types: {}", format_list(function_params, level + 2)),
-               std::format("return_type: {}",
-                           type.function_sig->return_type
-                               ? format_simple_type(*type.function_sig->return_type, level + 2)
-                               : std::string{"null"})},
+               std::format("return_type: {}", type.function_sig->return_type
+                                                  ? format_simple_type(*type.function_sig->return_type, level + 2)
+                                                  : std::string{"null"})},
               level + 1)));
     } else {
       fields.emplace_back("function_sig: null");
@@ -873,45 +884,37 @@ private:
   }
 
   [[nodiscard]] auto format_expr(const ir::IRExpr& expr, const int level) const -> std::string {
-    return format_block(
-        "IRExpr",
-        {std::format("kind: {}", quote(expr_kind_name(expr.node))),
-         std::format("node: {}", format_expr_node(expr.node, level + 1))},
-        level);
+    return format_block("IRExpr",
+                        {std::format("kind: {}", quote(expr_kind_name(expr.node))),
+                         std::format("node: {}", format_expr_node(expr.node, level + 1))},
+                        level);
   }
 
-  [[nodiscard]] static auto expr_kind_name(const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant,
-                                                              ir::IRNameRef, ir::IRClosureExprBox>& node)
+  [[nodiscard]] static auto expr_kind_name(
+      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox>& node)
       -> std::string_view {
-    return std::visit(common::overloaded{[](const ir::IRFlowExpr&) -> std::string_view { return "IRFlowExpr"; },
-                                         [](const ir::IRTupleExpr&) -> std::string_view { return "IRTupleExpr"; },
-                                         [](const ir::IRConstant&) -> std::string_view { return "IRConstant"; },
-                                         [](const ir::IRNameRef&) -> std::string_view { return "IRNameRef"; },
-                                         [](const ir::IRClosureExprBox&) -> std::string_view {
-                                           return "IRClosureExpr";
-                                         }},
-                      node);
+    return std::visit(
+        common::overloaded{[](const ir::IRFlowExpr&) -> std::string_view { return "IRFlowExpr"; },
+                           [](const ir::IRTupleExpr&) -> std::string_view { return "IRTupleExpr"; },
+                           [](const ir::IRConstant&) -> std::string_view { return "IRConstant"; },
+                           [](const ir::IRNameRef&) -> std::string_view { return "IRNameRef"; },
+                           [](const ir::IRClosureExprBox&) -> std::string_view { return "IRClosureExpr"; }},
+        node);
   }
 
-  [[nodiscard]] auto format_expr_node(const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant,
-                                                         ir::IRNameRef, ir::IRClosureExprBox>& node,
-                                      const int level) const -> std::string {
-    return std::visit(common::overloaded{[&](const ir::IRFlowExpr& flow) -> std::string {
-                                           return format_flow_expr(flow, level);
-                                         },
-                                         [&](const ir::IRTupleExpr& tuple) -> std::string {
-                                           return format_tuple_expr(tuple, level);
-                                         },
-                                         [&](const ir::IRConstant& constant) -> std::string {
-                                           return format_constant(constant, level);
-                                         },
-                                         [&](const ir::IRNameRef& name_ref) -> std::string {
-                                           return format_name_ref(name_ref, level);
-                                         },
-                                         [&](const ir::IRClosureExprBox& closure) -> std::string {
-                                           return closure ? format_closure_expr(*closure, level) : std::string{"null"};
-                                         }},
-                      node);
+  [[nodiscard]] auto format_expr_node(
+      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox>& node,
+      const int level) const -> std::string {
+    return std::visit(
+        common::overloaded{
+            [&](const ir::IRFlowExpr& flow) -> std::string { return format_flow_expr(flow, level); },
+            [&](const ir::IRTupleExpr& tuple) -> std::string { return format_tuple_expr(tuple, level); },
+            [&](const ir::IRConstant& constant) -> std::string { return format_constant(constant, level); },
+            [&](const ir::IRNameRef& name_ref) -> std::string { return format_name_ref(name_ref, level); },
+            [&](const ir::IRClosureExprBox& closure) -> std::string {
+              return closure ? format_closure_expr(*closure, level) : std::string{"null"};
+            }},
+        node);
   }
 
   [[nodiscard]] auto format_flow_expr(const ir::IRFlowExpr& flow, const int level) const -> std::string {
@@ -948,13 +951,11 @@ private:
   }
 
   [[nodiscard]] static auto format_call_target(const ir::IRCallTarget& target, const int level) -> std::string {
-    return std::visit(common::overloaded{[&](const ir::IRNameRef& name_ref) -> std::string {
-                                           return format_name_ref(name_ref, level);
-                                         },
-                                         [&](const ir::IROperatorRef& op_ref) -> std::string {
-                                           return format_operator_ref(op_ref, level);
-                                         }},
-                      target);
+    return std::visit(
+        common::overloaded{
+            [&](const ir::IRNameRef& name_ref) -> std::string { return format_name_ref(name_ref, level); },
+            [&](const ir::IROperatorRef& op_ref) -> std::string { return format_operator_ref(op_ref, level); }},
+        target);
   }
 
   [[nodiscard]] static auto format_name_ref(const ir::IRNameRef& name_ref, const int level) -> std::string {
@@ -983,15 +984,14 @@ private:
         "IRConstant",
         {std::format(
             "value: {}",
-            std::visit(common::overloaded{[](const std::int64_t value) -> std::string { return std::format("{}", value); },
-                                          [](const std::uint64_t value) -> std::string {
-                                            return std::format("{}u64", value);
-                                          },
-                                          [](const double value) -> std::string { return std::format("{}", value); },
-                                          [](const bool value) -> std::string { return value ? "true" : "false"; },
-                                          [](const std::string& value) -> std::string { return quote(value); },
-                                          [](const std::monostate&) -> std::string { return std::string{"null"}; }},
-                       constant.val))},
+            std::visit(
+                common::overloaded{[](const std::int64_t value) -> std::string { return std::format("{}", value); },
+                                   [](const std::uint64_t value) -> std::string { return std::format("{}u64", value); },
+                                   [](const double value) -> std::string { return std::format("{}", value); },
+                                   [](const bool value) -> std::string { return value ? "true" : "false"; },
+                                   [](const std::string& value) -> std::string { return quote(value); },
+                                   [](const std::monostate&) -> std::string { return std::string{"null"}; }},
+                constant.val))},
         level);
   }
 };
@@ -1043,9 +1043,10 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
 
                          for (std::size_t idx = 0; idx < params.size(); ++idx) {
                            if (params[idx].type.variadic && idx + 1U != params.size()) {
-                             return tl::unexpected(make_error(
-                                 "Variadic parameter must be the final parameter in a function declaration.",
-                                 "Move the '...' parameter to the end of the parameter list.", params[idx].span));
+                             return tl::unexpected(LoweringError{
+                                 .message = "Variadic parameter must be the final parameter in a function declaration.",
+                                 .hint = "Move the '...' parameter to the end of the parameter list.",
+                                 .span = params[idx].span});
                            }
                          }
 

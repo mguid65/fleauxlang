@@ -154,14 +154,16 @@ auto merge_module_into(Module& target, const Module& source,
     }
 
     maps.functions[index] = static_cast<std::uint32_t>(target.functions.size());
-    FunctionDef merged_function{};
-    merged_function.name = function.name;
-    merged_function.arity = function.arity;
-    merged_function.has_variadic_tail = function.has_variadic_tail;
-    merged_function.is_import_placeholder = false;
-    merged_function.generic_params = function.generic_params;
-    merged_function.param_type_names = function.param_type_names;
-    merged_function.return_type_name = function.return_type_name;
+    FunctionDef merged_function{
+      .name = function.name,
+      .arity = function.arity,
+      .has_variadic_tail = function.has_variadic_tail,
+      .is_import_placeholder = false,
+      .instructions = {},
+      .generic_params = function.generic_params,
+      .param_type_names = function.param_type_names,
+      .return_type_name = function.return_type_name
+    };
     target.functions.push_back(std::move(merged_function));
   }
 

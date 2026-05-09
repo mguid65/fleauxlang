@@ -9,9 +9,9 @@
 namespace fleaux::frontend::lowering {
 
 struct LoweringError {
-  std::string message;
-  std::optional<std::string> hint;
-  std::optional<diag::SourceSpan> span;
+  std::string message{};
+  std::optional<std::string> hint{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
 using LoweringResult = tl::expected<ir::IRProgram, LoweringError>;
