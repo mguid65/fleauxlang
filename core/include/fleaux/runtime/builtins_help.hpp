@@ -20,6 +20,7 @@ struct HelpMetadata {
   bool is_builtin = false;
 };
 
+// Should probably use a Trie here too
 [[nodiscard]] inline auto help_metadata_registry() -> std::unordered_map<std::string, HelpMetadata>& {
   static std::unordered_map<std::string, HelpMetadata> registry;
   return registry;
@@ -157,9 +158,9 @@ struct ParsedDoc {
     for (const auto& symbol_name : names) {
       const auto& metadata = registry.at(symbol_name);
       const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
-      result += "- " + symbol_name;
+      result += std::format("- {}", symbol_name);
       if (!parsed.brief.empty()) {
-        result += " - " + parsed.brief;
+        result += std::format(" - {}", parsed.brief);
       }
       result += "\n";
     }
@@ -172,8 +173,36 @@ struct ParsedDoc {
   }
 
   if (it == registry.end()) {
-    return make_string("Help: unknown symbol '" + name +
-                       "'\n\nUse Std.Help(\"Std.Add\") for symbol help, or Std.Help(\"\") to list symbols.");
+    if (registry.empty()) {
+      return make_string("Help: no symbols available.");
+    }
+
+    std::vector<std::string> names;
+    names.reserve(registry.size());
+    for (const auto& key : registry | std::views::keys | std::views::filter([name](const auto& entry) -> auto {
+                             return entry.starts_with(name);
+                           })) {
+      names.push_back(key);
+                           }
+    std::ranges::sort(names);
+    // if we dont find an exact match, try to find a partial match like Std.Tuple.*
+    std::string result = std::format("Available symbols({}*):\n", name);
+    for (const auto& symbol_name : names) {
+      const auto& metadata = registry.at(symbol_name);
+      const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
+      result += std::format("- {}", symbol_name);
+      if (!parsed.brief.empty()) {
+        result += std::format(" - {}", parsed.brief);
+      }
+      result += "\n";
+    }
+    if (result.empty()) {
+      return make_string(
+        std::format("Help: unknown symbol '{}'\n\nUse (\"Symbol\") -> Std.Help for symbol help, or (\"\") -> "
+                    "Std.Help() to list symbols.",
+                    name));
+    }
+    return make_string(result);
   }
 
   const auto& metadata = it->second;
