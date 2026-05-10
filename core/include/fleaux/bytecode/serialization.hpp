@@ -26,7 +26,7 @@ struct SerializationError {
     -> tl::expected<Module, SerializationError>;
 
 struct ModuleDumpError {
-  std::string message;
+  std::string message{};
 };
 
 // Dump a binary bytecode module to human-readable format

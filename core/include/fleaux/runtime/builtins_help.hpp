@@ -57,10 +57,11 @@ namespace detail {
 // }
 
 struct ParsedDoc {
-  std::string brief;
-  std::unordered_map<std::string, std::string> params;
-  std::string returns;
-  std::vector<std::string> notes;
+  std::string brief{};
+  std::unordered_map<std::string, std::string> params{};
+  std::unordered_map<std::string, std::string> tparams{};
+  std::string returns{};
+  std::vector<std::string> notes{};
 };
 
 [[nodiscard]] inline auto parse_doc_lines(const std::vector<std::string>& doc_lines) -> ParsedDoc {
@@ -76,28 +77,32 @@ struct ParsedDoc {
       parsed.brief = trim_copy(std::string_view(line).substr(6));
       continue;
     }
-    if (starts_with_token(line, "brief:")) {
-      parsed.brief = trim_copy(std::string_view(line).substr(6));
-      continue;
-    }
+
     if (starts_with_token(line, "@return")) {
       parsed.returns = trim_copy(std::string_view(line).substr(7));
       continue;
     }
+
     if (starts_with_token(line, "@returns")) {
       parsed.returns = trim_copy(std::string_view(line).substr(8));
       continue;
     }
-    if (starts_with_token(line, "return:")) {
-      parsed.returns = trim_copy(std::string_view(line).substr(7));
-      continue;
-    }
-    if (starts_with_token(line, "returns:")) {
-      parsed.returns = trim_copy(std::string_view(line).substr(8));
-      continue;
-    }
 
-    // todo: handle tparam
+    if (starts_with_token(line, "@tparam")) {
+      std::string rest = trim_copy(std::string_view(line.substr(7)));
+      if (rest.empty()) {
+        continue;
+      }
+      const auto first_space = rest.find_first_of(" \t:");
+      std::string param_name = rest.substr(0, first_space);
+      std::string param_doc = trim_copy(rest.substr(first_space));
+      if (!param_doc.empty() && param_doc.front() == ':') {
+        param_doc.erase(param_doc.begin());
+        param_doc = trim_copy(param_doc);
+      }
+      parsed.tparams[param_name] = std::move(param_doc);
+      continue;
+    }
 
     if (starts_with_token(line, "@param")) {
       std::string rest = trim_copy(std::string_view(line).substr(6));
@@ -172,44 +177,36 @@ struct ParsedDoc {
   }
 
   const auto& metadata = it->second;
-  const auto [brief, params, returns, notes] = detail::parse_doc_lines(metadata.doc_lines);
+  const auto [brief, params, tparams, returns, notes] = detail::parse_doc_lines(metadata.doc_lines);
 
-  std::string result;
-  result += "Help on function " + metadata.name + "\n\n";
-  result += metadata.signature + "\n";
+  std::string result = std::format("Help on function {} \n\n  {}\n", metadata.name, metadata.signature);
 
   if (!brief.empty()) {
-    result += "\n";
-    result += brief + "\n";
+    result += std::format("\n{}\n", brief);
+  }
+
+  if (!tparams.empty()) {
+    result += "\nGenerics:\n";
+    for (const auto& [param_name, desc] : tparams) {
+      result += std::format("  - {}: {}\n", param_name, desc);
+    }
   }
 
   if (!params.empty()) {
-    std::vector<std::string> param_names;
-    param_names.reserve(params.size());
-    for (const auto& param_name : params | std::views::keys) {
-      param_names.push_back(param_name);
-    }
-    std::ranges::sort(param_names);
-
     result += "\nParameters:\n";
-    for (const auto& param_name : param_names) {
-      result += "- " + param_name;
-      if (const auto it_param = params.find(param_name); it_param != params.end() && !it_param->second.empty()) {
-        result += ": " + it_param->second;
-      }
-      result += "\n";
+    for (const auto& [param_name, desc] : params) {
+      result += std::format("  - {}: {}\n", param_name, desc);
     }
   }
 
   if (!returns.empty()) {
-    result += "\nReturns:\n";
-    result += returns + "\n";
+    result += std::format("\nReturns:\n  {}\n", returns);
   }
 
   if (!notes.empty()) {
     result += "\nNotes:\n";
     for (const auto& note : notes) {
-      result += "- " + note + "\n";
+      result += std::format("  - {}\n", note);
     }
   }
 

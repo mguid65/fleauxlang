@@ -105,6 +105,7 @@ let Std.Type(value: Any) : String :: __builtin__;
 
 // @brief Reinterpret a value as an explicitly requested type.
 // @param value Input value. Type: Any.
+// @tparam T Requested cast target
 // @return The same runtime value, checked against the requested type parameter.
 let Std.Cast<T>(value: Any) : T :: __builtin__;
 
@@ -228,14 +229,14 @@ let Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UIn
 let Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
 
 // @brief Return whether two values are equal.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param lhs Left-hand operand value. Type: T.
 // @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
 let Std.Equal<T>(lhs: T, rhs: T) : Bool :: __builtin__;
 
 // @brief Return whether two values are not equal.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param lhs Left-hand operand value. Type: T.
 // @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
@@ -259,7 +260,7 @@ let Std.And(lhs: Bool, rhs: Bool) : Bool :: __builtin__;
 let Std.Or(lhs: Bool, rhs: Bool) : Bool :: __builtin__;
 
 // @brief Return one of two values based on a Bool condition.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param condition Boolean condition to evaluate. Type: Bool.
 // @param true_val Value returned when condition is true. Type: T.
 // @param false_val Value returned when condition is false. Type: T.
@@ -273,78 +274,78 @@ let Std.Select<T>(condition: Bool, true_val: T, false_val: T) : T :: __builtin__
 let Std.Match(value: Any, cases: Any...) : Any :: __builtin__;
 
 // @brief Construct a Result value tagged as Ok.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param value Input value. Type: T.
 // @return A value of type Result(T, Any).
 let Std.Result.Ok<T>(value: T) : Result(T, Any) :: __builtin__;
 
 // @brief Construct a Result value tagged as Err.
-// @param E Generic error type.
+// @tparam E Generic error type.
 // @param error Error payload value. Type: E.
 // @return A value of type Result(Any, E).
 let Std.Result.Err<E>(error: E) : Result(Any, E) :: __builtin__;
 
 // @brief Return the Ok or Err tag for a Result value.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type Bool.
 let Std.Result.Tag<T, E>(result: Result(T, E)) : Bool :: __builtin__;
 
 // @brief Return the payload stored in a Result value.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type T | E.
 let Std.Result.Payload<T, E>(result: Result(T, E)) : T | E :: __builtin__;
 
 // @brief Return whether a Result value is tagged as Ok.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type Bool.
 let Std.Result.IsOk<T, E>(result: Result(T, E)) : Bool :: __builtin__;
 
 // @brief Return whether a Result value is tagged as Err.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type Bool.
 let Std.Result.IsErr<T, E>(result: Result(T, E)) : Bool :: __builtin__;
 
 // @brief Return the Ok payload from a Result value or raise on Err.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type T.
 let Std.Result.Unwrap<T, E>(result: Result(T, E)) : T :: __builtin__;
 
 // @brief Return the Err payload from a Result value or raise on Ok.
-// @param T Generic value type.
-// @param E Generic error type.
+// @tparam T Generic value type.
+// @tparam E Generic error type.
 // @param result Result value. Type: Result(T, E).
 // @return A value of type E.
 let Std.Result.UnwrapErr<T, E>(result: Result(T, E)) : E :: __builtin__;
 
 // @brief Invoke a callable and capture runtime exceptions as Result.Err.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param value Input value. Type: T.
 // @param func Callable to invoke. Type: (T) => U.
 // @return A value of type Result(U, String).
 let Std.Try<T, U>(value: T, func: (T) => U) : Result(U, String) :: __builtin__;
 
 // @brief Apply a callable to each tuple item in parallel.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param items Tuple of input items. Type: Tuple(T...).
 // @param func Callable to invoke. Type: (T) => U.
 // @return A value of type Result(Tuple(U...), Tuple(Int64, String)).
 let Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U) : Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;
 
 // @brief Apply a callable to each tuple item in parallel using explicit scheduler options.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param items Tuple of input items. Type: Tuple(T...).
 // @param func Callable to invoke. Type: (T) => U.
 // @param options Options dictionary. Type: Dict(String, Any).
@@ -353,16 +354,16 @@ let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: 
     :: __builtin__;
 
 // @brief Apply a callable to each tuple item in parallel for side effects.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param items Tuple of input items. Type: Tuple(T...).
 // @param func Callable to invoke. Type: (T) => U.
 // @return A value of type Result(Tuple(), Tuple(Int64, String)).
 let Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U) : Result(Tuple(), Tuple(Int64, String)) :: __builtin__;
 
 // @brief Fold tuple items from left to right and return the Result.
-// @param T Generic value type.
-// @param A Generic accumulator type.
+// @tparam T Generic value type.
+// @tparam A Generic accumulator type.
 // @param items Tuple of input items. Type: Tuple(T...).
 // @param init Initial accumulator value. Type: A.
 // @param func Callable to invoke. Type: (A, T) => A.
@@ -370,8 +371,8 @@ let Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U) : Result(Tupl
 let Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A) : Result(A, Tuple(Int64, String)) :: __builtin__;
 
 // @brief Spawn a task handle for a callable and input value.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param func Callable to invoke. Type: (T) => U.
 // @param value Input value. Type: T.
 // @return A value of type TaskHandle.
@@ -399,15 +400,15 @@ let Std.Task.Cancel(task: TaskHandle) : Bool :: __builtin__;
 let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64) : Result(Any, String) :: __builtin__;
 
 // @brief Apply a callable to a value.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param value Input value. Type: T.
 // @param func Callable to invoke. Type: (T) => U.
 // @return A value of type U.
 let Std.Apply<T, U>(value: T, func: (T) => U) : U :: __builtin__;
 
 // @brief Apply one of two callables based on a Bool condition.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param condition Boolean condition to evaluate. Type: Bool.
 // @param value Input value. Type: T.
 // @param true_func Callable used when condition is true. Type: (T) => T.
@@ -416,7 +417,7 @@ let Std.Apply<T, U>(value: T, func: (T) => U) : U :: __builtin__;
 let Std.Branch<T>(condition: Bool, value: T, true_func: (T) => T, false_func: (T) => T) : T :: __builtin__;
 
 // @brief Iterate a state value while a continue callable returns true.
-// @param S Generic state type.
+// @tparam S Generic state type.
 // @param state State value. Type: S.
 // @param continue_func Value for parameter continue_func. Type: (S) => Bool.
 // @param step_func Callable that produces the next state. Type: (S) => S.
@@ -424,7 +425,7 @@ let Std.Branch<T>(condition: Bool, value: T, true_func: (T) => T, false_func: (T
 let Std.Loop<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S) : S :: __builtin__;
 
 // @brief Iterate a state value with a hard iteration cap.
-// @param S Generic state type.
+// @tparam S Generic state type.
 // @param state State value. Type: S.
 // @param continue_func Value for parameter continue_func. Type: (S) => Bool.
 // @param step_func Callable that produces the next state. Type: (S) => S.
@@ -815,82 +816,82 @@ let Std.Dir.ListFull(path: String) : Tuple(String...) :: __builtin__;
 
 // Tuple builtins
 // @brief Return a tuple with item appended.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param item Element value. Type: T.
 // @return A value of type Tuple(T...).
 let Std.Tuple.Append<T>(t: Tuple(T...), item: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return a tuple with item prepended.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param item Element value. Type: T.
 // @return A value of type Tuple(T...).
 let Std.Tuple.Prepend<T>(t: Tuple(T...), item: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return a tuple with elements in reverse order.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @return A value of type Tuple(T...).
 let Std.Tuple.Reverse<T>(t: Tuple(T...)) : Tuple(T...) :: __builtin__;
 
 // @brief Return whether a tuple contains item.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param item Element value. Type: T.
 // @return A value of type Bool.
 let Std.Tuple.Contains<T>(t: Tuple(T...), item: T) : Bool :: __builtin__;
 
 // @brief Zip two tuples together into tuple pairs.
-// @param A Generic accumulator type.
-// @param B Generic secondary element type.
+// @tparam A Generic accumulator type.
+// @tparam B Generic secondary element type.
 // @param a First input value. Type: Tuple(A...).
 // @param b Value for parameter b. Type: Tuple(B...).
 // @return A value of type Tuple(Tuple(A, B)...).
 let Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)) : Tuple(Tuple(A, B)...) :: __builtin__;
 
 // @brief Map a callable over a tuple.
-// @param T Generic value type.
-// @param U Generic result type.
+// @tparam T Generic value type.
+// @tparam U Generic result type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param func Callable to invoke. Type: (T) => U.
 // @return A value of type Tuple(U...).
 let Std.Tuple.Map<T, U>(t: Tuple(T...), func: (T) => U) : Tuple(U...) :: __builtin__;
 
 // @brief Filter tuple elements using a predicate.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param pred Predicate callable. Type: (T) => Bool.
 // @return A value of type Tuple(T...).
 let Std.Tuple.Filter<T>(t: Tuple(T...), pred: (T) => Bool) : Tuple(T...) :: __builtin__;
 
 // @brief Sort tuple elements.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @return A value of type Tuple(T...).
 let Std.Tuple.Sort<T>(t: Tuple(T...)) : Tuple(T...) :: __builtin__;
 
 // @brief Return tuple elements with duplicates removed.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @return A value of type Tuple(T...).
 let Std.Tuple.Unique<T>(t: Tuple(T...)) : Tuple(T...) :: __builtin__;
 
 // @brief Return the minimum tuple element.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @return A value of type T.
 let Std.Tuple.Min<T>(t: Tuple(T...)) : T :: __builtin__;
 
 // @brief Return the maximum tuple element.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @return A value of type T.
 let Std.Tuple.Max<T>(t: Tuple(T...)) : T :: __builtin__;
 
 // @brief Reduce tuple elements into an accumulator value.
-// @param T Generic value type.
-// @param A Generic accumulator type.
+// @tparam T Generic value type.
+// @tparam A Generic accumulator type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param initial Initial accumulator value. Type: A.
 // @param func Callable to invoke. Type: (A, T) => A.
@@ -898,21 +899,21 @@ let Std.Tuple.Max<T>(t: Tuple(T...)) : T :: __builtin__;
 let Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: (A, T) => A) : A :: __builtin__;
 
 // @brief Return the index of the first tuple element that matches a predicate.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param pred Predicate callable. Type: (T) => Bool.
 // @return A value of type Int64.
 let Std.Tuple.FindIndex<T>(t: Tuple(T...), pred: (T) => Bool) : Int64 :: __builtin__;
 
 // @brief Return whether any tuple element matches a predicate.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param pred Predicate callable. Type: (T) => Bool.
 // @return A value of type Bool.
 let Std.Tuple.Any<T>(t: Tuple(T...), pred: (T) => Bool) : Bool :: __builtin__;
 
 // @brief Return whether all tuple elements match a predicate.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param t Input tuple value. Type: Tuple(T...).
 // @param pred Predicate callable. Type: (T) => Bool.
 // @return A value of type Bool.
@@ -937,34 +938,34 @@ let Std.Tuple.Range(start: Int64, stop: Int64) : Tuple(Int64...) :: __builtin__;
 let Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) : Tuple(Int64...) :: __builtin__;
 
 // @brief Return the first count items from a tuple.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param count Element count or index value. Type: Int64.
 // @return A value of type Tuple(T...).
 let Std.Take<T>(tuple: Tuple(T...), count: Int64) : Tuple(T...) :: __builtin__;
 
 // @brief Return the tuple after dropping the first count items.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param count Element count or index value. Type: Int64.
 // @return A value of type Tuple(T...).
 let Std.Drop<T>(tuple: Tuple(T...), count: Int64) : Tuple(T...) :: __builtin__;
 
 // @brief Return the tuple element at the requested index.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param count Element count or index value. Type: Int64.
 // @return A value of type T.
 let Std.ElementAt<T>(tuple: Tuple(T...), count: Int64) : T :: __builtin__;
 
 // @brief Return the number of tuple elements.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @return A value of type Int64.
 let Std.Length<T>(tuple: Tuple(T...)) : Int64 :: __builtin__;
 
 // @brief Return a tuple slice.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param stop Exclusive ending index. Type: Int64.
 // @return A value of type Tuple(T...).
@@ -1023,13 +1024,13 @@ let Std.File.Close(handle: FileHandle) : Bool :: __builtin__;
 let Std.File.WithOpen<R>(path: String, mode: String, func: (FileHandle) => R) : R :: __builtin__;
 
 // @brief Lift a value into a one-element tuple.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param val Value for parameter val. Type: T.
 // @return A value of type Tuple(T).
 let Std.Wrap<T>(val: T) : Tuple(T) :: __builtin__;
 
 // @brief Extract the value from a one-element tuple.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T).
 // @return A value of type T.
 let Std.Unwrap<T>(tuple: Tuple(T)) : T :: __builtin__;
@@ -1041,15 +1042,15 @@ let Std.Unwrap<T>(tuple: Tuple(T)) : T :: __builtin__;
 let Std.Dict.Create() : Dict(Any, Any) :: __builtin__;
 
 // @brief Create or clone a dictionary value.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Dict(K, V).
 let Std.Dict.Create<K, V>(dict: Dict(K, V)) : Dict(K, V) :: __builtin__;
 
 // @brief Return a dictionary with key set to value.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @param key Dictionary key. Type: K.
 // @param value Input value. Type: V.
@@ -1057,16 +1058,16 @@ let Std.Dict.Create<K, V>(dict: Dict(K, V)) : Dict(K, V) :: __builtin__;
 let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V) : Dict(K, V) :: __builtin__;
 
 // @brief Return the value stored at key.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @param key Dictionary key. Type: K.
 // @return A value of type V.
 let Std.Dict.Get<K, V>(dict: Dict(K, V), key: K) : V :: __builtin__;
 
 // @brief Return the value stored at key or a default when key is missing.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @param key Dictionary key. Type: K.
 // @param default Fallback value used when a lookup misses. Type: V.
@@ -1074,60 +1075,60 @@ let Std.Dict.Get<K, V>(dict: Dict(K, V), key: K) : V :: __builtin__;
 let Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V) : V :: __builtin__;
 
 // @brief Return whether a dictionary contains key.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @param key Dictionary key. Type: K.
 // @return A value of type Bool.
 let Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K) : Bool :: __builtin__;
 
 // @brief Return a dictionary without key.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @param key Dictionary key. Type: K.
 // @return A value of type Dict(K, V).
 let Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K) : Dict(K, V) :: __builtin__;
 
 // @brief Return a dictionary with overlay entries applied over the base dictionary.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict_base Base dictionary value. Type: Dict(K, V).
 // @param dict_overlay Overlay dictionary whose entries take precedence. Type: Dict(K, V).
 // @return A value of type Dict(K, V).
 let Std.Dict.Merge<K, V>(dict_base: Dict(K, V), dict_overlay: Dict(K, V)) : Dict(K, V) :: __builtin__;
 
 // @brief Return dictionary keys in sorted key order.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Tuple(K...).
 let Std.Dict.Keys<K, V>(dict: Dict(K, V)) : Tuple(K...) :: __builtin__;
 
 // @brief Return dictionary values in sorted key order.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Tuple(V...).
 let Std.Dict.Values<K, V>(dict: Dict(K, V)) : Tuple(V...) :: __builtin__;
 
 // @brief Return dictionary entries in sorted key order.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Tuple(Tuple(K, V)...).
 let Std.Dict.Entries<K, V>(dict: Dict(K, V)) : Tuple(Tuple(K, V)...) :: __builtin__;
 
 // @brief Return an empty dictionary with the same channels.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Dict(K, V).
 let Std.Dict.Clear<K, V>(dict: Dict(K, V)) : Dict(K, V) :: __builtin__;
 
 // @brief Return the number of entries in a dictionary.
-// @param K Generic dictionary key type.
-// @param V Generic dictionary value type.
+// @tparam K Generic dictionary key type.
+// @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict(K, V).
 // @return A value of type Int64.
 let Std.Dict.Length<K, V>(dict: Dict(K, V)) : Int64 :: __builtin__;
@@ -1135,14 +1136,14 @@ let Std.Dict.Length<K, V>(dict: Dict(K, V)) : Int64 :: __builtin__;
 
 // Array builtins
 // @brief Return the array element at index.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
 // @param index Zero-based index. Type: Int64.
 // @return A value of type T.
 let Std.Array.GetAt<T>(array: Tuple(T...), index: Int64) : T :: __builtin__;
 
 // @brief Return an array with one element replaced at index.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
 // @param index Zero-based index. Type: Int64.
 // @param value Input value. Type: T.
@@ -1150,7 +1151,7 @@ let Std.Array.GetAt<T>(array: Tuple(T...), index: Int64) : T :: __builtin__;
 let Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return an array with value inserted at index.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
 // @param index Zero-based index. Type: Int64.
 // @param value Input value. Type: T.
@@ -1158,14 +1159,14 @@ let Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T) : Tuple(T...)
 let Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return an array with the element at index removed.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
 // @param index Zero-based index. Type: Int64.
 // @return A value of type Tuple(T...).
 let Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64) : Tuple(T...) :: __builtin__;
 
 // @brief Return a one-dimensional array slice.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
 // @param start Starting index. Type: Int64.
 // @param stop Exclusive ending index. Type: Int64.
@@ -1173,14 +1174,14 @@ let Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64) : Tuple(T...) :: __b
 let Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64) : Tuple(T...) :: __builtin__;
 
 // @brief Concatenate two one-dimensional arrays.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param lhs Left-hand operand value. Type: Tuple(T...).
 // @param rhs Right-hand operand value. Type: Tuple(T...).
 // @return A value of type Tuple(T...).
 let Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)) : Tuple(T...) :: __builtin__;
 
 // @brief Return a two-dimensional array with one element replaced at row and col.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param grid Two-dimensional array value. Type: Tuple(Tuple(T...)...).
 // @param row Row index. Type: Int64.
 // @param col Column index. Type: Int64.
@@ -1189,7 +1190,7 @@ let Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)) : Tuple(T...) :: __b
 let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Return a tuple with a contiguous region filled with value.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param start_index Starting index. Type: Int64.
 // @param length Number of elements to include. Type: Int64.
@@ -1198,13 +1199,13 @@ let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, va
 let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Transpose a two-dimensional array.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param grid Two-dimensional array value. Type: Tuple(Tuple(T...)...).
 // @return A value of type Tuple(Tuple(T...)...).
 let Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Return a rectangular slice from a two-dimensional array.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param grid Two-dimensional array value. Type: Tuple(Tuple(T...)...).
 // @param row_start Starting row index. Type: Int64.
 // @param row_end Exclusive ending row index. Type: Int64.
@@ -1214,7 +1215,7 @@ let Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)) : Tuple(Tuple(T...)...
 let Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Reshape a flat array into a two-dimensional grid.
-// @param T Generic value type.
+// @tparam T Generic value type.
 // @param flat_array Flattened array value. Type: Tuple(T...).
 // @param rows Number of rows. Type: Int64.
 // @param cols Value for parameter cols. Type: Int64.

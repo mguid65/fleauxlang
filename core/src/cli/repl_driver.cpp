@@ -192,8 +192,8 @@ auto seed_completion_symbols(CompletionHandler& completion) -> void {
   }
 
   std::vector<std::string> builtins;
-  builtins.reserve(fleaux::vm::all_builtin_specs().size());
-  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
+  builtins.reserve(vm::all_builtin_specs().size());
+  for (const auto& spec : vm::all_builtin_specs()) {
     builtins.emplace_back(spec.name);
   }
   completion.load_symbols(builtins);
@@ -278,7 +278,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
 
   constexpr vm::Runtime runtime;
   const auto session = runtime.create_session(process_args, compile_options);
-  const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
+  const auto run_snippet = [session](const std::string& snippet) -> std::optional<vm::RuntimeError> {
     if (const auto result = session.run_snippet(snippet, std::cout); !result) {
       return result.error();
     }

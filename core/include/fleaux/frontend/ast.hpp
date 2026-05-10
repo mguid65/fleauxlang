@@ -13,17 +13,6 @@
 
 namespace fleaux::frontend::model {
 
-struct Qualifier {
-  std::string qualifier;
-  std::optional<diag::SourceSpan> span;
-};
-
-struct QualifiedId {
-  Qualifier qualifier;
-  std::string id;
-  std::optional<diag::SourceSpan> span;
-};
-
 struct TypeNode;
 struct TypeList;
 struct UnionTypeList;
@@ -43,6 +32,17 @@ using NamedTargetBox = common::IndirectOptional<NamedTarget>;
 using ExpressionBox = common::IndirectOptional<Expression>;
 using ClosureExpressionBox = common::IndirectOptional<ClosureExpression>;
 using DelimitedExpressionBox = common::IndirectOptional<DelimitedExpression>;
+
+struct Qualifier {
+  std::string qualifier{};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+struct QualifiedId {
+  Qualifier qualifier{};
+  std::string id{};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
 
 struct TypeList {
   std::vector<TypeBox> types{};
@@ -92,7 +92,7 @@ struct ParameterDeclList {
 };
 
 struct Constant {
-  std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> val;
+  std::variant<std::monostate, std::int64_t, std::uint64_t, double, bool, std::string> val;
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -232,8 +232,8 @@ using IRExprBox = common::IndirectOptional<IRExpr>;
 using IRClosureExprBox = common::IndirectOptional<IRClosureExpr>;
 
 struct IRConstant {
-  std::variant<std::int64_t, std::uint64_t, double, bool, std::string, std::monostate> val;
-  std::optional<diag::SourceSpan> span;
+  std::variant<std::monostate, std::int64_t, std::uint64_t, double, bool, std::string> val;
+  std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
 struct IRNameRef {

@@ -309,7 +309,7 @@ private:
     }
   }
 
-  T* ptr_ = nullptr;
+  T* ptr_{nullptr};
 };
 
 template <class T>

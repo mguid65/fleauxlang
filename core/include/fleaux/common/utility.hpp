@@ -56,7 +56,7 @@ template <class T>
 inline constexpr bool is_variant_like_v = is_variant_like<T>::value;
 
 template <class R, class Visitor, class Tuple, std::size_t... Is>
-constexpr bool tuple_invocable_impl(std::index_sequence<Is...>) {
+constexpr auto tuple_invocable_impl(std::index_sequence<Is...>) -> bool {
   if constexpr (std::is_void_v<R>) {
     return std::is_invocable_v<Visitor, decltype(std::get<Is>(std::declval<Tuple>()))...>;
   } else {
@@ -65,9 +65,8 @@ constexpr bool tuple_invocable_impl(std::index_sequence<Is...>) {
 }
 
 template <class R, class Visitor, class Tuple>
-inline constexpr bool tuple_invocable_v =
-    tuple_invocable_impl<R, Visitor, Tuple>(
-        std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
+inline constexpr bool tuple_invocable_v = tuple_invocable_impl<R, Visitor, Tuple>(
+    std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
 
 template <class Tuple, std::size_t... Is>
 constexpr auto tuple_tail_impl(Tuple&& tuple, std::index_sequence<Is...>) {
@@ -89,8 +88,8 @@ constexpr auto expand_value_as_tuple_impl(T&& value, std::index_sequence<Is...>)
 template <class T>
 constexpr auto expand_value_as_tuple(T&& value) {
   static_assert(is_tuple_like_v<T>, "expand_value_as_tuple requires a tuple-like value.");
-  return expand_value_as_tuple_impl(
-      std::forward<T>(value), std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<T>>>{});
+  return expand_value_as_tuple_impl(std::forward<T>(value),
+                                    std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<T>>>{});
 }
 
 template <class T, class Indices>
@@ -102,8 +101,8 @@ struct expanded_argument_tuple<T, std::index_sequence<Is...>> {
 };
 
 template <class T>
-using expanded_argument_tuple_t = typename expanded_argument_tuple<
-    T, std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<T>>>>::type;
+using expanded_argument_tuple_t =
+    typename expanded_argument_tuple<T, std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<T>>>>::type;
 
 template <class LeftTuple, class RightTuple>
 struct tuple_concat_types;
@@ -173,11 +172,13 @@ struct can_structured_pack_expand_next : std::false_type {};
 template <class R, class Visitor, class BoundPack, class Next, class RemainingPack>
 struct can_structured_pack_expand_next<true, R, Visitor, BoundPack, Next, RemainingPack> {
   static constexpr bool value =
-      can_structured_pack_match<R, Visitor, pack_append_tuple_t<BoundPack, expanded_argument_tuple_t<Next>>, RemainingPack>::value;
+      can_structured_pack_match<R, Visitor, pack_append_tuple_t<BoundPack, expanded_argument_tuple_t<Next>>,
+                                RemainingPack>::value;
 };
 
 template <class R, class Visitor, class BoundPack>
-struct can_structured_pack_match<R, Visitor, BoundPack, type_pack<>> : std::bool_constant<pack_invocable_v<R, Visitor, BoundPack>> {};
+struct can_structured_pack_match<R, Visitor, BoundPack, type_pack<>>
+    : std::bool_constant<pack_invocable_v<R, Visitor, BoundPack>> {};
 
 template <class R, class Visitor, class BoundPack, class Next, class... Rest>
 struct can_structured_pack_match<R, Visitor, BoundPack, type_pack<Next, Rest...>> {
@@ -186,14 +187,15 @@ private:
   using rest_pack = type_pack<Rest...>;
 
   static constexpr bool kKeepWhole = can_structured_pack_match<R, Visitor, keep_bound_pack, rest_pack>::value;
-  static constexpr bool kExpand = can_structured_pack_expand_next<is_tuple_like_v<Next>, R, Visitor, BoundPack, Next, rest_pack>::value;
+  static constexpr bool kExpand =
+      can_structured_pack_expand_next<is_tuple_like_v<Next>, R, Visitor, BoundPack, Next, rest_pack>::value;
 
 public:
   static constexpr bool value = kKeepWhole || kExpand;
 };
 
 template <class R, class Visitor, class BoundTuple>
-constexpr R invoke_from_tuple(Visitor&& visitor, BoundTuple&& bound) {
+constexpr auto invoke_from_tuple(Visitor&& visitor, BoundTuple&& bound) -> R {
   return std::apply(
       [&visitor]<class... Args>(Args&&... args) -> R {
         if constexpr (std::is_void_v<R>) {
@@ -223,24 +225,25 @@ constexpr auto append_expanded(BoundTuple&& bound, Next&& next) {
 }
 
 template <class R, class Visitor, class BoundTuple, class RemainingTuple>
-constexpr R structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining);
+constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) -> R;
 
 template <class R, class Visitor, class BoundTuple>
-constexpr R structured_dispatch_case_0(Visitor&& visitor, BoundTuple&& bound) {
+constexpr auto structured_dispatch_case_0(Visitor&& visitor, BoundTuple&& bound) -> R {
   static_assert(pack_invocable_v<R, Visitor, tuple_to_pack_t<BoundTuple>>,
                 "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
   return invoke_from_tuple<R>(std::forward<Visitor>(visitor), std::forward<BoundTuple>(bound));
 }
 
 template <class R, class Visitor, class BoundTuple, class A>
-constexpr R structured_dispatch_case_1(Visitor&& visitor, BoundTuple&& bound, A&& a) {
+constexpr auto structured_dispatch_case_1(Visitor&& visitor, BoundTuple&& bound, A&& a) -> R {
   using bound_pack = tuple_to_pack_t<BoundTuple>;
   using whole_pack = pack_append_t<bound_pack, A&&>;
 
   if constexpr (pack_invocable_v<R, Visitor, whole_pack>) {
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return invoke_from_tuple<R>(std::forward<Visitor>(visitor), std::move(next_bound));
-  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&, type_pack<>>::value) {
+  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&,
+                                                       type_pack<>>::value) {
     if constexpr (std::tuple_size_v<std::remove_reference_t<BoundTuple>> == 0) {
       auto expanded = expand_value_as_tuple(std::forward<A>(a));
       return invoke_from_tuple<R>(std::forward<Visitor>(visitor), std::move(expanded));
@@ -249,8 +252,9 @@ constexpr R structured_dispatch_case_1(Visitor&& visitor, BoundTuple&& bound, A&
       return invoke_from_tuple<R>(std::forward<Visitor>(visitor), std::move(expanded_bound));
     }
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
 
     if constexpr (std::is_void_v<R>) {
       return;
@@ -261,7 +265,7 @@ constexpr R structured_dispatch_case_1(Visitor&& visitor, BoundTuple&& bound, A&
 }
 
 template <class R, class Visitor, class BoundTuple, class A, class B>
-constexpr R structured_dispatch_case_2(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b) {
+constexpr auto structured_dispatch_case_2(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b) -> R {
   using bound_pack = tuple_to_pack_t<BoundTuple>;
   using tail_pack = type_pack<B&&>;
   using whole_pack = pack_append_t<bound_pack, A&&>;
@@ -269,12 +273,14 @@ constexpr R structured_dispatch_case_2(Visitor&& visitor, BoundTuple&& bound, A&
   if constexpr (can_structured_pack_match<R, Visitor, whole_pack, tail_pack>::value) {
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_1<R>(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b));
-  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&, tail_pack>::value) {
+  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&,
+                                                       tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_1<R>(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
 
     if constexpr (std::is_void_v<R>) {
       return;
@@ -285,7 +291,7 @@ constexpr R structured_dispatch_case_2(Visitor&& visitor, BoundTuple&& bound, A&
 }
 
 template <class R, class Visitor, class BoundTuple, class A, class B, class C>
-constexpr R structured_dispatch_case_3(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b, C&& c) {
+constexpr auto structured_dispatch_case_3(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b, C&& c) -> R {
   using bound_pack = tuple_to_pack_t<BoundTuple>;
   using tail_pack = type_pack<B&&, C&&>;
   using whole_pack = pack_append_t<bound_pack, A&&>;
@@ -294,13 +300,15 @@ constexpr R structured_dispatch_case_3(Visitor&& visitor, BoundTuple&& bound, A&
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_2<R>(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b),
                                          std::forward<C>(c));
-  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&, tail_pack>::value) {
+  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&,
+                                                       tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_2<R>(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b),
                                          std::forward<C>(c));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
 
     if constexpr (std::is_void_v<R>) {
       return;
@@ -311,7 +319,7 @@ constexpr R structured_dispatch_case_3(Visitor&& visitor, BoundTuple&& bound, A&
 }
 
 template <class R, class Visitor, class BoundTuple, class A, class B, class C, class D>
-constexpr R structured_dispatch_case_4(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b, C&& c, D&& d) {
+constexpr auto structured_dispatch_case_4(Visitor&& visitor, BoundTuple&& bound, A&& a, B&& b, C&& c, D&& d) -> R {
   using bound_pack = tuple_to_pack_t<BoundTuple>;
   using tail_pack = type_pack<B&&, C&&, D&&>;
   using whole_pack = pack_append_t<bound_pack, A&&>;
@@ -320,13 +328,15 @@ constexpr R structured_dispatch_case_4(Visitor&& visitor, BoundTuple&& bound, A&
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_3<R>(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b),
                                          std::forward<C>(c), std::forward<D>(d));
-  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&, tail_pack>::value) {
+  } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<A&&>, R, Visitor, bound_pack, A&&,
+                                                       tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_3<R>(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b),
                                          std::forward<C>(c), std::forward<D>(d));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
 
     if constexpr (std::is_void_v<R>) {
       return;
@@ -337,10 +347,11 @@ constexpr R structured_dispatch_case_4(Visitor&& visitor, BoundTuple&& bound, A&
 }
 
 template <class R, class Visitor, class BoundTuple, class RemainingTuple>
-constexpr R structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) {
+constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) -> R {
   if constexpr (std::tuple_size_v<std::remove_reference_t<RemainingTuple>> == 0) {
-    static_assert(pack_invocable_v<R, Visitor, tuple_to_pack_t<BoundTuple>>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        pack_invocable_v<R, Visitor, tuple_to_pack_t<BoundTuple>>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
     return invoke_from_tuple<R>(std::forward<Visitor>(visitor), std::forward<BoundTuple>(bound));
   } else {
     using bound_pack = tuple_to_pack_t<BoundTuple>;
@@ -354,13 +365,17 @@ constexpr R structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& b
 
     if constexpr (can_structured_pack_match<R, Visitor, whole_pack, tail_pack>::value) {
       auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<decltype(next)>(next));
-      return structured_dispatch_recursive_impl<R>(std::forward<Visitor>(visitor), std::move(next_bound), std::move(tail));
-    } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<next_type>, R, Visitor, bound_pack, next_type, tail_pack>::value) {
+      return structured_dispatch_recursive_impl<R>(std::forward<Visitor>(visitor), std::move(next_bound),
+                                                   std::move(tail));
+    } else if constexpr (can_structured_pack_expand_next<is_tuple_like_v<next_type>, R, Visitor, bound_pack, next_type,
+                                                         tail_pack>::value) {
       auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<decltype(next)>(next));
-      return structured_dispatch_recursive_impl<R>(std::forward<Visitor>(visitor), std::move(expanded_bound), std::move(tail));
+      return structured_dispatch_recursive_impl<R>(std::forward<Visitor>(visitor), std::move(expanded_bound),
+                                                   std::move(tail));
     } else {
-      static_assert(always_false_v<BoundTuple>,
-                    "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+      static_assert(
+          always_false_v<BoundTuple>,
+          "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
     }
 
     if constexpr (std::is_void_v<R>) {
@@ -372,7 +387,7 @@ constexpr R structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& b
 }
 
 template <class R, class Visitor, class BoundTuple, class RemainingTuple>
-constexpr R structured_dispatch_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) {
+constexpr auto structured_dispatch_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) -> R {
   constexpr auto kArity = std::tuple_size_v<std::remove_reference_t<RemainingTuple>>;
   if constexpr (kArity <= 4) {
     if constexpr (kArity == 0) {
@@ -411,9 +426,8 @@ constexpr R structured_dispatch_impl(Visitor&& visitor, BoundTuple&& bound, Rema
 }  // namespace detail
 
 template <class R, class Visitor, class... Variants>
-constexpr R structured_visit(Visitor&& v, Variants&&... values) {
-  static_assert((detail::is_variant_like_v<Variants> && ...),
-                "structured_visit requires std::variant-like inputs.");
+constexpr auto structured_visit(Visitor&& v, Variants&&... values) -> R {
+  static_assert((detail::is_variant_like_v<Variants> && ...), "structured_visit requires std::variant-like inputs.");
 
   // Whole selected alternatives are preferred. If that does not match the
   // visitor, tuple-like selected alternatives are expanded according to the

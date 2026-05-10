@@ -46,8 +46,8 @@ public:
 
 private:
   struct Node {
-    std::unordered_map<char, Node> children;
-    bool is_terminal = false;
+    std::unordered_map<char, Node> children{};
+    bool is_terminal{false};
   };
 
   static void collect_words(const Node& node, std::string& current, std::vector<std::string>& out) {
@@ -59,7 +59,7 @@ private:
     }
   }
 
-  Node root_;
+  Node root_{};
 };
 
 }  // namespace fleaux::common

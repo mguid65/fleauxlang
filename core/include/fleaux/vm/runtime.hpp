@@ -15,13 +15,13 @@
 namespace fleaux::vm {
 
 struct ExecutionResult {
-  std::int64_t exit_code = 0;
+  std::int64_t exit_code{0};
 };
 
 struct RuntimeError {
-  std::string message;
-  std::optional<std::string> hint;
-  std::optional<frontend::diag::SourceSpan> span;
+  std::string message{};
+  std::optional<std::string> hint{std::nullopt};
+  std::optional<frontend::diag::SourceSpan> span{std::nullopt};
 };
 
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
