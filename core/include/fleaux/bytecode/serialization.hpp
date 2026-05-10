@@ -11,7 +11,7 @@
 namespace fleaux::bytecode {
 
 struct SerializationError {
-  std::string message;
+  std::string message{};
 };
 
 // Serialize a compiled Module to a binary format.

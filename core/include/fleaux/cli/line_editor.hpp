@@ -33,8 +33,8 @@ enum class InputKey {
 };
 
 struct InputEvent {
-  InputKey key = InputKey::kUnknown;
-  char ch = '\0';
+  InputKey key{InputKey::kUnknown};
+  char ch{'\0'};
 
   [[nodiscard]] static auto character(const char value) -> InputEvent {
     return InputEvent{.key = InputKey::kCharacter, .ch = value};
@@ -52,20 +52,20 @@ enum class TokenClass {
 };
 
 struct StyleSpan {
-  std::size_t start = 0;
-  std::size_t length = 0;
-  TokenClass token_class = TokenClass::kPlain;
+  std::size_t start{0};
+  std::size_t length{0};
+  TokenClass token_class{TokenClass::kPlain};
 };
 
 struct CompletionHandler {
   // Loads a brace-enclosed list of symbol name literals.
   // Example: handler.load_symbols({"let", "import", "print"});
-  void load_symbols(std::initializer_list<std::string_view> symbols) {
+  void load_symbols(const std::initializer_list<std::string_view> symbols) {
     for (const auto sym : symbols) { m_trie.insert(sym); }
   }
 
   // Loads symbols from any contiguous range of std::string (e.g. std::vector<std::string>).
-  void load_symbols(std::span<const std::string> symbols) {
+  void load_symbols(const std::span<const std::string> symbols) {
     for (const auto& sym : symbols) { m_trie.insert(sym); }
   }
 
@@ -92,7 +92,7 @@ using StyleSpanProvider = std::function<std::vector<StyleSpan>(std::string_view)
 
 struct LineEditorConfig {
   StyleSpanProvider style_span_provider;
-  CompletionHandler* completion_handler = nullptr;
+  std::optional<CompletionHandler> completion_handler{std::nullopt};
 };
 
 enum class LineEditorAction {
@@ -103,10 +103,10 @@ enum class LineEditorAction {
 };
 
 struct LineEditorResult {
-  LineEditorAction action = LineEditorAction::kContinue;
-  bool needs_redraw = false;
-  std::optional<std::string> submitted_line;
-  std::vector<std::string> completion_suggestions;
+  LineEditorAction action{LineEditorAction::kContinue};
+  bool needs_redraw{false};
+  std::optional<std::string> submitted_line{std::nullopt};
+  std::vector<std::string> completion_suggestions{};
 };
 
 class LineEditor {
@@ -121,21 +121,24 @@ public:
 
   void reset();
 
+  auto completion_handler() -> std::optional<CompletionHandler>& {
+    return config_.completion_handler;
+  }
 private:
   void push_history_entry(const std::string& entry);
   auto restore_history_entry(std::size_t index) -> LineEditorResult;
 
   LineEditorConfig config_;
-  std::string buffer_;
-  std::size_t cursor_ = 0;
-  std::vector<std::string> history_;
-  std::optional<std::size_t> history_index_;
-  std::string history_edit_buffer_;
+  std::string buffer_{};
+  std::size_t cursor_{0};
+  std::vector<std::string> history_{};
+  std::optional<std::size_t> history_index_{std::nullopt};
+  std::string history_edit_buffer_{};
 };
 
 struct InteractiveReadResult {
-  LineEditorAction action = LineEditorAction::kContinue;
-  std::optional<std::string> line;
+  LineEditorAction action{LineEditorAction::kContinue};
+  std::optional<std::string> line{std::nullopt};
 };
 
 [[nodiscard]] auto stdin_is_interactive() -> bool;

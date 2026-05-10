@@ -16,11 +16,11 @@ enum class OptimizationMode {
 };
 
 struct OptimizerConfig {
-  OptimizationMode mode = OptimizationMode::kBaseline;
+  OptimizationMode mode{OptimizationMode::kBaseline};
 };
 
 struct OptimizeError {
-  std::string message;
+  std::string message{};
 };
 
 using OptimizeResult = tl::expected<void, OptimizeError>;

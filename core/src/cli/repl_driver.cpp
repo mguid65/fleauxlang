@@ -265,16 +265,18 @@ auto extract_declared_functions(const std::string_view snippet) -> std::vector<s
 }  // namespace
 
 auto ReplDriver::run(const std::vector<std::string>& process_args, const bool color_enabled,
-                     const fleaux::vm::RuntimeCompileOptions& compile_options) const -> int {
+                     const vm::RuntimeCompileOptions& compile_options) const -> int {
   const bool interactive_stdin = stdin_is_interactive();
   const bool use_color = repl_color_enabled(color_enabled);
-  CompletionHandler completion_handler;
-  seed_completion_symbols(completion_handler);
+
   LineEditor line_editor(LineEditorConfig{
       .style_span_provider = use_color ? make_repl_style_provider() : StyleSpanProvider{},
-      .completion_handler = &completion_handler,
+      .completion_handler = CompletionHandler{},
   });
-  constexpr fleaux::vm::Runtime runtime;
+
+  seed_completion_symbols(line_editor.completion_handler().value());
+
+  constexpr vm::Runtime runtime;
   const auto session = runtime.create_session(process_args, compile_options);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<fleaux::vm::RuntimeError> {
     if (const auto result = session.run_snippet(snippet, std::cout); !result) {
@@ -361,7 +363,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
                 << '\n';
     } else {
       for (const auto& symbol : extract_declared_functions(buffer)) {
-        completion_handler.load_symbols({std::string_view{symbol}});
+        line_editor.completion_handler()->load_symbols({std::string_view{symbol}});
       }
     }
     buffer.clear();

@@ -835,7 +835,7 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
   };
 
   const auto apply_completion = [this]() -> LineEditorResult {
-    if (config_.completion_handler == nullptr || config_.completion_handler->empty()) {
+    if (!config_.completion_handler.has_value() || config_.completion_handler->empty()) {
       return {};
     }
 

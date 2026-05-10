@@ -20,13 +20,13 @@ using TypeNameSet = std::unordered_set<std::string>;
 
 struct ResolvedInvocation {
   Type return_type;
-  std::string resolved_symbol_key;
+  std::string resolved_symbol_key{};
 };
 
 struct BindingQuality {
-  std::size_t resolved_bindings = 0U;
-  std::size_t total_bindings = 0U;
-  std::size_t complexity = 0U;
+  std::size_t resolved_bindings{0U};
+  std::size_t total_bindings{0U};
+  std::size_t complexity{0U};
 };
 
 inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildcard__";
@@ -48,8 +48,7 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
     -> const FunctionOverloadSet*;
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type;
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
-                                const StrongTypeIndex& type_index,
-                                const AliasIndex& alias_index,
+                                const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                                 const std::unordered_set<std::string>& generic_params,
                                 const std::optional<diag::SourceSpan>& span)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError>;
@@ -95,8 +94,7 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
     -> tl::expected<AliasIndex, type_check::AnalysisError>;
 auto validate_strong_type_declarations(const ir::IRProgram& program,
                                        const std::vector<ir::IRTypeDecl>& imported_type_decls,
-                                       const AliasIndex& alias_index)
-    -> tl::expected<void, type_check::AnalysisError>;
+                                       const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError>;
 auto expand_aliases_in_type(const Type& type, const TypeNameSet& known_strong_type_names, const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
@@ -105,8 +103,7 @@ auto expand_aliases_in_type(const Type& type, const StrongTypeIndex& type_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError>;
-auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index,
-                            const AliasIndex& alias_index,
+auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError>;
@@ -158,7 +155,6 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
                 const AliasIndex& alias_index, const LocalTypes& locals,
-                const std::unordered_set<std::string>& generic_params)
-    -> tl::expected<Type, type_check::AnalysisError>;
+                const std::unordered_set<std::string>& generic_params) -> tl::expected<Type, type_check::AnalysisError>;
 
 }  // namespace fleaux::frontend::type_system::detail

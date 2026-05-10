@@ -147,7 +147,8 @@ function(fleaux_set_project_warnings project_name)
         -Wnull-dereference
         -Wdouble-promotion
         -Wformat=2
-        -Wimplicit-fallthrough)
+        -Wimplicit-fallthrough
+        -Wno-c2y-extensions)
   endif()
 
   if("${FLEAUX_WARN_GCC_WARNINGS}" STREQUAL "")
