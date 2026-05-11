@@ -1599,7 +1599,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
             throw std::invalid_argument{"Format supports only '{}'/'{N}' with optional ':spec'"};
           }
         }
-        index = static_cast<std::size_t>(std::stoull(index_part));
+        index = std::stoull(index_part);
       }
 
       if (index >= values.size()) {
