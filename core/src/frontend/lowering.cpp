@@ -9,7 +9,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -180,6 +179,12 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
 auto lower_expr(const model::Expression& expr, const std::unordered_set<std::string>& bound_names)
     -> tl::expected<ir::IRExpr, LoweringError>;
 
+auto make_ir_expr_box(ir::IRExpr value) -> ir::IRExprBox {
+  ir::IRExprBox boxed;
+  boxed.emplace(std::move(value));
+  return boxed;
+}
+
 auto is_std_match_target(const ir::IRCallTarget& target) -> bool {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
     return name_ref->qualifier.has_value() && name_ref->qualifier.value() == "Std" && name_ref->name == "Match";
@@ -343,14 +348,14 @@ auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacem
                            ir::IRTupleExpr out_tuple;
                            out_tuple.span = tuple_expr.span;
                            for (const auto& item : tuple_expr.items) {
-                             out_tuple.items.emplace_back(replace_placeholder_impl(*item, replacement));
+                              out_tuple.items.push_back(make_ir_expr_box(replace_placeholder_impl(*item, replacement)));
                            }
 
                            return ir::IRExpr{.node = std::move(out_tuple), .span = expr.span};
                          },
                          [&](const ir::IRFlowExpr& flow_expr) -> ir::IRExpr {
                            ir::IRFlowExpr out_flow{
-                               .lhs = ir::IRExprBox(replace_placeholder_impl(*flow_expr.lhs, replacement)),
+                                .lhs = make_ir_expr_box(replace_placeholder_impl(*flow_expr.lhs, replacement)),
                                .rhs = flow_expr.rhs,
                                .span = flow_expr.span,
                            };
@@ -401,7 +406,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
               if (!lowered_item) {
                 return tl::unexpected(lowered_item.error());
               }
-              tuple.items.emplace_back(lowered_item.value());
+              tuple.items.push_back(make_ir_expr_box(std::move(*lowered_item)));
             }
             return ir::IRExpr{.node = std::move(tuple), .span = atom.span};
           },
@@ -455,7 +460,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
                 .generic_params = closure->generic_params,
                 .params = std::move(params),
                 .return_type = lower_simple_type(closure->rtype),
-                .body = ir::IRExprBox(std::move(*lowered_body)),
+                .body = make_ir_expr_box(std::move(*lowered_body)),
                 .captures = std::move(captures),
                 .span = closure->span,
             };
@@ -472,7 +477,7 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             // Desugar Std.Ok to true and Std.Err to false
             if (qid.qualifier.qualifier == "Std" && (qid.id == "Ok" || qid.id == "Err")) {
               ir::IRConstant c;
-              c.val = (qid.id == "Ok") ? true : false;
+              c.val = qid.id == "Ok";
               c.span = qid.span;
               return ir::IRExpr{.node = std::move(c), .span = atom.span};
             }
@@ -544,6 +549,88 @@ auto lower_primary(const model::Primary& primary, const std::unordered_set<std::
   return lower_atom(primary.base, bound_names);
 }
 
+auto try_apply_direct_target_stage(const ir::IRExpr& current_value, const model::Primary& stage_primary,
+                                   const std::optional<diag::SourceSpan>& flow_span)
+    -> tl::expected<std::optional<ir::IRExpr>, LoweringError> {
+  auto maybe_target = extract_call_target_from_primary(stage_primary);
+  if (!maybe_target) {
+    return std::nullopt;
+  }
+
+  ir::IRExpr stage_value = current_value;
+
+  if (is_std_match_target(maybe_target.value())) {
+    if (auto rewritten = rewrite_match_wildcards(stage_value, stage_primary.span); !rewritten) {
+      return tl::unexpected(rewritten.error());
+    }
+  }
+
+  ir::IRFlowExpr ir_flow{
+      .lhs = make_ir_expr_box(std::move(stage_value)),
+      .rhs = maybe_target.value(),
+      .span = flow_span,
+  };
+  return ir::IRExpr{.node = std::move(ir_flow), .span = flow_span};
+}
+
+auto try_apply_closure_stage(const ir::IRExpr& current_value, const model::Primary& stage_primary,
+                             const ir::IRExpr& stage_expr) -> std::optional<ir::IRExpr> {
+  if (std::get_if<ir::IRClosureExprBox>(&stage_expr.node) == nullptr) {
+    return std::nullopt;
+  }
+
+  ir::IRTupleExpr apply_args;
+  apply_args.span = stage_primary.span;
+  apply_args.items.push_back(make_ir_expr_box(current_value));
+  apply_args.items.push_back(make_ir_expr_box(stage_expr));
+
+  const ir::IRExpr apply_lhs{.node = std::move(apply_args), .span = stage_primary.span};
+
+  ir::IRFlowExpr apply_flow{
+      .lhs = make_ir_expr_box(apply_lhs),
+      .rhs =
+          ir::IRNameRef{
+              .qualifier = "Std",
+              .name = "Apply",
+              .explicit_type_args = {},
+              .resolved_symbol_key = std::nullopt,
+              .span = stage_primary.span,
+          },
+      .span = stage_primary.span,
+  };
+
+  return ir::IRExpr{.node = std::move(apply_flow), .span = stage_primary.span};
+}
+
+auto apply_template_stage(const ir::IRExpr& current_value, const std::optional<diag::SourceSpan>& flow_span,
+                          const model::Primary& stage_primary, const ir::IRExpr& stage_expr,
+                          const model::Primary& next_primary) -> tl::expected<ir::IRExpr, LoweringError> {
+  if (std::get_if<ir::IRTupleExpr>(&stage_expr.node) == nullptr) {
+    return tl::unexpected(
+        LoweringError{.message = "Invalid pipeline stage shape: non-call stages must be tuple templates.",
+                      .hint = "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.",
+                      .span = stage_primary.span});
+  }
+
+  auto next_target = extract_call_target_from_primary(next_primary);
+  if (!next_target) {
+    return tl::unexpected(next_target.error());
+  }
+
+  auto replaced = replace_placeholder(stage_expr, current_value);
+  if (!replaced) {
+    return tl::unexpected(replaced.error());
+  }
+
+  ir::IRFlowExpr ir_flow{
+      .lhs = make_ir_expr_box(std::move(*replaced)),
+      .rhs = next_target.value(),
+      .span = flow_span,
+  };
+
+  return ir::IRExpr{.node = std::move(ir_flow), .span = flow_span};
+}
+
 auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std::string>& bound_names)
     -> tl::expected<ir::IRExpr, LoweringError> {
   auto result = lower_primary(flow.lhs, bound_names);
@@ -551,90 +638,13 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
     return tl::unexpected(result.error());
   }
 
-  const auto apply_direct_target_stage = [&](const model::Primary& stage_primary) -> tl::expected<bool, LoweringError> {
-    auto maybe_target = extract_call_target_from_primary(stage_primary);
-    if (!maybe_target) {
-      return false;
-    }
-
-    if (is_std_match_target(maybe_target.value())) {
-      if (auto rewritten = rewrite_match_wildcards(result.value(), stage_primary.span); !rewritten) {
-        return tl::unexpected(rewritten.error());
-      }
-    }
-
-    ir::IRFlowExpr ir_flow{
-        .lhs = ir::IRExprBox(std::move(*result)),
-        .rhs = maybe_target.value(),
-        .span = flow.span,
-    };
-    result = ir::IRExpr{.node = std::move(ir_flow), .span = flow.span};
-    return true;
-  };
-
-  const auto apply_closure_stage = [&](const model::Primary& stage_primary, const ir::IRExpr& stage_expr) -> bool {
-    if (std::get_if<ir::IRClosureExprBox>(&stage_expr.node) == nullptr) {
-      return false;
-    }
-
-    ir::IRTupleExpr apply_args;
-    apply_args.span = stage_primary.span;
-    apply_args.items.emplace_back(result.value());
-    apply_args.items.emplace_back(stage_expr);
-
-    const ir::IRExpr apply_lhs{.node = std::move(apply_args), .span = stage_primary.span};
-
-    ir::IRFlowExpr apply_flow{
-        .lhs = ir::IRExprBox(apply_lhs),
-        .rhs =
-            ir::IRNameRef{
-                .qualifier = "Std",
-                .name = "Apply",
-                .explicit_type_args = {},
-                .resolved_symbol_key = std::nullopt,
-                .span = stage_primary.span,
-            },
-        .span = stage_primary.span,
-    };
-
-    result = ir::IRExpr{.node = std::move(apply_flow), .span = stage_primary.span};
-    return true;
-  };
-
-  const auto apply_template_stage = [&](const model::Primary& stage_primary, const ir::IRExpr& stage_expr,
-                                        const model::Primary& next_primary) -> tl::expected<void, LoweringError> {
-    if (std::get_if<ir::IRTupleExpr>(&stage_expr.node) == nullptr) {
-      return tl::unexpected(
-          LoweringError{.message = "Invalid pipeline stage shape: non-call stages must be tuple templates.",
-                        .hint = "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.",
-                        .span = stage_primary.span});
-    }
-
-    auto next_target = extract_call_target_from_primary(next_primary);
-    if (!next_target) {
-      return tl::unexpected(next_target.error());
-    }
-
-    auto replaced = replace_placeholder(stage_expr, result.value());
-    if (!replaced) {
-      return tl::unexpected(replaced.error());
-    }
-
-    ir::IRFlowExpr ir_flow{
-        .lhs = ir::IRExprBox(std::move(*replaced)),
-        .rhs = next_target.value(),
-        .span = flow.span,
-    };
-
-    result = ir::IRExpr{.node = std::move(ir_flow), .span = flow.span};
-    return {};
-  };
-
   std::size_t stage_index = 0;
   while (stage_index < flow.rhs.size()) {
-    if (auto handled_direct_target = apply_direct_target_stage(flow.rhs[stage_index]); !handled_direct_target) {
+    if (auto handled_direct_target = try_apply_direct_target_stage(*result, flow.rhs[stage_index], flow.span);
+        !handled_direct_target) {
       return tl::unexpected(handled_direct_target.error());
-    } else if (*handled_direct_target) {
+    } else if (handled_direct_target->has_value()) {
+      result = std::move(**handled_direct_target);
       ++stage_index;
       continue;
     }
@@ -644,7 +654,9 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
       return tl::unexpected(stage_expr.error());
     }
 
-    if (apply_closure_stage(flow.rhs[stage_index], stage_expr.value())) {
+    if (auto applied_closure = try_apply_closure_stage(*result, flow.rhs[stage_index], stage_expr.value());
+        applied_closure.has_value()) {
+      result = std::move(*applied_closure);
       ++stage_index;
       continue;
     }
@@ -655,10 +667,12 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
                                           .span = flow.rhs[stage_index].span});
     }
 
-    if (auto applied_template =
-            apply_template_stage(flow.rhs[stage_index], stage_expr.value(), flow.rhs[stage_index + 1]);
+    if (auto applied_template = apply_template_stage(*result, flow.span, flow.rhs[stage_index], stage_expr.value(),
+                                                     flow.rhs[stage_index + 1]);
         !applied_template) {
       return tl::unexpected(applied_template.error());
+    } else {
+      result = std::move(*applied_template);
     }
     stage_index += 2;
   }
@@ -673,7 +687,7 @@ auto lower_expr(const model::Expression& expr, const std::unordered_set<std::str
 
 class IRDumper {
 public:
-  [[nodiscard]] auto dump(const ir::IRProgram& program) const -> std::string { return format_program(program); }
+  [[nodiscard]] auto dump(const ir::IRProgram& program) const -> std::string { return format_program(program, 0); }
 
 private:
   [[nodiscard]] static auto indent(const int level) -> std::string {
@@ -763,7 +777,7 @@ private:
     return qualifier ? quote(*qualifier) : std::string{"null"};
   }
 
-  [[nodiscard]] auto format_program(const ir::IRProgram& program, const int level = 0) const -> std::string {
+  [[nodiscard]] auto format_program(const ir::IRProgram& program, const int level) const -> std::string {
     std::vector<std::string> imports;
     imports.reserve(program.imports.size());
     for (const auto& import_stmt : program.imports) {
@@ -1013,116 +1027,166 @@ private:
         level);
   }
 };
-}  // namespace
 
-auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult {
-  ir::IRProgram ir_program;
-  ir_program.span = program.span;
-  std::unordered_map<std::string, std::size_t> user_symbol_ordinals;
+auto lower_import_statement(ir::IRProgram& ir_program, const model::ImportStatement& model_import)
+    -> tl::expected<void, LoweringError> {
+  ir_program.imports.push_back(ir::IRImport{
+      .module_name = model_import.module_name,
+      .span = model_import.span,
+  });
+  return {};
+}
 
-  for (const auto& stmt : program.statements) {
-    auto lowered_stmt =
-        std::visit(fleaux::common::overloaded{
-                       [&](const model::ImportStatement& model_import) -> tl::expected<void, LoweringError> {
-                         ir_program.imports.push_back(ir::IRImport{
-                             .module_name = model_import.module_name,
-                             .span = model_import.span,
-                         });
-                         return {};
-                       },
-                       [&](const model::TypeStatement& model_type) -> tl::expected<void, LoweringError> {
-                         ir_program.type_decls.push_back(ir::IRTypeDecl{
-                             .name = model_type.name,
-                             .target = lower_simple_type(model_type.target),
-                             .span = model_type.span,
-                         });
-                         return {};
-                       },
-                       [&](const model::AliasStatement& model_alias) -> tl::expected<void, LoweringError> {
-                         ir_program.alias_decls.push_back(ir::IRAliasDecl{
-                             .name = model_alias.name,
-                             .target = lower_simple_type(model_alias.target),
-                             .span = model_alias.span,
-                         });
-                         return {};
-                       },
-                       [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
-                         auto [qualifier, name] = split_id(model_let.id);
-                         const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
+auto lower_type_statement(ir::IRProgram& ir_program, const model::TypeStatement& model_type)
+    -> tl::expected<void, LoweringError> {
+  ir_program.type_decls.push_back(ir::IRTypeDecl{
+      .name = model_type.name,
+      .target = lower_simple_type(model_type.target),
+      .span = model_type.span,
+  });
+  return {};
+}
 
-                         std::vector<ir::IRParam> params;
-                         for (const auto& [param_name, type, span] : model_let.params.params) {
-                           params.push_back(ir::IRParam{
-                               .name = param_name,
-                               .type = lower_simple_type(type),
-                               .span = span,
-                           });
-                         }
+auto lower_alias_statement(ir::IRProgram& ir_program, const model::AliasStatement& model_alias)
+    -> tl::expected<void, LoweringError> {
+  ir_program.alias_decls.push_back(ir::IRAliasDecl{
+      .name = model_alias.name,
+      .target = lower_simple_type(model_alias.target),
+      .span = model_alias.span,
+  });
+  return {};
+}
 
-                         for (std::size_t idx = 0; idx < params.size(); ++idx) {
-                           if (params[idx].type.variadic && idx + 1U != params.size()) {
-                             return tl::unexpected(LoweringError{
-                                 .message = "Variadic parameter must be the final parameter in a function declaration.",
-                                 .hint = "Move the '...' parameter to the end of the parameter list.",
-                                 .span = params[idx].span});
-                           }
-                         }
+auto lower_let_params(const model::LetStatement& model_let) -> std::vector<ir::IRParam> {
+  std::vector<ir::IRParam> params;
+  for (const auto& [param_name, type, span] : model_let.params.params) {
+    params.push_back(ir::IRParam{
+        .name = param_name,
+        .type = lower_simple_type(type),
+        .span = span,
+    });
+  }
+  return params;
+}
 
-                         const bool is_builtin = model_let.is_builtin;
-                         std::string symbol_key = public_symbol;
-                         if (!is_builtin) {
-                           const auto ordinal = user_symbol_ordinals[public_symbol]++;
-                           symbol_key += "#" + std::to_string(ordinal);
-                         }
-
-                         std::unordered_set<std::string> let_bound_names;
-                         for (const auto& p : params) {
-                           let_bound_names.insert(p.name);
-                         }
-
-                         ir::IRExprBox body;
-                         if (!is_builtin) {
-                           auto lowered_body = lower_expr(*model_let.expr, let_bound_names);
-                           if (!lowered_body) {
-                             return tl::unexpected(lowered_body.error());
-                           }
-                           body = std::move(*lowered_body);
-                         }
-
-                         ir_program.lets.push_back(ir::IRLet{
-                             .qualifier = qualifier,
-                             .name = name,
-                             .symbol_key = std::move(symbol_key),
-                             .generic_params = model_let.generic_params,
-                             .params = std::move(params),
-                             .return_type = lower_simple_type(model_let.rtype),
-                             .doc_comments = model_let.doc_comments,
-                             .body = std::move(body),
-                             .is_builtin = is_builtin,
-                             .span = model_let.span,
-                         });
-                         return {};
-                       },
-                       [&](const model::ExpressionStatement& model_expr_stmt) -> tl::expected<void, LoweringError> {
-                         const std::unordered_set<std::string> no_bound_names;
-                         auto lowered_expr = lower_expr(model_expr_stmt.expr, no_bound_names);
-                         if (!lowered_expr) {
-                           return tl::unexpected(lowered_expr.error());
-                         }
-
-                         ir_program.expressions.push_back(ir::IRExprStatement{
-                             .expr = lowered_expr.value(),
-                             .span = model_expr_stmt.span,
-                         });
-                         return {};
-                       }},
-                   stmt);
-
-    if (!lowered_stmt) {
-      return tl::unexpected(lowered_stmt.error());
+auto validate_variadic_params(const std::vector<ir::IRParam>& params) -> tl::expected<void, LoweringError> {
+  for (std::size_t idx = 0; idx < params.size(); ++idx) {
+    if (params[idx].type.variadic && idx + 1U != params.size()) {
+      return tl::unexpected(
+          LoweringError{.message = "Variadic parameter must be the final parameter in a function declaration.",
+                        .hint = "Move the '...' parameter to the end of the parameter list.",
+                        .span = params[idx].span});
     }
   }
+  return {};
+}
 
+auto make_symbol_key(const std::string& public_symbol, const bool is_builtin,
+                     std::unordered_map<std::string, std::size_t>& user_symbol_ordinals) -> std::string {
+  if (is_builtin) {
+    return public_symbol;
+  }
+
+  std::string symbol_key = public_symbol;
+  const auto ordinal = user_symbol_ordinals[public_symbol]++;
+  symbol_key += "#" + std::to_string(ordinal);
+  return symbol_key;
+}
+
+auto make_bound_name_set(const std::vector<ir::IRParam>& params) -> std::unordered_set<std::string> {
+  std::unordered_set<std::string> let_bound_names;
+  for (const auto& p : params) {
+    let_bound_names.insert(p.name);
+  }
+  return let_bound_names;
+}
+
+auto lower_let_body_if_needed(const model::LetStatement& model_let, const bool is_builtin,
+                              const std::unordered_set<std::string>& let_bound_names)
+    -> tl::expected<ir::IRExprBox, LoweringError> {
+  if (is_builtin) {
+    return ir::IRExprBox{};
+  }
+
+  auto lowered_body = lower_expr(*model_let.expr, let_bound_names);
+  if (!lowered_body) {
+    return tl::unexpected(lowered_body.error());
+  }
+  return make_ir_expr_box(std::move(*lowered_body));
+}
+
+auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::string, std::size_t>& user_symbol_ordinals,
+                         const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
+  auto [qualifier, name] = split_id(model_let.id);
+  const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
+
+  auto params = lower_let_params(model_let);
+  if (auto valid_params = validate_variadic_params(params); !valid_params) {
+    return tl::unexpected(valid_params.error());
+  }
+
+  const bool is_builtin = model_let.is_builtin;
+  std::string symbol_key = make_symbol_key(public_symbol, is_builtin, user_symbol_ordinals);
+
+  const auto let_bound_names = make_bound_name_set(params);
+
+  auto body = lower_let_body_if_needed(model_let, is_builtin, let_bound_names);
+  if (!body) {
+    return tl::unexpected(body.error());
+  }
+
+  ir_program.lets.push_back(ir::IRLet{
+      .qualifier = qualifier,
+      .name = name,
+      .symbol_key = std::move(symbol_key),
+      .generic_params = model_let.generic_params,
+      .params = std::move(params),
+      .return_type = lower_simple_type(model_let.rtype),
+      .doc_comments = model_let.doc_comments,
+      .body = std::move(*body),
+      .is_builtin = is_builtin,
+      .span = model_let.span,
+  });
+  return {};
+}
+
+auto lower_expression_statement(ir::IRProgram& ir_program, const model::ExpressionStatement& model_expr_stmt)
+    -> tl::expected<void, LoweringError> {
+  const std::unordered_set<std::string> no_bound_names;
+  auto lowered_expr = lower_expr(model_expr_stmt.expr, no_bound_names);
+  if (!lowered_expr) {
+    return tl::unexpected(lowered_expr.error());
+  }
+
+  ir_program.expressions.push_back(ir::IRExprStatement{
+      .expr = lowered_expr.value(),
+      .span = model_expr_stmt.span,
+  });
+  return {};
+}
+
+auto lower_statement(ir::IRProgram& ir_program, std::unordered_map<std::string, std::size_t>& user_symbol_ordinals,
+                     const model::Statement& stmt) -> tl::expected<void, LoweringError> {
+  return std::visit(
+      common::overloaded{[&](const model::ImportStatement& model_import) -> tl::expected<void, LoweringError> {
+                           return lower_import_statement(ir_program, model_import);
+                         },
+                         [&](const model::TypeStatement& model_type) -> tl::expected<void, LoweringError> {
+                           return lower_type_statement(ir_program, model_type);
+                         },
+                         [&](const model::AliasStatement& model_alias) -> tl::expected<void, LoweringError> {
+                           return lower_alias_statement(ir_program, model_alias);
+                         },
+                         [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
+                           return lower_let_statement(ir_program, user_symbol_ordinals, model_let);
+                         },
+                         [&](const model::ExpressionStatement& model_expr_stmt) -> tl::expected<void, LoweringError> {
+                           return lower_expression_statement(ir_program, model_expr_stmt);
+                         }},
+      stmt);
+}
+
+void assign_builtin_overload_symbol_keys(ir::IRProgram& ir_program) {
   std::unordered_map<std::string, std::vector<std::size_t>> builtin_overload_slots;
   for (std::size_t let_index = 0; let_index < ir_program.lets.size(); ++let_index) {
     const auto& let = ir_program.lets[let_index];
@@ -1141,6 +1205,21 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
       ir_program.lets[overload_slots[ordinal]].symbol_key = public_symbol + "#" + std::to_string(ordinal);
     }
   }
+}
+}  // namespace
+
+auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult {
+  ir::IRProgram ir_program;
+  ir_program.span = program.span;
+  std::unordered_map<std::string, std::size_t> user_symbol_ordinals;
+
+  for (const auto& stmt : program.statements) {
+    if (auto lowered_stmt = lower_statement(ir_program, user_symbol_ordinals, stmt); !lowered_stmt) {
+      return tl::unexpected(lowered_stmt.error());
+    }
+  }
+
+  assign_builtin_overload_symbol_keys(ir_program);
 
   return ir_program;
 }

@@ -125,6 +125,15 @@ public:
     return config_.completion_handler;
   }
 private:
+  [[nodiscard]] auto move_token_left() -> bool;
+  [[nodiscard]] auto move_token_right() -> bool;
+  [[nodiscard]] auto delete_token_left() -> bool;
+  auto apply_completion() -> LineEditorResult;
+  auto navigate_history_up() -> LineEditorResult;
+  auto navigate_history_down() -> LineEditorResult;
+  auto submit_current_buffer() -> LineEditorResult;
+  auto clear_current_buffer() -> LineEditorResult;
+  void clear_transient_edit_state();
   void push_history_entry(const std::string& entry);
   auto restore_history_entry(std::size_t index) -> LineEditorResult;
 

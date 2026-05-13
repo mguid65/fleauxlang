@@ -1,8 +1,8 @@
 #include "fleaux/frontend/parser.hpp"
+#include "fleaux/frontend/lexer.hpp"
 #include "fleaux/common/overloaded.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <format>
@@ -10,11 +10,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
-#include <array>
 
 namespace fleaux::frontend::parse {
 namespace {
@@ -34,306 +32,6 @@ using PResult = tl::expected<T, ParseError>;
     if (!_fleaux_result)                             \
       return tl::unexpected(_fleaux_result.error()); \
   } while (false)
-
-enum class TokenKind {
-  kIdent,
-  kNumeric,
-  kString,
-  kBool,
-  kNull,
-  kSymbol,
-  kEof,
-};
-
-struct Token {
-  TokenKind kind = TokenKind::kEof;
-  std::string value;
-  int line = 1;
-  int col = 1;
-  std::string text;
-
-  [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
-};
-
-const std::unordered_set<std::string> kKeywords = {"let",    "import",  "type",       "alias", "Int64",
-                                                   "UInt64", "Float64", "String",     "Bool",  "Null",
-                                                   "Any",    "Tuple",   "__builtin__"};
-
-const std::unordered_set<std::string> kStructuralKeywords = {"let", "import", "type", "alias", "__builtin__"};
-
-const std::unordered_set<std::string> kOperators = {
-    "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
-};
-
-const std::unordered_set<std::string> kSimpleTypes = {"Int64", "UInt64", "Float64", "String", "Bool", "Null", "Any"};
-
-constexpr std::array<std::string_view, 9> kMulti = {"...", "->", "::", "==", "!=", ">=", "<=", "&&", "||"};
-
-/**
- * @brief Check if some character is the start of an identifier
- *
- * Identifiers are allowed to start with alphabetical and underscores but not numbers
- *
- * @param c some char
- * @return true if this is a valid identifier start; else false
- */
-auto is_ident_start(const char c) -> bool { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
-
-/**
- * @brief Check if some character is a general identifier character
- *
- * Identifiers, aside from the start, may contain alphanumeric and underscores
- *
- * @param c some char
- * @return true if this is a valid general identifier character; else false
- */
-auto is_ident_char(const char c) -> bool { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
-
-/**
- * @brief Check if the string at the index position in haystack is equal to needle
- * @param haystack This is the source string
- * @param index The index to start the search
- * @param needle The string we are looking for at index within haystack
- * @return true if the string at the index position in haystack is equal to needle; otherwise false
- */
-auto starts_with(const std::string_view haystack, const std::size_t index, const std::string_view needle) -> bool {
-  if (index + needle.size() > haystack.size()) {
-    return false;
-  }
-  return haystack.compare(index, needle.size(), needle) == 0;
-}
-
-auto span_from_token(const Token& token, const std::string& source_name, const std::string& source_text)
-    -> std::optional<diag::SourceSpan> {
-  diag::SourceSpan span;
-  span.source_name = source_name;
-  span.source_text = source_text;
-  span.line = token.line;
-  span.col = token.col;
-  span.end_line = token.line;
-  span.end_col = (token.kind == TokenKind::kEof) ? token.col : token.end_col();
-  return span;
-}
-
-auto lex(const std::string& source, const std::string& source_name) -> PResult<std::vector<Token>> {
-  std::vector<Token> out;
-  std::size_t cursor = 0;
-  int line = 1;
-  int col = 1;
-
-  auto push = [&](const TokenKind kind, const std::string& value, const std::string& text, const int tok_line,
-                  const int tok_col) -> void {
-    Token token;
-    token.kind = kind;
-    token.value = value;
-    token.text = text;
-    token.line = tok_line;
-    token.col = tok_col;
-    out.push_back(std::move(token));
-  };
-
-  while (cursor < source.size()) {
-    const char ch = source[cursor];
-
-    if (ch == ' ' || ch == '\t' || ch == '\r') {
-      ++cursor;
-      ++col;
-      continue;
-    }
-    if (ch == '\n') {
-      ++cursor;
-      ++line;
-      col = 1;
-      continue;
-    }
-    if (starts_with(source, cursor, "//")) {
-      while (cursor < source.size() && source[cursor] != '\n') {
-        ++cursor;
-        ++col;
-      }
-      continue;
-    }
-
-    // Search for a multi-char operator
-    bool matched_multi = false;
-    for (const auto& sym : kMulti) {
-      if (starts_with(source, cursor, sym)) {
-        push(TokenKind::kSymbol, std::string(sym), std::string(sym), line, col);
-        cursor += sym.size();
-        col += static_cast<int>(sym.size());
-        matched_multi = true;
-        break;
-      }
-    }
-    if (matched_multi) {
-      continue;
-    }
-
-    if (ch == '"') {
-      const int start_line = line;
-      const int start_col = col;
-      std::string decoded;
-      std::size_t str_end = cursor + 1;
-      int local_col = col + 1;
-      bool closed = false;
-
-      while (str_end < source.size()) {
-        char str_ch = source[str_end];
-        if (str_ch == '"') {
-          closed = true;
-          ++str_end;
-          ++local_col;
-          break;
-        }
-        if (str_ch == '\\') {
-          if (str_end + 1 >= source.size()) {
-            break;
-          }
-          switch (const char esc = source[str_end + 1]) {
-            case 'n':
-              decoded.push_back('\n');
-              break;
-            case 't':
-              decoded.push_back('\t');
-              break;
-            case 'r':
-              decoded.push_back('\r');
-              break;
-            case '"':
-              decoded.push_back('"');
-              break;
-            case '\\':
-              decoded.push_back('\\');
-              break;
-            default:
-              decoded.push_back(esc);
-              break;
-          }
-          str_end += 2;
-          local_col += 2;
-          continue;
-        }
-        if (str_ch == '\n') {
-          break;
-        }
-        decoded.push_back(str_ch);
-        ++str_end;
-        ++local_col;
-      }
-
-      if (!closed) {
-        Token token;
-        token.kind = TokenKind::kString;
-        token.line = start_line;
-        token.col = start_col;
-        token.text = "\"";
-        return tl::unexpected(ParseError{
-            .message = "Unterminated string literal",
-            .hint = std::nullopt,
-            .span = span_from_token(token, source_name, source),
-        });
-      }
-
-      const auto text = source.substr(cursor, str_end - cursor);
-      push(TokenKind::kString, decoded, text, start_line, start_col);
-      col = local_col;
-      cursor = str_end;
-      continue;
-    }
-
-    if (std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-      const std::size_t start = cursor;
-      const int start_col = col;
-
-      while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
-        ++cursor;
-        ++col;
-      }
-      if (cursor < source.size() && source[cursor] == '.') {
-        ++cursor;
-        ++col;
-        while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
-          ++cursor;
-          ++col;
-        }
-      }
-      if (cursor < source.size() && (source[cursor] == 'e' || source[cursor] == 'E')) {
-        ++cursor;
-        ++col;
-        if (cursor < source.size() && (source[cursor] == '+' || source[cursor] == '-')) {
-          ++cursor;
-          ++col;
-        }
-        const std::size_t exponent_digits_start = cursor;
-        while (cursor < source.size() && std::isdigit(static_cast<unsigned char>(source[cursor])) != 0) {
-          ++cursor;
-          ++col;
-        }
-        if (cursor == exponent_digits_start) {
-          Token token;
-          token.kind = TokenKind::kNumeric;
-          token.line = line;
-          token.col = start_col;
-          token.text = source.substr(start, cursor - start);
-          return tl::unexpected(ParseError{
-              .message = "Malformed numeric literal",
-              .hint = "Exponent requires at least one digit.",
-              .span = span_from_token(token, source_name, source),
-          });
-        }
-      }
-
-      if (cursor + 3 <= source.size() && source.compare(cursor, 3, "u64") == 0) {
-        cursor += 3;
-        col += 3;
-      }
-
-      const auto text = source.substr(start, cursor - start);
-      push(TokenKind::kNumeric, text, text, line, start_col);
-      continue;
-    }
-
-    if (is_ident_start(ch)) {
-      const std::size_t start = cursor;
-      const int start_col = col;
-      while (cursor < source.size() && is_ident_char(source[cursor])) {
-        ++cursor;
-        ++col;
-      }
-      if (const auto text = source.substr(start, cursor - start); text == "True" || text == "False") {
-        push(TokenKind::kBool, text, text, line, start_col);
-      } else if (text == "null") {
-        push(TokenKind::kNull, text, text, line, start_col);
-      } else {
-        push(TokenKind::kIdent, text, text, line, start_col);
-      }
-      continue;
-    }
-
-    static const std::string kSingle = "()[],:;.=+-*/%^!<>|";
-    if (kSingle.find(ch) != std::string::npos) {
-      const std::string text(1, ch);
-      push(TokenKind::kSymbol, text, text, line, col);
-      ++cursor;
-      ++col;
-      continue;
-    }
-
-    Token token;
-    token.kind = TokenKind::kSymbol;
-    token.line = line;
-    token.col = col;
-    token.text = std::string(1, ch);
-    return tl::unexpected(ParseError{
-        .message = std::format("Unexpected character '{}'", ch),
-        .hint = std::nullopt,
-        .span = span_from_token(token, source_name, source),
-    });
-  }
-
-  push(TokenKind::kEof, "", "", line, col);
-  return out;
-}
 
 class ParserImpl {
 public:
@@ -466,7 +164,14 @@ private:
   }
 
   [[nodiscard]] auto span_from_token(const Token& token) const -> std::optional<diag::SourceSpan> {
-    return ::fleaux::frontend::parse::span_from_token(token, source_name_, source_);
+    diag::SourceSpan span;
+    span.source_name = source_name_;
+    span.source_text = source_;
+    span.line = token.line;
+    span.col = token.col;
+    span.end_line = token.line;
+    span.end_col = (token.kind == TokenKind::kEof) ? token.col : token.end_col();
+    return span;
   }
 
   [[nodiscard]] auto span_from_mark(const std::size_t start) const -> std::optional<diag::SourceSpan> {
@@ -589,7 +294,7 @@ private:
 
   auto ident() -> PResult<std::string> {
     FLEAUX_TRY_ASSIGN(tok, eat_ident_token());
-    if (kKeywords.contains(tok.value)) {
+    if (is_keyword(tok.value)) {
       return tl::unexpected(err(std::format("Keyword '{}' cannot be used as an identifier", tok.value), tok));
     }
     return tok.value;
@@ -597,7 +302,7 @@ private:
 
   auto ns_ident() -> PResult<std::string> {
     FLEAUX_TRY_ASSIGN(tok, eat_ident_token());
-    if (kStructuralKeywords.contains(tok.value)) {
+    if (is_structural_keyword(tok.value)) {
       return tl::unexpected(err(std::format("Keyword '{}' cannot be used as a namespace segment", tok.value), tok));
     }
     return tok.value;
@@ -737,7 +442,7 @@ private:
       type_list.span = span_from_mark(start);
       base.value = model::TypeListBox(std::move(type_list));
       base.span = span_from_mark(start);
-    } else if (is(TokenKind::kIdent) && kSimpleTypes.contains(peek().value)) {
+    } else if (is(TokenKind::kIdent) && is_simple_type_name(peek().value)) {
       const auto token = next();
       base.value = token.value;
       base.span = span_from_mark(start);
@@ -1148,7 +853,7 @@ private:
       return out;
     }
 
-    if (is(TokenKind::kSymbol) && kOperators.contains(peek().value)) {
+    if (is(TokenKind::kSymbol) && is_operator_symbol(peek().value)) {
       model::Atom out;
       out.value = next().value;
       out.span = span_from_mark(start);
@@ -1184,7 +889,7 @@ private:
   auto import_module_name() -> PResult<std::string> {
     const Token tok = peek();
     if (tok.kind == TokenKind::kIdent) {
-      if (kKeywords.contains(tok.value)) {
+      if (is_keyword(tok.value)) {
         return tl::unexpected(err(std::format("Keyword '{}' cannot be used as an import module name", tok.value), tok));
       }
       return next().value;
@@ -1424,7 +1129,7 @@ private:
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
     }
-    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || kOperators.contains(tok.value));
+    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || is_operator_symbol(tok.value));
   }
 
   [[nodiscard]] static auto is_statement_start(const Token& tok) -> bool {
@@ -1432,7 +1137,7 @@ private:
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || kOperators.contains(tok.value));
+    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || is_operator_symbol(tok.value));
   }
 };
 
@@ -1827,7 +1532,7 @@ private:
 }  // namespace
 
 auto Parser::parse_program(const std::string& source, const std::string& source_name) const -> ParseResult {
-  auto tokens = lex(source, source_name);
+  auto tokens = lex_program(source, source_name);
   if (!tokens) {
     return tl::unexpected(tokens.error());
   }

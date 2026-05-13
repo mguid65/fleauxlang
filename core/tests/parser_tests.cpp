@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/frontend/ast.hpp"
+#include "fleaux/frontend/lexer.hpp"
 #include "fleaux/frontend/parser.hpp"
 
 TEST_CASE("Parser handles import let and expression statements", "[parser]") {
@@ -97,7 +98,8 @@ TEST_CASE("Parser accepts explicit type argument application on named targets", 
   const auto& expr_stmt = std::get<fleaux::frontend::model::ExpressionStatement>(parsed->statements[0]);
   REQUIRE(expr_stmt.expr.expr.rhs.size() == 1);
 
-  const auto* named_target = std::get_if<fleaux::frontend::model::NamedTargetBox>(&expr_stmt.expr.expr.rhs[0].base.value);
+  const auto* named_target =
+      std::get_if<fleaux::frontend::model::NamedTargetBox>(&expr_stmt.expr.expr.rhs[0].base.value);
   REQUIRE(named_target != nullptr);
   REQUIRE((*named_target)->explicit_type_args.size() == 1);
 
@@ -340,6 +342,26 @@ TEST_CASE("Parser accepts UInt64 literal suffix", "[parser]") {
   REQUIRE(parsed.has_value());
 }
 
+TEST_CASE("Lexer best-effort preserves unterminated REPL strings for styling", "[parser][lexer]") {
+  const auto tokens = fleaux::frontend::parse::lex_program_best_effort("let message = \"hello", "repl_buffer");
+
+  REQUIRE(tokens.size() >= 4);
+  REQUIRE(tokens[0].kind == fleaux::frontend::parse::TokenKind::kIdent);
+  REQUIRE(tokens[0].value == "let");
+  REQUIRE(tokens[3].kind == fleaux::frontend::parse::TokenKind::kString);
+  REQUIRE(tokens[3].offset == 14);
+  REQUIRE(tokens[3].text == "\"hello");
+}
+
+TEST_CASE("Lexer best-effort surfaces unexpected characters as error tokens", "[parser][lexer]") {
+  const auto tokens = fleaux::frontend::parse::lex_program_best_effort("let value = @;", "repl_buffer");
+
+  REQUIRE(tokens.size() >= 6);
+  REQUIRE(tokens[3].kind == fleaux::frontend::parse::TokenKind::kError);
+  REQUIRE(tokens[3].offset == 12);
+  REQUIRE(tokens[3].text == "@");
+}
+
 TEST_CASE("Parser rejects negative UInt64 literals", "[parser]") {
   const std::string src = "(-1u64) -> Std.Println;\n";
 
@@ -471,4 +493,3 @@ TEST_CASE("Parser dump_ast includes inline closure structure", "[parser][dump_as
   REQUIRE(dumped.find("ParameterDeclList {") != std::string::npos);
   REQUIRE(dumped.find("return_type: TypeNode {") != std::string::npos);
 }
-

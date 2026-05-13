@@ -2254,7 +2254,7 @@ TEST_CASE("Bytecode serialization handles all constant types", "[bytecode][seria
   REQUIRE(std::get<std::int64_t>(restored.constants[0].data) == -42);
   REQUIRE(std::get<std::uint64_t>(restored.constants[1].data) == 9999);
   REQUIRE(std::abs(std::get<double>(restored.constants[2].data) - 3.14159) < 0.00001);
-  REQUIRE(std::get<bool>(restored.constants[3].data) == true);
+  REQUIRE(std::get<bool>(restored.constants[3].data));
   REQUIRE(std::get<std::string>(restored.constants[4].data) == "hello world");
   REQUIRE(std::holds_alternative<std::monostate>(restored.constants[5].data));
 }
@@ -2283,7 +2283,7 @@ TEST_CASE("Bytecode serialization handles functions", "[bytecode][serialization]
   REQUIRE(restored.functions.size() == 1);
   REQUIRE(restored.functions[0].name == "MyFunc");
   REQUIRE(restored.functions[0].arity == 2);
-  REQUIRE(restored.functions[0].has_variadic_tail == false);
+  REQUIRE_FALSE(restored.functions[0].has_variadic_tail);
   REQUIRE(restored.functions[0].instructions.size() == 4);
 }
 
@@ -3167,9 +3167,9 @@ TEST_CASE("ConstantFoldingPass folds safe literal unary and binary sequences", "
   REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(module.instructions[3].opcode == fleaux::bytecode::Opcode::kHalt);
 
-  REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == false);
+  REQUIRE_FALSE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
   REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data) == 5);
-  REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[2].operand)].data) == true);
+  REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[2].operand)].data));
 }
 
 TEST_CASE("ConstantFoldingPass folds kDiv and preserves floating semantics", "[bytecode][optimizer]") {

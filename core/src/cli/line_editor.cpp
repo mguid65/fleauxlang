@@ -49,8 +49,8 @@ public:
     DWORD new_mode = original_mode_;
     new_mode |= ENABLE_PROCESSED_INPUT;
     new_mode |= ENABLE_MOUSE_INPUT;
-    new_mode &= ~ENABLE_LINE_INPUT;
-    new_mode &= ~ENABLE_ECHO_INPUT;
+    new_mode &= static_cast<DWORD>(~ENABLE_LINE_INPUT);
+    new_mode &= static_cast<DWORD>(~ENABLE_ECHO_INPUT);
 
     if (::SetConsoleMode(stdin_handle, new_mode)) {
       stdin_handle_ = stdin_handle;
@@ -621,11 +621,11 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
   if (stdout_handle != INVALID_HANDLE_VALUE) {
     CONSOLE_SCREEN_BUFFER_INFO buffer_info;
     if (::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
-      COORD home{0, buffer_info.dwCursorPosition.Y};
+      const COORD home{0, buffer_info.dwCursorPosition.Y};
       ::SetConsoleCursorPosition(stdout_handle, home);
 
       DWORD chars_written = 0;
-      ::FillConsoleOutputCharacter(stdout_handle, ' ', buffer_info.dwSize.X, home, &chars_written);
+      ::FillConsoleOutputCharacter(stdout_handle, ' ', static_cast<DWORD>(buffer_info.dwSize.X), home, &chars_written);
       ::SetConsoleCursorPosition(stdout_handle, home);
     }
   }
@@ -637,9 +637,9 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
     if (stdout_handle != INVALID_HANDLE_VALUE) {
       CONSOLE_SCREEN_BUFFER_INFO buffer_info;
       if (::GetConsoleScreenBufferInfo(stdout_handle, &buffer_info)) {
-        SHORT col = static_cast<SHORT>(
+        const SHORT col = static_cast<SHORT>(
             std::max(0L, static_cast<LONG>(buffer_info.dwCursorPosition.X) - static_cast<LONG>(tail_size)));
-        COORD new_pos{col, buffer_info.dwCursorPosition.Y};
+        const COORD new_pos{col, buffer_info.dwCursorPosition.Y};
         ::SetConsoleCursorPosition(stdout_handle, new_pos);
       }
     }
@@ -692,8 +692,7 @@ void render_line(const std::string_view prompt, const LineEditor& editor) {
 #endif
 
 auto make_line_editor_result(const LineEditorAction action = LineEditorAction::kContinue,
-                             const bool needs_redraw = false,
-                             std::optional<std::string> submitted_line = std::nullopt,
+                             const bool needs_redraw = false, std::optional<std::string> submitted_line = std::nullopt,
                              std::vector<std::string> completion_suggestions = {}) -> LineEditorResult {
   LineEditorResult result{};
   result.action = action;
@@ -703,8 +702,8 @@ auto make_line_editor_result(const LineEditorAction action = LineEditorAction::k
   return result;
 }
 
-auto make_interactive_read_result(const LineEditorAction action,
-                                  std::optional<std::string> line = std::nullopt) -> InteractiveReadResult {
+auto make_interactive_read_result(const LineEditorAction action, std::optional<std::string> line = std::nullopt)
+    -> InteractiveReadResult {
   InteractiveReadResult result{};
   result.action = action;
   result.line = std::move(line);
@@ -759,144 +758,6 @@ auto normalize_style_spans(const std::size_t buffer_size, const std::vector<Styl
 LineEditor::LineEditor(LineEditorConfig config) : config_(std::move(config)) {}
 
 auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
-  const auto move_token_left = [this]() -> bool {
-    if (cursor_ == 0) {
-      return false;
-    }
-
-    std::size_t idx = cursor_;
-    while (idx > 0 && is_token_space_char(buffer_[idx - 1])) {
-      --idx;
-    }
-    if (idx == 0) {
-      cursor_ = 0;
-      return true;
-    }
-
-    const auto cls = token_class_for_char(buffer_[idx - 1]);
-    while (idx > 0 && token_class_for_char(buffer_[idx - 1]) == cls) {
-      --idx;
-    }
-    if (idx == cursor_) {
-      return false;
-    }
-    cursor_ = idx;
-    return true;
-  };
-
-  const auto move_token_right = [this]() -> bool {
-    if (cursor_ >= buffer_.size()) {
-      return false;
-    }
-
-    std::size_t idx = cursor_;
-    while (idx < buffer_.size() && is_token_space_char(buffer_[idx])) {
-      ++idx;
-    }
-    if (idx >= buffer_.size()) {
-      cursor_ = buffer_.size();
-      return true;
-    }
-
-    const auto cls = token_class_for_char(buffer_[idx]);
-    while (idx < buffer_.size() && token_class_for_char(buffer_[idx]) == cls) {
-      ++idx;
-    }
-    if (idx == cursor_) {
-      return false;
-    }
-    cursor_ = idx;
-    return true;
-  };
-
-  const auto delete_token_left = [this]() -> bool {
-    if (cursor_ == 0) {
-      return false;
-    }
-
-    std::size_t start = cursor_;
-    while (start > 0 && is_token_space_char(buffer_[start - 1])) {
-      --start;
-    }
-    if (start > 0) {
-      const auto cls = token_class_for_char(buffer_[start - 1]);
-      while (start > 0 && token_class_for_char(buffer_[start - 1]) == cls) {
-        --start;
-      }
-    }
-
-    if (start == cursor_) {
-      return false;
-    }
-    buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(start),
-                  buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
-    cursor_ = start;
-    return true;
-  };
-
-  const auto apply_completion = [this]() -> LineEditorResult {
-    if (!config_.completion_handler.has_value() || config_.completion_handler->empty()) {
-      return {};
-    }
-
-    std::size_t start = cursor_;
-    while (start > 0 && is_completion_symbol_char(buffer_[start - 1])) {
-      --start;
-    }
-    std::size_t end = cursor_;
-    while (end < buffer_.size() && is_completion_symbol_char(buffer_[end])) {
-      ++end;
-    }
-    if (start == cursor_) {
-      return {};
-    }
-
-    const std::string_view partial(buffer_.data() + static_cast<std::ptrdiff_t>(start), cursor_ - start);
-    auto completions = config_.completion_handler->get_completions(partial);
-    if (completions.empty()) {
-      return {};
-    }
-
-    std::ranges::sort(completions);
-    if (completions.size() > 1) {
-      // if all completion options share a common prefix,
-      // then set the cursor to the common prefix before returning suggestions
-      if (const auto partial_replacement = [&]() -> std::optional<std::string> {
-            const auto& shortest = completions.front();
-            const auto& longest = completions.back();
-            const auto shared_limit = std::min(shortest.size(), longest.size());
-
-            std::size_t idx = 0;
-            for (; idx < shared_limit; ++idx) {
-              if (shortest[idx] != longest[idx]) {
-                break;
-              }
-            }
-            if (idx != 0) {
-              return {longest.substr(0, idx)};
-            }
-            return std::nullopt;
-          }();
-          partial_replacement.has_value()) {
-        buffer_.replace(start, end - start, *partial_replacement);
-        cursor_ = start + partial_replacement->size();
-      }
-
-      return make_line_editor_result(LineEditorAction::kContinue, true, std::nullopt, std::move(completions));
-    }
-
-    const std::string& replacement = completions.front();
-
-    if (buffer_.compare(start, end - start, replacement) == 0) {
-      cursor_ = start + replacement.size();
-      return {};
-    }
-
-    buffer_.replace(start, end - start, replacement);
-    cursor_ = start + replacement.size();
-    return make_line_editor_result(LineEditorAction::kContinue, true);
-  };
-
   switch (event.key) {
     case InputKey::kCharacter:
       buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), event.ch);
@@ -933,29 +794,10 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
       return make_line_editor_result(LineEditorAction::kContinue, true);
 
     case InputKey::kArrowUp:
-      if (history_.empty()) {
-        return {};
-      }
-      if (!history_index_.has_value()) {
-        history_edit_buffer_ = buffer_;
-        history_index_ = history_.size() - 1;
-      } else if (*history_index_ > 0) {
-        --(*history_index_);
-      }
-      return restore_history_entry(*history_index_);
+      return navigate_history_up();
 
     case InputKey::kArrowDown:
-      if (!history_index_.has_value()) {
-        return {};
-      }
-      if (*history_index_ + 1 < history_.size()) {
-        ++(*history_index_);
-        return restore_history_entry(*history_index_);
-      }
-      history_index_.reset();
-      buffer_ = history_edit_buffer_;
-      cursor_ = buffer_.size();
-      return make_line_editor_result(LineEditorAction::kContinue, true);
+      return navigate_history_down();
 
     case InputKey::kTokenLeft:
       return make_line_editor_result(LineEditorAction::kContinue, move_token_left());
@@ -983,23 +825,11 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
     case InputKey::kTab:
       return apply_completion();
 
-    case InputKey::kEnter: {
-      auto submitted_line = buffer_;
-      push_history_entry(submitted_line);
-      buffer_.clear();
-      cursor_ = 0;
-      history_index_.reset();
-      history_edit_buffer_.clear();
-      return {
-          make_line_editor_result(LineEditorAction::kSubmit, false, std::move(submitted_line))};
-    }
+    case InputKey::kEnter:
+      return submit_current_buffer();
 
     case InputKey::kCtrlC:
-      buffer_.clear();
-      cursor_ = 0;
-      history_index_.reset();
-      history_edit_buffer_.clear();
-      return make_line_editor_result(LineEditorAction::kClearBuffer);
+      return clear_current_buffer();
 
     case InputKey::kCtrlD:
       if (buffer_.empty()) {
@@ -1014,6 +844,192 @@ auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
   return {};
 }
 
+auto LineEditor::move_token_left() -> bool {
+  if (cursor_ == 0) {
+    return false;
+  }
+
+  std::size_t idx = cursor_;
+  while (idx > 0 && is_token_space_char(buffer_[idx - 1])) {
+    --idx;
+  }
+  if (idx == 0) {
+    cursor_ = 0;
+    return true;
+  }
+
+  const auto cls = token_class_for_char(buffer_[idx - 1]);
+  while (idx > 0 && token_class_for_char(buffer_[idx - 1]) == cls) {
+    --idx;
+  }
+  if (idx == cursor_) {
+    return false;
+  }
+  cursor_ = idx;
+  return true;
+}
+
+auto LineEditor::move_token_right() -> bool {
+  if (cursor_ >= buffer_.size()) {
+    return false;
+  }
+
+  std::size_t idx = cursor_;
+  while (idx < buffer_.size() && is_token_space_char(buffer_[idx])) {
+    ++idx;
+  }
+  if (idx >= buffer_.size()) {
+    cursor_ = buffer_.size();
+    return true;
+  }
+
+  const auto cls = token_class_for_char(buffer_[idx]);
+  while (idx < buffer_.size() && token_class_for_char(buffer_[idx]) == cls) {
+    ++idx;
+  }
+  if (idx == cursor_) {
+    return false;
+  }
+  cursor_ = idx;
+  return true;
+}
+
+auto LineEditor::delete_token_left() -> bool {
+  if (cursor_ == 0) {
+    return false;
+  }
+
+  std::size_t start = cursor_;
+  while (start > 0 && is_token_space_char(buffer_[start - 1])) {
+    --start;
+  }
+  if (start > 0) {
+    const auto cls = token_class_for_char(buffer_[start - 1]);
+    while (start > 0 && token_class_for_char(buffer_[start - 1]) == cls) {
+      --start;
+    }
+  }
+
+  if (start == cursor_) {
+    return false;
+  }
+  buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(start),
+                buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
+  cursor_ = start;
+  return true;
+}
+
+auto LineEditor::apply_completion() -> LineEditorResult {
+  if (!config_.completion_handler.has_value() || config_.completion_handler->empty()) {
+    return {};
+  }
+
+  std::size_t start = cursor_;
+  while (start > 0 && is_completion_symbol_char(buffer_[start - 1])) {
+    --start;
+  }
+  std::size_t end = cursor_;
+  while (end < buffer_.size() && is_completion_symbol_char(buffer_[end])) {
+    ++end;
+  }
+  if (start == cursor_) {
+    return {};
+  }
+
+  const std::string_view partial(buffer_.data() + static_cast<std::ptrdiff_t>(start), cursor_ - start);
+  auto completions = config_.completion_handler->get_completions(partial);
+  if (completions.empty()) {
+    return {};
+  }
+
+  std::ranges::sort(completions);
+  if (completions.size() > 1) {
+    // if all completion options share a common prefix,
+    // then set the cursor to the common prefix before returning suggestions
+    if (const auto partial_replacement = [&]() -> std::optional<std::string> {
+          const auto& shortest = completions.front();
+          const auto& longest = completions.back();
+          const auto shared_limit = std::min(shortest.size(), longest.size());
+
+          std::size_t idx = 0;
+          for (; idx < shared_limit; ++idx) {
+            if (shortest[idx] != longest[idx]) {
+              break;
+            }
+          }
+          if (idx != 0) {
+            return {longest.substr(0, idx)};
+          }
+          return std::nullopt;
+        }();
+        partial_replacement.has_value()) {
+      buffer_.replace(start, end - start, *partial_replacement);
+      cursor_ = start + partial_replacement->size();
+    }
+
+    return make_line_editor_result(LineEditorAction::kContinue, true, std::nullopt, std::move(completions));
+  }
+
+  const std::string& replacement = completions.front();
+
+  if (buffer_.compare(start, end - start, replacement) == 0) {
+    cursor_ = start + replacement.size();
+    return {};
+  }
+
+  buffer_.replace(start, end - start, replacement);
+  cursor_ = start + replacement.size();
+  return make_line_editor_result(LineEditorAction::kContinue, true);
+}
+
+auto LineEditor::navigate_history_up() -> LineEditorResult {
+  if (history_.empty()) {
+    return {};
+  }
+  if (!history_index_.has_value()) {
+    history_edit_buffer_ = buffer_;
+    history_index_ = history_.size() - 1;
+  } else if (*history_index_ > 0) {
+    --(*history_index_);
+  }
+  return restore_history_entry(*history_index_);
+}
+
+auto LineEditor::navigate_history_down() -> LineEditorResult {
+  if (!history_index_.has_value()) {
+    return {};
+  }
+  if (*history_index_ + 1 < history_.size()) {
+    ++(*history_index_);
+    return restore_history_entry(*history_index_);
+  }
+  history_index_.reset();
+  buffer_ = history_edit_buffer_;
+  cursor_ = buffer_.size();
+  return make_line_editor_result(LineEditorAction::kContinue, true);
+}
+
+auto LineEditor::submit_current_buffer() -> LineEditorResult {
+  auto submitted_line = buffer_;
+  push_history_entry(submitted_line);
+  buffer_.clear();
+  cursor_ = 0;
+  clear_transient_edit_state();
+  return make_line_editor_result(LineEditorAction::kSubmit, false, std::move(submitted_line));
+}
+
+auto LineEditor::clear_current_buffer() -> LineEditorResult {
+  buffer_.clear();
+  cursor_ = 0;
+  clear_transient_edit_state();
+  return make_line_editor_result(LineEditorAction::kClearBuffer);
+}
+
+void LineEditor::clear_transient_edit_state() {
+  history_index_.reset();
+  history_edit_buffer_.clear();
+}
+
 auto LineEditor::buffer() const -> const std::string& { return buffer_; }
 
 auto LineEditor::cursor() const -> std::size_t { return cursor_; }
@@ -1025,8 +1041,7 @@ auto LineEditor::config() const -> const LineEditorConfig& { return config_; }
 void LineEditor::reset() {
   buffer_.clear();
   cursor_ = 0;
-  history_index_.reset();
-  history_edit_buffer_.clear();
+  clear_transient_edit_state();
 }
 
 void LineEditor::push_history_entry(const std::string& entry) {

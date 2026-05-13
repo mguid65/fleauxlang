@@ -659,7 +659,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.Reduce", "[runtime]") {
     REQUIRE(as_bool(ResultIsOk(result)));
     const Value payload = ResultUnwrap(result);
     REQUIRE(as_array(payload).Size() == 2);
-    REQUIRE(as_bool(array_at(payload, 0)) == false);
+    REQUIRE_FALSE(as_bool(array_at(payload, 0)));
     REQUIRE(to_double(array_at(payload, 1)) == 6.0);
   }
 

@@ -1,6 +1,5 @@
 #include "fleaux/cli/repl_driver.hpp"
 
-#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <functional>
@@ -12,12 +11,26 @@
 
 #include "fleaux/cli/line_editor.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/frontend/lexer.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
 #include <algorithm>
 
 namespace fleaux::cli {
 namespace {
+
+enum class ReplCommand {
+  kNone,
+  kQuit,
+  kHelp,
+  kClear,
+  kUnknown,
+};
+
+struct ParsedReplCommand {
+  ReplCommand kind{ReplCommand::kNone};
+  std::string text{};
+};
 
 auto trim_copy(const std::string& text) -> std::string {
   const auto begin_it =
@@ -74,120 +87,64 @@ auto buffer_has_complete_statement(const std::string& buffer) -> bool {
   return no_color == nullptr || *no_color == '\0';
 }
 
-auto make_repl_style_provider() -> StyleSpanProvider {
-  return [](const std::string_view text) -> std::vector<StyleSpan> {
-    constexpr std::array kKeywords = {
-        std::string_view{"import"}, std::string_view{"let"},    std::string_view{"__builtin__"},
-        std::string_view{"Int64"},  std::string_view{"UInt64"}, std::string_view{"Float64"},
-        std::string_view{"String"}, std::string_view{"Bool"},   std::string_view{"Null"},
-        std::string_view{"Any"},    std::string_view{"Tuple"},
-    };
-    constexpr std::array kLiterals = {
-        std::string_view{"null"},
-        std::string_view{"True"},
-        std::string_view{"False"},
-    };
-    constexpr std::array<char, 8> kOtherSymbols = {'(', ')', ',', ';', ':', '=', '|', '.'};
-
-    auto is_ident_start = [](const char ch) -> bool {
-      const auto uch = static_cast<unsigned char>(ch);
-      return std::isalpha(uch) != 0 || ch == '_';
-    };
-    auto is_ident_char = [&](const char ch) -> bool {
-      const auto uch = static_cast<unsigned char>(ch);
-      return std::isalnum(uch) != 0 || ch == '_';
-    };
-    auto is_keyword = [&](const std::string_view token) -> bool {
-      return std::ranges::any_of(kKeywords, [&](const auto& keyword) -> bool { return keyword == token; });
-    };
-    auto is_literal = [&](const std::string_view token) -> bool {
-      return std::ranges::any_of(kLiterals, [&](const auto& literal) -> bool { return literal == token; });
-    };
-    auto is_other_symbol = [&](const char ch) -> bool {
-      return std::ranges::any_of(kOtherSymbols, [&](const auto& symbol) -> bool { return symbol == ch; });
-    };
-
-    std::vector<StyleSpan> spans;
-    spans.reserve(text.size() / 4);
-
-    std::size_t cursor = 0;
-    while (cursor < text.size()) {
-      const char ch = text[cursor];
-
-      if (ch == '"') {
-        const std::size_t start = cursor++;
-        bool escaped = false;
-        while (cursor < text.size()) {
-          const char current = text[cursor++];
-          if (escaped) {
-            escaped = false;
-            continue;
-          }
-          if (current == '\\') {
-            escaped = true;
-            continue;
-          }
-          if (current == '"') {
-            break;
-          }
-        }
-        spans.push_back(StyleSpan{.start = start, .length = cursor - start, .token_class = TokenClass::kString});
-        continue;
-      }
-
-      if (std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-        const std::size_t start = cursor++;
-        bool seen_dot = false;
-        while (cursor < text.size()) {
-          const char current = text[cursor];
-          if (std::isdigit(static_cast<unsigned char>(current)) != 0) {
-            ++cursor;
-            continue;
-          }
-          if (!seen_dot && current == '.') {
-            seen_dot = true;
-            ++cursor;
-            continue;
-          }
-          break;
-        }
-        spans.push_back(StyleSpan{.start = start, .length = cursor - start, .token_class = TokenClass::kNumber});
-        continue;
-      }
-
-      if (is_ident_start(ch)) {
-        const std::size_t start = cursor++;
-        while (cursor < text.size() && is_ident_char(text[cursor])) {
-          ++cursor;
-        }
-        const auto token = text.substr(start, cursor - start);
-        const auto token_class = is_keyword(token)   ? TokenClass::kKeyword
-                                 : is_literal(token) ? TokenClass::kNumber
-                                                     : TokenClass::kIdentifier;
-        spans.push_back(StyleSpan{.start = start, .length = cursor - start, .token_class = token_class});
-        continue;
-      }
-
-      if ((ch == '-' && (cursor + 1) < text.size() && text[cursor + 1] == '>') || is_other_symbol(ch)) {
-        const std::size_t length = (ch == '-') ? 2U : 1U;
-        spans.push_back(StyleSpan{.start = cursor, .length = length, .token_class = TokenClass::kOperator});
-        cursor += length;
-        continue;
-      }
-
-      ++cursor;
-    }
-
-    return spans;
-  };
+auto parse_repl_command(const std::string& line) -> ParsedReplCommand {
+  ParsedReplCommand parsed{.text = trim_copy(line)};
+  if (parsed.text.empty()) {
+    return parsed;
+  }
+  if (parsed.text == ":quit" || parsed.text == ":q") {
+    parsed.kind = ReplCommand::kQuit;
+  } else if (parsed.text == ":help" || parsed.text == ":?") {
+    parsed.kind = ReplCommand::kHelp;
+  } else if (parsed.text == ":clear" || parsed.text == ":c") {
+    parsed.kind = ReplCommand::kClear;
+  } else if (parsed.text.starts_with(':')) {
+    parsed.kind = ReplCommand::kUnknown;
+  }
+  return parsed;
 }
 
-constexpr std::array<std::string_view, 11> kReplKeywords = {
-    "import", "let", "__builtin__", "Int64", "UInt64", "Float64", "String", "Bool", "Null", "Any", "Tuple",
-};
+auto compute_repl_style_spans(const std::string_view text) -> std::vector<StyleSpan> {
+  const auto tokens = fleaux::frontend::parse::lex_program_best_effort(std::string(text), "<repl>");
+  std::vector<StyleSpan> spans;
+  spans.reserve(tokens.size());
+
+  for (const auto& token : tokens) {
+    TokenClass token_class = TokenClass::kPlain;
+    switch (token.kind) {
+      case fleaux::frontend::parse::TokenKind::kString:
+        token_class = TokenClass::kString;
+        break;
+      case fleaux::frontend::parse::TokenKind::kNumeric:
+      case fleaux::frontend::parse::TokenKind::kBool:
+      case fleaux::frontend::parse::TokenKind::kNull:
+        token_class = TokenClass::kNumber;
+        break;
+      case fleaux::frontend::parse::TokenKind::kIdent:
+        token_class = fleaux::frontend::parse::is_keyword(token.value) ? TokenClass::kKeyword : TokenClass::kIdentifier;
+        break;
+      case fleaux::frontend::parse::TokenKind::kSymbol:
+        token_class = TokenClass::kOperator;
+        break;
+      case fleaux::frontend::parse::TokenKind::kError:
+        token_class = TokenClass::kError;
+        break;
+      case fleaux::frontend::parse::TokenKind::kEof:
+        continue;
+    }
+
+    spans.push_back(StyleSpan{.start = token.offset, .length = token.text.size(), .token_class = token_class});
+  }
+
+  return spans;
+}
+
+auto make_repl_style_provider() -> auto {
+  return [](const std::string_view text) -> std::vector<StyleSpan> { return compute_repl_style_spans(text); };
+}
 
 auto seed_completion_symbols(CompletionHandler& completion) -> void {
-  for (const auto keyword : kReplKeywords) {
+  for (const auto keyword : fleaux::frontend::parse::keyword_spellings()) {
     completion.load_symbols({keyword});
   }
 
@@ -327,24 +284,24 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
     }
 
     if (buffer.empty()) {
-      const auto command = trim_copy(line);
-      if (command == ":quit" || command == ":q") {
+      const auto command = parse_repl_command(line);
+      if (command.kind == ReplCommand::kQuit) {
         break;
       }
-      if (command == ":help" || command == ":?") {
+      if (command.kind == ReplCommand::kHelp) {
         print_help();
         continue;
       }
-      if (command == ":clear" || command == ":c") {
+      if (command.kind == ReplCommand::kClear) {
         buffer.clear();
         continue;
       }
-      if (!command.empty() && command.starts_with(':')) {
-        std::cout << "Unknown REPL command: " << command << "\n"
+      if (command.kind == ReplCommand::kUnknown) {
+        std::cout << "Unknown REPL command: " << command.text << "\n"
                   << "Type :help to list supported commands.\n";
         continue;
       }
-      if (command.empty()) {
+      if (command.text.empty()) {
         continue;
       }
     }

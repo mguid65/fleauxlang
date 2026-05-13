@@ -224,6 +224,7 @@ if(TARGET fleaux_emscripten_threads)
 endif()
 
 set(FLEAUX_FRONTEND_PARSER_SOURCES
+        src/frontend/lexer.cpp
         src/frontend/parser.cpp
 )
 
