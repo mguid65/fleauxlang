@@ -1235,7 +1235,7 @@ private:
     std::vector<std::string> statements;
     statements.reserve(program.statements.size());
     for (const auto& stmt : program.statements) {
-      statements.push_back(format_statement(stmt, level + 1));
+      statements.push_back(format_statement(stmt, level + 2));
     }
     fields.push_back(std::format("statements: {}", format_list(statements, level + 1)));
 
@@ -1336,7 +1336,7 @@ private:
               std::vector<std::string> items;
               items.reserve(type_list->types.size());
               for (const auto& item : type_list->types) {
-                items.push_back(item ? format_type(*item, level + 1) : std::string{"null"});
+                items.push_back(item ? format_type(*item, level + 2) : std::string{"null"});
               }
               return format_block("TypeList", {std::format("items: {}", format_list(items, level + 1))}, level);
             },
@@ -1347,7 +1347,7 @@ private:
               std::vector<std::string> items;
               items.reserve(union_type->alternatives.size());
               for (const auto& alternative : union_type->alternatives) {
-                items.push_back(alternative ? format_type(*alternative, level + 1) : std::string{"null"});
+                items.push_back(alternative ? format_type(*alternative, level + 2) : std::string{"null"});
               }
               return format_block("UnionTypeList", {std::format("alternatives: {}", format_list(items, level + 1))},
                                   level);
@@ -1359,7 +1359,7 @@ private:
               std::vector<std::string> args;
               args.reserve(applied_type->args.types.size());
               for (const auto& arg : applied_type->args.types) {
-                args.push_back(arg ? format_type(*arg, level + 1) : std::string{"null"});
+                args.push_back(arg ? format_type(*arg, level + 2) : std::string{"null"});
               }
               return format_block("AppliedTypeNode",
                                   {std::format("name: {}", quote(applied_type->name)),
@@ -1373,7 +1373,7 @@ private:
               std::vector<std::string> params;
               params.reserve(function_type->params.types.size());
               for (const auto& param : function_type->params.types) {
-                params.push_back(param ? format_type(*param, level + 1) : std::string{"null"});
+                params.push_back(param ? format_type(*param, level + 2) : std::string{"null"});
               }
               return format_block(
                   "FunctionTypeNode",
@@ -1391,7 +1391,7 @@ private:
     std::vector<std::string> items;
     items.reserve(params.params.size());
     for (const auto& param : params.params) {
-      items.push_back(format_parameter(param, level + 1));
+      items.push_back(format_parameter(param, level + 2));
     }
     return format_block("ParameterDeclList", {std::format("params: {}", format_list(items, level + 1))}, level);
   }
@@ -1411,7 +1411,7 @@ private:
     std::vector<std::string> rhs;
     rhs.reserve(flow.rhs.size());
     for (const auto& stage : flow.rhs) {
-      rhs.push_back(format_primary(stage, level + 1));
+      rhs.push_back(format_primary(stage, level + 2));
     }
     return format_block("FlowExpression",
                         {std::format("lhs: {}", format_primary(flow.lhs, level + 1)),
@@ -1462,7 +1462,7 @@ private:
               std::vector<std::string> items;
               items.reserve(delimited->items.size());
               for (const auto& item : delimited->items) {
-                items.push_back(item ? format_expression(*item, level + 1) : std::string{"null"});
+                items.push_back(item ? format_expression(*item, level + 2) : std::string{"null"});
               }
               return format_block("DelimitedExpression", {std::format("items: {}", format_list(items, level + 1))},
                                   level);
@@ -1497,7 +1497,7 @@ private:
     std::vector<std::string> type_args;
     type_args.reserve(named_target.explicit_type_args.size());
     for (const auto& type_arg : named_target.explicit_type_args) {
-      type_args.push_back(type_arg ? format_type(*type_arg, level + 1) : std::string{"null"});
+      type_args.push_back(type_arg ? format_type(*type_arg, level + 2) : std::string{"null"});
     }
 
     return format_block(

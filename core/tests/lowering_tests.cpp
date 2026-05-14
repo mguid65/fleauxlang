@@ -642,3 +642,23 @@ TEST_CASE("Lowerer dump_ir includes composite type structure", "[lowering][dump_
   REQUIRE(dumped.find("name: \"Dict\"") != std::string::npos);
 }
 
+TEST_CASE("Lowerer dump_ir keeps multiline indentation aligned", "[lowering][dump_ir]") {
+  const std::string src =
+      "import Std;\n"
+      "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
+      "(41.0) -> Inc;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ir_indent.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(*parsed);
+  REQUIRE(lowered.has_value());
+
+  const std::string dumped = lowerer.dump_ir(*lowered);
+  REQUIRE(dumped.find("imports: [\n    IRImport {") != std::string::npos);
+  REQUIRE(dumped.find("      module_name: \"Std\"\n    }") != std::string::npos);
+  REQUIRE(dumped.find("      body: IRExpr {\n        kind: \"IRFlowExpr\"") != std::string::npos);
+}
+

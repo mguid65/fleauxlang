@@ -97,6 +97,14 @@ TEST_CASE("structured_visit falls back to unpacked tuple-like elements when need
   REQUIRE(result == 7);
 }
 
+TEST_CASE("structured_visit can deduce a non-void result type", "[common][utility][structured_visit]") {
+  constexpr std::variant<std::pair<int, int>> value{std::pair{2, 5}};
+  constexpr auto result = fleaux::utility::structured_visit([](const int lhs, const int rhs) { return lhs + rhs; }, value);
+
+  static_assert(std::is_same_v<decltype(result), const int> || std::is_same_v<decltype(result), int>);
+  REQUIRE(result == 7);
+}
+
 TEST_CASE("structured_visit can mix whole values and unpacked tuple-like values",
           "[common][utility][structured_visit]") {
   const std::variant<std::pair<int, int>> lhs{std::pair{2, 3}};
@@ -185,6 +193,20 @@ TEST_CASE("structured_visit preserves lvalue element references when unpacking",
 
   REQUIRE(std::get<std::pair<int, int>>(value).first == 11);
   REQUIRE(std::get<std::pair<int, int>>(value).second == 22);
+}
+
+TEST_CASE("structured_visit can deduce void", "[common][utility][structured_visit]") {
+  std::variant<std::pair<int, int>> value{std::pair{1, 2}};
+
+  fleaux::utility::structured_visit(
+      [](int& lhs, int& rhs) {
+        lhs += 100;
+        rhs += 200;
+      },
+      value);
+
+  REQUIRE(std::get<std::pair<int, int>>(value).first == 101);
+  REQUIRE(std::get<std::pair<int, int>>(value).second == 202);
 }
 
 TEST_CASE("structured_visit preserves Point lvalue element references when unpacking",

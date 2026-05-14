@@ -493,3 +493,20 @@ TEST_CASE("Parser dump_ast includes inline closure structure", "[parser][dump_as
   REQUIRE(dumped.find("ParameterDeclList {") != std::string::npos);
   REQUIRE(dumped.find("return_type: TypeNode {") != std::string::npos);
 }
+
+TEST_CASE("Parser dump_ast keeps multiline indentation aligned", "[parser][dump_ast]") {
+  const std::string src =
+      "import Std;\n"
+      "let Inc(x: Float64): Float64 = (x, 1) -> Std.Add;\n"
+      "(41) -> Inc;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ast_indent.fleaux");
+
+  REQUIRE(parsed.has_value());
+
+  const std::string dumped = parser.dump_ast(*parsed);
+  REQUIRE(dumped.find("statements: [\n    ImportStatement {") != std::string::npos);
+  REQUIRE(dumped.find("      expr: Expression {\n        flow: FlowExpression {") != std::string::npos);
+}
+
