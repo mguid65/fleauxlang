@@ -202,6 +202,108 @@ inline auto assign_repl_stable_symbol_keys(frontend::ir::IRProgram& program,
   program.lets = std::move(normalized_lets);
 }
 
+template <typename Decl, typename KeyFn>
+inline auto make_decl_key_set(const std::vector<Decl>& decls, KeyFn key_fn) -> std::unordered_set<std::string> {
+  std::unordered_set<std::string> keys;
+  keys.reserve(decls.size());
+  for (const auto& decl : decls) {
+    keys.insert(key_fn(decl));
+  }
+  return keys;
+}
+
+template <typename Decl, typename KeyFn>
+inline void append_unique_decl(const Decl& decl, std::unordered_set<std::string>& seen, std::vector<Decl>& decls,
+                               KeyFn key_fn) {
+  if (const auto key = key_fn(decl); seen.insert(key).second) {
+    decls.push_back(decl);
+  }
+}
+
+template <typename Decl, typename KeyFn>
+inline void prepend_unique_decls(std::vector<Decl>& result_decls, const std::vector<Decl>& imported_decls,
+                                 KeyFn key_fn) {
+  if (imported_decls.empty()) {
+    return;
+  }
+
+  auto seen = make_decl_key_set(result_decls, key_fn);
+  std::vector<Decl> merged_decls;
+  merged_decls.reserve(result_decls.size() + imported_decls.size());
+  for (const auto& imported_decl : imported_decls) {
+    append_unique_decl(imported_decl, seen, merged_decls, key_fn);
+  }
+  merged_decls.insert(merged_decls.end(), result_decls.begin(), result_decls.end());
+  result_decls = std::move(merged_decls);
+}
+
+inline void seed_repl_std_symbolic_import(const frontend::ir::IRProgram& std_program,
+                                          std::unordered_set<std::string>& imported_symbols,
+                                          std::vector<frontend::ir::IRLet>& imported_typed_lets,
+                                          std::vector<frontend::ir::IRTypeDecl>& imported_type_decls,
+                                          std::vector<frontend::ir::IRAliasDecl>& imported_alias_decls,
+                                          std::vector<frontend::ir::IRLet>& symbolic_imported_lets,
+                                          std::vector<frontend::ir::IRTypeDecl>& symbolic_imported_type_decls,
+                                          std::vector<frontend::ir::IRAliasDecl>& symbolic_imported_alias_decls) {
+  const std::filesystem::path std_source_name{"Std.fleaux"};
+  auto imported_typed_keys = make_decl_key_set(imported_typed_lets, [](const frontend::ir::IRLet& let) {
+    return frontend::source_loader::let_identity_key(let);
+  });
+  auto imported_type_decl_keys = make_decl_key_set(imported_type_decls, [](const frontend::ir::IRTypeDecl& type_decl) {
+    return frontend::source_loader::type_decl_identity_key(type_decl);
+  });
+  auto imported_alias_decl_keys =
+      make_decl_key_set(imported_alias_decls, [](const frontend::ir::IRAliasDecl& alias_decl) {
+        return frontend::source_loader::alias_decl_identity_key(alias_decl);
+      });
+
+  for (const auto& std_let : std_program.lets) {
+    if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) {
+      continue;
+    }
+    imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
+    append_unique_decl(std_let, imported_typed_keys, imported_typed_lets,
+                       [](const frontend::ir::IRLet& let) { return frontend::source_loader::let_identity_key(let); });
+    symbolic_imported_lets.push_back(std_let);
+  }
+
+  for (const auto& std_type_decl : std_program.type_decls) {
+    if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) {
+      continue;
+    }
+    append_unique_decl(std_type_decl, imported_type_decl_keys, imported_type_decls, [](const frontend::ir::IRTypeDecl& type_decl) {
+      return frontend::source_loader::type_decl_identity_key(type_decl);
+    });
+    symbolic_imported_type_decls.push_back(std_type_decl);
+  }
+
+  for (const auto& std_alias_decl : std_program.alias_decls) {
+    if (!frontend::source_loader::alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
+      continue;
+    }
+    append_unique_decl(std_alias_decl, imported_alias_decl_keys, imported_alias_decls,
+                       [](const frontend::ir::IRAliasDecl& alias_decl) {
+                         return frontend::source_loader::alias_decl_identity_key(alias_decl);
+                       });
+    symbolic_imported_alias_decls.push_back(std_alias_decl);
+  }
+}
+
+inline void merge_repl_symbolic_imports(frontend::ir::IRProgram& program,
+                                        const std::vector<frontend::ir::IRLet>& symbolic_imported_lets,
+                                        const std::vector<frontend::ir::IRTypeDecl>& symbolic_imported_type_decls,
+                                        const std::vector<frontend::ir::IRAliasDecl>& symbolic_imported_alias_decls) {
+  prepend_unique_decls(program.lets, symbolic_imported_lets,
+                       [](const frontend::ir::IRLet& let) { return frontend::source_loader::let_identity_key(let); });
+  prepend_unique_decls(program.type_decls, symbolic_imported_type_decls, [](const frontend::ir::IRTypeDecl& type_decl) {
+    return frontend::source_loader::type_decl_identity_key(type_decl);
+  });
+  prepend_unique_decls(program.alias_decls, symbolic_imported_alias_decls,
+                       [](const frontend::ir::IRAliasDecl& alias_decl) {
+                         return frontend::source_loader::alias_decl_identity_key(alias_decl);
+                       });
+}
+
 inline auto parse_and_analyze_repl_text(const std::string& source_text, const std::filesystem::path& source_path,
                                         const std::vector<frontend::ir::IRLet>& prior_session_lets,
                                         const std::vector<frontend::ir::IRTypeDecl>& prior_session_type_decls,
@@ -277,56 +379,9 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       return tl::unexpected(std_program.error());
     }
 
-    std::unordered_set<std::string> imported_typed_keys;
-    imported_typed_keys.reserve(imported_typed_lets.size());
-    for (const auto& imported_let : imported_typed_lets) {
-      imported_typed_keys.insert(frontend::source_loader::let_identity_key(imported_let));
-    }
-
-    std::unordered_set<std::string> imported_type_decl_keys;
-    imported_type_decl_keys.reserve(imported_type_decls.size());
-    for (const auto& imported_type_decl : imported_type_decls) {
-      imported_type_decl_keys.insert(frontend::source_loader::type_decl_identity_key(imported_type_decl));
-    }
-
-    std::unordered_set<std::string> imported_alias_decl_keys;
-    imported_alias_decl_keys.reserve(imported_alias_decls.size());
-    for (const auto& imported_alias_decl : imported_alias_decls) {
-      imported_alias_decl_keys.insert(frontend::source_loader::alias_decl_identity_key(imported_alias_decl));
-    }
-
-    for (const auto& std_let : (*std_program)->lets) {
-      if (!frontend::source_loader::let_declared_in_source(std_let, std_source_name)) {
-        continue;
-      }
-      imported_symbols.insert(frontend::source_loader::symbol_key(std_let.qualifier, std_let.name));
-      if (const auto key = frontend::source_loader::let_identity_key(std_let); imported_typed_keys.insert(key).second) {
-        imported_typed_lets.push_back(std_let);
-      }
-      symbolic_imported_lets.push_back(std_let);
-    }
-
-    for (const auto& std_type_decl : (*std_program)->type_decls) {
-      if (!frontend::source_loader::type_decl_declared_in_source(std_type_decl, std_source_name)) {
-        continue;
-      }
-      if (const auto key = frontend::source_loader::type_decl_identity_key(std_type_decl);
-          imported_type_decl_keys.insert(key).second) {
-        imported_type_decls.push_back(std_type_decl);
-      }
-      symbolic_imported_type_decls.push_back(std_type_decl);
-    }
-
-    for (const auto& std_alias_decl : (*std_program)->alias_decls) {
-      if (!frontend::source_loader::alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
-        continue;
-      }
-      if (const auto key = frontend::source_loader::alias_decl_identity_key(std_alias_decl);
-          imported_alias_decl_keys.insert(key).second) {
-        imported_alias_decls.push_back(std_alias_decl);
-      }
-      symbolic_imported_alias_decls.push_back(std_alias_decl);
-    }
+    seed_repl_std_symbolic_import(**std_program, imported_symbols, imported_typed_lets, imported_type_decls,
+                                  imported_alias_decls, symbolic_imported_lets, symbolic_imported_type_decls,
+                                  symbolic_imported_alias_decls);
   }
 
   const auto analyzed = frontend::source_loader::analyze_lowered_program_with_imports<ReplSessionError>(
@@ -340,61 +395,8 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
   }
 
   auto result = analyzed.value();
-  if (!symbolic_imported_lets.empty()) {
-    std::unordered_set<std::string> seen;
-    seen.reserve(result.lets.size() + symbolic_imported_lets.size());
-    for (const auto& let : result.lets) {
-      seen.insert(frontend::source_loader::let_identity_key(let));
-    }
-
-    std::vector<frontend::ir::IRLet> merged_lets;
-    merged_lets.reserve(result.lets.size() + symbolic_imported_lets.size());
-    for (const auto& imported_let : symbolic_imported_lets) {
-      if (const auto key = frontend::source_loader::let_identity_key(imported_let); seen.insert(key).second) {
-        merged_lets.push_back(imported_let);
-      }
-    }
-    merged_lets.insert(merged_lets.end(), result.lets.begin(), result.lets.end());
-    result.lets = std::move(merged_lets);
-  }
-
-  if (!symbolic_imported_type_decls.empty()) {
-    std::unordered_set<std::string> seen;
-    seen.reserve(result.type_decls.size() + symbolic_imported_type_decls.size());
-    for (const auto& type_decl : result.type_decls) {
-      seen.insert(frontend::source_loader::type_decl_identity_key(type_decl));
-    }
-
-    std::vector<frontend::ir::IRTypeDecl> merged_type_decls;
-    merged_type_decls.reserve(result.type_decls.size() + symbolic_imported_type_decls.size());
-    for (const auto& imported_type_decl : symbolic_imported_type_decls) {
-      if (const auto key = frontend::source_loader::type_decl_identity_key(imported_type_decl);
-          seen.insert(key).second) {
-        merged_type_decls.push_back(imported_type_decl);
-      }
-    }
-    merged_type_decls.insert(merged_type_decls.end(), result.type_decls.begin(), result.type_decls.end());
-    result.type_decls = std::move(merged_type_decls);
-  }
-
-  if (!symbolic_imported_alias_decls.empty()) {
-    std::unordered_set<std::string> seen;
-    seen.reserve(result.alias_decls.size() + symbolic_imported_alias_decls.size());
-    for (const auto& alias_decl : result.alias_decls) {
-      seen.insert(frontend::source_loader::alias_decl_identity_key(alias_decl));
-    }
-
-    std::vector<frontend::ir::IRAliasDecl> merged_alias_decls;
-    merged_alias_decls.reserve(result.alias_decls.size() + symbolic_imported_alias_decls.size());
-    for (const auto& imported_alias_decl : symbolic_imported_alias_decls) {
-      if (const auto key = frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
-          seen.insert(key).second) {
-        merged_alias_decls.push_back(imported_alias_decl);
-      }
-    }
-    merged_alias_decls.insert(merged_alias_decls.end(), result.alias_decls.begin(), result.alias_decls.end());
-    result.alias_decls = std::move(merged_alias_decls);
-  }
+  merge_repl_symbolic_imports(result, symbolic_imported_lets, symbolic_imported_type_decls,
+                              symbolic_imported_alias_decls);
 
   return result;
 }

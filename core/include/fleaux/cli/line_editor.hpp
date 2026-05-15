@@ -125,9 +125,20 @@ public:
     return config_.completion_handler;
   }
 private:
+  [[nodiscard]] auto continue_with_redraw(bool needs_redraw = true) const -> LineEditorResult;
+  [[nodiscard]] auto insert_char_at_cursor(char ch) -> bool;
+  [[nodiscard]] auto move_cursor_left_one() -> bool;
+  [[nodiscard]] auto move_cursor_right_one() -> bool;
+  [[nodiscard]] auto move_cursor_to(std::size_t position) -> bool;
+  [[nodiscard]] auto erase_char_left() -> bool;
+  [[nodiscard]] auto erase_char_at_cursor() -> bool;
   [[nodiscard]] auto move_token_left() -> bool;
   [[nodiscard]] auto move_token_right() -> bool;
   [[nodiscard]] auto delete_token_left() -> bool;
+  [[nodiscard]] auto handle_edit_key(const InputEvent& event) -> LineEditorResult;
+  [[nodiscard]] auto handle_motion_key(InputKey key) -> LineEditorResult;
+  [[nodiscard]] auto handle_history_key(InputKey key) -> LineEditorResult;
+  [[nodiscard]] auto handle_command_key(InputKey key) -> LineEditorResult;
   auto apply_completion() -> LineEditorResult;
   auto navigate_history_up() -> LineEditorResult;
   auto navigate_history_down() -> LineEditorResult;

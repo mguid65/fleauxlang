@@ -37,7 +37,24 @@ struct MergeMaps {
   std::vector<std::uint32_t> closures;
 };
 
+struct LoadedImports {
+  std::vector<Module> modules;
+  std::vector<ResolvedModulePaths> paths;
+};
+
+struct ImportSeeds {
+  std::unordered_set<std::string> symbols;
+  std::vector<frontend::ir::IRLet> typed_lets;
+  std::vector<frontend::ir::IRTypeDecl> type_decls;
+  std::vector<frontend::ir::IRAliasDecl> alias_decls;
+};
+
 auto make_error(const std::string& message) -> ModuleLoadError { return ModuleLoadError{.message = message}; }
+
+auto make_parse_error(const std::string& message, const std::optional<std::string>& hint,
+                      const std::optional<frontend::diag::SourceSpan>&) -> ModuleLoadError {
+  return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
+}
 
 auto hash_text(const std::string& text) -> std::uint64_t {
   std::uint64_t hash = kFnvOffsetBasis;
@@ -56,7 +73,7 @@ auto full_symbol_name(const std::optional<std::string>& qualifier, const std::st
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
-auto let_identity_key(const fleaux::frontend::ir::IRLet& let) -> std::string {
+auto let_identity_key(const frontend::ir::IRLet& let) -> std::string {
   if (!let.symbol_key.empty()) {
     return let.symbol_key;
   }
@@ -68,12 +85,12 @@ auto export_identity_key(const ExportedSymbol& symbol) -> std::string {
 }
 
 auto resolve_entry_paths(const std::filesystem::path& entry_path) -> ResolvedModulePaths {
-  return fleaux::frontend::import_resolution::resolve_entry_paths(entry_path);
+  return frontend::import_resolution::resolve_entry_paths(entry_path);
 }
 
 auto resolve_import_paths(const std::filesystem::path& current_module_dir, const std::string& module_name)
     -> ResolvedModulePaths {
-  return fleaux::frontend::import_resolution::resolve_import_paths(current_module_dir, module_name);
+  return frontend::import_resolution::resolve_import_paths(current_module_dir, module_name);
 }
 
 auto read_binary_file(const std::filesystem::path& file_path)
@@ -154,16 +171,14 @@ auto merge_module_into(Module& target, const Module& source,
     }
 
     maps.functions[index] = static_cast<std::uint32_t>(target.functions.size());
-    FunctionDef merged_function{
-      .name = function.name,
-      .arity = function.arity,
-      .has_variadic_tail = function.has_variadic_tail,
-      .is_import_placeholder = false,
-      .instructions = {},
-      .generic_params = function.generic_params,
-      .param_type_names = function.param_type_names,
-      .return_type_name = function.return_type_name
-    };
+    FunctionDef merged_function{.name = function.name,
+                                .arity = function.arity,
+                                .has_variadic_tail = function.has_variadic_tail,
+                                .is_import_placeholder = false,
+                                .instructions = {},
+                                .generic_params = function.generic_params,
+                                .param_type_names = function.param_type_names,
+                                .return_type_name = function.return_type_name};
     target.functions.push_back(std::move(merged_function));
   }
 
@@ -210,6 +225,281 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
 auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state,
                       LinkContext& context) -> tl::expected<void, ModuleLoadError>;
 
+auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOptions& options)
+    -> tl::expected<std::optional<Module>, ModuleLoadError> {
+  if (!paths.bytecode.has_value() || (paths.source.has_value() && !value_ref_cache_compatible(options))) {
+    return std::optional<Module>{};
+  }
+
+  const auto serialized = read_binary_file(*paths.bytecode);
+  if (!serialized) {
+    if (!paths.source.has_value()) {
+      return tl::unexpected(serialized.error());
+    }
+    return std::optional<Module>{};
+  }
+
+  const auto deserialized = deserialize_module(*serialized);
+  if (!deserialized) {
+    if (!paths.source.has_value()) {
+      return tl::unexpected(make_error(deserialized.error().message));
+    }
+    return std::optional<Module>{};
+  }
+
+  if (!paths.source.has_value()) {
+    return std::optional<Module>{deserialized.value()};
+  }
+
+  if (const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
+      source_text && deserialized->header.source_hash == hash_text(*source_text) &&
+      deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
+    return std::optional<Module>{deserialized.value()};
+  }
+
+  return std::optional<Module>{};
+}
+
+auto load_imports(const frontend::ir::IRProgram& ir_program, const ResolvedModulePaths& paths,
+                  const ModuleLoadOptions& options, LoaderState& state)
+    -> tl::expected<LoadedImports, ModuleLoadError> {
+  LoadedImports loaded;
+  loaded.modules.reserve(ir_program.imports.size());
+  loaded.paths.reserve(ir_program.imports.size());
+
+  for (const auto& [module_name, src_span] : ir_program.imports) {
+    (void)src_span;
+    if (frontend::import_resolution::is_symbolic_import(module_name)) {
+      continue;
+    }
+
+    const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name);
+    if (!import_paths.source.has_value() && !import_paths.bytecode.has_value()) {
+      return tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
+                                       "'. Checked relative to '" + paths.source->string() +
+                                       "'. Verify module name and file location."));
+    }
+
+    auto imported_module = load_unlinked_module(import_paths, options, state);
+    if (!imported_module) {
+      return tl::unexpected(imported_module.error());
+    }
+
+    loaded.paths.push_back(import_paths);
+    loaded.modules.push_back(std::move(imported_module.value()));
+  }
+
+  return loaded;
+}
+
+void seed_imported_symbol_names(const Module& imported_module, ImportSeeds& seeds) {
+  for (const auto& exported : imported_module.exports) {
+    if (exported.name.empty()) {
+      continue;
+    }
+    seeds.symbols.insert(exported.name);
+  }
+}
+
+auto make_generic_typed_import_stub(const ExportedSymbol& exported,
+                                    const std::unordered_map<std::string, const FunctionDef*>& fn_by_link_name)
+    -> std::optional<frontend::ir::IRLet> {
+  if (exported.kind != ExportKind::kFunction) {
+    return std::nullopt;
+  }
+
+  const auto id_key = export_identity_key(exported);
+  const auto fn_it = fn_by_link_name.find(id_key);
+  if (fn_it == fn_by_link_name.end()) {
+    return std::nullopt;
+  }
+
+  const FunctionDef& fn = *fn_it->second;
+  if (fn.generic_params.empty()) {
+    return std::nullopt;
+  }
+
+  frontend::ir::IRLet stub;
+  const auto& full_name = exported.name;
+  if (const auto dot = full_name.rfind('.'); dot != std::string::npos) {
+    stub.qualifier = full_name.substr(0, dot);
+    stub.name = full_name.substr(dot + 1);
+  } else {
+    stub.name = full_name;
+  }
+  stub.symbol_key = id_key;
+  stub.generic_params = fn.generic_params;
+
+  const bool have_type_names = fn.param_type_names.size() == static_cast<std::size_t>(fn.arity);
+  for (std::uint32_t p = 0; p < fn.arity; ++p) {
+    frontend::ir::IRParam param;
+    param.name = "_p" + std::to_string(p);
+    param.type.name = have_type_names ? fn.param_type_names[p] : "Any";
+    param.type.variadic = (fn.has_variadic_tail && p + 1 == fn.arity);
+    stub.params.push_back(std::move(param));
+  }
+  stub.return_type.name = fn.return_type_name.empty() ? "Any" : fn.return_type_name;
+  return stub;
+}
+
+void seed_imports_from_bytecode_module(const Module& imported_module,
+                                       std::unordered_set<std::string>& imported_typed_let_keys, ImportSeeds& seeds) {
+  std::unordered_map<std::string, const FunctionDef*> fn_by_link_name;
+  for (const auto& fn : imported_module.functions) {
+    fn_by_link_name.emplace(fn.name, &fn);
+  }
+
+  for (const auto& exported : imported_module.exports) {
+    if (const auto id_key = export_identity_key(exported); !imported_typed_let_keys.insert(id_key).second) {
+      continue;
+    }
+
+    if (auto stub = make_generic_typed_import_stub(exported, fn_by_link_name); stub.has_value()) {
+      seeds.typed_lets.push_back(std::move(*stub));
+    }
+  }
+}
+
+auto load_import_source_ir(const std::filesystem::path& source_path)
+    -> tl::expected<frontend::ir::IRProgram, ModuleLoadError> {
+  const auto imported_ir =
+      fleaux::frontend::source_loader::load_ir_program<ModuleLoadError>(source_path, make_parse_error);
+  if (!imported_ir) {
+    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string() + " (" +
+                                     imported_ir.error().message + ")"));
+  }
+  return *imported_ir;
+}
+
+auto seed_imports_from_source_module(const Module& imported_module, const std::filesystem::path& source_path,
+                                     std::unordered_set<std::string>& imported_typed_let_keys,
+                                     std::unordered_set<std::string>& imported_alias_decl_keys, ImportSeeds& seeds)
+    -> tl::expected<void, ModuleLoadError> {
+  const auto imported_ir = load_import_source_ir(source_path);
+  if (!imported_ir) {
+    return tl::unexpected(imported_ir.error());
+  }
+
+  std::unordered_set<std::string> exported_keys;
+  for (const auto& exported : imported_module.exports) {
+    exported_keys.insert(export_identity_key(exported));
+  }
+
+  std::unordered_set<std::string> seeded_export_names;
+  for (const auto& imported_let : imported_ir->lets) {
+    const auto symbol = let_identity_key(imported_let);
+    if (!exported_keys.contains(symbol)) {
+      continue;
+    }
+    if (!imported_typed_let_keys.insert(symbol).second) {
+      continue;
+    }
+    seeded_export_names.insert(symbol);
+    seeds.typed_lets.push_back(imported_let);
+  }
+
+  for (const auto& imported_type_decl : imported_ir->type_decls) {
+    seeds.type_decls.push_back(imported_type_decl);
+  }
+
+  for (const auto& imported_alias_decl : imported_ir->alias_decls) {
+    if (const auto alias_key = frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
+        imported_alias_decl_keys.insert(alias_key).second) {
+      seeds.alias_decls.push_back(imported_alias_decl);
+    }
+  }
+
+  for (const auto& exported_key : exported_keys) {
+    if (seeded_export_names.contains(exported_key)) {
+      continue;
+    }
+    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string() +
+                                     " (Missing exported declaration for typed import seed: '" + exported_key + "'.)"));
+  }
+
+  return {};
+}
+
+auto seed_imports(const LoadedImports& loaded_imports) -> tl::expected<ImportSeeds, ModuleLoadError> {
+  ImportSeeds seeds;
+  std::unordered_set<std::string> imported_typed_let_keys;
+  std::unordered_set<std::string> imported_alias_decl_keys;
+
+  for (std::size_t idx = 0; idx < loaded_imports.modules.size(); ++idx) {
+    const auto& imported_module = loaded_imports.modules[idx];
+    seed_imported_symbol_names(imported_module, seeds);
+
+    if (idx >= loaded_imports.paths.size()) {
+      continue;
+    }
+
+    const auto& [source, bytecode] = loaded_imports.paths[idx];
+    (void)bytecode;
+    if (!source.has_value()) {
+      seed_imports_from_bytecode_module(imported_module, imported_typed_let_keys, seeds);
+      continue;
+    }
+
+    if (auto seeded = seed_imports_from_source_module(imported_module, *source, imported_typed_let_keys,
+                                                      imported_alias_decl_keys, seeds);
+        !seeded) {
+      return tl::unexpected(seeded.error());
+    }
+  }
+
+  return seeds;
+}
+
+auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptions& options,
+                         const std::string& source_text, const frontend::ir::IRProgram& ir_program,
+                         LoadedImports loaded_imports, ImportSeeds import_seeds)
+    -> tl::expected<Module, ModuleLoadError> {
+  if (auto symbolic_seed = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<ModuleLoadError>(
+          ir_program, make_parse_error, import_seeds.symbols, import_seeds.typed_lets, import_seeds.type_decls,
+          import_seeds.alias_decls);
+      !symbolic_seed) {
+    return tl::unexpected(symbolic_seed.error());
+  }
+
+  const auto analyzed = frontend::type_check::analyze_program(ir_program, import_seeds.symbols, import_seeds.typed_lets,
+                                                              import_seeds.type_decls, import_seeds.alias_decls);
+  if (!analyzed) {
+    return tl::unexpected(make_error(analyzed.error().hint.has_value()
+                                         ? analyzed.error().message + " (" + *analyzed.error().hint + ")"
+                                         : analyzed.error().message));
+  }
+
+  constexpr BytecodeCompiler compiler;
+  auto compiled = compiler.compile(
+      *analyzed, CompileOptions{
+                     .source_path = *paths.source,
+                     .source_text = source_text,
+                     .module_name = paths.source->stem().string(),
+                     .imported_modules = std::move(loaded_imports.modules),
+                     .enable_value_ref_gate = options.enable_value_ref_gate || options.enable_auto_value_ref,
+                     .enable_auto_value_ref = options.enable_auto_value_ref,
+                     .value_ref_byte_cutoff = options.value_ref_byte_cutoff,
+                 });
+  if (!compiled) {
+    return tl::unexpected(make_error(compiled.error().message));
+  }
+
+  Module mod = std::move(compiled.value());
+  mod.header.optimization_mode = static_cast<std::uint8_t>(options.mode);
+  constexpr BytecodeOptimizer optimizer;
+  if (const auto optimized = optimizer.optimize(mod, OptimizerConfig{.mode = options.mode}); !optimized) {
+    return tl::unexpected(make_error(optimized.error().message));
+  }
+
+  if (options.write_bytecode_cache && paths.bytecode.has_value() && value_ref_cache_compatible(options)) {
+    if (const auto serialized = serialize_module(mod); serialized) {
+      write_binary_file(*paths.bytecode, *serialized);
+    }
+  }
+
+  return mod;
+}
+
 auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state)
     -> tl::expected<Module, ModuleLoadError> {
   const std::string key = fleaux::frontend::import_resolution::module_key_for(paths);
@@ -231,256 +521,43 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     return result;
   };
 
-  if (paths.bytecode.has_value() && (!paths.source.has_value() || value_ref_cache_compatible(options))) {
-    if (const auto serialized = read_binary_file(*paths.bytecode)) {
-      if (const auto deserialized = deserialize_module(*serialized)) {
-        if (!paths.source.has_value()) {
-          return finish(deserialized.value());
-        }
-
-        if (const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
-            source_text && deserialized->header.source_hash == hash_text(*source_text) &&
-            deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
-          return finish(deserialized.value());
-        }
-      } else if (!paths.source.has_value()) {
-        return finish(tl::unexpected(make_error(deserialized.error().message)));
-      }
-    } else if (!paths.source.has_value()) {
-      return finish(tl::unexpected(serialized.error()));
-    }
+  if (const auto cached = try_load_cached_module(paths, options); !cached) {
+    return finish(tl::unexpected(cached.error()));
+  } else if (cached->has_value()) {
+    return finish(**cached);
   }
 
   if (!paths.source.has_value()) {
     return finish(tl::unexpected(make_error("Module source and bytecode were both unavailable.")));
   }
 
-  const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
+  const auto source_text = frontend::source_loader::read_text_file(*paths.source);
   if (!source_text) {
     return finish(tl::unexpected(make_error(source_text.error().message)));
   }
 
-  const auto make_parse_error = [](const std::string& message, const std::optional<std::string>& hint,
-                                   const std::optional<fleaux::frontend::diag::SourceSpan>&) -> ModuleLoadError {
-    return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
-  };
   const auto ir_program = fleaux::frontend::source_loader::parse_text_to_lowered_ir<ModuleLoadError>(
       *source_text, paths.source->string(), make_parse_error);
   if (!ir_program) {
     return finish(tl::unexpected(ir_program.error()));
   }
 
-  std::vector<Module> imported_modules;
-  std::vector<ResolvedModulePaths> imported_module_paths;
-
-  imported_modules.reserve(ir_program->imports.size());
-  imported_module_paths.reserve(ir_program->imports.size());
-
-  for (const auto& [module_name, src_span] : ir_program->imports) {
-    if (fleaux::frontend::import_resolution::is_symbolic_import(module_name)) {
-      continue;
-    }
-
-    const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name);
-    if (!import_paths.source.has_value() && !import_paths.bytecode.has_value()) {
-      return finish(tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
-                                              "'. Checked relative to '" + paths.source->string() +
-                                              "'. Verify module name and file location.")));
-    }
-
-    auto imported_module = load_unlinked_module(import_paths, options, state);
-    if (!imported_module) {
-      return finish(tl::unexpected(imported_module.error()));
-    }
-
-    imported_module_paths.push_back(import_paths);
-    imported_modules.push_back(std::move(imported_module.value()));
+  const auto loaded_imports = load_imports(*ir_program, paths, options, state);
+  if (!loaded_imports) {
+    return finish(tl::unexpected(loaded_imports.error()));
   }
 
-  std::unordered_set<std::string> imported_symbols;
-  std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
-  std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls;
-  std::vector<fleaux::frontend::ir::IRAliasDecl> imported_alias_decls;
-  std::unordered_set<std::string> imported_typed_let_keys;
-  std::unordered_set<std::string> imported_alias_decl_keys;
-
-  for (std::size_t idx = 0; idx < imported_modules.size(); ++idx) {
-    const auto& imported_module = imported_modules[idx];
-    for (const auto& exported : imported_module.exports) {
-      if (exported.name.empty()) {
-        continue;
-      }
-      // Track exported symbols exactly as declared by imported modules.
-      imported_symbols.insert(exported.name);
-    }
-
-    if (idx < imported_module_paths.size()) {
-      const auto& [source, bytecode] = imported_module_paths[idx];
-      if (!source.has_value()) {
-        // No source available – fall back to reconstructing typed-import stubs
-        // directly from bytecode metadata.  Only generic functions carry enough
-        // information to rebuild a meaningful stub; non-generic functions are
-        // skipped (the symbol is already registered in `imported_symbols`, so
-        // the type checker simply treats calls to them as Any-typed).
-        //
-        // Build a map from link_name → FunctionDef for quick lookup.
-        std::unordered_map<std::string, const FunctionDef*> fn_by_link_name;
-        for (const auto& fn : imported_module.functions) {
-          fn_by_link_name.emplace(fn.name, &fn);
-        }
-
-        for (const auto& exported : imported_module.exports) {
-          if (exported.kind != ExportKind::kFunction) {
-            continue;
-          }
-          const auto id_key = export_identity_key(exported);
-          if (!imported_typed_let_keys.insert(id_key).second) {
-            continue;  // already seeded by an earlier import with source
-          }
-
-          const auto fn_it = fn_by_link_name.find(id_key);
-          if (fn_it == fn_by_link_name.end()) {
-            continue;
-          }
-          const FunctionDef& fn = *fn_it->second;
-          if (fn.generic_params.empty()) {
-            continue;  // non-generic: no stub needed
-          }
-
-          // Decompose "Qualifier.Name" → qualifier + name.
-          fleaux::frontend::ir::IRLet stub;
-          const auto& full_name = exported.name;
-          if (const auto dot = full_name.rfind('.'); dot != std::string::npos) {
-            stub.qualifier = full_name.substr(0, dot);
-            stub.name     = full_name.substr(dot + 1);
-          } else {
-            stub.name = full_name;
-          }
-          stub.symbol_key    = id_key;
-          stub.generic_params = fn.generic_params;
-
-          // Reconstruct parameter list from the stored type names.
-          // For simple/named types (including TypeVar names like "T") this
-          // gives a fully accurate IRParam.  Complex structural types (whose
-          // outer name is e.g. "Function" or "Tuple") are reconstructed with
-          // the outer name only; inner TypeVar bindings are lost but the
-          // resulting type is treated permissively by the checker.
-          const bool have_type_names = fn.param_type_names.size() == static_cast<std::size_t>(fn.arity);
-          for (std::uint32_t p = 0; p < fn.arity; ++p) {
-            fleaux::frontend::ir::IRParam param;
-            param.name = "_p" + std::to_string(p);
-            param.type.name = have_type_names ? fn.param_type_names[p] : "Any";
-            param.type.variadic = (fn.has_variadic_tail && p + 1 == fn.arity);
-            stub.params.push_back(std::move(param));
-          }
-          stub.return_type.name = fn.return_type_name.empty() ? "Any" : fn.return_type_name;
-
-          imported_typed_lets.push_back(std::move(stub));
-        }
-        continue;
-      }
-
-      const auto make_import_parse_error =
-          [](const std::string& message, const std::optional<std::string>& hint,
-             const std::optional<fleaux::frontend::diag::SourceSpan>&) -> ModuleLoadError {
-        return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
-      };
-
-      const auto imported_ir =
-          fleaux::frontend::source_loader::load_ir_program<ModuleLoadError>(*source, make_import_parse_error);
-      if (!imported_ir) {
-        return finish(tl::unexpected(make_error("Failed to seed typed imports from source: " + source->string() + " (" +
-                                                imported_ir.error().message + ")")));
-      }
-
-      std::unordered_set<std::string> exported_names;
-      std::unordered_set<std::string> exported_keys;
-      for (const auto& exported : imported_module.exports) {
-        exported_names.insert(exported.name);
-        exported_keys.insert(export_identity_key(exported));
-      }
-
-      std::unordered_set<std::string> seeded_export_names;
-
-      for (const auto& imported_let : imported_ir->lets) {
-        const auto symbol = let_identity_key(imported_let);
-        if (!exported_keys.contains(symbol)) {
-          continue;
-        }
-        if (!imported_typed_let_keys.insert(symbol).second) {
-          continue;
-        }
-        seeded_export_names.insert(symbol);
-        imported_typed_lets.push_back(imported_let);
-      }
-
-      for (const auto& imported_type_decl : imported_ir->type_decls) {
-        imported_type_decls.push_back(imported_type_decl);
-      }
-
-      for (const auto& imported_alias_decl : imported_ir->alias_decls) {
-        if (const auto alias_key = fleaux::frontend::source_loader::alias_decl_identity_key(imported_alias_decl);
-            imported_alias_decl_keys.insert(alias_key).second) {
-          imported_alias_decls.push_back(imported_alias_decl);
-        }
-      }
-
-      for (const auto& exported_key : exported_keys) {
-        if (seeded_export_names.contains(exported_key)) {
-          continue;
-        }
-        return finish(tl::unexpected(make_error("Failed to seed typed imports from source: " + source->string() +
-                                                " (Missing exported declaration for typed import seed: '" +
-                                                exported_key + "'.)")));
-      }
-    }
+  const auto import_seeds = seed_imports(*loaded_imports);
+  if (!import_seeds) {
+    return finish(tl::unexpected(import_seeds.error()));
   }
 
-  if (auto symbolic_seed = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<ModuleLoadError>(
-          *ir_program, make_parse_error, imported_symbols, imported_typed_lets, imported_type_decls,
-          imported_alias_decls);
-      !symbolic_seed) {
-    return finish(tl::unexpected(symbolic_seed.error()));
-  }
-
-  const auto analyzed =
-      fleaux::frontend::type_check::analyze_program(*ir_program, imported_symbols, imported_typed_lets,
-                                                    imported_type_decls, imported_alias_decls);
-  if (!analyzed) {
-    return finish(tl::unexpected(make_error(analyzed.error().hint.has_value()
-                                                ? analyzed.error().message + " (" + *analyzed.error().hint + ")"
-                                                : analyzed.error().message)));
-  }
-
-  constexpr BytecodeCompiler compiler;
-  auto compiled = compiler.compile(*analyzed, CompileOptions{
-                                                  .source_path = *paths.source,
-                                                   .source_text = *source_text,
-                                                  .module_name = paths.source->stem().string(),
-                                                  .imported_modules = std::move(imported_modules),
-                                                  .enable_value_ref_gate =
-                                                      options.enable_value_ref_gate || options.enable_auto_value_ref,
-                                                  .enable_auto_value_ref = options.enable_auto_value_ref,
-                                                  .value_ref_byte_cutoff = options.value_ref_byte_cutoff,
-                                              });
+  const auto compiled = compile_from_source(paths, options, *source_text, *ir_program, *loaded_imports, *import_seeds);
   if (!compiled) {
-    return finish(tl::unexpected(make_error(compiled.error().message)));
+    return finish(tl::unexpected(compiled.error()));
   }
 
-  Module mod = std::move(compiled.value());
-  mod.header.optimization_mode = static_cast<std::uint8_t>(options.mode);
-  constexpr BytecodeOptimizer optimizer;
-  if (const auto optimized = optimizer.optimize(mod, OptimizerConfig{.mode = options.mode}); !optimized) {
-    return finish(tl::unexpected(make_error(optimized.error().message)));
-  }
-
-  if (options.write_bytecode_cache && paths.bytecode.has_value() && value_ref_cache_compatible(options)) {
-    if (const auto serialized = serialize_module(mod); serialized) {
-      write_binary_file(*paths.bytecode, *serialized);
-    }
-  }
-
-  return finish(mod);
+  return finish(compiled.value());
 }
 
 auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions& options, LoaderState& state,

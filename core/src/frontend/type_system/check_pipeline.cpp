@@ -4,6 +4,86 @@
 
 namespace fleaux::frontend::type_system::detail {
 
+namespace {
+
+struct FlowTargetResolution {
+  const FunctionOverloadSet* overloads = nullptr;
+  bool fallback_to_any = false;
+};
+
+auto resolve_flow_explicit_type_args(const ir::IRCallTarget& target, const StrongTypeIndex& type_index,
+                                     const AliasIndex& alias_index,
+                                     const std::unordered_set<std::string>& generic_params)
+    -> tl::expected<std::vector<Type>, type_check::AnalysisError> {
+  if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
+    auto resolved =
+        resolve_explicit_type_args(name_ref->explicit_type_args, type_index, alias_index, generic_params, name_ref->span);
+    if (!resolved) {
+      return tl::unexpected(resolved.error());
+    }
+    return *resolved;
+  }
+
+  return std::vector<Type>{};
+}
+
+auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const FunctionIndex& index)
+    -> tl::expected<FlowTargetResolution, type_check::AnalysisError> {
+  if (const auto* overloads = resolve_signature(index, target); overloads != nullptr) {
+    return FlowTargetResolution{.overloads = overloads, .fallback_to_any = false};
+  }
+
+  if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
+    if (name_ref->qualifier.has_value()) {
+      if (is_removed_symbolic_alias(name_ref->qualifier, name_ref->name)) {
+        return tl::unexpected(
+            make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
+      }
+      if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) {
+        return FlowTargetResolution{.overloads = nullptr, .fallback_to_any = true};
+      }
+      return tl::unexpected(
+          make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
+    }
+
+    if (!index.has_unqualified_symbol(name_ref->name)) {
+      return tl::unexpected(make_unresolved_symbol_error(name_ref->name, name_ref->span));
+    }
+  }
+
+  return FlowTargetResolution{.overloads = nullptr, .fallback_to_any = true};
+}
+
+auto flow_args_from_lhs_type(const FunctionOverloadSet& overloads, const Type& lhs_type) -> std::vector<Type> {
+  if (overloads.size() == 1U && overloads.front().params.size() == 1U && !overloads.front().params[0].variadic) {
+    return {lhs_type};
+  }
+
+  return args_from_lhs_type(lhs_type);
+}
+
+auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& overloads, const Type& lhs_type,
+                              const StrongTypeIndex& type_index,
+                              const std::unordered_set<std::string>& generic_params,
+                              const std::vector<Type>& explicit_type_args)
+    -> tl::expected<Type, type_check::AnalysisError> {
+  const auto args = flow_args_from_lhs_type(overloads, lhs_type);
+  const auto full_name = target_name(flow.rhs).value_or("<operator>");
+  auto checked =
+      resolve_overload_invocation(full_name, flow.span, overloads, args, type_index, generic_params, explicit_type_args);
+  if (!checked) {
+    return tl::unexpected(checked.error());
+  }
+
+  if (auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
+    name_ref->resolved_symbol_key = checked->resolved_symbol_key;
+  }
+
+  return checked->return_type;
+}
+
+}  // namespace
+
 auto is_std_match_target(const ir::IRCallTarget& target) -> bool {
   const auto* name_ref = std::get_if<ir::IRNameRef>(&target);
   return name_ref != nullptr && name_ref->qualifier.has_value() && *name_ref->qualifier == "Std" &&
@@ -226,56 +306,21 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
     return tl::unexpected(lhs_type.error());
   }
 
-  std::vector<Type> explicit_type_args;
-  if (const auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
-    auto resolved = resolve_explicit_type_args(name_ref->explicit_type_args, type_index, alias_index, generic_params,
-                                               name_ref->span);
-    if (!resolved) {
-      return tl::unexpected(resolved.error());
-    }
-    explicit_type_args = std::move(*resolved);
+  auto explicit_type_args = resolve_flow_explicit_type_args(flow.rhs, type_index, alias_index, generic_params);
+  if (!explicit_type_args) {
+    return tl::unexpected(explicit_type_args.error());
   }
 
-  const auto* overloads = resolve_signature(index, flow.rhs);
-  if (overloads == nullptr) {
-    if (const auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
-      if (name_ref->qualifier.has_value()) {
-        if (is_removed_symbolic_alias(name_ref->qualifier, name_ref->name)) {
-          return tl::unexpected(
-              make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
-        }
-        if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) {
-          return make_type(TypeKind::kAny);
-        }
-        return tl::unexpected(
-            make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
-      }
-      if (!index.has_unqualified_symbol(name_ref->name)) {
-        return tl::unexpected(make_unresolved_symbol_error(name_ref->name, name_ref->span));
-      }
-    }
+  auto target_resolution = resolve_flow_target_or_fallback(flow.rhs, index);
+  if (!target_resolution) {
+    return tl::unexpected(target_resolution.error());
+  }
+  if (target_resolution->fallback_to_any) {
     return make_type(TypeKind::kAny);
   }
 
-  std::vector<Type> args;
-  if (overloads->size() == 1U && overloads->front().params.size() == 1U && !overloads->front().params[0].variadic) {
-    args = {*lhs_type};
-  } else {
-    args = args_from_lhs_type(*lhs_type);
-  }
-
-  const auto full_name = target_name(flow.rhs).value_or("<operator>");
-  auto checked = resolve_overload_invocation(full_name, flow.span, *overloads, args, type_index, generic_params,
-                                             explicit_type_args);
-  if (!checked) {
-    return tl::unexpected(checked.error());
-  }
-
-  if (auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
-    name_ref->resolved_symbol_key = checked->resolved_symbol_key;
-  }
-
-  return checked->return_type;
+  return finalize_flow_resolution(flow, *target_resolution->overloads, *lhs_type, type_index, generic_params,
+                                  *explicit_type_args);
 }
 
 }  // namespace fleaux::frontend::type_system::detail

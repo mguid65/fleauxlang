@@ -1,5 +1,6 @@
 #include <cctype>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -76,10 +77,18 @@ void set_status(const WasmStatus status) { g_state.last_status = status; }
 
 void set_error(std::string msg) { g_state.last_error = std::move(msg); }
 
+void set_output(std::string text) { g_state.last_output = std::move(text); }
+
 auto fail(const WasmStatus status, std::string message) -> WasmStatus {
   set_status(status);
   set_error(std::move(message));
   return status;
+}
+
+auto fail_with_diagnostic(const WasmStatus status, const std::string_view stage, const std::string& message,
+                          const std::optional<fleaux::frontend::diag::SourceSpan>& span = std::nullopt,
+                          const std::optional<std::string>& hint = std::nullopt) -> WasmStatus {
+  return fail(status, fleaux::frontend::diag::format_diagnostic(std::string(stage), message, span, hint));
 }
 
 const char* safe_text(const char* text, const char* fallback) {
@@ -94,33 +103,56 @@ const char* safe_text(const char* text, const char* fallback) {
   return name;
 }
 
+#if FLEAUX_WASM_HAS_RUNTIME
+void set_process_args_for_source_name(const std::string& name) {
+  std::vector<std::string> args_storage{name};
+  std::vector<char*> argv_ptrs;
+  argv_ptrs.reserve(args_storage.size());
+  for (auto& arg : args_storage) {
+    argv_ptrs.push_back(arg.data());
+  }
+  fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+}
+
+auto execute_runtime_module(fleaux::bytecode::Module& module, std::ostringstream& output)
+    -> tl::expected<int, std::string> {
+  try {
+    const fleaux::vm::Runtime runtime;
+    const auto exec = runtime.execute(module, output);
+    if (!exec) {
+      return tl::unexpected(exec.error().message);
+    }
+    return static_cast<int>(exec->exit_code);
+  } catch (const std::exception& ex) {
+    return tl::unexpected(std::string(ex.what()));
+  } catch (...) {
+    return tl::unexpected(std::string("Unknown runtime failure"));
+  }
+}
+#endif
+
 auto compile_module(const std::string& source, const std::string& name)
     -> tl::expected<fleaux::bytecode::Module, WasmStatus> {
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(source, name);
   if (!parsed) {
-    return tl::unexpected(fail(
-        WasmStatus::kParseError,
-        fleaux::frontend::diag::format_diagnostic(
-            "parse", parsed.error().message, parsed.error().span, parsed.error().hint)));
+    return tl::unexpected(
+        fail_with_diagnostic(WasmStatus::kParseError, "parse", parsed.error().message, parsed.error().span,
+                             parsed.error().hint));
   }
 
   const fleaux::frontend::lowering::Lowerer lowerer;
   const auto lowered = lowerer.lower(parsed.value());
   if (!lowered) {
-    return tl::unexpected(fail(
-        WasmStatus::kLowerError,
-        fleaux::frontend::diag::format_diagnostic(
-            "lower", lowered.error().message, lowered.error().span, lowered.error().hint)));
+    return tl::unexpected(
+        fail_with_diagnostic(WasmStatus::kLowerError, "lower", lowered.error().message, lowered.error().span,
+                             lowered.error().hint));
   }
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto bytecode = compiler.compile(lowered.value());
   if (!bytecode) {
-    return tl::unexpected(fail(
-        WasmStatus::kCompileError,
-        fleaux::frontend::diag::format_diagnostic(
-            "compiler", bytecode.error().message, std::nullopt, std::nullopt)));
+    return tl::unexpected(fail_with_diagnostic(WasmStatus::kCompileError, "compiler", bytecode.error().message));
   }
 
   return bytecode.value();
@@ -142,44 +174,35 @@ auto load_compile_unit(const char* source_text, const char* source_name)
   return std::make_pair(std::move(compiled.value()), name);
 }
 
+template <class Handler>
+int run_with_compile_unit(const char* source_text, const char* source_name, Handler&& handler) {
+  g_state.reset();
+
+  const auto compile_unit = load_compile_unit(source_text, source_name);
+  if (!compile_unit) {
+    return to_status_code(compile_unit.error());
+  }
+
+  return std::forward<Handler>(handler)(std::move(compile_unit.value()));
+}
+
 auto run_module(fleaux::bytecode::Module module, const std::string& name) -> WasmStatus {
 #if FLEAUX_WASM_HAS_RUNTIME
-  std::vector<std::string> args_storage{name};
-  std::vector<char*> argv_ptrs;
-  argv_ptrs.reserve(args_storage.size());
-  for (auto& arg : args_storage) {
-    argv_ptrs.push_back(arg.data());
-  }
-  fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+  set_process_args_for_source_name(name);
 
   std::ostringstream output;
   StreamRedirectGuard cout_guard(std::cout, output);
   StreamRedirectGuard cerr_guard(std::cerr, output);
-  try {
-    const fleaux::vm::Runtime runtime;
-    const auto exec = runtime.execute(module, output);
-    g_state.last_output = output.str();
+  const auto exit_code = execute_runtime_module(module, output);
+  set_output(output.str());
 
-    if (!exec) {
-      return fail(
-          WasmStatus::kRuntimeError,
-          fleaux::frontend::diag::format_diagnostic("runtime", exec.error().message, std::nullopt, std::nullopt));
-    }
-
-    g_state.last_exit_code = static_cast<int>(exec->exit_code);
-    set_status(WasmStatus::kOk);
-    return WasmStatus::kOk;
-  } catch (const std::exception& ex) {
-    g_state.last_output = output.str();
-    return fail(
-        WasmStatus::kRuntimeError,
-        fleaux::frontend::diag::format_diagnostic("runtime", ex.what(), std::nullopt, std::nullopt));
-  } catch (...) {
-    g_state.last_output = output.str();
-    return fail(
-        WasmStatus::kRuntimeError,
-        fleaux::frontend::diag::format_diagnostic("runtime", "Unknown runtime failure", std::nullopt, std::nullopt));
+  if (!exit_code) {
+    return fail_with_diagnostic(WasmStatus::kRuntimeError, "runtime", exit_code.error());
   }
+
+  g_state.last_exit_code = *exit_code;
+  set_status(WasmStatus::kOk);
+  return WasmStatus::kOk;
 #else
   (void)module;
   (void)name;
@@ -212,26 +235,14 @@ FLEAUX_WASM_EXPORT int fleaux_wasm_last_status() {
 
 // Coordinator entrypoint for smoke-testing the Emscripten toolchain.
 FLEAUX_WASM_EXPORT int fleaux_wasm_parse_and_lower(const char* source_text, const char* source_name) {
-  g_state.reset();
-
-  const auto compile_unit = load_compile_unit(source_text, source_name);
-  if (!compile_unit) {
-    return to_status_code(compile_unit.error());
-  }
-
-  return to_status_code(WasmStatus::kOk);
+  return run_with_compile_unit(source_text, source_name, [](auto&&) { return to_status_code(WasmStatus::kOk); });
 }
 
 FLEAUX_WASM_EXPORT int fleaux_wasm_run_source(const char* source_text, const char* source_name) {
-  g_state.reset();
-
-  const auto compile_unit = load_compile_unit(source_text, source_name);
-  if (!compile_unit) {
-    return to_status_code(compile_unit.error());
-  }
-
-  auto [module, name] = std::move(compile_unit.value());
-  return to_status_code(run_module(std::move(module), name));
+  return run_with_compile_unit(source_text, source_name, [](auto&& compile_unit) {
+    auto [module, name] = std::move(compile_unit);
+    return to_status_code(run_module(std::move(module), name));
+  });
 }
 
 }  // extern "C"

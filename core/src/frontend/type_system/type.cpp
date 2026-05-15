@@ -252,6 +252,125 @@ auto is_integer_like(const Type& type) -> bool {
   return type.kind == TypeKind::kInt64 || type.kind == TypeKind::kUInt64;
 }
 
+namespace {
+
+auto are_union_types_consistent(const Type& expected, const Type& actual) -> bool {
+  if (expected.union_members.empty() || actual.union_members.empty()) {
+    return false;
+  }
+
+  return std::ranges::all_of(actual.union_members, [&](const Type& actual_member) -> bool {
+    return std::ranges::any_of(expected.union_members, [&](const Type& expected_member) -> bool {
+      return is_consistent(expected_member, actual_member);
+    });
+  });
+}
+
+auto is_expected_union_consistent(const Type& expected, const Type& actual) -> bool {
+  if (expected.union_members.empty()) {
+    return false;
+  }
+
+  return std::ranges::any_of(expected.union_members,
+                             [&](const Type& member) -> bool { return is_consistent(member, actual); });
+}
+
+auto is_actual_union_consistent(const Type& expected, const Type& actual) -> bool {
+  if (actual.union_members.empty()) {
+    return false;
+  }
+
+  return std::ranges::all_of(actual.union_members,
+                             [&](const Type& member) -> bool { return is_consistent(expected, member); });
+}
+
+auto are_tuple_types_consistent(const Type& expected, const Type& actual) -> bool {
+  if (actual.kind != TypeKind::kTuple) {
+    return false;
+  }
+
+  const auto variadic_it = std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
+  if (variadic_it != expected.items.end()) {
+    const auto variadic_index = static_cast<std::size_t>(std::distance(expected.items.begin(), variadic_it));
+    if (variadic_index + 1U != expected.items.size()) {
+      return false;
+    }
+    if (actual.items.size() < variadic_index) {
+      return false;
+    }
+
+    for (std::size_t i = 0; i < variadic_index; ++i) {
+      if (!is_consistent(expected.items[i], actual.items[i])) {
+        return false;
+      }
+    }
+
+    Type repeated_expected = expected.items.back();
+    repeated_expected.variadic = false;
+    for (std::size_t i = variadic_index; i < actual.items.size(); ++i) {
+      if (!is_consistent(repeated_expected, actual.items[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (expected.items.size() != actual.items.size()) {
+    return false;
+  }
+
+  return std::equal(expected.items.begin(), expected.items.end(), actual.items.begin(),
+                    [](const Type& lhs, const Type& rhs) -> bool { return is_consistent(lhs, rhs); });
+}
+
+auto are_applied_types_consistent(const Type& expected, const Type& actual) -> bool {
+  if (actual.kind != TypeKind::kApplied) {
+    return false;
+  }
+  if (expected.applied_name != actual.applied_name) {
+    return false;
+  }
+  if (expected.applied_args.size() != actual.applied_args.size()) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < expected.applied_args.size(); ++i) {
+    if (!is_consistent(expected.applied_args[i], actual.applied_args[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+auto are_function_types_consistent(const Type& expected, const Type& actual) -> bool {
+  if (actual.kind != TypeKind::kFunction) {
+    return false;
+  }
+
+  if (!expected.function_return.has_value() || !actual.function_return.has_value()) {
+    return true;
+  }
+
+  if (expected.function_params.size() != actual.function_params.size()) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < expected.function_params.size(); ++i) {
+    if (expected.function_params[i].variadic != actual.function_params[i].variadic) {
+      return false;
+    }
+    if (!is_consistent(expected.function_params[i], actual.function_params[i]) ||
+        !is_consistent(actual.function_params[i], expected.function_params[i])) {
+      return false;
+    }
+  }
+
+  return is_consistent(*expected.function_return, *actual.function_return) &&
+         is_consistent(*actual.function_return, *expected.function_return);
+}
+
+}  // namespace
+
 auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (actual.kind == TypeKind::kNever) {
     return true;
@@ -265,88 +384,23 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
   }
 
   if (expected.kind == TypeKind::kUnion && actual.kind == TypeKind::kUnion) {
-    if (expected.union_members.empty() || actual.union_members.empty()) {
-      return false;
-    }
-    return std::ranges::all_of(actual.union_members, [&](const Type& actual_member) -> bool {
-      return std::ranges::any_of(expected.union_members, [&](const Type& expected_member) -> bool {
-        return is_consistent(expected_member, actual_member);
-      });
-    });
+    return are_union_types_consistent(expected, actual);
   }
 
   if (expected.kind == TypeKind::kUnion) {
-    if (expected.union_members.empty()) {
-      return false;
-    }
-    return std::ranges::any_of(expected.union_members,
-                               [&](const Type& member) -> bool { return is_consistent(member, actual); });
+    return is_expected_union_consistent(expected, actual);
   }
 
   if (actual.kind == TypeKind::kUnion) {
-    if (actual.union_members.empty()) {
-      return false;
-    }
-    return std::ranges::all_of(actual.union_members,
-                               [&](const Type& member) -> bool { return is_consistent(expected, member); });
+    return is_actual_union_consistent(expected, actual);
   }
 
   if (expected.kind == TypeKind::kTuple) {
-    if (actual.kind != TypeKind::kTuple) {
-      return false;
-    }
-
-    const auto variadic_it =
-        std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
-    if (variadic_it != expected.items.end()) {
-      const auto variadic_index = static_cast<std::size_t>(std::distance(expected.items.begin(), variadic_it));
-      if (variadic_index + 1U != expected.items.size()) {
-        return false;
-      }
-      if (actual.items.size() < variadic_index) {
-        return false;
-      }
-
-      for (std::size_t i = 0; i < variadic_index; ++i) {
-        if (!is_consistent(expected.items[i], actual.items[i])) {
-          return false;
-        }
-      }
-
-      Type repeated_expected = expected.items.back();
-      repeated_expected.variadic = false;
-      for (std::size_t i = variadic_index; i < actual.items.size(); ++i) {
-        if (!is_consistent(repeated_expected, actual.items[i])) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    if (expected.items.size() != actual.items.size()) {
-      return false;
-    }
-    return std::equal(expected.items.begin(), expected.items.end(), actual.items.begin(),
-                      [](const Type& lhs, const Type& rhs) -> bool { return is_consistent(lhs, rhs); });
+    return are_tuple_types_consistent(expected, actual);
   }
 
   if (expected.kind == TypeKind::kApplied) {
-    if (actual.kind != TypeKind::kApplied) {
-      return false;
-    }
-    if (expected.applied_name != actual.applied_name) {
-      return false;
-    }
-    if (expected.applied_args.size() != actual.applied_args.size()) {
-      return false;
-    }
-
-    for (std::size_t i = 0; i < expected.applied_args.size(); ++i) {
-      if (!is_consistent(expected.applied_args[i], actual.applied_args[i])) {
-        return false;
-      }
-    }
-    return true;
+    return are_applied_types_consistent(expected, actual);
   }
 
   if (expected.kind == TypeKind::kTypeVar || actual.kind == TypeKind::kTypeVar) {
@@ -358,30 +412,7 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
   }
 
   if (expected.kind == TypeKind::kFunction) {
-    if (actual.kind != TypeKind::kFunction) {
-      return false;
-    }
-
-    if (!expected.function_return.has_value() || !actual.function_return.has_value()) {
-      return true;
-    }
-
-    if (expected.function_params.size() != actual.function_params.size()) {
-      return false;
-    }
-
-    for (std::size_t i = 0; i < expected.function_params.size(); ++i) {
-      if (expected.function_params[i].variadic != actual.function_params[i].variadic) {
-        return false;
-      }
-      if (!is_consistent(expected.function_params[i], actual.function_params[i]) ||
-          !is_consistent(actual.function_params[i], expected.function_params[i])) {
-        return false;
-      }
-    }
-
-    return is_consistent(*expected.function_return, *actual.function_return) &&
-           is_consistent(*actual.function_return, *expected.function_return);
+    return are_function_types_consistent(expected, actual);
   }
 
   return expected.kind == actual.kind;

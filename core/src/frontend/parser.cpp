@@ -1,6 +1,6 @@
 #include "fleaux/frontend/parser.hpp"
-#include "fleaux/frontend/lexer.hpp"
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/frontend/lexer.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -679,6 +679,134 @@ private:
     return out;
   }
 
+  template <class Value>
+  [[nodiscard]] auto make_atom(Value&& value, const std::size_t start) const -> model::Atom {
+    model::Atom out;
+    out.value = std::forward<Value>(value);
+    out.span = span_from_mark(start);
+    return out;
+  }
+
+  [[nodiscard]] auto make_constant_atom(model::Constant constant, const std::size_t start) const -> model::Atom {
+    return make_atom(std::move(constant), start);
+  }
+
+  auto parse_number_constant(const Token& num, const bool negate, const std::size_t start) const
+      -> PResult<model::Constant> {
+    model::Constant c;
+    const bool is_u64 = num.value.ends_with("u64");
+    const std::string digits = is_u64 ? num.value.substr(0, num.value.size() - 3) : num.value;
+    const auto parse_uint64_literal = [&](const std::string& text) -> PResult<std::uint64_t> {
+      std::uint64_t result{0};
+      const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+      if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+        return tl::unexpected(err("Invalid numeric literal", num, "Use a valid UInt64 literal."));
+      }
+      if (ec == std::errc::result_out_of_range) {
+        return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of UInt64."));
+      }
+      return result;
+    };
+    const auto parse_int64_literal = [&](const std::string& text) -> PResult<std::int64_t> {
+      std::int64_t result{0};
+      const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+      if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+        return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Int64 literal."));
+      }
+      if (ec == std::errc::result_out_of_range) {
+        return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
+      }
+      return result;
+    };
+    const auto parse_float64_literal = [&](const std::string& text) -> PResult<double> {
+      double result{0.0};
+      const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
+      if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
+        return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Float64 literal."));
+      }
+      if (ec == std::errc::result_out_of_range) {
+        return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Float64."));
+      }
+      return result;
+    };
+
+    if (is_u64) {
+      if (negate) {
+        return tl::unexpected(
+            err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
+      }
+      if (digits.find_first_of(".eE") != std::string::npos) {
+        return tl::unexpected(
+            err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
+      }
+      FLEAUX_TRY_ASSIGN(result, parse_uint64_literal(digits));
+      c.val = result;
+    } else if (digits.find_first_of(".eE") != std::string::npos) {
+      FLEAUX_TRY_ASSIGN(result, parse_float64_literal(digits));
+      c.val = negate ? -result : result;
+    } else if (negate) {
+      FLEAUX_TRY_ASSIGN(unsigned_result, parse_uint64_literal(digits));
+      if (constexpr auto kInt64AbsMin = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U;
+          unsigned_result == kInt64AbsMin) {
+        c.val = std::numeric_limits<std::int64_t>::min();
+      } else if (unsigned_result <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        c.val = -static_cast<std::int64_t>(unsigned_result);
+      } else {
+        return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
+      }
+    } else {
+      FLEAUX_TRY_ASSIGN(result, parse_int64_literal(digits));
+      c.val = negate ? -result : result;
+    }
+
+    c.span = span_from_mark(start);
+    return c;
+  }
+
+  auto parse_parenthesized_atom(const std::size_t start, const bool allow_ungrouped_closure_stage_split)
+      -> PResult<model::Atom> {
+    model::Atom closure_atom;
+    // I prefer to just use this ugly macro here so ignore the clang-tidy warning about moving it into the if-init
+    // NOLINTNEXTLINE
+    FLEAUX_TRY_ASSIGN(is_closure,
+                      try_parse_closure_after_open_paren(start, closure_atom, allow_ungrouped_closure_stage_split));
+    if (is_closure) {
+      return closure_atom;
+    }
+
+    if (match_symbol(")")) {
+      return make_atom(std::monostate{}, start);
+    }
+
+    model::DelimitedExpression inner;
+    while (true) {
+      FLEAUX_TRY_ASSIGN(item_expr, expr());
+      inner.items.emplace_back(std::move(item_expr));
+      if (!match_symbol(",")) {
+        break;
+      }
+    }
+    FLEAUX_TRYV(eat_symbol(")"));
+    inner.span = span_from_mark(start);
+    return make_atom(model::DelimitedExpressionBox(std::move(inner)), start);
+  }
+
+  auto parse_named_target_atom(const std::size_t start) -> PResult<model::Atom> {
+    FLEAUX_TRY_ASSIGN(q, opt_qid());
+    model::NamedTarget named_target;
+    named_target.target = std::move(q);
+    if (is_symbol("<")) {
+      // I prefer to just use this ugly macro here so ignore the clang-tidy warning about moving it into the for-init
+      // NOLINTNEXTLINE
+      FLEAUX_TRY_ASSIGN(explicit_type_args, explicit_type_arg_list());
+      for (auto& type_arg : explicit_type_args) {
+        named_target.explicit_type_args.emplace_back(std::move(type_arg));
+      }
+    }
+    named_target.span = span_from_mark(start);
+    return make_atom(model::NamedTargetBox(std::move(named_target)), start);
+  }
+
   auto atom(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Atom> {
     const std::size_t start = i_;
 
@@ -693,128 +821,21 @@ private:
       return prefixed_closure;
     }
 
-    auto parse_number_constant = [&](const Token& num, const bool negate) -> PResult<model::Constant> {
-      model::Constant c;
-      const bool is_u64 = num.value.ends_with("u64");
-      const std::string digits = is_u64 ? num.value.substr(0, num.value.size() - 3) : num.value;
-      const auto parse_uint64_literal = [&](const std::string& text) -> PResult<std::uint64_t> {
-        std::uint64_t result{0};
-        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
-        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
-          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid UInt64 literal."));
-        }
-        if (ec == std::errc::result_out_of_range) {
-          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of UInt64."));
-        }
-        return result;
-      };
-      const auto parse_int64_literal = [&](const std::string& text) -> PResult<std::int64_t> {
-        std::int64_t result{0};
-        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
-        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
-          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Int64 literal."));
-        }
-        if (ec == std::errc::result_out_of_range) {
-          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
-        }
-        return result;
-      };
-      const auto parse_float64_literal = [&](const std::string& text) -> PResult<double> {
-        double result{0.0};
-        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
-        if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
-          return tl::unexpected(err("Invalid numeric literal", num, "Use a valid Float64 literal."));
-        }
-        if (ec == std::errc::result_out_of_range) {
-          return tl::unexpected(
-              err("Numeric literal is out of range", num, "Use a value within the range of Float64."));
-        }
-        return result;
-      };
-
-      if (is_u64) {
-        if (negate) {
-          return tl::unexpected(
-              err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
-        }
-        if (digits.find_first_of(".eE") != std::string::npos) {
-          return tl::unexpected(
-              err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
-        }
-        FLEAUX_TRY_ASSIGN(result, parse_uint64_literal(digits));
-        c.val = result;
-      } else if (digits.find_first_of(".eE") != std::string::npos) {
-        FLEAUX_TRY_ASSIGN(result, parse_float64_literal(digits));
-        c.val = negate ? -result : result;
-      } else if (negate) {
-        FLEAUX_TRY_ASSIGN(unsigned_result, parse_uint64_literal(digits));
-        if (constexpr auto kInt64AbsMin = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U;
-            unsigned_result == kInt64AbsMin) {
-          c.val = std::numeric_limits<std::int64_t>::min();
-        } else if (unsigned_result <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-          c.val = -static_cast<std::int64_t>(unsigned_result);
-        } else {
-          return tl::unexpected(err("Numeric literal is out of range", num, "Use a value within the range of Int64."));
-        }
-      } else {
-        FLEAUX_TRY_ASSIGN(result, parse_int64_literal(digits));
-        c.val = negate ? -result : result;
-      }
-      c.span = span_from_mark(start);
-      return c;
-    };
-
     if (match_symbol("(")) {
-      model::Atom closure_atom;
-      // I prefer to just use this ugly macro here so ignore the clang-tidy warning about moving it into the if-init
-      // NOLINTNEXTLINE
-      FLEAUX_TRY_ASSIGN(is_closure,
-                        try_parse_closure_after_open_paren(start, closure_atom, allow_ungrouped_closure_stage_split));
-      if (is_closure) {
-        return closure_atom;
-      }
-
-      model::Atom out;
-      if (match_symbol(")")) {
-        out.value = std::monostate{};
-        out.span = span_from_mark(start);
-        return out;
-      }
-
-      model::DelimitedExpression inner;
-      while (true) {
-        FLEAUX_TRY_ASSIGN(item_expr, expr());
-        inner.items.emplace_back(std::move(item_expr));
-        if (!match_symbol(",")) {
-          break;
-        }
-      }
-      FLEAUX_TRYV(eat_symbol(")"));
-      inner.span = span_from_mark(start);
-      out.value = model::DelimitedExpressionBox(std::move(inner));
-      out.span = span_from_mark(start);
-      return out;
+      return parse_parenthesized_atom(start, allow_ungrouped_closure_stage_split);
     }
 
     if (is_symbol("-") && peek_ahead(1) != nullptr && peek_ahead(1)->kind == TokenKind::kNumeric) {
       next();
       const Token num = next();
-      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, true));
-
-      model::Atom out;
-      out.value = std::move(c);
-      out.span = span_from_mark(start);
-      return out;
+      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, true, start));
+      return make_constant_atom(std::move(c), start);
     }
 
     if (is(TokenKind::kNumeric)) {
       const Token num = next();
-      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, false));
-
-      model::Atom out;
-      out.value = std::move(c);
-      out.span = span_from_mark(start);
-      return out;
+      FLEAUX_TRY_ASSIGN(c, parse_number_constant(num, false, start));
+      return make_constant_atom(std::move(c), start);
     }
 
     if (is(TokenKind::kString)) {
@@ -822,11 +843,7 @@ private:
       model::Constant c;
       c.val = str.value;
       c.span = span_from_mark(start);
-
-      model::Atom out;
-      out.value = std::move(c);
-      out.span = span_from_mark(start);
-      return out;
+      return make_constant_atom(std::move(c), start);
     }
 
     if (is(TokenKind::kBool)) {
@@ -834,11 +851,7 @@ private:
       model::Constant c;
       c.val = (b.value == "True");
       c.span = span_from_mark(start);
-
-      model::Atom out;
-      out.value = std::move(c);
-      out.span = span_from_mark(start);
-      return out;
+      return make_constant_atom(std::move(c), start);
     }
 
     if (is(TokenKind::kNull)) {
@@ -846,18 +859,11 @@ private:
       model::Constant c;
       c.val = std::monostate{};
       c.span = span_from_mark(start);
-
-      model::Atom out;
-      out.value = std::move(c);
-      out.span = span_from_mark(start);
-      return out;
+      return make_constant_atom(std::move(c), start);
     }
 
     if (is(TokenKind::kSymbol) && is_operator_symbol(peek().value)) {
-      model::Atom out;
-      out.value = next().value;
-      out.span = span_from_mark(start);
-      return out;
+      return make_atom(next().value, start);
     }
 
     if (!is(TokenKind::kIdent)) {
@@ -867,23 +873,7 @@ private:
           err(std::format("expected an expression, got {}", got), tok, hint_for_expected_expression(tok)));
     }
 
-    FLEAUX_TRY_ASSIGN(q, opt_qid());
-    model::NamedTarget named_target;
-    named_target.target = std::move(q);
-    if (is_symbol("<")) {
-      // I prefer to just use this ugly macro here so ignore the clang-tidy warning about moving it into the for-init
-      // NOLINTNEXTLINE
-      FLEAUX_TRY_ASSIGN(explicit_type_args, explicit_type_arg_list());
-      for (auto& type_arg : explicit_type_args) {
-        named_target.explicit_type_args.emplace_back(std::move(type_arg));
-      }
-    }
-    named_target.span = span_from_mark(start);
-
-    model::Atom out;
-    out.value = model::NamedTargetBox(std::move(named_target));
-    out.span = span_from_mark(start);
-    return out;
+    return parse_named_target_atom(start);
   }
 
   auto import_module_name() -> PResult<std::string> {
@@ -1185,12 +1175,40 @@ private:
   }
 
   [[nodiscard]] static auto format_string_list(const std::vector<std::string>& items, const int level) -> std::string {
+    return format_list(collect_formatted_items(items, [](const std::string& item) { return quote(item); }), level);
+  }
+
+  template <class Items, class Formatter>
+  [[nodiscard]] static auto collect_formatted_items(const Items& items, Formatter formatter)
+      -> std::vector<std::string> {
     std::vector<std::string> formatted;
     formatted.reserve(items.size());
     for (const auto& item : items) {
-      formatted.push_back(quote(item));
+      formatted.push_back(formatter(item));
     }
-    return format_list(formatted, level);
+    return formatted;
+  }
+
+  template <class Box, class Formatter>
+  [[nodiscard]] static auto format_boxed_or_null(const Box& box, Formatter formatter) -> std::string {
+    if (!box) {
+      return std::string{"null"};
+    }
+    return formatter(*box);
+  }
+
+  [[nodiscard]] static auto format_nullable_expression(const model::ExpressionBox& expr, const int level)
+      -> std::string {
+    return expr ? format_expression(*expr, level) : std::string{"null"};
+  }
+
+  [[nodiscard]] static auto format_named_target_target(const std::variant<std::string, model::QualifiedId>& target,
+                                                       const int level) -> std::string {
+    return std::visit(common::overloaded{[](const std::string& name) -> std::string { return quote(name); },
+                                         [&](const model::QualifiedId& qualified) -> std::string {
+                                           return format_qualified_id(qualified, level);
+                                         }},
+                      target);
   }
 
   [[nodiscard]] static auto format_list(const std::vector<std::string>& items, const int level) -> std::string {
@@ -1232,11 +1250,8 @@ private:
     std::vector<std::string> fields;
     fields.push_back(std::format("source_name: {}", quote(program.source_name)));
 
-    std::vector<std::string> statements;
-    statements.reserve(program.statements.size());
-    for (const auto& stmt : program.statements) {
-      statements.push_back(format_statement(stmt, level + 2));
-    }
+    const auto statements = collect_formatted_items(
+        program.statements, [&](const model::Statement& stmt) { return format_statement(stmt, level + 2); });
     fields.push_back(std::format("statements: {}", format_list(statements, level + 1)));
 
     return format_block("Program", fields, level);
@@ -1330,69 +1345,53 @@ private:
             [](const std::string& raw_type) -> std::string { return quote(raw_type); },
             [&](const model::QualifiedId& qualified) -> std::string { return format_qualified_id(qualified, level); },
             [&](const model::TypeListBox& type_list) -> std::string {
-              if (!type_list) {
-                return std::string{"null"};
-              }
-              std::vector<std::string> items;
-              items.reserve(type_list->types.size());
-              for (const auto& item : type_list->types) {
-                items.push_back(item ? format_type(*item, level + 2) : std::string{"null"});
-              }
-              return format_block("TypeList", {std::format("items: {}", format_list(items, level + 1))}, level);
+              return format_boxed_or_null(type_list, [&](const model::TypeList& inner) -> std::string {
+                const auto items = collect_formatted_items(inner.types, [&](const auto& item) {
+                  return item ? format_type(*item, level + 2) : std::string{"null"};
+                });
+                return format_block("TypeList", {std::format("items: {}", format_list(items, level + 1))}, level);
+              });
             },
             [&](const model::UnionTypeListBox& union_type) -> std::string {
-              if (!union_type) {
-                return std::string{"null"};
-              }
-              std::vector<std::string> items;
-              items.reserve(union_type->alternatives.size());
-              for (const auto& alternative : union_type->alternatives) {
-                items.push_back(alternative ? format_type(*alternative, level + 2) : std::string{"null"});
-              }
-              return format_block("UnionTypeList", {std::format("alternatives: {}", format_list(items, level + 1))},
-                                  level);
+              return format_boxed_or_null(union_type, [&](const model::UnionTypeList& inner) -> std::string {
+                const auto items = collect_formatted_items(inner.alternatives, [&](const auto& alternative) {
+                  return alternative ? format_type(*alternative, level + 2) : std::string{"null"};
+                });
+                return format_block("UnionTypeList", {std::format("alternatives: {}", format_list(items, level + 1))},
+                                    level);
+              });
             },
             [&](const model::AppliedTypeNodeBox& applied_type) -> std::string {
-              if (!applied_type) {
-                return std::string{"null"};
-              }
-              std::vector<std::string> args;
-              args.reserve(applied_type->args.types.size());
-              for (const auto& arg : applied_type->args.types) {
-                args.push_back(arg ? format_type(*arg, level + 2) : std::string{"null"});
-              }
-              return format_block("AppliedTypeNode",
-                                  {std::format("name: {}", quote(applied_type->name)),
-                                   std::format("args: {}", format_list(args, level + 1))},
-                                  level);
+              return format_boxed_or_null(applied_type, [&](const model::AppliedTypeNode& inner) -> std::string {
+                const auto args = collect_formatted_items(inner.args.types, [&](const auto& arg) {
+                  return arg ? format_type(*arg, level + 2) : std::string{"null"};
+                });
+                return format_block(
+                    "AppliedTypeNode",
+                    {std::format("name: {}", quote(inner.name)), std::format("args: {}", format_list(args, level + 1))},
+                    level);
+              });
             },
             [&](const model::FunctionTypeNodeBox& function_type) -> std::string {
-              if (!function_type) {
-                return std::string{"null"};
-              }
-              std::vector<std::string> params;
-              params.reserve(function_type->params.types.size());
-              for (const auto& param : function_type->params.types) {
-                params.push_back(param ? format_type(*param, level + 2) : std::string{"null"});
-              }
-              return format_block(
-                  "FunctionTypeNode",
-                  {std::format("params: {}", format_list(params, level + 1)),
-                   std::format("return_type: {}", function_type->return_type
-                                                      ? format_type(*function_type->return_type, level + 1)
-                                                      : std::string{"null"})},
-                  level);
+              return format_boxed_or_null(function_type, [&](const model::FunctionTypeNode& inner) -> std::string {
+                const auto params = collect_formatted_items(inner.params.types, [&](const auto& param) {
+                  return param ? format_type(*param, level + 2) : std::string{"null"};
+                });
+                return format_block(
+                    "FunctionTypeNode",
+                    {std::format("params: {}", format_list(params, level + 1)),
+                     std::format("return_type: {}",
+                                 inner.return_type ? format_type(*inner.return_type, level + 1) : std::string{"null"})},
+                    level);
+              });
             }},
         value);
   }
 
   [[nodiscard]] static auto format_parameter_decl_list(const model::ParameterDeclList& params, const int level)
       -> std::string {
-    std::vector<std::string> items;
-    items.reserve(params.params.size());
-    for (const auto& param : params.params) {
-      items.push_back(format_parameter(param, level + 2));
-    }
+    const auto items = collect_formatted_items(
+        params.params, [&](const model::Parameter& param) { return format_parameter(param, level + 2); });
     return format_block("ParameterDeclList", {std::format("params: {}", format_list(items, level + 1))}, level);
   }
 
@@ -1408,11 +1407,8 @@ private:
   }
 
   [[nodiscard]] static auto format_flow(const model::FlowExpression& flow, const int level) -> std::string {
-    std::vector<std::string> rhs;
-    rhs.reserve(flow.rhs.size());
-    for (const auto& stage : flow.rhs) {
-      rhs.push_back(format_primary(stage, level + 2));
-    }
+    const auto rhs = collect_formatted_items(
+        flow.rhs, [&](const model::Primary& stage) { return format_primary(stage, level + 2); });
     return format_block("FlowExpression",
                         {std::format("lhs: {}", format_primary(flow.lhs, level + 1)),
                          std::format("rhs: {}", format_list(rhs, level + 1))},
@@ -1456,60 +1452,44 @@ private:
         common::overloaded{
             [](const std::monostate&) -> std::string { return std::string{"null"}; },
             [&](const model::DelimitedExpressionBox& delimited) -> std::string {
-              if (!delimited) {
-                return std::string{"null"};
-              }
-              std::vector<std::string> items;
-              items.reserve(delimited->items.size());
-              for (const auto& item : delimited->items) {
-                items.push_back(item ? format_expression(*item, level + 2) : std::string{"null"});
-              }
-              return format_block("DelimitedExpression", {std::format("items: {}", format_list(items, level + 1))},
-                                  level);
+              return format_boxed_or_null(delimited, [&](const model::DelimitedExpression& inner) -> std::string {
+                const auto items = collect_formatted_items(
+                    inner.items, [&](const auto& item) { return format_nullable_expression(item, level + 2); });
+                return format_block("DelimitedExpression", {std::format("items: {}", format_list(items, level + 1))},
+                                    level);
+              });
             },
             [&](const model::ClosureExpressionBox& closure) -> std::string {
-              if (!closure) {
-                return std::string{"null"};
-              }
-              return format_block(
-                  "ClosureExpression",
-                  {std::format("generic_params: {}", format_string_list(closure->generic_params, level + 1)),
-                   std::format("params: {}", format_parameter_decl_list(closure->params, level + 1)),
-                   std::format("return_type: {}", format_type(closure->rtype, level + 1)),
-                   std::format("body: {}",
-                               closure->body ? format_expression(*closure->body, level + 1) : std::string{"null"})},
-                  level);
+              return format_boxed_or_null(closure, [&](const model::ClosureExpression& inner) -> std::string {
+                return format_block(
+                    "ClosureExpression",
+                    {std::format("generic_params: {}", format_string_list(inner.generic_params, level + 1)),
+                     std::format("params: {}", format_parameter_decl_list(inner.params, level + 1)),
+                     std::format("return_type: {}", format_type(inner.rtype, level + 1)),
+                     std::format("body: {}", format_nullable_expression(inner.body, level + 1))},
+                    level);
+              });
             },
             [&](const model::Constant& constant) -> std::string { return format_constant(constant, level); },
             [&](const model::QualifiedId& qualified) -> std::string { return format_qualified_id(qualified, level); },
             [](const std::string& raw) -> std::string { return quote(raw); },
             [&](const model::NamedTargetBox& named_target) -> std::string {
-              if (!named_target) {
-                return std::string{"null"};
-              }
-              return format_named_target(*named_target, level);
+              return format_boxed_or_null(
+                  named_target, [&](const model::NamedTarget& inner) { return format_named_target(inner, level); });
             }},
         value);
   }
 
   [[nodiscard]] static auto format_named_target(const model::NamedTarget& named_target, const int level)
       -> std::string {
-    std::vector<std::string> type_args;
-    type_args.reserve(named_target.explicit_type_args.size());
-    for (const auto& type_arg : named_target.explicit_type_args) {
-      type_args.push_back(type_arg ? format_type(*type_arg, level + 2) : std::string{"null"});
-    }
+    const auto type_args = collect_formatted_items(named_target.explicit_type_args, [&](const auto& type_arg) {
+      return type_arg ? format_type(*type_arg, level + 2) : std::string{"null"};
+    });
 
-    return format_block(
-        "NamedTarget",
-        {std::format("target: {}",
-                     std::visit(common::overloaded{[](const std::string& name) -> std::string { return quote(name); },
-                                                   [&](const model::QualifiedId& qualified) -> std::string {
-                                                     return format_qualified_id(qualified, level + 1);
-                                                   }},
-                                named_target.target)),
-         std::format("explicit_type_args: {}", format_list(type_args, level + 1))},
-        level);
+    return format_block("NamedTarget",
+                        {std::format("target: {}", format_named_target_target(named_target.target, level + 1)),
+                         std::format("explicit_type_args: {}", format_list(type_args, level + 1))},
+                        level);
   }
 
   [[nodiscard]] static auto format_constant(const model::Constant& constant, const int level) -> std::string {

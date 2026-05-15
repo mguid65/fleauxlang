@@ -82,13 +82,8 @@ auto pad_left(const std::string& text, const int width) -> std::string {
   return std::string(target_width - text.size(), ' ') + text;
 }
 
-}  // namespace
-
-auto format_diagnostic(const std::string& stage, const std::string& message, const std::optional<SourceSpan>& span,
-                       const std::optional<std::string>& hint, const std::optional<int>& stage_index) -> std::string {
-  std::ostringstream out;
-
-  // Header: error[stage]: message
+void append_diagnostic_header(std::ostringstream& out, const std::string& stage, const std::string& message,
+                              const std::optional<int>& stage_index) {
   out << "error";
   if (!stage.empty()) {
     out << "[" << stage << "]";
@@ -97,67 +92,82 @@ auto format_diagnostic(const std::string& stage, const std::string& message, con
   if (stage_index.has_value()) {
     out << " (stage " << *stage_index << ")";
   }
+}
 
-  if (!span.has_value()) {
-    if (hint.has_value()) {
-      out << "\n   = note: " << *hint;
-    }
-    return out.str();
-  }
-
-  // Location: --> file:line:col
-  out << "\n   --> ";
-  if (!span->source_name.empty()) {
-    out << span->source_name << ":";
-  }
-  out << span->line << ":" << span->col;
-
-  if (const bool has_source = !span->source_text.empty() && span->line >= 1; has_source) {
-    const auto lines = split_source_lines(span->source_text);
-    const int error_line = span->line;
-    const int line_count = static_cast<int>(lines.size());
-
-    // Gutter width: enough digits for the highest line number shown (at most error_line + 1)
-    const int max_shown = std::min(error_line + 1, line_count);
-    const int gw = num_digits(max_shown);
-    const auto blank_gutter = std::string(static_cast<std::size_t>(gw), ' ');
-
-    auto emit_line = [&](const int line_number) -> void {
-      if (line_number < 1 || line_number > line_count) {
-        return;
-      }
-      out << "\n"
-          << pad_left(std::to_string(line_number), gw) << " | " << lines[static_cast<std::size_t>(line_number - 1)];
-    };
-
-    out << "\n" << blank_gutter << " |";
-
-    // One context line before the error
-    if (error_line > 1) {
-      emit_line(error_line - 1);
-    }
-
-    // The error line itself
-    emit_line(error_line);
-
-    // Caret annotation
-    const int caret_col = std::max(span->col - 1, 0);
-    const int caret_len = span->caret_width();
-    out << "\n"
-        << blank_gutter << " | " << std::string(static_cast<std::size_t>(caret_col), ' ') << "^"
-        << std::string(static_cast<std::size_t>(std::max(caret_len - 1, 0)), '~');
-
-    // One context line after the error
-    if (error_line < line_count) {
-      emit_line(error_line + 1);
-    }
-
-    out << "\n" << blank_gutter << " |";
-  }
-
+void append_diagnostic_note(std::ostringstream& out, const std::optional<std::string>& hint) {
   if (hint.has_value()) {
     out << "\n   = note: " << *hint;
   }
+}
+
+void append_diagnostic_location(std::ostringstream& out, const SourceSpan& span) {
+  out << "\n   --> ";
+  if (!span.source_name.empty()) {
+    out << span.source_name << ":";
+  }
+  out << span.line << ":" << span.col;
+}
+
+void emit_source_context_line(std::ostringstream& out, const std::vector<std::string>& lines, const int gutter_width,
+                              const int line_number) {
+  if (line_number < 1 || line_number > static_cast<int>(lines.size())) {
+    return;
+  }
+  out << "\n"
+      << pad_left(std::to_string(line_number), gutter_width) << " | "
+      << lines[static_cast<std::size_t>(line_number - 1)];
+}
+
+void append_diagnostic_source_context(std::ostringstream& out, const SourceSpan& span) {
+  if (span.source_text.empty() || span.line < 1) {
+    return;
+  }
+
+  const auto lines = split_source_lines(span.source_text);
+  const int error_line = span.line;
+  const int line_count = static_cast<int>(lines.size());
+
+  const int max_shown = std::min(error_line + 1, line_count);
+  const int gutter_width = num_digits(max_shown);
+  const auto blank_gutter = std::string(static_cast<std::size_t>(gutter_width), ' ');
+
+  out << "\n" << blank_gutter << " |";
+
+  if (error_line > 1) {
+    emit_source_context_line(out, lines, gutter_width, error_line - 1);
+  }
+
+  emit_source_context_line(out, lines, gutter_width, error_line);
+
+  const int caret_col = std::max(span.col - 1, 0);
+  const int caret_len = span.caret_width();
+  out << "\n"
+      << blank_gutter << " | " << std::string(static_cast<std::size_t>(caret_col), ' ') << "^"
+      << std::string(static_cast<std::size_t>(std::max(caret_len - 1, 0)), '~');
+
+  if (error_line < line_count) {
+    emit_source_context_line(out, lines, gutter_width, error_line + 1);
+  }
+
+  out << "\n" << blank_gutter << " |";
+}
+
+}  // namespace
+
+auto format_diagnostic(const std::string& stage, const std::string& message, const std::optional<SourceSpan>& span,
+                       const std::optional<std::string>& hint, const std::optional<int>& stage_index) -> std::string {
+  std::ostringstream out;
+
+  append_diagnostic_header(out, stage, message, stage_index);
+
+  if (!span.has_value()) {
+    append_diagnostic_note(out, hint);
+    return out.str();
+  }
+
+  append_diagnostic_location(out, *span);
+  append_diagnostic_source_context(out, *span);
+  append_diagnostic_note(out, hint);
 
   return out.str();
 }

@@ -757,85 +757,150 @@ auto normalize_style_spans(const std::size_t buffer_size, const std::vector<Styl
 
 LineEditor::LineEditor(LineEditorConfig config) : config_(std::move(config)) {}
 
-auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
+auto LineEditor::continue_with_redraw(const bool needs_redraw) const -> LineEditorResult {
+  return make_line_editor_result(LineEditorAction::kContinue, needs_redraw);
+}
+
+auto LineEditor::insert_char_at_cursor(const char ch) -> bool {
+  buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), ch);
+  ++cursor_;
+  return true;
+}
+
+auto LineEditor::move_cursor_left_one() -> bool {
+  if (cursor_ == 0) {
+    return false;
+  }
+
+  --cursor_;
+  return true;
+}
+
+auto LineEditor::move_cursor_right_one() -> bool {
+  if (cursor_ >= buffer_.size()) {
+    return false;
+  }
+
+  ++cursor_;
+  return true;
+}
+
+auto LineEditor::move_cursor_to(const std::size_t position) -> bool {
+  if (cursor_ == position) {
+    return false;
+  }
+
+  cursor_ = position;
+  return true;
+}
+
+auto LineEditor::erase_char_left() -> bool {
+  if (cursor_ == 0) {
+    return false;
+  }
+
+  buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_ - 1));
+  --cursor_;
+  return true;
+}
+
+auto LineEditor::erase_char_at_cursor() -> bool {
+  if (cursor_ >= buffer_.size()) {
+    return false;
+  }
+
+  buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
+  return true;
+}
+
+auto LineEditor::handle_edit_key(const InputEvent& event) -> LineEditorResult {
   switch (event.key) {
     case InputKey::kCharacter:
-      buffer_.insert(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_), event.ch);
-      ++cursor_;
-      return make_line_editor_result(LineEditorAction::kContinue, true);
-
+      return continue_with_redraw(insert_char_at_cursor(event.ch));
     case InputKey::kBackspace:
-      if (cursor_ == 0) {
-        return {};
-      }
-      buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_ - 1));
-      --cursor_;
-      return make_line_editor_result(LineEditorAction::kContinue, true);
-
+      return continue_with_redraw(erase_char_left());
     case InputKey::kDelete:
-      if (cursor_ >= buffer_.size()) {
-        return {};
-      }
-      buffer_.erase(buffer_.begin() + static_cast<std::ptrdiff_t>(cursor_));
-      return make_line_editor_result(LineEditorAction::kContinue, true);
+      return continue_with_redraw(erase_char_at_cursor());
+    case InputKey::kTokenBackspace:
+      return continue_with_redraw(delete_token_left());
+    default:
+      return {};
+  }
+}
 
+auto LineEditor::handle_motion_key(const InputKey key) -> LineEditorResult {
+  switch (key) {
     case InputKey::kArrowLeft:
-      if (cursor_ == 0) {
-        return {};
-      }
-      --cursor_;
-      return make_line_editor_result(LineEditorAction::kContinue, true);
-
+      return continue_with_redraw(move_cursor_left_one());
     case InputKey::kArrowRight:
-      if (cursor_ >= buffer_.size()) {
-        return {};
-      }
-      ++cursor_;
-      return make_line_editor_result(LineEditorAction::kContinue, true);
+      return continue_with_redraw(move_cursor_right_one());
+    case InputKey::kTokenLeft:
+      return continue_with_redraw(move_token_left());
+    case InputKey::kTokenRight:
+      return continue_with_redraw(move_token_right());
+    case InputKey::kHome:
+      return continue_with_redraw(move_cursor_to(0));
+    case InputKey::kEnd:
+      return continue_with_redraw(move_cursor_to(buffer_.size()));
+    default:
+      return {};
+  }
+}
 
+auto LineEditor::handle_history_key(const InputKey key) -> LineEditorResult {
+  switch (key) {
     case InputKey::kArrowUp:
       return navigate_history_up();
-
     case InputKey::kArrowDown:
       return navigate_history_down();
+    default:
+      return {};
+  }
+}
 
-    case InputKey::kTokenLeft:
-      return make_line_editor_result(LineEditorAction::kContinue, move_token_left());
-
-    case InputKey::kTokenRight:
-      return make_line_editor_result(LineEditorAction::kContinue, move_token_right());
-
-    case InputKey::kTokenBackspace:
-      return make_line_editor_result(LineEditorAction::kContinue, delete_token_left());
-
-    case InputKey::kHome:
-      if (cursor_ == 0) {
-        return {};
-      }
-      cursor_ = 0;
-      return make_line_editor_result(LineEditorAction::kContinue, true);
-
-    case InputKey::kEnd:
-      if (cursor_ == buffer_.size()) {
-        return {};
-      }
-      cursor_ = buffer_.size();
-      return make_line_editor_result(LineEditorAction::kContinue, true);
-
+auto LineEditor::handle_command_key(const InputKey key) -> LineEditorResult {
+  switch (key) {
     case InputKey::kTab:
       return apply_completion();
-
     case InputKey::kEnter:
       return submit_current_buffer();
-
     case InputKey::kCtrlC:
       return clear_current_buffer();
-
     case InputKey::kCtrlD:
       if (buffer_.empty()) {
         return make_line_editor_result(LineEditorAction::kEndOfInput);
       }
       return {};
+    default:
+      return {};
+  }
+}
+
+auto LineEditor::handle_event(const InputEvent& event) -> LineEditorResult {
+  switch (event.key) {
+    case InputKey::kCharacter:
+    case InputKey::kBackspace:
+    case InputKey::kDelete:
+    case InputKey::kTokenBackspace:
+      return handle_edit_key(event);
+
+    case InputKey::kArrowLeft:
+    case InputKey::kArrowRight:
+    case InputKey::kTokenLeft:
+    case InputKey::kTokenRight:
+    case InputKey::kHome:
+    case InputKey::kEnd:
+      return handle_motion_key(event.key);
+
+    case InputKey::kArrowUp:
+    case InputKey::kArrowDown:
+      return handle_history_key(event.key);
+
+    case InputKey::kTab:
+    case InputKey::kEnter:
+    case InputKey::kCtrlC:
+    case InputKey::kCtrlD:
+      return handle_command_key(event.key);
 
     case InputKey::kUnknown:
       return {};

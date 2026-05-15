@@ -89,12 +89,153 @@ struct TextFileReadError {
   return std::filesystem::path(alias_decl.span->source_name) == source_file;
 }
 
+struct DirectImportInputs {
+  std::unordered_set<std::string> symbols;
+  std::vector<ir::IRLet> typed_lets;
+  std::unordered_set<std::string> typed_let_keys;
+  std::vector<ir::IRTypeDecl> type_decls;
+  std::unordered_set<std::string> type_decl_keys;
+  std::vector<ir::IRAliasDecl> alias_decls;
+  std::unordered_set<std::string> alias_decl_keys;
+};
+
 [[nodiscard]] inline auto let_declared_in_source(const ir::IRLet& let, const std::filesystem::path& source_file)
     -> bool {
   if (!let.span.has_value()) {
     return false;
   }
   return std::filesystem::path(let.span->source_name) == source_file;
+}
+
+[[nodiscard]] inline auto make_direct_import_inputs(const std::unordered_set<std::string>& extra_imported_symbols,
+                                                    const std::vector<ir::IRLet>& extra_imported_typed_lets,
+                                                    const std::vector<ir::IRTypeDecl>& extra_imported_type_decls,
+                                                    const std::vector<ir::IRAliasDecl>& extra_imported_alias_decls)
+    -> DirectImportInputs {
+  DirectImportInputs inputs;
+  inputs.symbols = extra_imported_symbols;
+
+  inputs.typed_lets.reserve(extra_imported_typed_lets.size());
+  inputs.typed_let_keys.reserve(extra_imported_typed_lets.size());
+  for (const auto& imported_let : extra_imported_typed_lets) {
+    if (const auto typed_key = let_identity_key(imported_let); inputs.typed_let_keys.insert(typed_key).second) {
+      inputs.typed_lets.push_back(imported_let);
+    }
+  }
+
+  inputs.type_decls.reserve(extra_imported_type_decls.size());
+  inputs.type_decl_keys.reserve(extra_imported_type_decls.size());
+  for (const auto& imported_type_decl : extra_imported_type_decls) {
+    if (const auto type_key = type_decl_identity_key(imported_type_decl);
+        inputs.type_decl_keys.insert(type_key).second) {
+      inputs.type_decls.push_back(imported_type_decl);
+    }
+  }
+
+  inputs.alias_decls.reserve(extra_imported_alias_decls.size());
+  inputs.alias_decl_keys.reserve(extra_imported_alias_decls.size());
+  for (const auto& imported_alias_decl : extra_imported_alias_decls) {
+    if (const auto alias_key = alias_decl_identity_key(imported_alias_decl);
+        inputs.alias_decl_keys.insert(alias_key).second) {
+      inputs.alias_decls.push_back(imported_alias_decl);
+    }
+  }
+
+  return inputs;
+}
+
+inline void append_direct_import_let(const ir::IRLet& imported_let, DirectImportInputs& inputs) {
+  inputs.symbols.insert(symbol_key(imported_let.qualifier, imported_let.name));
+  if (const auto typed_key = let_identity_key(imported_let); inputs.typed_let_keys.insert(typed_key).second) {
+    inputs.typed_lets.push_back(imported_let);
+  }
+}
+
+inline void append_direct_import_type_decl(const ir::IRTypeDecl& imported_type_decl, DirectImportInputs& inputs) {
+  if (const auto type_key = type_decl_identity_key(imported_type_decl); inputs.type_decl_keys.insert(type_key).second) {
+    inputs.type_decls.push_back(imported_type_decl);
+  }
+}
+
+inline void append_direct_import_alias_decl(const ir::IRAliasDecl& imported_alias_decl, DirectImportInputs& inputs) {
+  if (const auto alias_key = alias_decl_identity_key(imported_alias_decl); inputs.alias_decl_keys.insert(alias_key).second) {
+    inputs.alias_decls.push_back(imported_alias_decl);
+  }
+}
+
+inline void append_unique_imported_let(const ir::IRLet& imported_let, std::unordered_set<std::string>& seen,
+                                       std::vector<ir::IRLet>& imported_lets) {
+  if (const auto sym = let_identity_key(imported_let); seen.insert(sym).second) {
+    imported_lets.push_back(imported_let);
+  }
+}
+
+inline void collect_imported_program_decls(const ir::IRProgram& imported, const std::filesystem::path& import_source,
+                                           DirectImportInputs& direct_imports, std::unordered_set<std::string>& seen,
+                                           std::vector<ir::IRLet>& imported_lets,
+                                           std::vector<ir::IRTypeDecl>& imported_type_decls,
+                                           std::vector<ir::IRAliasDecl>& imported_alias_decls,
+                                           std::vector<ir::IRExprStatement>& imported_exprs) {
+  for (const auto& imported_let : imported.lets) {
+    if (let_declared_in_source(imported_let, import_source)) {
+      append_direct_import_let(imported_let, direct_imports);
+    }
+    append_unique_imported_let(imported_let, seen, imported_lets);
+  }
+
+  for (const auto& imported_type_decl : imported.type_decls) {
+    append_direct_import_type_decl(imported_type_decl, direct_imports);
+    if (type_decl_declared_in_source(imported_type_decl, import_source)) {
+      imported_type_decls.push_back(imported_type_decl);
+    }
+  }
+
+  for (const auto& imported_alias_decl : imported.alias_decls) {
+    append_direct_import_alias_decl(imported_alias_decl, direct_imports);
+    if (alias_decl_declared_in_source(imported_alias_decl, import_source)) {
+      imported_alias_decls.push_back(imported_alias_decl);
+    }
+  }
+
+  imported_exprs.insert(imported_exprs.end(), imported.expressions.begin(), imported.expressions.end());
+}
+
+inline void seed_std_symbolic_import(const ir::IRProgram& std_program, std::unordered_set<std::string>& imported_symbols,
+                                     std::vector<ir::IRLet>& imported_typed_lets,
+                                     std::unordered_set<std::string>& imported_typed_let_keys,
+                                     std::vector<ir::IRTypeDecl>& imported_type_decls,
+                                     std::unordered_set<std::string>& imported_type_decl_keys,
+                                     std::vector<ir::IRAliasDecl>& imported_alias_decls,
+                                     std::unordered_set<std::string>& imported_alias_decl_keys) {
+  const std::filesystem::path std_source_name{"Std.fleaux"};
+
+  for (const auto& std_let : std_program.lets) {
+    if (!let_declared_in_source(std_let, std_source_name)) {
+      continue;
+    }
+    imported_symbols.insert(symbol_key(std_let.qualifier, std_let.name));
+    if (const auto key = let_identity_key(std_let); imported_typed_let_keys.insert(key).second) {
+      imported_typed_lets.push_back(std_let);
+    }
+  }
+
+  for (const auto& std_type_decl : std_program.type_decls) {
+    if (!type_decl_declared_in_source(std_type_decl, std_source_name)) {
+      continue;
+    }
+    if (const auto key = type_decl_identity_key(std_type_decl); imported_type_decl_keys.insert(key).second) {
+      imported_type_decls.push_back(std_type_decl);
+    }
+  }
+
+  for (const auto& std_alias_decl : std_program.alias_decls) {
+    if (!alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
+      continue;
+    }
+    if (const auto key = alias_decl_identity_key(std_alias_decl); imported_alias_decl_keys.insert(key).second) {
+      imported_alias_decls.push_back(std_alias_decl);
+    }
+  }
 }
 
 template <typename ErrorT, typename ErrorFactory>
@@ -218,39 +359,14 @@ template <typename ErrorT, typename ErrorFactory>
       continue;
     }
 
-    const std::filesystem::path std_source_name{"Std.fleaux"};
     const auto std_program = load_lowered_symbolic_std_program<ErrorT>(make_error, span);
     if (!std_program) {
       return tl::unexpected(std_program.error());
     }
 
-    for (const auto& std_let : (*std_program)->lets) {
-      if (!let_declared_in_source(std_let, std_source_name)) {
-        continue;
-      }
-      imported_symbols.insert(symbol_key(std_let.qualifier, std_let.name));
-      if (const auto key = let_identity_key(std_let); imported_typed_let_keys.insert(key).second) {
-        imported_typed_lets.push_back(std_let);
-      }
-    }
-
-    for (const auto& std_type_decl : (*std_program)->type_decls) {
-      if (!type_decl_declared_in_source(std_type_decl, std_source_name)) {
-        continue;
-      }
-      if (const auto key = type_decl_identity_key(std_type_decl); imported_type_decl_keys.insert(key).second) {
-        imported_type_decls.push_back(std_type_decl);
-      }
-    }
-
-    for (const auto& std_alias_decl : (*std_program)->alias_decls) {
-      if (!alias_decl_declared_in_source(std_alias_decl, std_source_name)) {
-        continue;
-      }
-      if (const auto key = alias_decl_identity_key(std_alias_decl); imported_alias_decl_keys.insert(key).second) {
-        imported_alias_decls.push_back(std_alias_decl);
-      }
-    }
+    seed_std_symbolic_import(**std_program, imported_symbols, imported_typed_lets, imported_typed_let_keys,
+                             imported_type_decls, imported_type_decl_keys, imported_alias_decls,
+                             imported_alias_decl_keys);
   }
 
   return {};
@@ -293,44 +409,13 @@ template <typename ErrorT, typename ErrorFactory>
       return tl::unexpected(current.error());
     }
 
-    std::unordered_set<std::string> direct_imported_symbols = extra_imported_symbols;
-    std::vector<IRLet> direct_imported_typed_lets;
-    direct_imported_typed_lets.reserve(extra_imported_typed_lets.size());
-    std::unordered_set<std::string> direct_imported_typed_let_keys;
-    direct_imported_typed_let_keys.reserve(extra_imported_typed_lets.size());
-    for (const auto& imported_let : extra_imported_typed_lets) {
-      if (const auto typed_key = let_identity_key(imported_let);
-          direct_imported_typed_let_keys.insert(typed_key).second) {
-        direct_imported_typed_lets.push_back(imported_let);
-      }
-    }
-
-    std::vector<ir::IRTypeDecl> direct_imported_type_decls;
-    direct_imported_type_decls.reserve(extra_imported_type_decls.size());
-    std::unordered_set<std::string> direct_imported_type_decl_keys;
-    direct_imported_type_decl_keys.reserve(extra_imported_type_decls.size());
-    for (const auto& imported_type_decl : extra_imported_type_decls) {
-      if (const auto type_key = type_decl_identity_key(imported_type_decl);
-          direct_imported_type_decl_keys.insert(type_key).second) {
-        direct_imported_type_decls.push_back(imported_type_decl);
-      }
-    }
-
-    std::vector<ir::IRAliasDecl> direct_imported_alias_decls;
-    direct_imported_alias_decls.reserve(extra_imported_alias_decls.size());
-    std::unordered_set<std::string> direct_imported_alias_decl_keys;
-    direct_imported_alias_decl_keys.reserve(extra_imported_alias_decls.size());
-    for (const auto& imported_alias_decl : extra_imported_alias_decls) {
-      if (const auto alias_key = alias_decl_identity_key(imported_alias_decl);
-          direct_imported_alias_decl_keys.insert(alias_key).second) {
-        direct_imported_alias_decls.push_back(imported_alias_decl);
-      }
-    }
+    auto direct_imports = make_direct_import_inputs(extra_imported_symbols, extra_imported_typed_lets,
+                                                    extra_imported_type_decls, extra_imported_alias_decls);
 
     if (auto symbolic_seed =
-            seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imported_symbols,
-                                                      direct_imported_typed_lets, direct_imported_type_decls,
-                                                      direct_imported_alias_decls);
+            seed_symbolic_imports_for_program<ErrorT>(current.value(), make_error, direct_imports.symbols,
+                                                      direct_imports.typed_lets, direct_imports.type_decls,
+                                                      direct_imports.alias_decls);
         !symbolic_seed) {
       in_progress.erase(key);
       return tl::unexpected(symbolic_seed.error());
@@ -367,49 +452,13 @@ template <typename ErrorT, typename ErrorFactory>
         return tl::unexpected(imported.error());
       }
 
-      for (const auto& imported_let : imported->lets) {
-        if (!let_declared_in_source(imported_let, import_source)) {
-          continue;
-        }
-        direct_imported_symbols.insert(symbol_key(imported_let.qualifier, imported_let.name));
-        if (const auto typed_key = let_identity_key(imported_let);
-            direct_imported_typed_let_keys.insert(typed_key).second) {
-          direct_imported_typed_lets.push_back(imported_let);
-        }
-      }
-
-      for (const auto& imported_type_decl : imported->type_decls) {
-        if (const auto type_key = type_decl_identity_key(imported_type_decl);
-            direct_imported_type_decl_keys.insert(type_key).second) {
-          direct_imported_type_decls.push_back(imported_type_decl);
-        }
-        if (imported_type_decl.span.has_value() &&
-            std::filesystem::path(imported_type_decl.span->source_name) == import_source) {
-          imported_type_decls.push_back(imported_type_decl);
-        }
-      }
-
-      for (const auto& imported_alias_decl : imported->alias_decls) {
-        if (const auto alias_key = alias_decl_identity_key(imported_alias_decl);
-            direct_imported_alias_decl_keys.insert(alias_key).second) {
-          direct_imported_alias_decls.push_back(imported_alias_decl);
-        }
-        if (alias_decl_declared_in_source(imported_alias_decl, import_source)) {
-          imported_alias_decls.push_back(imported_alias_decl);
-        }
-      }
-
-      for (const auto& imported_let : imported->lets) {
-        if (const auto sym = let_identity_key(imported_let); seen.insert(sym).second) {
-          imported_lets.push_back(imported_let);
-        }
-      }
-      imported_exprs.insert(imported_exprs.end(), imported->expressions.begin(), imported->expressions.end());
+      collect_imported_program_decls(*imported, import_source, direct_imports, seen, imported_lets,
+                                     imported_type_decls, imported_alias_decls, imported_exprs);
     }
 
-    auto analyzed_current = type_check::analyze_program(current.value(), direct_imported_symbols,
-                                                        direct_imported_typed_lets, direct_imported_type_decls,
-                                                        direct_imported_alias_decls);
+    auto analyzed_current = type_check::analyze_program(current.value(), direct_imports.symbols,
+                                                        direct_imports.typed_lets, direct_imports.type_decls,
+                                                        direct_imports.alias_decls);
     if (!analyzed_current) {
       in_progress.erase(key);
       return tl::unexpected(

@@ -40,7 +40,9 @@ constexpr decltype(auto) adl_get(T&& value) {
 template <class T, class = void>
 struct is_tuple_like : std::false_type {};
 
+// This cannot actually use tuple_size_v for some reason or the compile fails
 template <class T>
+// NOLINTNEXTLINE
 struct is_tuple_like<T, std::void_t<decltype(std::tuple_size<std::remove_cvref_t<T>>::value)>> : std::true_type {};
 
 template <class T>
@@ -49,7 +51,9 @@ inline constexpr bool is_tuple_like_v = is_tuple_like<T>::value;
 template <class T, class = void>
 struct is_variant_like : std::false_type {};
 
+// This cannot actually use tuple_size_v for some reason or the compile fails
 template <class T>
+// NOLINTNEXTLINE
 struct is_variant_like<T, std::void_t<decltype(std::variant_size<std::remove_cvref_t<T>>::value)>> : std::true_type {};
 
 template <class T>
@@ -234,7 +238,8 @@ constexpr auto append_expanded(BoundTuple&& bound, Next&& next) {
 }
 
 template <class R, class Visitor, class BoundTuple, class RemainingTuple>
-constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) -> R;
+constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining)
+    -> R;
 
 template <class Visitor, class BoundTuple, class RemainingTuple>
 constexpr decltype(auto) structured_dispatch_recursive_impl_exact(Visitor&& visitor, BoundTuple&& bound,
@@ -297,12 +302,14 @@ constexpr decltype(auto) structured_dispatch_case_1_exact(Visitor&& visitor, Bou
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_0_exact(std::forward<Visitor>(visitor), std::move(next_bound));
   } else if constexpr (is_tuple_like_v<A&&> &&
-                       pack_invocable_exact_v<Visitor, pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>>) {
+                       pack_invocable_exact_v<Visitor,
+                                              pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>>) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_0_exact(std::forward<Visitor>(visitor), std::move(expanded_bound));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
   }
 }
 
@@ -343,13 +350,16 @@ constexpr decltype(auto) structured_dispatch_case_2_exact(Visitor&& visitor, Bou
     auto next_bound = append_whole(std::forward<BoundTuple>(bound), std::forward<A>(a));
     return structured_dispatch_case_1_exact(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b));
   } else if constexpr (is_tuple_like_v<A&&> &&
-                       can_structured_pack_match<void, Visitor, pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
+                       can_structured_pack_match<void, Visitor,
+                                                 pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
                                                  tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
-    return structured_dispatch_case_1_exact(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b));
+    return structured_dispatch_case_1_exact(std::forward<Visitor>(visitor), std::move(expanded_bound),
+                                            std::forward<B>(b));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
   }
 }
 
@@ -393,14 +403,16 @@ constexpr decltype(auto) structured_dispatch_case_3_exact(Visitor&& visitor, Bou
     return structured_dispatch_case_2_exact(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b),
                                             std::forward<C>(c));
   } else if constexpr (is_tuple_like_v<A&&> &&
-                       can_structured_pack_match<void, Visitor, pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
+                       can_structured_pack_match<void, Visitor,
+                                                 pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
                                                  tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
-    return structured_dispatch_case_2_exact(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b),
-                                            std::forward<C>(c));
+    return structured_dispatch_case_2_exact(std::forward<Visitor>(visitor), std::move(expanded_bound),
+                                            std::forward<B>(b), std::forward<C>(c));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
   }
 }
 
@@ -445,19 +457,22 @@ constexpr decltype(auto) structured_dispatch_case_4_exact(Visitor&& visitor, Bou
     return structured_dispatch_case_3_exact(std::forward<Visitor>(visitor), std::move(next_bound), std::forward<B>(b),
                                             std::forward<C>(c), std::forward<D>(d));
   } else if constexpr (is_tuple_like_v<A&&> &&
-                       can_structured_pack_match<void, Visitor, pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
+                       can_structured_pack_match<void, Visitor,
+                                                 pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<A&&>>,
                                                  tail_pack>::value) {
     auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<A>(a));
-    return structured_dispatch_case_3_exact(std::forward<Visitor>(visitor), std::move(expanded_bound), std::forward<B>(b),
-                                            std::forward<C>(c), std::forward<D>(d));
+    return structured_dispatch_case_3_exact(std::forward<Visitor>(visitor), std::move(expanded_bound),
+                                            std::forward<B>(b), std::forward<C>(c), std::forward<D>(d));
   } else {
-    static_assert(always_false_v<BoundTuple>,
-                  "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+    static_assert(
+        always_false_v<BoundTuple>,
+        "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
   }
 }
 
 template <class R, class Visitor, class BoundTuple, class RemainingTuple>
-constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) -> R {
+constexpr auto structured_dispatch_recursive_impl(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining)
+    -> R {
   if constexpr (std::tuple_size_v<std::remove_reference_t<RemainingTuple>> == 0) {
     static_assert(
         pack_invocable_v<R, Visitor, tuple_to_pack_t<BoundTuple>>,
@@ -517,15 +532,16 @@ constexpr decltype(auto) structured_dispatch_recursive_impl_exact(Visitor&& visi
       return structured_dispatch_recursive_impl_exact(std::forward<Visitor>(visitor), std::move(next_bound),
                                                       std::move(tail));
     } else if constexpr (is_tuple_like_v<next_type> &&
-                         can_structured_pack_match<void, Visitor,
-                                                   pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<next_type>>,
-                                                   tail_pack>::value) {
+                         can_structured_pack_match<
+                             void, Visitor, pack_append_tuple_t<bound_pack, expanded_argument_tuple_t<next_type>>,
+                             tail_pack>::value) {
       auto expanded_bound = append_expanded(std::forward<BoundTuple>(bound), std::forward<decltype(next)>(next));
       return structured_dispatch_recursive_impl_exact(std::forward<Visitor>(visitor), std::move(expanded_bound),
                                                       std::move(tail));
     } else {
-      static_assert(always_false_v<BoundTuple>,
-                    "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
+      static_assert(
+          always_false_v<BoundTuple>,
+          "structured_visit could not find a matching visitor signature for the selected variant alternatives.");
     }
   }
 }
@@ -568,7 +584,8 @@ constexpr auto structured_dispatch_impl(Visitor&& visitor, BoundTuple&& bound, R
 }
 
 template <class Visitor, class BoundTuple, class RemainingTuple>
-constexpr decltype(auto) structured_dispatch_impl_exact(Visitor&& visitor, BoundTuple&& bound, RemainingTuple&& remaining) {
+constexpr decltype(auto) structured_dispatch_impl_exact(Visitor&& visitor, BoundTuple&& bound,
+                                                        RemainingTuple&& remaining) {
   constexpr auto kArity = std::tuple_size_v<std::remove_reference_t<RemainingTuple>>;
   if constexpr (kArity <= 4) {
     if constexpr (kArity == 0) {
@@ -626,8 +643,8 @@ constexpr auto structured_visit(Visitor&& v, Variants&&... values)
   auto&& visitor_ref = v;
   return std::visit(
       [&visitor_ref]<class... Alternatives>(Alternatives&&... alternatives) -> decltype(auto) {
-        return detail::structured_dispatch_impl_exact(visitor_ref, std::tuple<>{},
-                                                      std::forward_as_tuple(std::forward<Alternatives>(alternatives)...));
+        return detail::structured_dispatch_impl_exact(
+            visitor_ref, std::tuple<>{}, std::forward_as_tuple(std::forward<Alternatives>(alternatives)...));
       },
       std::forward<Variants>(values)...);
 }

@@ -253,6 +253,45 @@ auto print_diag_and_return(const std::string& stage, const CliError& error) -> i
   return 2;
 }
 
+template <class Runner>
+auto run(const std::optional<std::filesystem::path>& source_path, const std::string& stage,
+         const std::string& missing_message, const std::string& missing_hint, Runner runner) -> int {
+  if (!source_path.has_value()) {
+    return print_diag_and_return(stage, CliError{
+                                            .message = missing_message,
+                                            .hint = missing_hint,
+                                            .span = std::nullopt,
+                                        });
+  }
+
+  if (const auto result = runner(*source_path); !result) {
+    return print_diag_and_return(stage, result.error());
+  }
+
+  return 0;
+}
+
+auto make_repl_compile_options(const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
+    -> fleaux::vm::RuntimeCompileOptions {
+  return fleaux::vm::RuntimeCompileOptions{
+      .enable_value_ref_gate = enable_auto_value_ref,
+      .enable_auto_value_ref = enable_auto_value_ref,
+      .value_ref_byte_cutoff = value_ref_byte_cutoff,
+  };
+}
+
+auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_args, const bool no_color,
+                   const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff) -> int {
+  if (no_run) {
+    std::cout << "[vm] skipped run (--no-run): <repl>\n";
+    return 0;
+  }
+
+  constexpr fleaux::cli::ReplDriver repl_driver;
+  return repl_driver.run(process_args, !no_color,
+                         make_repl_compile_options(enable_auto_value_ref, value_ref_byte_cutoff));
+}
+
 auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
 
@@ -409,62 +448,21 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (disassemble) {
-    if (!source_path.has_value()) {
-      return print_diag_and_return("vm-disassemble",
-                                   CliError{
-                                       .message = "disassembly mode requires a module path",
-                                       .hint = "Pass a .fleaux.bc file (or .fleaux with sibling .bc).",
-                                       .span = std::nullopt,
-                                   });
-    }
-    if (const auto result = run_disassembly(*source_path); !result) {
-      return print_diag_and_return("vm-disassemble", result.error());
-    }
-    return 0;
+    return run(source_path, "vm-disassemble", "disassembly mode requires a module path",
+               "Pass a .fleaux.bc file (or .fleaux with sibling .bc).", run_disassembly);
   }
 
   if (dump_ast) {
-    if (!source_path.has_value()) {
-      return print_diag_and_return("vm-ast",
-                                   CliError{
-                                       .message = "AST dump mode requires a source path",
-                                       .hint = "Pass a .fleaux source file.",
-                                       .span = std::nullopt,
-                                   });
-    }
-    if (const auto result = run_ast_dump(*source_path); !result) {
-      return print_diag_and_return("vm-ast", result.error());
-    }
-    return 0;
+    return run(source_path, "vm-ast", "AST dump mode requires a source path", "Pass a .fleaux source file.",
+               run_ast_dump);
   }
 
   if (dump_ir) {
-    if (!source_path.has_value()) {
-      return print_diag_and_return("vm-ir",
-                                   CliError{
-                                       .message = "IR dump mode requires a source path",
-                                       .hint = "Pass a .fleaux source file.",
-                                       .span = std::nullopt,
-                                   });
-    }
-    if (const auto result = run_ir_dump(*source_path); !result) {
-      return print_diag_and_return("vm-ir", result.error());
-    }
-    return 0;
+    return run(source_path, "vm-ir", "IR dump mode requires a source path", "Pass a .fleaux source file.", run_ir_dump);
   }
 
   if (repl) {
-    if (no_run) {
-      std::cout << "[vm] skipped run (--no-run): <repl>\n";
-      return 0;
-    }
-    constexpr fleaux::cli::ReplDriver repl_driver;
-    return repl_driver.run(process_args, !no_color,
-                           fleaux::vm::RuntimeCompileOptions{
-                               .enable_value_ref_gate = enable_auto_value_ref,
-                               .enable_auto_value_ref = enable_auto_value_ref,
-                               .value_ref_byte_cutoff = value_ref_byte_cutoff,
-                           });
+    return run_repl_mode(no_run, process_args, no_color, enable_auto_value_ref, value_ref_byte_cutoff);
   }
 
   if (!source_path.has_value()) {

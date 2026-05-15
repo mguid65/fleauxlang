@@ -1,16 +1,13 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <ranges>
-#include <sstream>
 #include <stdexcept>
 #include <variant>
 #include <vector>
@@ -28,9 +25,9 @@
 namespace fleaux::vm {
 namespace {
 
-using fleaux::runtime::Array;
-using fleaux::runtime::RuntimeCallable;
-using fleaux::runtime::Value;
+using runtime::Array;
+using runtime::RuntimeCallable;
+using runtime::Value;
 
 auto make_runtime_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
                         const std::optional<frontend::diag::SourceSpan>& span = std::nullopt) -> RuntimeError {
@@ -83,7 +80,7 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
   const auto base = stack.size() - tuple_size;
   Value first_element = std::move(stack[base]);
   stack[base] = Value{Array{}};
-  auto& out = fleaux::runtime::as_array(stack[base]);
+  auto& out = runtime::as_array(stack[base]);
   out.Reserve(tuple_size);
   out.EmplaceBack(std::move(first_element));
   for (std::size_t element_index = 1; element_index < tuple_size; ++element_index) {
@@ -94,7 +91,7 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
 
 auto make_array_tail_value(Array& source, const std::size_t first_index) -> Value {
   Value tail{Array{}};
-  auto& out = fleaux::runtime::as_array(tail);
+  auto& out = runtime::as_array(tail);
   out.Reserve(source.Size() - first_index);
   for (std::size_t element_index = first_index; element_index < source.Size(); ++element_index) {
     out.EmplaceBack(std::move(source[element_index]));
@@ -105,6 +102,20 @@ auto make_array_tail_value(Array& source, const std::size_t first_index) -> Valu
 void append_array_copy(Array& out, const Array& source) {
   for (std::size_t element_index = 0; element_index < source.Size(); ++element_index) {
     out.EmplaceBack(*source.TryGet(element_index));
+  }
+}
+
+auto inline_closure_too_few_args_error() -> tl::unexpected<RuntimeError> {
+  return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
+}
+
+auto inline_closure_unpack_error(const std::exception& ex) -> tl::unexpected<RuntimeError> {
+  return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
+}
+
+void append_array_prefix(Array& out_array, Array& arr, const std::size_t count) {
+  for (std::size_t arg_index = 0; arg_index < count; ++arg_index) {
+    out_array.EmplaceBack(std::move(arr[arg_index]));
   }
 }
 
@@ -210,8 +221,8 @@ constexpr std::size_t k_min_frame_capacity = 4U;
   return std::max(k_min_frame_capacity, function_count + 1U);
 }
 
-auto constant_builtin_value(const fleaux::vm::BuiltinId builtin_id) -> std::optional<double> {
-  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
+auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double> {
+  for (const auto& spec : all_constant_builtin_specs()) {
     if (spec.id == builtin_id) {
       return spec.value;
     }
@@ -223,7 +234,7 @@ auto constant_builtin_value(const fleaux::vm::BuiltinId builtin_id) -> std::opti
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
 
-auto dispatch_builtin(fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
+auto dispatch_builtin(BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
 
 auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn_name, const std::uint32_t arity,
                                const bool has_variadic_tail, Value arg) -> tl::expected<void, RuntimeError> {
@@ -236,12 +247,12 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
 
   if (!has_variadic_tail) {
     if (arity == 1U) {
-      locals.push_back(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
+      locals.push_back(runtime::unwrap_singleton_arg(std::move(arg)));
       return {};
     }
 
     try {
-      auto& arr = fleaux::runtime::as_array(arg);
+      auto& arr = runtime::as_array(arg);
       if (arr.Size() < arity) {
         return tl::unexpected(make_runtime_error("too few arguments for '" + fn_name + "'"));
       }
@@ -250,8 +261,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
       }
       return {};
     } catch (const std::exception& ex) {
-      return tl::unexpected(
-          make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
+      return tl::unexpected(make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
     }
   }
 
@@ -260,14 +270,14 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
     if (arg.HasArray()) {
       locals.push_back(std::move(arg));
     } else {
-      locals.push_back(fleaux::runtime::make_tuple(std::move(arg)));
+      locals.push_back(runtime::make_tuple(std::move(arg)));
     }
     return {};
   }
 
   const auto fixed_count = static_cast<std::size_t>(arity - 1U);
   try {
-    auto& arr = fleaux::runtime::as_array(arg);
+    auto& arr = runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
       return tl::unexpected(make_runtime_error("too few arguments for '" + fn_name + "'"));
     }
@@ -278,8 +288,7 @@ auto bind_user_function_locals(std::vector<Value>& locals, const std::string& fn
     locals.emplace_back(make_array_tail_value(arr, fixed_count));
     return {};
   } catch (const std::exception& ex) {
-    return tl::unexpected(
-        make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
+    return tl::unexpected(make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + ex.what()));
   }
 }
 
@@ -291,57 +300,53 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
 
   if (!declared_has_variadic_tail) {
     if (declared_arity == 1U) {
-      return fleaux::runtime::unwrap_singleton_arg(std::move(arg));
+      return runtime::unwrap_singleton_arg(std::move(arg));
     }
 
     try {
-      auto& arr = fleaux::runtime::as_array(arg);
+      auto& arr = runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
-        return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
+        return inline_closure_too_few_args_error();
       }
       if (arr.Size() == declared_arity) {
         return arg;
       }
 
       Value out{Array{}};
-      auto& out_array = fleaux::runtime::as_array(out);
+      auto& out_array = runtime::as_array(out);
       out_array.Reserve(declared_arity);
-      for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
-        out_array.EmplaceBack(std::move(arr[static_cast<std::size_t>(arg_index)]));
-      }
+      append_array_prefix(out_array, arr, declared_arity);
       return out;
     } catch (const std::exception& ex) {
-      return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
+      return inline_closure_unpack_error(ex);
     }
   }
 
   if (declared_arity == 1U) {
-    return arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg));
+    return arg.HasArray() ? std::move(arg) : runtime::make_tuple(std::move(arg));
   }
 
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
   try {
-    auto& arr = fleaux::runtime::as_array(arg);
+    auto& arr = runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
-      return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
+      return inline_closure_too_few_args_error();
     }
 
     Value out{Array{}};
-    auto& out_array = fleaux::runtime::as_array(out);
+    auto& out_array = runtime::as_array(out);
     out_array.Reserve(declared_arity);
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-      out_array.EmplaceBack(std::move(arr[arg_index]));
-    }
+    append_array_prefix(out_array, arr, fixed_count);
     out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
+    return inline_closure_unpack_error(ex);
   }
 }
 
 auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uint32_t declared_arity,
                              const bool declared_has_variadic_tail) -> tl::expected<Value, RuntimeError> {
-  const auto& prefix = fleaux::runtime::as_array(prefix_args);
+  const auto& prefix = runtime::as_array(prefix_args);
   if (prefix.Size() == 0U) {
     return pack_declared_call_args(std::move(arg), declared_arity, declared_has_variadic_tail);
   }
@@ -356,55 +361,51 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
   if (!declared_has_variadic_tail) {
     try {
       Value out{Array{}};
-      auto& out_array = fleaux::runtime::as_array(out);
+      auto& out_array = runtime::as_array(out);
 
       if (declared_arity == 1U) {
         out_array.Reserve(prefix.Size() + 1U);
         append_array_copy(out_array, prefix);
-        out_array.EmplaceBack(fleaux::runtime::unwrap_singleton_arg(std::move(arg)));
+        out_array.EmplaceBack(runtime::unwrap_singleton_arg(std::move(arg)));
         return out;
       }
 
-      auto& arr = fleaux::runtime::as_array(arg);
+      auto& arr = runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
-        return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
+        return inline_closure_too_few_args_error();
       }
 
       out_array.Reserve(prefix.Size() + declared_arity);
       append_array_copy(out_array, prefix);
-      for (std::uint32_t arg_index = 0; arg_index < declared_arity; ++arg_index) {
-        out_array.EmplaceBack(std::move(arr[static_cast<std::size_t>(arg_index)]));
-      }
+      append_array_prefix(out_array, arr, declared_arity);
       return out;
     } catch (const std::exception& ex) {
-      return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
+      return inline_closure_unpack_error(ex);
     }
   }
 
   Value out{Array{}};
-  auto& out_array = fleaux::runtime::as_array(out);
+  auto& out_array = runtime::as_array(out);
   out_array.Reserve(prefix.Size() + declared_arity);
   append_array_copy(out_array, prefix);
 
   if (declared_arity == 1U) {
-    out_array.EmplaceBack(arg.HasArray() ? std::move(arg) : fleaux::runtime::make_tuple(std::move(arg)));
+    out_array.EmplaceBack(arg.HasArray() ? std::move(arg) : runtime::make_tuple(std::move(arg)));
     return out;
   }
 
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
   try {
-    auto& arr = fleaux::runtime::as_array(arg);
+    auto& arr = runtime::as_array(arg);
     if (arr.Size() < fixed_count) {
-      return tl::unexpected(make_runtime_error("too few arguments for inline closure"));
+      return inline_closure_too_few_args_error();
     }
 
-    for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-      out_array.EmplaceBack(std::move(arr[arg_index]));
-    }
+    append_array_prefix(out_array, arr, fixed_count);
     out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
     return out;
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("argument unpacking for inline closure: ") + ex.what()));
+    return inline_closure_unpack_error(ex);
   }
 }
 
@@ -415,11 +416,11 @@ auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& st
                         const std::optional<std::size_t> max_iters) -> tl::expected<Value, RuntimeError> {
   try {
     std::size_t iterations = 0;
-    while (fleaux::runtime::as_bool(fleaux::runtime::invoke_callable_ref(continue_func, state))) {
+    while (runtime::as_bool(runtime::invoke_callable_ref(continue_func, state))) {
       if (max_iters.has_value() && iterations >= *max_iters) {
         throw std::runtime_error("LoopN: exceeded max_iters");
       }
-      state = fleaux::runtime::invoke_callable_ref(step_func, std::move(state));
+      state = runtime::invoke_callable_ref(step_func, std::move(state));
       ++iterations;
     }
     return state;
@@ -520,7 +521,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto value = pop_stack(stack, "make_value_ref");
         if (!value)
           return tl::unexpected(value.error());
-        stack.push_back(fleaux::runtime::make_value_ref(std::move(*value)));
+        stack.push_back(runtime::make_value_ref(std::move(*value)));
         break;
       }
 
@@ -528,8 +529,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto token = pop_stack(stack, "deref_value_ref");
         if (!token)
           return tl::unexpected(token.error());
-        auto result =
-            run_native_op("deref_value_ref", [&]() -> Value { return fleaux::runtime::deref_value_ref(*token); });
+        auto result = run_native_op("deref_value_ref", [&]() -> Value { return runtime::deref_value_ref(*token); });
         if (!result)
           return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -537,7 +537,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
       }
 
       case bytecode::Opcode::kCallBuiltin: {
-        const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
+        const auto builtin_id = builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
@@ -595,12 +595,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
             throw std::runtime_error(run_result.error().message);
           return std::move(*run_result);
         };
-        stack.push_back(fleaux::runtime::make_callable_ref(std::move(callable)));
+        stack.push_back(runtime::make_callable_ref(std::move(callable)));
         break;
       }
 
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
-        const auto builtin_id = fleaux::vm::builtin_id_from_operand(operand);
+        const auto builtin_id = builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
@@ -611,7 +611,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           }
           return std::move(*result);
         };
-        stack.push_back(fleaux::runtime::make_callable_ref(std::move(callable)));
+        stack.push_back(runtime::make_callable_ref(std::move(callable)));
         break;
       }
 
@@ -628,8 +628,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
         const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] =
             bytecode_module.closures[closure_idx];
-        if (const auto& capture_array = fleaux::runtime::as_array(*captured_tuple);
-            capture_array.Size() != capture_count) {
+        if (const auto& capture_array = runtime::as_array(*captured_tuple); capture_array.Size() != capture_count) {
           return tl::unexpected(make_runtime_error("closure capture tuple size mismatch"));
         }
 
@@ -654,7 +653,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return std::move(*result);
         };
 
-        stack.push_back(fleaux::runtime::make_callable_ref(std::move(closure_callable)));
+        stack.push_back(runtime::make_callable_ref(std::move(closure_callable)));
         break;
       }
 
@@ -698,7 +697,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (target > instr_list.size()) {
           return tl::unexpected(make_runtime_error("jump_if target out of range"));
         }
-        if (fleaux::runtime::as_bool(*cond)) {
+        if (runtime::as_bool(*cond)) {
           frames.back().ip = target;
         }
         break;
@@ -712,7 +711,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (target > instr_list.size()) {
           return tl::unexpected(make_runtime_error("jump_if_not target out of range"));
         }
-        if (!fleaux::runtime::as_bool(*cond)) {
+        if (!runtime::as_bool(*cond)) {
           frames.back().ip = target;
         }
         break;
@@ -727,14 +726,13 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(lhs.error());
         auto result = run_native_op("add", [&]() -> Value {
           if (lhs->HasString() && rhs->HasString()) {
-            return fleaux::runtime::make_string(fleaux::runtime::as_string(*lhs) + fleaux::runtime::as_string(*rhs));
+            return runtime::make_string(runtime::as_string(*lhs) + runtime::as_string(*rhs));
           }
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "add");
-          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "add");
-          return fleaux::runtime::num_result(
-              fleaux::runtime::to_double(*lhs) + fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "add");
+          runtime::require_same_integer_kind(*lhs, *rhs, "add");
+          return runtime::num_result(runtime::to_double(*lhs) + runtime::to_double(*rhs),
+                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -750,12 +748,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("sub", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "sub");
-          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "sub");
-          return fleaux::runtime::num_result(
-              fleaux::runtime::to_double(*lhs) - fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "sub");
+          runtime::require_same_integer_kind(*lhs, *rhs, "sub");
+          return runtime::num_result(runtime::to_double(*lhs) - runtime::to_double(*rhs),
+                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -771,12 +768,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("mul", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mul");
-          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mul");
-          return fleaux::runtime::num_result(
-              fleaux::runtime::to_double(*lhs) * fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mul");
+          runtime::require_same_integer_kind(*lhs, *rhs, "mul");
+          return runtime::num_result(runtime::to_double(*lhs) * runtime::to_double(*rhs),
+                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -793,12 +789,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(lhs.error());
         auto result = run_native_op("div", [&]() -> Value {
           // Native division follows floating-point semantics (e.g. x/0 -> inf).
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "div");
-          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "div");
-          return fleaux::runtime::num_result(
-              fleaux::runtime::to_double(*lhs) / fleaux::runtime::to_double(*rhs),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "div");
+          runtime::require_same_integer_kind(*lhs, *rhs, "div");
+          return runtime::num_result(runtime::to_double(*lhs) / runtime::to_double(*rhs),
+                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -814,12 +809,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("mod", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mod");
-          fleaux::runtime::require_same_integer_kind(*lhs, *rhs, "mod");
-          return fleaux::runtime::num_result(
-              std::fmod(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)),
-              fleaux::runtime::is_uint_number(*lhs) && fleaux::runtime::is_uint_number(*rhs),
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mod");
+          runtime::require_same_integer_kind(*lhs, *rhs, "mod");
+          return runtime::num_result(std::fmod(runtime::to_double(*lhs), runtime::to_double(*rhs)),
+                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -835,10 +829,9 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("pow", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "pow");
-          return fleaux::runtime::num_result(
-              std::pow(fleaux::runtime::to_double(*lhs), fleaux::runtime::to_double(*rhs)), false,
-              fleaux::runtime::prefer_float_numeric_result(*lhs, *rhs));
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "pow");
+          return runtime::num_result(std::pow(runtime::to_double(*lhs), runtime::to_double(*rhs)), false,
+                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -851,8 +844,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!value)
           return tl::unexpected(value.error());
         auto result = run_native_op("neg", [&]() -> Value {
-          return fleaux::runtime::num_result(-fleaux::runtime::to_double(*value), false,
-                                             fleaux::runtime::is_float_number(*value));
+          return runtime::num_result(-runtime::to_double(*value), false, runtime::is_float_number(*value));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -867,7 +859,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_eq");
         if (!lhs)
           return tl::unexpected(lhs.error());
-        stack.push_back(fleaux::runtime::make_bool(*lhs == *rhs));
+        stack.push_back(runtime::make_bool(*lhs == *rhs));
         break;
       }
 
@@ -878,7 +870,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "cmp_ne");
         if (!lhs)
           return tl::unexpected(lhs.error());
-        stack.push_back(fleaux::runtime::make_bool(*lhs != *rhs));
+        stack.push_back(runtime::make_bool(*lhs != *rhs));
         break;
       }
 
@@ -890,8 +882,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_lt", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_lt");
-          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) < 0);
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_lt");
+          return runtime::make_bool(runtime::compare_numbers(*lhs, *rhs) < 0);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -907,8 +899,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_gt", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_gt");
-          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) > 0);
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_gt");
+          return runtime::make_bool(runtime::compare_numbers(*lhs, *rhs) > 0);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -924,8 +916,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_le", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_le");
-          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) <= 0);
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_le");
+          return runtime::make_bool(runtime::compare_numbers(*lhs, *rhs) <= 0);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -941,8 +933,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("cmp_ge", [&]() -> Value {
-          fleaux::runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_ge");
-          return fleaux::runtime::make_bool(fleaux::runtime::compare_numbers(*lhs, *rhs) >= 0);
+          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "cmp_ge");
+          return runtime::make_bool(runtime::compare_numbers(*lhs, *rhs) >= 0);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -957,9 +949,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "and");
         if (!lhs)
           return tl::unexpected(lhs.error());
-        auto result = run_native_op("and", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::as_bool(*lhs) && fleaux::runtime::as_bool(*rhs));
-        });
+        auto result = run_native_op(
+            "and", [&]() -> Value { return runtime::make_bool(runtime::as_bool(*lhs) && runtime::as_bool(*rhs)); });
         if (!result)
           return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -973,9 +964,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto lhs = pop_stack(stack, "or");
         if (!lhs)
           return tl::unexpected(lhs.error());
-        auto result = run_native_op("or", [&]() -> Value {
-          return fleaux::runtime::make_bool(fleaux::runtime::as_bool(*lhs) || fleaux::runtime::as_bool(*rhs));
-        });
+        auto result = run_native_op(
+            "or", [&]() -> Value { return runtime::make_bool(runtime::as_bool(*lhs) || runtime::as_bool(*rhs)); });
         if (!result)
           return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -986,8 +976,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto value = pop_stack(stack, "not");
         if (!value)
           return tl::unexpected(value.error());
-        auto result = run_native_op(
-            "not", [&]() -> Value { return fleaux::runtime::make_bool(!fleaux::runtime::as_bool(*value)); });
+        auto result = run_native_op("not", [&]() -> Value { return runtime::make_bool(!runtime::as_bool(*value)); });
         if (!result)
           return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -1004,7 +993,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         auto cond = pop_stack(stack, "select");
         if (!cond)
           return tl::unexpected(cond.error());
-        stack.push_back(fleaux::runtime::as_bool(*cond) ? std::move(*true_val) : std::move(*false_val));
+        stack.push_back(runtime::as_bool(*cond) ? std::move(*true_val) : std::move(*false_val));
         break;
       }
 
@@ -1022,8 +1011,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!cond)
           return tl::unexpected(cond.error());
         auto result = run_native_op("branch_call", [&]() -> Value {
-          const Value& chosen = fleaux::runtime::as_bool(*cond) ? *true_func : *false_func;
-          return fleaux::runtime::invoke_callable_ref(chosen, std::move(*value));
+          const Value& chosen = runtime::as_bool(*cond) ? *true_func : *false_func;
+          return runtime::invoke_callable_ref(chosen, std::move(*value));
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1049,7 +1038,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (msg.starts_with(prefix)) {
             msg.replace(0, prefix.size(), "native 'loop_call' threw: ");
           }
-          return tl::unexpected(make_runtime_error(std::move(msg)));
+          return tl::unexpected(make_runtime_error(msg));
         }
         stack.push_back(std::move(*result));
         break;
@@ -1071,7 +1060,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
         std::size_t limit = 0;
         try {
-          const auto as_int = fleaux::runtime::as_int_value_strict(*max_iters, "LoopN max_iters");
+          const auto as_int = runtime::as_int_value_strict(*max_iters, "LoopN max_iters");
           if (as_int < 0) {
             return tl::unexpected(
                 make_runtime_error("native 'loop_n_call' threw: LoopN: max_iters must be non-negative"));
@@ -1088,7 +1077,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           if (msg.starts_with(prefix)) {
             msg.replace(0, prefix.size(), "native 'loop_n_call' threw: ");
           }
-          return tl::unexpected(make_runtime_error(std::move(msg)));
+          return tl::unexpected(make_runtime_error(msg));
         }
         stack.push_back(std::move(*result));
         break;
@@ -1104,395 +1093,394 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(make_runtime_error("program terminated without halt"));
 }
 
-auto dispatch_builtin(const fleaux::vm::BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
+auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
   try {
     switch (builtin_id) {
       case BuiltinId::UnaryPlus:
-        return fleaux::runtime::UnaryPlus(std::move(arg));
+        return runtime::UnaryPlus(std::move(arg));
       case BuiltinId::UnaryMinus:
-        return fleaux::runtime::UnaryMinus(std::move(arg));
+        return runtime::UnaryMinus(std::move(arg));
       case BuiltinId::Add:
-        return fleaux::runtime::Add(std::move(arg));
+        return runtime::Add(std::move(arg));
       case BuiltinId::Subtract:
-        return fleaux::runtime::Subtract(std::move(arg));
+        return runtime::Subtract(std::move(arg));
       case BuiltinId::Multiply:
-        return fleaux::runtime::Multiply(std::move(arg));
+        return runtime::Multiply(std::move(arg));
       case BuiltinId::Divide:
-        return fleaux::runtime::Divide(std::move(arg));
+        return runtime::Divide(std::move(arg));
       case BuiltinId::Mod:
-        return fleaux::runtime::Mod(std::move(arg));
+        return runtime::Mod(std::move(arg));
       case BuiltinId::Pow:
-        return fleaux::runtime::Pow(std::move(arg));
+        return runtime::Pow(std::move(arg));
       case BuiltinId::BitAnd:
-        return fleaux::runtime::BitAnd(std::move(arg));
+        return runtime::BitAnd(std::move(arg));
       case BuiltinId::BitOr:
-        return fleaux::runtime::BitOr(std::move(arg));
+        return runtime::BitOr(std::move(arg));
       case BuiltinId::BitXor:
-        return fleaux::runtime::BitXor(std::move(arg));
+        return runtime::BitXor(std::move(arg));
       case BuiltinId::BitNot:
-        return fleaux::runtime::BitNot(std::move(arg));
+        return runtime::BitNot(std::move(arg));
       case BuiltinId::BitShiftLeft:
-        return fleaux::runtime::BitShiftLeft(std::move(arg));
+        return runtime::BitShiftLeft(std::move(arg));
       case BuiltinId::BitShiftRight:
-        return fleaux::runtime::BitShiftRight(std::move(arg));
+        return runtime::BitShiftRight(std::move(arg));
       case BuiltinId::Equal:
-        return fleaux::runtime::Equal(std::move(arg));
+        return runtime::Equal(std::move(arg));
       case BuiltinId::NotEqual:
-        return fleaux::runtime::NotEqual(std::move(arg));
+        return runtime::NotEqual(std::move(arg));
       case BuiltinId::LessThan:
-        return fleaux::runtime::LessThan(std::move(arg));
+        return runtime::LessThan(std::move(arg));
       case BuiltinId::GreaterThan:
-        return fleaux::runtime::GreaterThan(std::move(arg));
+        return runtime::GreaterThan(std::move(arg));
       case BuiltinId::GreaterOrEqual:
-        return fleaux::runtime::GreaterOrEqual(std::move(arg));
+        return runtime::GreaterOrEqual(std::move(arg));
       case BuiltinId::LessOrEqual:
-        return fleaux::runtime::LessOrEqual(std::move(arg));
+        return runtime::LessOrEqual(std::move(arg));
       case BuiltinId::Not:
-        return fleaux::runtime::Not(std::move(arg));
+        return runtime::Not(std::move(arg));
       case BuiltinId::And:
-        return fleaux::runtime::And(std::move(arg));
+        return runtime::And(std::move(arg));
       case BuiltinId::Or:
-        return fleaux::runtime::Or(std::move(arg));
+        return runtime::Or(std::move(arg));
       case BuiltinId::Select:
-        return fleaux::runtime::Select(std::move(arg));
+        return runtime::Select(std::move(arg));
       case BuiltinId::Match:
-        return fleaux::runtime::Match(std::move(arg));
+        return runtime::Match(std::move(arg));
       case BuiltinId::Apply:
-        return fleaux::runtime::Apply(std::move(arg));
+        return runtime::Apply(std::move(arg));
       case BuiltinId::Branch:
-        return fleaux::runtime::Branch(std::move(arg));
+        return runtime::Branch(std::move(arg));
       case BuiltinId::Loop:
-        return fleaux::runtime::Loop(std::move(arg));
+        return runtime::Loop(std::move(arg));
       case BuiltinId::LoopN:
-        return fleaux::runtime::LoopN(std::move(arg));
+        return runtime::LoopN(std::move(arg));
       case BuiltinId::Printf:
-        return fleaux::runtime::Printf(std::move(arg));
+        return runtime::Printf(std::move(arg));
       case BuiltinId::Println:
-        return fleaux::runtime::Println(std::move(arg));
+        return runtime::Println(std::move(arg));
       case BuiltinId::GetArgs:
-        return fleaux::runtime::GetArgs(std::move(arg));
+        return runtime::GetArgs(std::move(arg));
       case BuiltinId::Type:
-        return fleaux::runtime::Type(std::move(arg));
+        return runtime::Type(std::move(arg));
       case BuiltinId::Input:
-        return fleaux::runtime::Input(std::move(arg));
+        return runtime::Input(std::move(arg));
       case BuiltinId::Help:
-        return fleaux::runtime::Help(std::move(arg));
+        return runtime::Help(std::move(arg));
       case BuiltinId::ExitVoid:
-        return fleaux::runtime::Exit_Void(std::move(arg));
+        return runtime::Exit_Void(std::move(arg));
       case BuiltinId::ExitInt64:
-        return fleaux::runtime::Exit_Int64(std::move(arg));
+        return runtime::Exit_Int64(std::move(arg));
       case BuiltinId::Cwd:
-        return fleaux::runtime::Cwd(std::move(arg));
+        return runtime::Cwd(std::move(arg));
       case BuiltinId::OSEnv:
-        return fleaux::runtime::OSEnv(std::move(arg));
+        return runtime::OSEnv(std::move(arg));
       case BuiltinId::OSHasEnv:
-        return fleaux::runtime::OSHasEnv(std::move(arg));
+        return runtime::OSHasEnv(std::move(arg));
       case BuiltinId::OSSetEnv:
-        return fleaux::runtime::OSSetEnv(std::move(arg));
+        return runtime::OSSetEnv(std::move(arg));
       case BuiltinId::OSUnsetEnv:
-        return fleaux::runtime::OSUnsetEnv(std::move(arg));
+        return runtime::OSUnsetEnv(std::move(arg));
       case BuiltinId::OSIsWindows:
-        return fleaux::runtime::OSIsWindows(std::move(arg));
+        return runtime::OSIsWindows(std::move(arg));
       case BuiltinId::OSIsLinux:
-        return fleaux::runtime::OSIsLinux(std::move(arg));
+        return runtime::OSIsLinux(std::move(arg));
       case BuiltinId::OSIsMacOS:
-        return fleaux::runtime::OSIsMacOS(std::move(arg));
+        return runtime::OSIsMacOS(std::move(arg));
       case BuiltinId::OSHome:
-        return fleaux::runtime::OSHome(std::move(arg));
+        return runtime::OSHome(std::move(arg));
       case BuiltinId::OSTempDir:
-        return fleaux::runtime::OSTempDir(std::move(arg));
+        return runtime::OSTempDir(std::move(arg));
       case BuiltinId::OSExec:
-        return fleaux::runtime::OSExec(std::move(arg));
+        return runtime::OSExec(std::move(arg));
       case BuiltinId::OSMakeTempFile:
-        return fleaux::runtime::OSMakeTempFile(std::move(arg));
+        return runtime::OSMakeTempFile(std::move(arg));
       case BuiltinId::OSMakeTempDir:
-        return fleaux::runtime::OSMakeTempDir(std::move(arg));
+        return runtime::OSMakeTempDir(std::move(arg));
       case BuiltinId::PathJoin:
-        return fleaux::runtime::PathJoin(std::move(arg));
+        return runtime::PathJoin(std::move(arg));
       case BuiltinId::PathNormalize:
-        return fleaux::runtime::PathNormalize(std::move(arg));
+        return runtime::PathNormalize(std::move(arg));
       case BuiltinId::PathBasename:
-        return fleaux::runtime::PathBasename(std::move(arg));
+        return runtime::PathBasename(std::move(arg));
       case BuiltinId::PathDirname:
-        return fleaux::runtime::PathDirname(std::move(arg));
+        return runtime::PathDirname(std::move(arg));
       case BuiltinId::PathExists:
-        return fleaux::runtime::PathExists(std::move(arg));
+        return runtime::PathExists(std::move(arg));
       case BuiltinId::PathIsFile:
-        return fleaux::runtime::PathIsFile(std::move(arg));
+        return runtime::PathIsFile(std::move(arg));
       case BuiltinId::PathIsDir:
-        return fleaux::runtime::PathIsDir(std::move(arg));
+        return runtime::PathIsDir(std::move(arg));
       case BuiltinId::PathAbsolute:
-        return fleaux::runtime::PathAbsolute(std::move(arg));
+        return runtime::PathAbsolute(std::move(arg));
       case BuiltinId::PathExtension:
-        return fleaux::runtime::PathExtension(std::move(arg));
+        return runtime::PathExtension(std::move(arg));
       case BuiltinId::PathStem:
-        return fleaux::runtime::PathStem(std::move(arg));
+        return runtime::PathStem(std::move(arg));
       case BuiltinId::PathWithExtension:
-        return fleaux::runtime::PathWithExtension(std::move(arg));
+        return runtime::PathWithExtension(std::move(arg));
       case BuiltinId::PathWithBasename:
-        return fleaux::runtime::PathWithBasename(std::move(arg));
+        return runtime::PathWithBasename(std::move(arg));
       case BuiltinId::FileReadText:
-        return fleaux::runtime::FileReadText(std::move(arg));
+        return runtime::FileReadText(std::move(arg));
       case BuiltinId::FileWriteText:
-        return fleaux::runtime::FileWriteText(std::move(arg));
+        return runtime::FileWriteText(std::move(arg));
       case BuiltinId::FileAppendText:
-        return fleaux::runtime::FileAppendText(std::move(arg));
+        return runtime::FileAppendText(std::move(arg));
       case BuiltinId::FileReadLines:
-        return fleaux::runtime::FileReadLines(std::move(arg));
+        return runtime::FileReadLines(std::move(arg));
       case BuiltinId::FileDelete:
-        return fleaux::runtime::FileDelete(std::move(arg));
+        return runtime::FileDelete(std::move(arg));
       case BuiltinId::FileSize:
-        return fleaux::runtime::FileSize(std::move(arg));
+        return runtime::FileSize(std::move(arg));
       case BuiltinId::FileOpen:
-        return fleaux::runtime::FileOpen(std::move(arg));
+        return runtime::FileOpen(std::move(arg));
       case BuiltinId::FileReadLine:
-        return fleaux::runtime::FileReadLine(std::move(arg));
+        return runtime::FileReadLine(std::move(arg));
       case BuiltinId::FileReadChunk:
-        return fleaux::runtime::FileReadChunk(std::move(arg));
+        return runtime::FileReadChunk(std::move(arg));
       case BuiltinId::FileWriteChunk:
-        return fleaux::runtime::FileWriteChunk(std::move(arg));
+        return runtime::FileWriteChunk(std::move(arg));
       case BuiltinId::FileFlush:
-        return fleaux::runtime::FileFlush(std::move(arg));
+        return runtime::FileFlush(std::move(arg));
       case BuiltinId::FileClose:
-        return fleaux::runtime::FileClose(std::move(arg));
+        return runtime::FileClose(std::move(arg));
       case BuiltinId::FileWithOpen:
-        return fleaux::runtime::FileWithOpen(std::move(arg));
+        return runtime::FileWithOpen(std::move(arg));
       case BuiltinId::DirCreate:
-        return fleaux::runtime::DirCreate(std::move(arg));
+        return runtime::DirCreate(std::move(arg));
       case BuiltinId::DirDelete:
-        return fleaux::runtime::DirDelete(std::move(arg));
+        return runtime::DirDelete(std::move(arg));
       case BuiltinId::DirList:
-        return fleaux::runtime::DirList(std::move(arg));
+        return runtime::DirList(std::move(arg));
       case BuiltinId::DirListFull:
-        return fleaux::runtime::DirListFull(std::move(arg));
+        return runtime::DirListFull(std::move(arg));
       case BuiltinId::TupleAppend:
-        return fleaux::runtime::TupleAppend(std::move(arg));
+        return runtime::TupleAppend(std::move(arg));
       case BuiltinId::TuplePrepend:
-        return fleaux::runtime::TuplePrepend(std::move(arg));
+        return runtime::TuplePrepend(std::move(arg));
       case BuiltinId::TupleReverse:
-        return fleaux::runtime::TupleReverse(std::move(arg));
+        return runtime::TupleReverse(std::move(arg));
       case BuiltinId::TupleContains:
-        return fleaux::runtime::TupleContains(std::move(arg));
+        return runtime::TupleContains(std::move(arg));
       case BuiltinId::TupleZip:
-        return fleaux::runtime::TupleZip(std::move(arg));
+        return runtime::TupleZip(std::move(arg));
       case BuiltinId::TupleMap:
-        return fleaux::runtime::TupleMap(std::move(arg));
+        return runtime::TupleMap(std::move(arg));
       case BuiltinId::TupleFilter:
-        return fleaux::runtime::TupleFilter(std::move(arg));
+        return runtime::TupleFilter(std::move(arg));
       case BuiltinId::TupleSort:
-        return fleaux::runtime::TupleSort(std::move(arg));
+        return runtime::TupleSort(std::move(arg));
       case BuiltinId::TupleUnique:
-        return fleaux::runtime::TupleUnique(std::move(arg));
+        return runtime::TupleUnique(std::move(arg));
       case BuiltinId::TupleMin:
-        return fleaux::runtime::TupleMin(std::move(arg));
+        return runtime::TupleMin(std::move(arg));
       case BuiltinId::TupleMax:
-        return fleaux::runtime::TupleMax(std::move(arg));
+        return runtime::TupleMax(std::move(arg));
       case BuiltinId::TupleReduce:
-        return fleaux::runtime::TupleReduce(std::move(arg));
+        return runtime::TupleReduce(std::move(arg));
       case BuiltinId::TupleFindIndex:
-        return fleaux::runtime::TupleFindIndex(std::move(arg));
+        return runtime::TupleFindIndex(std::move(arg));
       case BuiltinId::TupleAny:
-        return fleaux::runtime::TupleAny(std::move(arg));
+        return runtime::TupleAny(std::move(arg));
       case BuiltinId::TupleAll:
-        return fleaux::runtime::TupleAll(std::move(arg));
+        return runtime::TupleAll(std::move(arg));
       case BuiltinId::TupleRange:
-        return fleaux::runtime::TupleRange(std::move(arg));
+        return runtime::TupleRange(std::move(arg));
       case BuiltinId::ArrayGetAt:
-        return fleaux::runtime::ArrayGetAt(std::move(arg));
+        return runtime::ArrayGetAt(std::move(arg));
       case BuiltinId::ArraySetAt:
-        return fleaux::runtime::ArraySetAt(std::move(arg));
+        return runtime::ArraySetAt(std::move(arg));
       case BuiltinId::ArrayInsertAt:
-        return fleaux::runtime::ArrayInsertAt(std::move(arg));
+        return runtime::ArrayInsertAt(std::move(arg));
       case BuiltinId::ArrayRemoveAt:
-        return fleaux::runtime::ArrayRemoveAt(std::move(arg));
+        return runtime::ArrayRemoveAt(std::move(arg));
       case BuiltinId::ArraySlice:
-        return fleaux::runtime::ArraySlice(std::move(arg));
+        return runtime::ArraySlice(std::move(arg));
       case BuiltinId::ArrayConcat:
-        return fleaux::runtime::ArrayConcat(std::move(arg));
+        return runtime::ArrayConcat(std::move(arg));
       case BuiltinId::ArraySetAt2D:
-        return fleaux::runtime::ArraySetAt2D(std::move(arg));
+        return runtime::ArraySetAt2D(std::move(arg));
       case BuiltinId::ArrayFill:
-        return fleaux::runtime::ArrayFill(std::move(arg));
+        return runtime::ArrayFill(std::move(arg));
       case BuiltinId::ArrayTranspose2D:
-        return fleaux::runtime::ArrayTranspose2D(std::move(arg));
+        return runtime::ArrayTranspose2D(std::move(arg));
       case BuiltinId::ArraySlice2D:
-        return fleaux::runtime::ArraySlice2D(std::move(arg));
+        return runtime::ArraySlice2D(std::move(arg));
       case BuiltinId::ArrayReshape:
-        return fleaux::runtime::ArrayReshape(std::move(arg));
+        return runtime::ArrayReshape(std::move(arg));
       case BuiltinId::ArrayRank:
-        return fleaux::runtime::ArrayRank(std::move(arg));
+        return runtime::ArrayRank(std::move(arg));
       case BuiltinId::ArrayShape:
-        return fleaux::runtime::ArrayShape(std::move(arg));
+        return runtime::ArrayShape(std::move(arg));
       case BuiltinId::ArrayFlatten:
-        return fleaux::runtime::ArrayFlatten(std::move(arg));
+        return runtime::ArrayFlatten(std::move(arg));
       case BuiltinId::ArrayGetAtND:
-        return fleaux::runtime::ArrayGetAtND(std::move(arg));
+        return runtime::ArrayGetAtND(std::move(arg));
       case BuiltinId::ArraySetAtND:
-        return fleaux::runtime::ArraySetAtND(std::move(arg));
+        return runtime::ArraySetAtND(std::move(arg));
       case BuiltinId::ArrayReshapeND:
-        return fleaux::runtime::ArrayReshapeND(std::move(arg));
+        return runtime::ArrayReshapeND(std::move(arg));
       case BuiltinId::DictCreateVoid:
-        return fleaux::runtime::DictCreate_Void(std::move(arg));
+        return runtime::DictCreate_Void(std::move(arg));
       case BuiltinId::DictCreateDict:
-        return fleaux::runtime::DictCreate_Dict(std::move(arg));
+        return runtime::DictCreate_Dict(std::move(arg));
       case BuiltinId::DictSet:
-        return fleaux::runtime::DictSet(std::move(arg));
+        return runtime::DictSet(std::move(arg));
       case BuiltinId::DictGet:
-        return fleaux::runtime::DictGet(std::move(arg));
+        return runtime::DictGet(std::move(arg));
       case BuiltinId::DictGetDefault:
-        return fleaux::runtime::DictGetDefault(std::move(arg));
+        return runtime::DictGetDefault(std::move(arg));
       case BuiltinId::DictContains:
-        return fleaux::runtime::DictContains(std::move(arg));
+        return runtime::DictContains(std::move(arg));
       case BuiltinId::DictDelete:
-        return fleaux::runtime::DictDelete(std::move(arg));
+        return runtime::DictDelete(std::move(arg));
       case BuiltinId::DictMerge:
-        return fleaux::runtime::DictMerge(std::move(arg));
+        return runtime::DictMerge(std::move(arg));
       case BuiltinId::DictKeys:
-        return fleaux::runtime::DictKeys(std::move(arg));
+        return runtime::DictKeys(std::move(arg));
       case BuiltinId::DictValues:
-        return fleaux::runtime::DictValues(std::move(arg));
+        return runtime::DictValues(std::move(arg));
       case BuiltinId::DictEntries:
-        return fleaux::runtime::DictEntries(std::move(arg));
+        return runtime::DictEntries(std::move(arg));
       case BuiltinId::DictClear:
-        return fleaux::runtime::DictClear(std::move(arg));
+        return runtime::DictClear(std::move(arg));
       case BuiltinId::DictLength:
-        return fleaux::runtime::DictLength(std::move(arg));
+        return runtime::DictLength(std::move(arg));
       case BuiltinId::Cast:
-        return fleaux::runtime::Cast(std::move(arg));
+        return runtime::Cast(std::move(arg));
       case BuiltinId::ToInt64:
-        return fleaux::runtime::ToInt64(std::move(arg));
+        return runtime::ToInt64(std::move(arg));
       case BuiltinId::ToUInt64:
-        return fleaux::runtime::ToUInt64(std::move(arg));
+        return runtime::ToUInt64(std::move(arg));
       case BuiltinId::ToFloat64:
-        return fleaux::runtime::ToFloat64(std::move(arg));
+        return runtime::ToFloat64(std::move(arg));
       case BuiltinId::MathFloor:
-        return fleaux::runtime::MathFloor(std::move(arg));
+        return runtime::MathFloor(std::move(arg));
       case BuiltinId::MathCeil:
-        return fleaux::runtime::MathCeil(std::move(arg));
+        return runtime::MathCeil(std::move(arg));
       case BuiltinId::MathAbs:
-        return fleaux::runtime::MathAbs(std::move(arg));
+        return runtime::MathAbs(std::move(arg));
       case BuiltinId::MathLog:
-        return fleaux::runtime::MathLog(std::move(arg));
+        return runtime::MathLog(std::move(arg));
       case BuiltinId::MathClamp:
-        return fleaux::runtime::MathClamp(std::move(arg));
+        return runtime::MathClamp(std::move(arg));
       case BuiltinId::Sqrt:
-        return fleaux::runtime::Sqrt(std::move(arg));
+        return runtime::Sqrt(std::move(arg));
       case BuiltinId::Sin:
-        return fleaux::runtime::Sin(std::move(arg));
+        return runtime::Sin(std::move(arg));
       case BuiltinId::Cos:
-        return fleaux::runtime::Cos(std::move(arg));
+        return runtime::Cos(std::move(arg));
       case BuiltinId::Tan:
-        return fleaux::runtime::Tan(std::move(arg));
+        return runtime::Tan(std::move(arg));
       case BuiltinId::ResultOk:
-        return fleaux::runtime::ResultOk(std::move(arg));
+        return runtime::ResultOk(std::move(arg));
       case BuiltinId::ResultErr:
-        return fleaux::runtime::ResultErr(std::move(arg));
+        return runtime::ResultErr(std::move(arg));
       case BuiltinId::ResultTag:
-        return fleaux::runtime::ResultTag(std::move(arg));
+        return runtime::ResultTag(std::move(arg));
       case BuiltinId::ResultPayload:
-        return fleaux::runtime::ResultPayload(std::move(arg));
+        return runtime::ResultPayload(std::move(arg));
       case BuiltinId::ResultIsOk:
-        return fleaux::runtime::ResultIsOk(std::move(arg));
+        return runtime::ResultIsOk(std::move(arg));
       case BuiltinId::ResultIsErr:
-        return fleaux::runtime::ResultIsErr(std::move(arg));
+        return runtime::ResultIsErr(std::move(arg));
       case BuiltinId::ResultUnwrap:
-        return fleaux::runtime::ResultUnwrap(std::move(arg));
+        return runtime::ResultUnwrap(std::move(arg));
       case BuiltinId::ResultUnwrapErr:
-        return fleaux::runtime::ResultUnwrapErr(std::move(arg));
+        return runtime::ResultUnwrapErr(std::move(arg));
       case BuiltinId::Try:
-        return fleaux::runtime::Try(std::move(arg));
+        return runtime::Try(std::move(arg));
       case BuiltinId::ParallelMap:
-        return fleaux::runtime::ParallelMap(std::move(arg));
+        return runtime::ParallelMap(std::move(arg));
       case BuiltinId::ParallelWithOptions:
-        return fleaux::runtime::ParallelWithOptions(std::move(arg));
+        return runtime::ParallelWithOptions(std::move(arg));
       case BuiltinId::ParallelForEach:
-        return fleaux::runtime::ParallelForEach(std::move(arg));
+        return runtime::ParallelForEach(std::move(arg));
       case BuiltinId::ParallelReduce:
-        return fleaux::runtime::ParallelReduce(std::move(arg));
+        return runtime::ParallelReduce(std::move(arg));
       case BuiltinId::TaskSpawn:
-        return fleaux::runtime::TaskSpawn(std::move(arg));
+        return runtime::TaskSpawn(std::move(arg));
       case BuiltinId::TaskAwait:
-        return fleaux::runtime::TaskAwait(std::move(arg));
+        return runtime::TaskAwait(std::move(arg));
       case BuiltinId::TaskAwaitAll:
-        return fleaux::runtime::TaskAwaitAll(std::move(arg));
+        return runtime::TaskAwaitAll(std::move(arg));
       case BuiltinId::TaskCancel:
-        return fleaux::runtime::TaskCancel(std::move(arg));
+        return runtime::TaskCancel(std::move(arg));
       case BuiltinId::TaskWithTimeout:
-        return fleaux::runtime::TaskWithTimeout(std::move(arg));
+        return runtime::TaskWithTimeout(std::move(arg));
       case BuiltinId::Wrap:
-        return fleaux::runtime::Wrap(std::move(arg));
+        return runtime::Wrap(std::move(arg));
       case BuiltinId::Unwrap:
-        return fleaux::runtime::Unwrap(std::move(arg));
+        return runtime::Unwrap(std::move(arg));
       case BuiltinId::ElementAt:
-        return fleaux::runtime::ElementAt(std::move(arg));
+        return runtime::ElementAt(std::move(arg));
       case BuiltinId::Length:
-        return fleaux::runtime::Length(std::move(arg));
+        return runtime::Length(std::move(arg));
       case BuiltinId::Take:
-        return fleaux::runtime::Take(std::move(arg));
+        return runtime::Take(std::move(arg));
       case BuiltinId::Drop:
-        return fleaux::runtime::Drop(std::move(arg));
+        return runtime::Drop(std::move(arg));
       case BuiltinId::Slice:
-        return fleaux::runtime::Slice(std::move(arg));
+        return runtime::Slice(std::move(arg));
       case BuiltinId::ToString:
-        return fleaux::runtime::ToString(std::move(arg));
+        return runtime::ToString(std::move(arg));
       case BuiltinId::ToNum:
-        return fleaux::runtime::ToNum(std::move(arg));
+        return runtime::ToNum(std::move(arg));
       case BuiltinId::StringParseInt64:
-        return fleaux::runtime::StringParseInt64(std::move(arg));
+        return runtime::StringParseInt64(std::move(arg));
       case BuiltinId::StringParseUInt64:
-        return fleaux::runtime::StringParseUInt64(std::move(arg));
+        return runtime::StringParseUInt64(std::move(arg));
       case BuiltinId::StringParseFloat64:
-        return fleaux::runtime::StringParseFloat64(std::move(arg));
+        return runtime::StringParseFloat64(std::move(arg));
       case BuiltinId::StringUpper:
-        return fleaux::runtime::StringUpper(std::move(arg));
+        return runtime::StringUpper(std::move(arg));
       case BuiltinId::StringLower:
-        return fleaux::runtime::StringLower(std::move(arg));
+        return runtime::StringLower(std::move(arg));
       case BuiltinId::StringTrim:
-        return fleaux::runtime::StringTrim(std::move(arg));
+        return runtime::StringTrim(std::move(arg));
       case BuiltinId::StringTrimStart:
-        return fleaux::runtime::StringTrimStart(std::move(arg));
+        return runtime::StringTrimStart(std::move(arg));
       case BuiltinId::StringTrimEnd:
-        return fleaux::runtime::StringTrimEnd(std::move(arg));
+        return runtime::StringTrimEnd(std::move(arg));
       case BuiltinId::StringSplit:
-        return fleaux::runtime::StringSplit(std::move(arg));
+        return runtime::StringSplit(std::move(arg));
       case BuiltinId::StringJoin:
-        return fleaux::runtime::StringJoin(std::move(arg));
+        return runtime::StringJoin(std::move(arg));
       case BuiltinId::StringReplace:
-        return fleaux::runtime::StringReplace(std::move(arg));
+        return runtime::StringReplace(std::move(arg));
       case BuiltinId::StringContains:
-        return fleaux::runtime::StringContains(std::move(arg));
+        return runtime::StringContains(std::move(arg));
       case BuiltinId::StringStartsWith:
-        return fleaux::runtime::StringStartsWith(std::move(arg));
+        return runtime::StringStartsWith(std::move(arg));
       case BuiltinId::StringEndsWith:
-        return fleaux::runtime::StringEndsWith(std::move(arg));
+        return runtime::StringEndsWith(std::move(arg));
       case BuiltinId::StringLength:
-        return fleaux::runtime::StringLength(std::move(arg));
+        return runtime::StringLength(std::move(arg));
       case BuiltinId::StringCharAt:
-        return fleaux::runtime::StringCharAt(std::move(arg));
+        return runtime::StringCharAt(std::move(arg));
       case BuiltinId::StringSlice:
-        return fleaux::runtime::StringSlice(std::move(arg));
+        return runtime::StringSlice(std::move(arg));
       case BuiltinId::StringFind:
-        return fleaux::runtime::StringFind(std::move(arg));
+        return runtime::StringFind(std::move(arg));
       case BuiltinId::StringFormat:
-        return fleaux::runtime::StringFormat(std::move(arg));
+        return runtime::StringFormat(std::move(arg));
       case BuiltinId::StringRegexIsMatch:
-        return fleaux::runtime::StringRegexIsMatch(arg);
+        return runtime::StringRegexIsMatch(arg);
       case BuiltinId::StringRegexFind:
-        return fleaux::runtime::StringRegexFind(arg);
+        return runtime::StringRegexFind(arg);
       case BuiltinId::StringRegexReplace:
-        return fleaux::runtime::StringRegexReplace(arg);
+        return runtime::StringRegexReplace(arg);
       case BuiltinId::StringRegexSplit:
-        return fleaux::runtime::StringRegexSplit(arg);
+        return runtime::StringRegexSplit(arg);
       default:
         if (const auto constant_value = constant_builtin_value(builtin_id); constant_value.has_value()) {
-          return fleaux::runtime::make_float(*constant_value);
+          return runtime::make_float(*constant_value);
         }
         return tl::unexpected(make_runtime_error("unknown builtin id"));
     }
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("builtin '") +
-                                             std::string(fleaux::vm::builtin_name(builtin_id)) +
-                                             "' threw: " + ex.what()));
+    return tl::unexpected(
+        make_runtime_error(std::string("builtin '") + std::string(builtin_name(builtin_id)) + "' threw: " + ex.what()));
   }
 }
 
@@ -1512,7 +1500,7 @@ struct RuntimeSession::Impl {
     for (auto& arg : args_storage) {
       argv_ptrs.push_back(arg.data());
     }
-    fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+    runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   }
 
   RuntimeCompileOptions compile_options;
@@ -1522,7 +1510,8 @@ struct RuntimeSession::Impl {
   std::vector<frontend::ir::IRAliasDecl> alias_decls;
 };
 
-RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args, const RuntimeCompileOptions& compile_options)
+RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args,
+                               const RuntimeCompileOptions& compile_options)
     : impl_(frontend::make_box<Impl>(process_args, compile_options)) {}
 
 RuntimeSession::RuntimeSession(const RuntimeSession& other) = default;
@@ -1536,9 +1525,8 @@ auto RuntimeSession::operator=(RuntimeSession&& other) noexcept -> RuntimeSessio
 RuntimeSession::~RuntimeSession() = default;
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
-  auto analyzed =
-      detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls,
-                                          impl_->alias_decls);
+  auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls,
+                                                      impl_->alias_decls);
   if (!analyzed) {
     return tl::unexpected(make_runtime_error(analyzed.error().message, analyzed.error().hint, analyzed.error().span));
   }
@@ -1553,20 +1541,18 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   program_to_execute.type_decls = merged_type_decls;
   program_to_execute.alias_decls = merged_alias_decls;
 
-  constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  auto compiled = compiler.compile(program_to_execute, fleaux::bytecode::CompileOptions{
-                                                           .source_path = impl_->source_path,
-                                                           .source_text = snippet_text,
-                                                           .module_name = std::string{"repl"},
-                                                           .imported_modules = {},
-                                                           .enable_value_ref_gate =
-                                                               impl_->compile_options.enable_value_ref_gate ||
-                                                               impl_->compile_options.enable_auto_value_ref,
-                                                           .enable_auto_value_ref =
-                                                               impl_->compile_options.enable_auto_value_ref,
-                                                           .value_ref_byte_cutoff =
-                                                               impl_->compile_options.value_ref_byte_cutoff,
-                                                       });
+  constexpr bytecode::BytecodeCompiler compiler;
+  auto compiled =
+      compiler.compile(program_to_execute, bytecode::CompileOptions{
+                                               .source_path = impl_->source_path,
+                                               .source_text = snippet_text,
+                                               .module_name = std::string{"repl"},
+                                               .imported_modules = {},
+                                               .enable_value_ref_gate = impl_->compile_options.enable_value_ref_gate ||
+                                                                        impl_->compile_options.enable_auto_value_ref,
+                                               .enable_auto_value_ref = impl_->compile_options.enable_auto_value_ref,
+                                               .value_ref_byte_cutoff = impl_->compile_options.value_ref_byte_cutoff,
+                                           });
   if (!compiled) {
     return tl::unexpected(
         make_runtime_error(compiled.error().message, "This REPL snippet is not yet supported by the VM compiler."));
@@ -1592,12 +1578,12 @@ auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeR
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult {
-  fleaux::runtime::CallableRegistryScope callable_scope;
-  fleaux::runtime::ValueRegistryScope value_scope;
-  fleaux::runtime::HandleRegistryScope handle_scope;
-  fleaux::runtime::TaskRegistryScope task_scope;
+  runtime::CallableRegistryScope callable_scope;
+  runtime::ValueRegistryScope value_scope;
+  runtime::HandleRegistryScope handle_scope;
+  runtime::TaskRegistryScope task_scope;
   detail::StdHelpMetadataScope help_scope;
-  fleaux::runtime::RuntimeOutputStreamScope output_scope(output);
+  runtime::RuntimeOutputStreamScope output_scope(output);
 
   std::vector<Value> stack;
   CallFrameStack frames;
