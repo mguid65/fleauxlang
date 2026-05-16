@@ -9,6 +9,7 @@
 #include <optional>
 #include <ranges>
 #include <stdexcept>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -36,6 +37,18 @@ auto make_runtime_error(const std::string& message, const std::optional<std::str
       .hint = hint,
       .span = span,
   };
+}
+
+[[nodiscard]] auto find_exported_symbol(const bytecode::Module& bytecode_module,
+                                        const std::string_view qualified_symbol)
+    -> const bytecode::ExportedSymbol* {
+  const auto it = std::ranges::find_if(bytecode_module.exports, [qualified_symbol](const bytecode::ExportedSymbol& sym) {
+    return sym.name == qualified_symbol || sym.link_name == qualified_symbol;
+  });
+  if (it == bytecode_module.exports.end()) {
+    return nullptr;
+  }
+  return &*it;
 }
 
 // Value helpers
@@ -1575,6 +1588,46 @@ auto Runtime::create_session(const std::vector<std::string>& process_args,
 
 auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {
   return execute(bytecode_module, std::cout);
+}
+
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg) const -> RuntimeValueResult {
+  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg), std::cout);
+}
+
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg, std::ostream& output) const -> RuntimeValueResult {
+  runtime::CallableRegistryScope callable_scope;
+  runtime::ValueRegistryScope value_scope;
+  runtime::HandleRegistryScope handle_scope;
+  runtime::TaskRegistryScope task_scope;
+  detail::StdHelpMetadataScope help_scope;
+  runtime::RuntimeOutputStreamScope output_scope(output);
+
+  const auto* exported_symbol = find_exported_symbol(bytecode_module, qualified_symbol);
+  if (exported_symbol == nullptr) {
+    return tl::unexpected(make_runtime_error("Unresolved exported symbol: '" + std::string{qualified_symbol} + "'."));
+  }
+
+  if (exported_symbol->kind == bytecode::ExportKind::kBuiltinAlias) {
+    const auto builtin_name = exported_symbol->builtin_name.empty() ? exported_symbol->name : exported_symbol->builtin_name;
+    const auto builtin_id = builtin_id_from_symbol_key(builtin_name);
+    if (!builtin_id.has_value()) {
+      return tl::unexpected(make_runtime_error("Unknown builtin alias symbol: '" + builtin_name + "'."));
+    }
+    auto dispatched = dispatch_builtin(*builtin_id, std::move(arg));
+    if (!dispatched) {
+      return tl::unexpected(dispatched.error());
+    }
+    return *dispatched;
+  }
+
+  const auto function_index = static_cast<std::size_t>(exported_symbol->index);
+  auto called = run_user_function(bytecode_module, function_index, std::move(arg), output);
+  if (!called) {
+    return tl::unexpected(called.error());
+  }
+  return *called;
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult {

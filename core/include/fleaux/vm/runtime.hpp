@@ -4,6 +4,7 @@
 #include <iosfwd>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <tl/expected.hpp>
@@ -11,6 +12,7 @@
 #include "fleaux/bytecode/module.hpp"
 #include "fleaux/frontend/box.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/runtime/value.hpp"
 
 namespace fleaux::vm {
 
@@ -25,6 +27,7 @@ struct RuntimeError {
 };
 
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
+using RuntimeValueResult = tl::expected<runtime::Value, RuntimeError>;
 
 struct RuntimeCompileOptions {
   bool enable_value_ref_gate{false};
@@ -55,6 +58,10 @@ public:
 
   [[nodiscard]] auto execute(const bytecode::Module& bytecode_module) const -> RuntimeResult;
   auto execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult;
+  [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
+                                   runtime::Value arg) const -> RuntimeValueResult;
+  [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
+                                   runtime::Value arg, std::ostream& output) const -> RuntimeValueResult;
 
   [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {},
                                     const RuntimeCompileOptions& compile_options = {}) const -> RuntimeSession;

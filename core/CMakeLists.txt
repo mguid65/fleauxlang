@@ -278,6 +278,7 @@ if(BUILD_TESTING)
   add_executable(fleaux_core_tests
       tests/test_main.cpp
       tests/diagnostics_tests.cpp
+      tests/embed_api_surface_tests.cpp
       tests/parser_tests.cpp
       tests/parser_type_syntax_tests.cpp
       tests/lowering_tests.cpp
@@ -348,6 +349,20 @@ if(FLEAUX_PCRE2_TARGET)
   target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_link_libraries(fleaux PRIVATE fleaux_vm)
   fleaux_set_project_warnings(fleaux WARNINGS_AS_ERRORS)
+
+  add_library(fleaux_embed STATIC
+      src/embed/dynamic_loader.cpp
+      src/embed/native_bindings.cpp
+      src/embed/vm_host.cpp)
+  target_include_directories(fleaux_embed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_embed PUBLIC fleaux_vm)
+  if(CMAKE_DL_LIBS)
+    target_link_libraries(fleaux_embed PRIVATE ${CMAKE_DL_LIBS})
+  endif()
+  fleaux_set_project_warnings(fleaux_embed WARNINGS_AS_ERRORS)
+  if(TARGET fleaux_emscripten_threads)
+    target_link_libraries(fleaux_embed PUBLIC fleaux_emscripten_threads)
+  endif()
 elseif(EMSCRIPTEN)
   message(STATUS "PCRE2 not found under Emscripten; skipping fleaux_vm and fleaux targets")
 endif()
@@ -403,17 +418,52 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
 endif()
 
 if(BUILD_TESTING AND TARGET fleaux_vm)
+  add_library(fleaux_test_binding_plugin SHARED
+      tests/fixtures/binding_plugin_echo.cpp)
+  target_include_directories(fleaux_test_binding_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_test_binding_plugin PRIVATE tl_expected datatree)
+  fleaux_set_project_warnings(fleaux_test_binding_plugin WARNINGS_AS_ERRORS)
+
+  add_library(fleaux_test_binding_plugin_abi_mismatch SHARED
+      tests/fixtures/binding_plugin_abi_mismatch.cpp)
+  target_include_directories(fleaux_test_binding_plugin_abi_mismatch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_test_binding_plugin_abi_mismatch PRIVATE tl_expected datatree)
+  fleaux_set_project_warnings(fleaux_test_binding_plugin_abi_mismatch WARNINGS_AS_ERRORS)
+
+  add_library(fleaux_test_binding_plugin_missing_entrypoint SHARED
+      tests/fixtures/binding_plugin_missing_entrypoint.cpp)
+  target_include_directories(fleaux_test_binding_plugin_missing_entrypoint PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_test_binding_plugin_missing_entrypoint PRIVATE tl_expected datatree)
+  fleaux_set_project_warnings(fleaux_test_binding_plugin_missing_entrypoint WARNINGS_AS_ERRORS)
+
+  add_library(fleaux_test_binding_plugin_registration_failed SHARED
+      tests/fixtures/binding_plugin_registration_failed.cpp)
+  target_include_directories(fleaux_test_binding_plugin_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_test_binding_plugin_registration_failed PRIVATE tl_expected datatree)
+  fleaux_set_project_warnings(fleaux_test_binding_plugin_registration_failed WARNINGS_AS_ERRORS)
+
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
+      tests/embed_dynamic_loader_tests.cpp
+      tests/embed_native_bindings_tests.cpp
       tests/opcode_stringify_tests.cpp
+      tests/embed_vm_host_tests.cpp
       tests/vm_cli_tests.cpp
       tests/vm_import_contract_tests.cpp
       tests/vm_boundary_matrix_tests.cpp
       tests/vm_runtime_tests.cpp
       tests/vm_samples_tests.cpp)
-  target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm)
+  target_link_libraries(fleaux_core_tests PRIVATE fleaux_bytecode fleaux_vm fleaux_embed)
   target_compile_definitions(fleaux_core_tests PRIVATE
-      FLEAUX_CORE_BIN_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+      FLEAUX_CORE_BIN_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+      FLEAUX_TEST_BINDING_PLUGIN_PATH="$<TARGET_FILE:fleaux_test_binding_plugin>"
+      FLEAUX_TEST_BINDING_PLUGIN_ABI_MISMATCH_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_abi_mismatch>"
+      FLEAUX_TEST_BINDING_PLUGIN_MISSING_ENTRYPOINT_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_missing_entrypoint>"
+      FLEAUX_TEST_BINDING_PLUGIN_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_registration_failed>")
+  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin)
+  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_abi_mismatch)
+  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_missing_entrypoint)
+  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_registration_failed)
   add_dependencies(fleaux_core_tests fleaux)
 
 endif()
