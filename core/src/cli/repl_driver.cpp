@@ -105,31 +105,31 @@ auto parse_repl_command(const std::string& line) -> ParsedReplCommand {
 }
 
 auto compute_repl_style_spans(const std::string_view text) -> std::vector<StyleSpan> {
-  const auto tokens = fleaux::frontend::parse::lex_program_best_effort(std::string(text), "<repl>");
+  const auto tokens = frontend::parse::lex_program_best_effort(std::string(text), "<repl>");
   std::vector<StyleSpan> spans;
   spans.reserve(tokens.size());
 
   for (const auto& token : tokens) {
-    TokenClass token_class = TokenClass::kPlain;
+    auto token_class = TokenClass::kPlain;
     switch (token.kind) {
-      case fleaux::frontend::parse::TokenKind::kString:
+      case frontend::parse::TokenKind::kString:
         token_class = TokenClass::kString;
         break;
-      case fleaux::frontend::parse::TokenKind::kNumeric:
-      case fleaux::frontend::parse::TokenKind::kBool:
-      case fleaux::frontend::parse::TokenKind::kNull:
+      case frontend::parse::TokenKind::kNumeric:
+      case frontend::parse::TokenKind::kBool:
+      case frontend::parse::TokenKind::kNull:
         token_class = TokenClass::kNumber;
         break;
-      case fleaux::frontend::parse::TokenKind::kIdent:
-        token_class = fleaux::frontend::parse::is_keyword(token.value) ? TokenClass::kKeyword : TokenClass::kIdentifier;
+      case frontend::parse::TokenKind::kIdent:
+        token_class = frontend::parse::is_keyword(token.value) ? TokenClass::kKeyword : TokenClass::kIdentifier;
         break;
-      case fleaux::frontend::parse::TokenKind::kSymbol:
+      case frontend::parse::TokenKind::kSymbol:
         token_class = TokenClass::kOperator;
         break;
-      case fleaux::frontend::parse::TokenKind::kError:
+      case frontend::parse::TokenKind::kError:
         token_class = TokenClass::kError;
         break;
-      case fleaux::frontend::parse::TokenKind::kEof:
+      case frontend::parse::TokenKind::kEof:
         continue;
     }
 
@@ -144,7 +144,7 @@ auto make_repl_style_provider() -> auto {
 }
 
 auto seed_completion_symbols(CompletionHandler& completion) -> void {
-  for (const auto keyword : fleaux::frontend::parse::keyword_spellings()) {
+  for (const auto keyword : frontend::parse::keyword_spellings()) {
     completion.load_symbols({keyword});
   }
 
@@ -233,7 +233,7 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
 
   seed_completion_symbols(line_editor.completion_handler().value());
 
-  constexpr vm::Runtime runtime;
+  const vm::Runtime runtime;
   const auto session = runtime.create_session(process_args, compile_options);
   const auto run_snippet = [session](const std::string& snippet) -> std::optional<vm::RuntimeError> {
     if (const auto result = session.run_snippet(snippet, std::cout); !result) {

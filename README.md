@@ -12,6 +12,7 @@ This repository contains:
 ## Documentation
 
 - Developer feature routing map: `docs/developer_feature_map.md`
+- Embedding guide: `docs/embedding.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
 
 ## Basic language usage
@@ -146,6 +147,23 @@ cpack --config build-release/CPackConfig.cmake
 ```
 
 By default, CPack produces a `.tar.gz` package in `core/build-release/packages/`.
+
+### Using the installed embedding package
+
+The native install now exports a CMake package for embedders.
+
+Downstream CMake consumers can use:
+
+```cmake
+find_package(fleaux CONFIG REQUIRED)
+add_executable(my_host main.cpp)
+target_link_libraries(my_host PRIVATE fleaux::embed)
+```
+
+See `docs/embedding.md` for host, in-process binding, and dynamic plugin examples.
+
+Downstream CMake still needs `PCRE2` discoverable when it loads the exported package.
+With single-config generators such as Ninja, set `CMAKE_BUILD_TYPE` as well.
 
 ## Optional: build WASM coordinator and visual editor
 

@@ -26,8 +26,14 @@ AliasStatement:
   'alias' name=Identifier '=' target=Type;
 
 LetStatement:
+  FunctionLetStatement | ValueLetStatement;
+
+FunctionLetStatement:
   'let' id=OptionallyQualifiedId generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type
   DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+
+ValueLetStatement:
+  'let' id=OptionallyQualifiedId ':' rtype=Type '=' expr=Expression;
 
 OptionalGenericParamList:
   '<' params+=Identifier (',' params+=Identifier)* '>' |
@@ -85,10 +91,21 @@ Primary:
 
 Atom:
   closure=ClosureExpression |
+  block=BlockExpression |
   '(' inner=DelimitedExpression ')' |
   constant=Constant |
   named_target=NamedTarget |
   op=Operator;
+
+BlockExpression:
+  '{' items*=BlockItem result=Expression ';' '}';
+
+BlockItem:
+  LocalLetBinding ';' |
+  ExpressionStatement ';';
+
+LocalLetBinding:
+  'let' name=Identifier ':' type=Type '=' expr=Expression;
 
 NamedTarget:
   target=OptionallyQualifiedId explicit_type_args=OptionalExplicitTypeArgList;

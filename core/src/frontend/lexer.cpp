@@ -262,7 +262,7 @@ auto lex_impl(const std::string& source, const std::string& source_name, const L
       continue;
     }
 
-    static constexpr std::string_view kSingle = "()[],:;.=+-*/%^!<>|";
+    static constexpr std::string_view kSingle = "()[]{},:;.=+-*/%^!<>|";
 
     if (kSingle.find(ch) != std::string::npos) {
       const std::string text(1, ch);

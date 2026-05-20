@@ -14,6 +14,10 @@ TEST_CASE("Embedding headers expose draft API types", "[embed]") {
   static_assert(std::is_class_v<fleaux::embed::VmHost>);
   static_assert(std::is_class_v<fleaux::embed::DynamicLoader>);
   static_assert(std::is_class_v<fleaux::embed::NativeBindingRegistry>);
+  static_assert(!std::is_copy_constructible_v<fleaux::embed::VmHost>);
+  static_assert(!std::is_copy_assignable_v<fleaux::embed::VmHost>);
+  static_assert(std::is_move_constructible_v<fleaux::embed::VmHost>);
+  static_assert(std::is_move_assignable_v<fleaux::embed::VmHost>);
   SUCCEED();
 }
 

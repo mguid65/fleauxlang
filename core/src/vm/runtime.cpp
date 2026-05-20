@@ -23,6 +23,20 @@
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
 
+namespace fleaux::runtime {
+
+auto runtime_execution_state_thread_context() -> RuntimeExecutionStateThreadContext& {
+  thread_local RuntimeExecutionStateThreadContext context{default_runtime_execution_state()};
+  return context;
+}
+
+auto runtime_thread_context() -> RuntimeThreadContext& {
+  thread_local RuntimeThreadContext context{};
+  return context;
+}
+
+}  // namespace fleaux::runtime
+
 namespace fleaux::vm {
 namespace {
 
@@ -37,6 +51,25 @@ auto make_runtime_error(const std::string& message, const std::optional<std::str
       .hint = hint,
       .span = span,
   };
+}
+
+[[nodiscard]] auto make_process_args_for_invocation(const std::vector<std::string>& process_args,
+                                                    const std::string_view entry_label) -> std::vector<std::string> {
+  std::vector<std::string> scoped_args;
+  scoped_args.reserve(process_args.size() + 1U);
+  scoped_args.emplace_back(entry_label.empty() ? "<runtime>" : std::string{entry_label});
+  scoped_args.insert(scoped_args.end(), process_args.begin(), process_args.end());
+  return scoped_args;
+}
+
+[[nodiscard]] auto resolve_runtime_input_stream(
+    const std::optional<std::reference_wrapper<std::istream>>& input) -> std::istream& {
+  return input.has_value() ? input->get() : std::cin;
+}
+
+[[nodiscard]] auto resolve_runtime_output_stream(
+    const std::optional<std::reference_wrapper<std::ostream>>& output) -> std::ostream& {
+  return output.has_value() ? output->get() : std::cout;
 }
 
 [[nodiscard]] auto find_exported_symbol(const bytecode::Module& bytecode_module,
@@ -690,6 +723,20 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(make_runtime_error("local slot index out of range"));
         }
         stack.push_back(locals[slot]);
+        break;
+      }
+
+      case bytecode::Opcode::kStoreLocal: {
+        auto value = pop_stack(stack, "store_local");
+        if (!value) {
+          return tl::unexpected(value.error());
+        }
+        const auto slot = static_cast<std::size_t>(operand);
+        auto& locals = frames.back().locals;
+        if (slot >= locals.size()) {
+          locals.resize(slot + 1U);
+        }
+        locals[slot] = std::move(*value);
         break;
       }
 
@@ -1500,23 +1547,15 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
 }  // namespace
 
 struct RuntimeSession::Impl {
-  explicit Impl(const std::vector<std::string>& process_args, const RuntimeCompileOptions& session_compile_options)
+  explicit Impl(const std::vector<std::string>& initial_process_args,
+                const RuntimeCompileOptions& session_compile_options)
       : compile_options(session_compile_options),
+        process_args(initial_process_args),
         source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
-    std::vector<std::string> args_storage;
-    args_storage.reserve(process_args.size() + 1U);
-    args_storage.emplace_back("<repl>");
-    args_storage.insert(args_storage.end(), process_args.begin(), process_args.end());
-
-    std::vector<char*> argv_ptrs;
-    argv_ptrs.reserve(args_storage.size());
-    for (auto& arg : args_storage) {
-      argv_ptrs.push_back(arg.data());
-    }
-    runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   }
 
   RuntimeCompileOptions compile_options;
+  std::vector<std::string> process_args;
   std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
   std::vector<frontend::ir::IRTypeDecl> type_decls;
@@ -1525,7 +1564,7 @@ struct RuntimeSession::Impl {
 
 RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args,
                                const RuntimeCompileOptions& compile_options)
-    : impl_(frontend::make_box<Impl>(process_args, compile_options)) {}
+    : impl_(std::in_place, process_args, compile_options) {}
 
 RuntimeSession::RuntimeSession(const RuntimeSession& other) = default;
 
@@ -1538,6 +1577,11 @@ auto RuntimeSession::operator=(RuntimeSession&& other) noexcept -> RuntimeSessio
 RuntimeSession::~RuntimeSession() = default;
 
 auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult {
+  return run_snippet(snippet_text, output, std::cin);
+}
+
+auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& output, std::istream& input) const
+    -> RuntimeResult {
   auto analyzed = detail::parse_and_analyze_repl_text(snippet_text, impl_->source_path, impl_->lets, impl_->type_decls,
                                                       impl_->alias_decls);
   if (!analyzed) {
@@ -1575,11 +1619,14 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   impl_->type_decls = std::move(merged_type_decls);
   impl_->alias_decls = std::move(merged_alias_decls);
 
-  constexpr Runtime runtime;
-  return runtime.execute(*compiled, output);
+  const Runtime runtime{impl_->process_args};
+  return runtime.execute(
+      *compiled, RuntimeInvocationOptions{.entry_label = "<repl>", .input = std::ref(input), .output = std::ref(output)});
 }
 
 // Runtime::execute
+
+Runtime::Runtime(std::vector<std::string> process_args) : process_args_(std::move(process_args)) {}
 
 auto Runtime::create_session(const std::vector<std::string>& process_args,
                              const RuntimeCompileOptions& compile_options) const -> RuntimeSession {
@@ -1587,22 +1634,63 @@ auto Runtime::create_session(const std::vector<std::string>& process_args,
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {
-  return execute(bytecode_module, std::cout);
+  return execute(bytecode_module, RuntimeInvocationOptions{});
 }
 
-auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
-                            runtime::Value arg) const -> RuntimeValueResult {
-  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg), std::cout);
-}
+auto Runtime::execute(const bytecode::Module& bytecode_module, const RuntimeInvocationOptions& options) const
+    -> RuntimeResult {
+  auto& output = resolve_runtime_output_stream(options.output);
 
-auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
-                            runtime::Value arg, std::ostream& output) const -> RuntimeValueResult {
+  runtime::RuntimeExecutionState execution_state;
+  runtime::ActiveRuntimeExecutionStateScope execution_state_scope(execution_state);
   runtime::CallableRegistryScope callable_scope;
   runtime::ValueRegistryScope value_scope;
   runtime::HandleRegistryScope handle_scope;
   runtime::TaskRegistryScope task_scope;
   detail::StdHelpMetadataScope help_scope;
   runtime::RuntimeOutputStreamScope output_scope(output);
+  runtime::RuntimeInputStreamScope input_scope(resolve_runtime_input_stream(options.input));
+  runtime::RuntimeProcessArgsScope process_args_scope(
+      make_process_args_for_invocation(process_args_, options.entry_label));
+
+  std::vector<Value> stack;
+  CallFrameStack frames;
+  stack.reserve(suggested_operand_stack_capacity(bytecode_module.instructions.size()));
+  frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
+  (void)frames.push(&bytecode_module.instructions);
+
+  auto loop_result = run_loop(bytecode_module, stack, frames, output);
+  if (!loop_result)
+    return tl::unexpected(loop_result.error());
+
+  if (std::get_if<Value>(&*loop_result) != nullptr) {
+    // A top-level kReturn would be a compiler bug.
+    return tl::unexpected(make_runtime_error("top-level code returned a value instead of halting"));
+  }
+  return ExecutionResult{0};
+}
+
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg) const -> RuntimeValueResult {
+  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg),
+                       RuntimeInvocationOptions{.entry_label = std::string{qualified_symbol}});
+}
+
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg, const RuntimeInvocationOptions& options) const -> RuntimeValueResult {
+  auto& output = resolve_runtime_output_stream(options.output);
+
+  runtime::RuntimeExecutionState execution_state;
+  runtime::ActiveRuntimeExecutionStateScope execution_state_scope(execution_state);
+  runtime::CallableRegistryScope callable_scope;
+  runtime::ValueRegistryScope value_scope;
+  runtime::HandleRegistryScope handle_scope;
+  runtime::TaskRegistryScope task_scope;
+  detail::StdHelpMetadataScope help_scope;
+  runtime::RuntimeOutputStreamScope output_scope(output);
+  runtime::RuntimeInputStreamScope input_scope(resolve_runtime_input_stream(options.input));
+  runtime::RuntimeProcessArgsScope process_args_scope(
+      make_process_args_for_invocation(process_args_, options.entry_label.empty() ? qualified_symbol : options.entry_label));
 
   const auto* exported_symbol = find_exported_symbol(bytecode_module, qualified_symbol);
   if (exported_symbol == nullptr) {
@@ -1630,29 +1718,29 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
   return *called;
 }
 
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg, std::ostream& output) const -> RuntimeValueResult {
+  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg),
+                       RuntimeInvocationOptions{.entry_label = std::string{qualified_symbol}, .output = std::ref(output)});
+}
+
+auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
+                            runtime::Value arg, std::ostream& output,
+                            const RuntimeInvocationOptions& options) const -> RuntimeValueResult {
+  auto merged_options = options;
+  merged_options.output = std::ref(output);
+  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg), merged_options);
+}
+
 auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult {
-  runtime::CallableRegistryScope callable_scope;
-  runtime::ValueRegistryScope value_scope;
-  runtime::HandleRegistryScope handle_scope;
-  runtime::TaskRegistryScope task_scope;
-  detail::StdHelpMetadataScope help_scope;
-  runtime::RuntimeOutputStreamScope output_scope(output);
+  return execute(bytecode_module, RuntimeInvocationOptions{.output = std::ref(output)});
+}
 
-  std::vector<Value> stack;
-  CallFrameStack frames;
-  stack.reserve(suggested_operand_stack_capacity(bytecode_module.instructions.size()));
-  frames.reserve(suggested_frame_stack_capacity(bytecode_module.functions.size()));
-  (void)frames.push(&bytecode_module.instructions);
-
-  auto loop_result = run_loop(bytecode_module, stack, frames, output);
-  if (!loop_result)
-    return tl::unexpected(loop_result.error());
-
-  if (std::get_if<Value>(&*loop_result) != nullptr) {
-    // A top-level kReturn would be a compiler bug.
-    return tl::unexpected(make_runtime_error("top-level code returned a value instead of halting"));
-  }
-  return ExecutionResult{0};
+auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output,
+                     const RuntimeInvocationOptions& options) const -> RuntimeResult {
+  auto merged_options = options;
+  merged_options.output = std::ref(output);
+  return execute(bytecode_module, merged_options);
 }
 
 }  // namespace fleaux::vm

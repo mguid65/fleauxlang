@@ -564,6 +564,86 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
   }
 }
 
+TEST_CASE("Nested TaskRegistryScope keeps outer task alive until outer teardown", "[runtime][concurrency]") {
+  reset_callable_registry();
+  reset_task_registry_for_tests();
+  REQUIRE(task_registry_size() == 0U);
+
+  Value outer_task = make_null();
+  Value inner_task = make_null();
+  {
+    TaskRegistryScope outer_scope;
+    const Value add_one = make_callable_ref([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
+
+    outer_task = TaskSpawn(make_tuple(add_one, make_int(10)));
+    REQUIRE(task_registry_size() == 1U);
+
+    {
+      TaskRegistryScope inner_scope;
+      inner_task = TaskSpawn(make_tuple(add_one, make_int(20)));
+      REQUIRE(task_registry_size() == 2U);
+
+      const Value inner_result = TaskAwait(make_tuple(inner_task));
+      REQUIRE(as_bool(ResultIsOk(inner_result)));
+      REQUIRE(to_double(ResultUnwrap(inner_result)) == 21.0);
+    }
+
+    REQUIRE(task_registry_size() == 1U);
+
+    const Value inner_after = TaskAwait(make_tuple(inner_task));
+    REQUIRE(as_bool(ResultIsErr(inner_after)));
+    REQUIRE(as_string(ResultUnwrapErr(inner_after)) == "Task.Await: invalid task handle");
+
+    const Value outer_result = TaskAwait(make_tuple(outer_task));
+    REQUIRE(as_bool(ResultIsOk(outer_result)));
+    REQUIRE(to_double(ResultUnwrap(outer_result)) == 11.0);
+  }
+
+  REQUIRE(task_registry_size() == 0U);
+
+  const Value outer_after = TaskAwait(make_tuple(outer_task));
+  REQUIRE(as_bool(ResultIsErr(outer_after)));
+  REQUIRE(as_string(ResultUnwrapErr(outer_after)) == "Task.Await: invalid task handle");
+}
+
+TEST_CASE("ActiveRuntimeExecutionStateScope isolates task registry and propagates into task workers",
+          "[runtime][concurrency][execution_state]") {
+  reset_callable_registry();
+  reset_task_registry_for_tests();
+
+  auto default_a = make_pinned_callable_ref([](const Value& v) -> Value { return v; });
+  auto default_b = make_pinned_callable_ref([](const Value& v) -> Value { return v; });
+  REQUIRE(callable_registry_size() == 2U);
+  REQUIRE(task_registry_size() == 0U);
+
+  RuntimeExecutionState isolated_state;
+  {
+    ActiveRuntimeExecutionStateScope state_scope(isolated_state);
+    REQUIRE(callable_registry_size() == 0U);
+    REQUIRE(task_registry_size() == 0U);
+
+    TaskRegistryScope task_scope;
+    const Value inspect_state = make_callable_ref([](const Value&) -> Value {
+      return make_int(static_cast<Int>(callable_registry_size()));
+    });
+
+    const Value task = TaskSpawn(make_tuple(inspect_state, make_null()));
+    REQUIRE(task_registry_size() == 1U);
+
+    const Value awaited = TaskAwait(make_tuple(task));
+    REQUIRE(as_bool(ResultIsOk(awaited)));
+    REQUIRE(to_double(ResultUnwrap(awaited)) == 1.0);
+  }
+
+  REQUIRE(callable_registry_size() == 2U);
+  REQUIRE(task_registry_size() == 0U);
+
+  default_a.release();
+  default_b.release();
+  reset_callable_registry();
+  reset_task_registry_for_tests();
+}
+
 TEST_CASE("Runtime builtins: Std.Parallel.ForEach", "[runtime]") {
   SECTION("ForEach returns Ok(empty tuple) when all items succeed") {
     std::atomic<int> counter{0};
@@ -786,6 +866,58 @@ TEST_CASE("Runtime builtins: concurrency property tests", "[runtime][concurrency
   }
 }
 
+TEST_CASE("Runtime builtins propagate submitting thread context into task workers", "[runtime][concurrency][context]") {
+  reset_callable_registry();
+  reset_task_registry_for_tests();
+
+  SECTION("Task.Spawn workers inherit output stream and process args") {
+    std::ostringstream output;
+    RuntimeOutputStreamScope output_scope(output);
+    RuntimeProcessArgsScope args_scope({"<task>", "alpha", "beta"});
+    TaskRegistryScope task_scope;
+
+    const Value worker = make_callable_ref([](const Value& value) -> Value {
+      const Value args = GetArgs(make_tuple());
+      (void)Println(make_int(static_cast<Int>(as_array(args).Size())));
+      return make_tuple(args, value);
+    });
+
+    const Value task = TaskSpawn(make_tuple(worker, make_string("payload")));
+    const Value awaited = TaskAwait(task);
+    REQUIRE(as_bool(ResultIsOk(awaited)));
+
+    const Value unwrapped = ResultUnwrap(awaited);
+    const auto& payload = as_array(unwrapped);
+    REQUIRE(payload.Size() == 2U);
+    const auto& args = as_array(*payload.TryGet(0));
+    REQUIRE(args.Size() == 3U);
+    REQUIRE(as_string(*args.TryGet(0)) == "<task>");
+    REQUIRE(as_string(*args.TryGet(1)) == "alpha");
+    REQUIRE(as_string(*args.TryGet(2)) == "beta");
+    REQUIRE(as_string(*payload.TryGet(1)) == "payload");
+    REQUIRE(output.str() == "3\n");
+  }
+
+  SECTION("Parallel.Map workers inherit process args") {
+    RuntimeProcessArgsScope args_scope({"<parallel>", "delta", "gamma"});
+
+    const Value worker = make_callable_ref([](const Value& value) -> Value {
+      (void)value;
+      return make_int(static_cast<Int>(as_array(GetArgs(make_tuple())).Size()));
+    });
+
+    const Value result = ParallelMap(make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), worker));
+    REQUIRE(as_bool(ResultIsOk(result)));
+
+    const Value unwrapped = ResultUnwrap(result);
+    const auto& mapped = as_array(unwrapped);
+    REQUIRE(mapped.Size() == 3U);
+    for (std::size_t index = 0; index < mapped.Size(); ++index) {
+      REQUIRE(as_int_value(*mapped.TryGet(index)) == 3);
+    }
+  }
+}
+
 TEST_CASE("Runtime builtins: loop and formatting", "[runtime]") {
   SECTION("Loop sums 1..5") {
     auto cf = [](Value state) -> Value { return make_bool(to_double(array_at(state, 0)) > 0.0); };
@@ -889,6 +1021,37 @@ TEST_CASE("Runtime builtins: stdlib environment helpers", "[runtime]") {
     const Value result = Help(make_string("Std.Add"));
     REQUIRE_THAT(as_string(result), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
     REQUIRE_THAT(as_string(result), Catch::Matchers::ContainsSubstring("Adds two integers."));
+
+    clear_help_metadata_registry();
+  }
+
+  SECTION("Help lists prefix matches in sorted order") {
+    clear_help_metadata_registry();
+    register_help_metadata(HelpMetadata{
+        .name = "Std.Tuple.Map",
+        .signature = "let Std.Tuple.Map(): Any",
+        .doc_lines = {"@brief Maps tuple items."},
+        .is_builtin = true,
+    });
+    register_help_metadata(HelpMetadata{
+        .name = "Std.Tuple.Max",
+        .signature = "let Std.Tuple.Max(): Any",
+        .doc_lines = {"@brief Returns the maximum tuple item."},
+        .is_builtin = true,
+    });
+    register_help_metadata(HelpMetadata{
+        .name = "Std.Tuple.Filter",
+        .signature = "let Std.Tuple.Filter(): Any",
+        .doc_lines = {"@brief Filters tuple items."},
+        .is_builtin = true,
+    });
+
+    const auto result = Help(make_string("Std.Tuple.M"));
+    const auto rendered = as_string(result);
+    REQUIRE_THAT(rendered, Catch::Matchers::ContainsSubstring("Available symbols(Std.Tuple.M*):"));
+    REQUIRE(rendered.find("Std.Tuple.Map") != std::string::npos);
+    REQUIRE(rendered.find("Std.Tuple.Max") != std::string::npos);
+    REQUIRE(rendered.find("Std.Tuple.Map") < rendered.find("Std.Tuple.Max"));
 
     clear_help_metadata_registry();
   }

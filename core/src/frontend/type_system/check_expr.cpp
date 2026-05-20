@@ -127,7 +127,7 @@ auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const 
   return out;
 }
 
-auto infer_overloaded_name_ref(const ir::IRNameRef& name_ref, const FunctionOverloadSet& overloads,
+auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSet& overloads,
                                const std::unordered_set<std::string>& generic_params,
                                const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -165,7 +165,9 @@ auto infer_overloaded_name_ref(const ir::IRNameRef& name_ref, const FunctionOver
       unresolved_return.has_value()) {
     return tl::unexpected(std::move(*unresolved_return));
   }
+  name_ref.resolved_symbol_key = sig.resolved_symbol_key;
   if (instantiated.params.empty()) {
+    name_ref.materialize_as_value = true;
     return instantiated.return_type;
   }
   if (auto unresolved_callable = unresolved_generic_callable_error(full_name, instantiated, generic_params, name_ref.span);
@@ -175,7 +177,7 @@ auto infer_overloaded_name_ref(const ir::IRNameRef& name_ref, const FunctionOver
   return function_type_from_sig(instantiated);
 }
 
-auto infer_name_ref_expr(const ir::IRNameRef& name_ref, const FunctionIndex& index, const StrongTypeIndex& type_index,
+auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, const StrongTypeIndex& type_index,
                          const AliasIndex& alias_index, const LocalTypes& locals,
                          const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -204,8 +206,8 @@ auto infer_name_ref_expr(const ir::IRNameRef& name_ref, const FunctionIndex& ind
 
   if (name_ref.qualifier.has_value()) {
     if (is_removed_symbolic_alias(name_ref.qualifier, name_ref.name)) {
-      return tl::unexpected(make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name),
-                                                         name_ref.span));
+      return tl::unexpected(make_unresolved_symbol_error(
+          qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
     }
     if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) {
       return make_type(TypeKind::kAny);
@@ -217,6 +219,61 @@ auto infer_name_ref_expr(const ir::IRNameRef& name_ref, const FunctionIndex& ind
     return make_type(TypeKind::kAny);
   }
   return tl::unexpected(make_unresolved_symbol_error(name_ref.name, name_ref.span));
+}
+
+auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                      const AliasIndex& alias_index, const LocalTypes& locals,
+                      const std::unordered_set<std::string>& generic_params)
+    -> tl::expected<Type, type_check::AnalysisError> {
+  auto& block = *block_box;
+  LocalTypes block_locals = locals;
+
+  for (auto& item : block.items) {
+    auto item_result = std::visit(
+        common::overloaded{
+            [&](ir::IRLocalLet& local_let) -> tl::expected<void, type_check::AnalysisError> {
+              const Type declared_type = rewrite_generic_type(from_ir_type(local_let.type), generic_params);
+              if (auto validated =
+                      validate_declared_type(declared_type, type_index, alias_index, generic_params, local_let.span);
+                  !validated) {
+                return tl::unexpected(validated.error());
+              }
+
+              auto expanded_declared =
+                  expand_aliases_in_type(declared_type, type_index, alias_index, generic_params, local_let.span);
+              if (!expanded_declared) {
+                return tl::unexpected(expanded_declared.error());
+              }
+
+              auto inferred_init = infer_expr(*local_let.expr, index, type_index, alias_index, block_locals, generic_params);
+              if (!inferred_init) {
+                return tl::unexpected(inferred_init.error());
+              }
+
+              if (!is_consistent(*expanded_declared, *inferred_init)) {
+                return tl::unexpected(make_error(
+                    "Type mismatch in local let initializer.",
+                    std::format("{} declares a type that does not match its initializer.", local_let.name),
+                    local_let.span));
+              }
+
+              block_locals.insert_or_assign(local_let.name, *expanded_declared);
+              return {};
+            },
+            [&](ir::IRBlockExprStatement& stmt) -> tl::expected<void, type_check::AnalysisError> {
+              auto inferred = infer_expr(*stmt.expr, index, type_index, alias_index, block_locals, generic_params);
+              if (!inferred) {
+                return tl::unexpected(inferred.error());
+              }
+              return {};
+            }},
+        item);
+    if (!item_result) {
+      return tl::unexpected(item_result.error());
+    }
+  }
+
+  return infer_expr(*block.result, index, type_index, alias_index, block_locals, generic_params);
 }
 
 auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& index, const StrongTypeIndex& type_index,
@@ -290,11 +347,14 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
           [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
             return infer_tuple_expr(tuple, index, type_index, alias_index, locals, generic_params);
           },
-          [&](const ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
+          [&](ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
             return infer_name_ref_expr(name_ref, index, type_index, alias_index, locals, generic_params);
           },
           [&](ir::IRClosureExprBox& closure_box) -> tl::expected<Type, type_check::AnalysisError> {
             return infer_closure_expr(closure_box, index, type_index, alias_index, locals, generic_params);
+          },
+          [&](ir::IRBlockExprBox& block_box) -> tl::expected<Type, type_check::AnalysisError> {
+            return infer_block_expr(block_box, index, type_index, alias_index, locals, generic_params);
           },
           [&](ir::IRFlowExpr& flow) -> tl::expected<Type, type_check::AnalysisError> {
             return infer_flow_expr(flow, index, type_index, alias_index, locals, generic_params);

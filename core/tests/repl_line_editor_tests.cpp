@@ -227,6 +227,21 @@ TEST_CASE("LineEditor tab completes symbols from the configured completion handl
   REQUIRE(editor.buffer() == "Std.Println");
 }
 
+TEST_CASE("LineEditor completion suggestions are sorted and duplicate-free", "[repl][line-editor]") {
+  LineEditorConfig config{};
+  config.completion_handler = fleaux::cli::CompletionHandler{};
+  config.completion_handler->load_symbols({"Std.Println", "Std.Print", "Std.Printf", "Std.Print", "Square"});
+  LineEditor editor(config);
+
+  for (const char ch : std::string{"Std.Pr"}) {
+    REQUIRE(editor.handle_event(InputEvent::character(ch)).needs_redraw);
+  }
+
+  const auto result = editor.handle_event({.key = InputKey::kTab});
+  REQUIRE(result.needs_redraw);
+  REQUIRE(result.completion_suggestions == std::vector<std::string>{"Std.Print", "Std.Printf", "Std.Println"});
+}
+
 TEST_CASE("LineEditor tab completion is a no-op without a symbol prefix", "[repl][line-editor]") {
   LineEditorConfig config{};
   config.completion_handler = fleaux::cli::CompletionHandler{};

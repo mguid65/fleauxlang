@@ -93,15 +93,16 @@ auto NativeBindingRegistry::snapshot_symbols() const -> std::vector<std::string>
   return symbols;
 }
 
-auto NativeBindingRegistry::find_callable(const std::string_view symbol) const -> const NativeBinding* {
+auto NativeBindingRegistry::find_callable(const std::string_view symbol) const
+    -> std::optional<std::reference_wrapper<const NativeBinding>> {
   const auto it = std::ranges::find_if(bindings_, [symbol](const NativeBinding& binding) {
     return binding.symbol == symbol;
   });
   if (it == bindings_.end()) {
-    return nullptr;
+    return std::nullopt;
   }
 
-  return &*it;
+  return std::cref(*it);
 }
 
 }  // namespace fleaux::embed

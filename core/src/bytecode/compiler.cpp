@@ -332,9 +332,8 @@ void reserve_inline_closure_capacity(Module& bytecode_module, const IRProgram& p
       closure_count += count_inline_closures(*let.body);
     }
   }
-  for (const auto& [expr, span] : program.expressions) {
-    (void)span;
-    closure_count += count_inline_closures(expr);
+  for (const auto& expr_stmt : program.expressions) {
+    closure_count += count_inline_closures(expr_stmt.expr);
   }
   bytecode_module.functions.reserve(bytecode_module.functions.size() + closure_count);
   bytecode_module.closures.reserve(closure_count);
@@ -346,6 +345,15 @@ auto make_parameter_local_slots(const IRLet& let) -> LocalSlots {
     local_slots[let.params[param_index].name] = param_index;
   }
   return local_slots;
+}
+
+auto next_local_slot(const LocalSlots& locals) -> std::uint32_t {
+  std::uint32_t next_slot = 0;
+  for (const auto& [name, slot] : locals) {
+    (void)name;
+    next_slot = std::max(next_slot, slot + 1U);
+  }
+  return next_slot;
 }
 
 auto compile_single_function_body(Module& bytecode_module, CompileState& state, const IRLet& let) -> EmitResult {
@@ -387,9 +395,8 @@ auto compile_function_bodies(Module& bytecode_module, CompileState& state, const
 }
 
 auto compile_top_level_expressions(Module& bytecode_module, CompileState& state, const IRProgram& program) -> EmitResult {
-  for (const auto& [expr, span] : program.expressions) {
-    (void)span;
-    if (auto emit_result = compile_single_top_level_expression(bytecode_module, state, expr); !emit_result) {
+  for (const auto& expr_stmt : program.expressions) {
+    if (auto emit_result = compile_single_top_level_expression(bytecode_module, state, expr_stmt.expr); !emit_result) {
       return emit_result;
     }
   }
@@ -408,6 +415,20 @@ auto count_inline_closures(const IRExpr& expr) -> std::size_t {
                          },
                          [](const IRClosureExprBox& closure_ptr) -> std::size_t {
                            return 1U + count_inline_closures(*closure_ptr->body);
+                         },
+                         [](const IRBlockExprBox& block_ptr) -> std::size_t {
+                           std::size_t total = 0;
+                           for (const auto& item : block_ptr->items) {
+                             std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
+                                                             total += count_inline_closures(*local_let.expr);
+                                                           },
+                                                           [&](const IRBlockExprStatement& stmt) -> void {
+                                                             total += count_inline_closures(*stmt.expr);
+                                                           }},
+                                        item);
+                           }
+                           total += count_inline_closures(*block_ptr->result);
+                           return total;
                          },
                          [](auto&&) -> std::size_t { return 0; }},
       expr.node);
@@ -468,7 +489,8 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
 
 auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
-                                         return state.function_idx.contains(target_symbol_name(name_ref));
+                                         return !name_ref.materialize_as_value &&
+                                                state.function_idx.contains(target_symbol_name(name_ref));
                                        },
                                        [](const auto&) -> bool { return false; }},
                     expr.node);
@@ -477,6 +499,9 @@ auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& sta
 auto expr_is_known_builtin_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return std::visit(
       common::overloaded{[&](const IRNameRef& name_ref) -> bool {
+                           if (name_ref.materialize_as_value) {
+                             return false;
+                           }
                            const std::string full_name = name_ref.qualifier.has_value()
                                                              ? (*name_ref.qualifier + "." + name_ref.name)
                                                              : name_ref.name;
@@ -655,6 +680,35 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
     }
   }
 
+  if (name_ref.materialize_as_value) {
+    out.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = 0});
+
+    if (const auto fn_it = state.function_idx.find(target_name); fn_it != state.function_idx.end()) {
+      out.push_back(Instruction{.opcode = Opcode::kCallUserFunc, .operand = static_cast<std::int64_t>(fn_it->second)});
+      return {};
+    }
+
+    if (name_ref.qualifier.has_value() && (*name_ref.qualifier == "Std" || name_ref.qualifier->starts_with("Std."))) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_symbol_key(target_name);
+      if (!builtin_id.has_value()) {
+        return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + target_name + "'."));
+      }
+      out.push_back(
+          Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+      return {};
+    }
+
+    if (const auto alias_it = state.builtin_alias.find(full_name); alias_it != state.builtin_alias.end()) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_name(alias_it->second);
+      if (!builtin_id.has_value()) {
+        return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + alias_it->second + "'."));
+      }
+      out.push_back(
+          Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+      return {};
+    }
+  }
+
   if (const auto fn_it = state.function_idx.find(target_name); fn_it != state.function_idx.end()) {
     out.push_back(Instruction{.opcode = Opcode::kMakeUserFuncRef, .operand = static_cast<std::int64_t>(fn_it->second)});
     return {};
@@ -734,6 +788,39 @@ auto emit_closure_expr(const IRClosureExpr& closure, std::vector<Instruction>& o
       Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(closure.captures.size())});
   out.push_back(Instruction{.opcode = Opcode::kMakeClosureRef, .operand = static_cast<std::int64_t>(closure_idx)});
   return {};
+}
+
+auto emit_block_expr(const IRBlockExpr& block, std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                    Module& bytecode_module) -> EmitResult {
+  LocalSlots block_locals = locals;
+  std::uint32_t next_slot_index = next_local_slot(block_locals);
+
+  for (const auto& item : block.items) {
+    auto emit_item = std::visit(
+        common::overloaded{
+            [&](const IRLocalLet& local_let) -> EmitResult {
+              if (auto emit_result = emit_expr(*local_let.expr, out, block_locals, state, bytecode_module); !emit_result) {
+                return emit_result;
+              }
+              const auto slot = next_slot_index++;
+              out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(slot)});
+              block_locals[local_let.name] = slot;
+              return {};
+            },
+            [&](const IRBlockExprStatement& stmt) -> EmitResult {
+              if (auto emit_result = emit_expr(*stmt.expr, out, block_locals, state, bytecode_module); !emit_result) {
+                return emit_result;
+              }
+              out.push_back(Instruction{.opcode = Opcode::kPop, .operand = 0});
+              return {};
+            }},
+        item);
+    if (!emit_item) {
+      return emit_item;
+    }
+  }
+
+  return emit_expr(*block.result, out, block_locals, state, bytecode_module);
 }
 
 auto try_emit_named_flow_fast_path(const IRFlowExpr& flow, const IRNameRef& name_ref, std::vector<Instruction>& out,
@@ -848,6 +935,9 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
           [&](const IRNameRef& name_ref) -> EmitResult { return emit_name_ref_expr(name_ref, out, locals, state); },
           [&](const IRClosureExprBox& closure_ptr) -> EmitResult {
             return emit_closure_expr(*closure_ptr, out, locals, state, bytecode_module);
+          },
+          [&](const IRBlockExprBox& block_ptr) -> EmitResult {
+            return emit_block_expr(*block_ptr, out, locals, state, bytecode_module);
           },
           [&](const IRTupleExpr& tuple_expr) -> EmitResult {
             if (tuple_expr.items.size() == 1) {

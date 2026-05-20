@@ -14,6 +14,7 @@
 // because their function arguments are C++ callables, not Values.
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <concepts>
@@ -25,6 +26,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -32,10 +34,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <string_view>
 
 #include "data_tree/data_tree.hpp"
 
@@ -58,6 +60,15 @@ using UInt = mguid::UnsignedIntegerType;  // uint64_t
 using Float = mguid::DoubleType;          // double
 
 using RuntimeCallable = std::function<Value(Value)>;
+
+struct TaskControl;
+using TaskControlPtr = std::shared_ptr<TaskControl>;
+struct HandleRegistry;
+struct RuntimeExecutionState;
+
+[[nodiscard]] auto make_default_handle_registry() -> std::unique_ptr<HandleRegistry>;
+
+[[nodiscard]] auto current_runtime_execution_state_id() -> UInt;
 
 // ============================================================================
 // ScopedRegistry<T>
@@ -279,18 +290,19 @@ inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
 [[nodiscard]] inline auto make_tagged_registry_token(const std::string_view tag, const UInt slot, const UInt generation)
     -> Value {
   Array token;
-  token.Reserve(3);
+  token.Reserve(4);
   token.EmplaceBack(String{tag});
+  token.EmplaceBack(current_runtime_execution_state_id());
   token.EmplaceBack(slot);
   token.EmplaceBack(generation);
   return Value{std::move(token)};
 }
 
-[[nodiscard]] inline auto parse_tagged_registry_token(const Value& token, const std::string_view expected_tag,
-                                                      const bool allow_legacy_generationless = false)
-    -> std::optional<RegistryId> {
+[[nodiscard]] inline auto parse_tagged_registry_token_state_id(const Value& token, const std::string_view expected_tag,
+                                                               const bool allow_legacy_generationless = false)
+    -> std::optional<UInt> {
   const auto& arr = token.TryGetArray();
-  if (!arr || (arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
+  if (!arr || (arr->Size() != 4 && arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
     return std::nullopt;
   }
 
@@ -299,7 +311,34 @@ inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
     return std::nullopt;
   }
 
-  const auto& slot_num = arr->TryGet(1)->TryGetNumber();
+  if (arr->Size() != 4) {
+    return current_runtime_execution_state_id();
+  }
+
+  const auto& state_num = arr->TryGet(1)->TryGetNumber();
+  if (!state_num) {
+    return std::nullopt;
+  }
+  return tagged_token_number_as_uint(*state_num);
+}
+
+[[nodiscard]] inline auto parse_tagged_registry_token(const Value& token, const std::string_view expected_tag,
+                                                      const bool allow_legacy_generationless = false)
+    -> std::optional<RegistryId> {
+  const auto& arr = token.TryGetArray();
+  if (!arr || (arr->Size() != 4 && arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
+    return std::nullopt;
+  }
+
+  const auto& tag = arr->TryGet(0)->TryGetString();
+  if (!tag || *tag != expected_tag) {
+    return std::nullopt;
+  }
+
+  const auto slot_index = arr->Size() == 4 ? 2U : 1U;
+  const auto generation_index = arr->Size() == 4 ? 3U : 2U;
+
+  const auto& slot_num = arr->TryGet(slot_index)->TryGetNumber();
   if (!slot_num) {
     return std::nullopt;
   }
@@ -309,8 +348,8 @@ inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
   }
 
   UInt generation = 0;
-  if (arr->Size() == 3) {
-    const auto& generation_num = arr->TryGet(2)->TryGetNumber();
+  if (arr->Size() == 4 || arr->Size() == 3) {
+    const auto& generation_num = arr->TryGet(generation_index)->TryGetNumber();
     if (!generation_num) {
       return std::nullopt;
     }
@@ -327,89 +366,187 @@ inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
 // Legacy alias kept so external code using CallableId or RegistryId compiles.
 using CallableId = RegistryId;
 
-inline auto callable_registry() -> ScopedRegistry<RuntimeCallable>& {
-  static ScopedRegistry<RuntimeCallable> registry;
-  return registry;
+struct ValueRegistryTelemetry {
+  std::size_t active_count{0};
+  std::size_t peak_active_count{0};
+  std::size_t rejected_allocations{0};
+  std::size_t stale_deref_rejections{0};
+  std::optional<std::size_t> transient_cap{};
+};
+
+struct RuntimeExecutionState {
+  RuntimeExecutionState() = default;
+  RuntimeExecutionState(const RuntimeExecutionState&) = delete;
+  auto operator=(const RuntimeExecutionState&) -> RuntimeExecutionState& = delete;
+  RuntimeExecutionState(RuntimeExecutionState&&) = delete;
+  auto operator=(RuntimeExecutionState&&) -> RuntimeExecutionState& = delete;
+  ~RuntimeExecutionState();
+
+  UInt token_state_id{0};
+  ScopedRegistry<RuntimeCallable> callable_registry{};
+  std::mutex callable_registry_mutex{};
+
+  ScopedRegistry<Value> value_registry{};
+  std::mutex value_registry_mutex{};
+  ValueRegistryTelemetry value_registry_telemetry{};
+
+  ScopedRegistry<TaskControlPtr> task_registry{};
+  std::mutex task_registry_mutex{};
+
+  std::unique_ptr<HandleRegistry> handle_registry{make_default_handle_registry()};
+};
+
+[[nodiscard]] inline auto next_runtime_execution_state_id() -> UInt {
+  static std::atomic<UInt> next_id{1};
+  return next_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-inline auto callable_registry_mutex() -> std::mutex& {
-  static std::mutex mutex;
-  return mutex;
+[[nodiscard]] inline auto default_runtime_execution_state() -> RuntimeExecutionState& {
+  static RuntimeExecutionState state;
+  if (state.token_state_id == 0) {
+    state.token_state_id = next_runtime_execution_state_id();
+  }
+  return state;
 }
+
+struct RuntimeExecutionStateThreadContext {
+  std::reference_wrapper<RuntimeExecutionState> active;
+};
+
+[[nodiscard]] auto runtime_execution_state_thread_context() -> RuntimeExecutionStateThreadContext&;
+
+[[nodiscard]] inline auto runtime_execution_state() -> RuntimeExecutionState& {
+  return runtime_execution_state_thread_context().active.get();
+}
+
+[[nodiscard]] inline auto current_runtime_execution_state_id() -> UInt {
+  return runtime_execution_state().token_state_id;
+}
+
+class ActiveRuntimeExecutionStateScope {
+public:
+  explicit ActiveRuntimeExecutionStateScope(RuntimeExecutionState& state)
+      : previous_(runtime_execution_state_thread_context().active) {
+    if (state.token_state_id == 0) {
+      state.token_state_id = next_runtime_execution_state_id();
+    }
+    runtime_execution_state_thread_context().active = std::ref(state);
+  }
+
+  ActiveRuntimeExecutionStateScope(const ActiveRuntimeExecutionStateScope&) = delete;
+  auto operator=(const ActiveRuntimeExecutionStateScope&) -> ActiveRuntimeExecutionStateScope& = delete;
+
+  ~ActiveRuntimeExecutionStateScope() { runtime_execution_state_thread_context().active = previous_; }
+
+private:
+  std::reference_wrapper<RuntimeExecutionState> previous_;
+};
+
+inline auto callable_registry() -> ScopedRegistry<RuntimeCallable>& {
+  return runtime_execution_state().callable_registry;
+}
+
+inline auto callable_registry_mutex() -> std::mutex& { return runtime_execution_state().callable_registry_mutex; }
 
 // Process arguments
 
-inline auto runtime_output_stream_storage() -> std::ostream*& {
-  static thread_local std::ostream* stream = &std::cout;
-  return stream;
-}
+struct RuntimeThreadContext {
+  std::reference_wrapper<std::ostream> output{std::cout};
+  std::reference_wrapper<std::istream> input{std::cin};
+  std::vector<std::string> process_args{};
+  std::optional<std::reference_wrapper<const std::vector<std::string>>> process_args_override{};
+};
 
-inline auto runtime_input_stream_storage() -> std::istream*& {
-  static thread_local std::istream* stream = &std::cin;
-  return stream;
-}
+[[nodiscard]] auto runtime_thread_context() -> RuntimeThreadContext&;
 
-[[nodiscard]] inline auto runtime_output_stream() -> std::ostream& { return *runtime_output_stream_storage(); }
+[[nodiscard]] inline auto runtime_output_stream() -> std::ostream& { return runtime_thread_context().output.get(); }
 
-[[nodiscard]] inline auto runtime_input_stream() -> std::istream& { return *runtime_input_stream_storage(); }
+[[nodiscard]] inline auto runtime_input_stream() -> std::istream& { return runtime_thread_context().input.get(); }
 
 class RuntimeOutputStreamScope {
 public:
-  explicit RuntimeOutputStreamScope(std::ostream& stream) : previous_(runtime_output_stream_storage()) {
-    runtime_output_stream_storage() = &stream;
+  explicit RuntimeOutputStreamScope(std::ostream& stream) : previous_(runtime_thread_context().output) {
+    runtime_thread_context().output = std::ref(stream);
   }
 
   RuntimeOutputStreamScope(const RuntimeOutputStreamScope&) = delete;
   auto operator=(const RuntimeOutputStreamScope&) -> RuntimeOutputStreamScope& = delete;
 
-  ~RuntimeOutputStreamScope() { runtime_output_stream_storage() = previous_; }
+  ~RuntimeOutputStreamScope() { runtime_thread_context().output = previous_; }
 
 private:
-  std::ostream* previous_;
+  std::reference_wrapper<std::ostream> previous_;
 };
 
 class RuntimeInputStreamScope {
 public:
-  explicit RuntimeInputStreamScope(std::istream& stream) : previous_(runtime_input_stream_storage()) {
-    runtime_input_stream_storage() = &stream;
+  explicit RuntimeInputStreamScope(std::istream& stream) : previous_(runtime_thread_context().input) {
+    runtime_thread_context().input = std::ref(stream);
   }
 
   RuntimeInputStreamScope(const RuntimeInputStreamScope&) = delete;
   auto operator=(const RuntimeInputStreamScope&) -> RuntimeInputStreamScope& = delete;
 
-  ~RuntimeInputStreamScope() { runtime_input_stream_storage() = previous_; }
+  ~RuntimeInputStreamScope() { runtime_thread_context().input = previous_; }
 
 private:
-  std::istream* previous_;
+  std::reference_wrapper<std::istream> previous_;
 };
 
-inline auto process_args_mutex() -> std::mutex& {
-  static std::mutex mutex;
-  return mutex;
-}
+inline auto process_args_storage() -> std::vector<std::string>& { return runtime_thread_context().process_args; }
 
-inline auto process_args_storage() -> std::vector<std::string>& {
-  static std::vector<std::string> args;
-  return args;
-}
+inline void set_process_args(std::vector<std::string> args) { process_args_storage() = std::move(args); }
 
 inline void set_process_args(const int argc, char** argv) {
-  std::scoped_lock lock(process_args_mutex());
-  auto& args = process_args_storage();
-  args.clear();
+  std::vector<std::string> args;
   if (argc <= 0) {
+    set_process_args(std::move(args));
     return;
   }
   args.reserve(static_cast<std::size_t>(argc));
   for (int arg_index = 0; arg_index < argc; ++arg_index) {
     args.emplace_back((argv != nullptr && argv[arg_index] != nullptr) ? argv[arg_index] : "");
   }
+  set_process_args(std::move(args));
 }
 
 [[nodiscard]] inline auto get_process_args() -> std::vector<std::string> {
-  std::scoped_lock lock(process_args_mutex());
+  if (const auto& args = runtime_thread_context().process_args_override; args.has_value()) {
+    return args->get();
+  }
   return process_args_storage();
 }
+
+class RuntimeProcessArgsOverrideScope {
+public:
+  explicit RuntimeProcessArgsOverrideScope(const std::vector<std::string>& args)
+      : previous_(runtime_thread_context().process_args_override) {
+    runtime_thread_context().process_args_override = std::cref(args);
+  }
+
+  RuntimeProcessArgsOverrideScope(const RuntimeProcessArgsOverrideScope&) = delete;
+  auto operator=(const RuntimeProcessArgsOverrideScope&) -> RuntimeProcessArgsOverrideScope& = delete;
+
+  ~RuntimeProcessArgsOverrideScope() { runtime_thread_context().process_args_override = previous_; }
+
+private:
+  std::optional<std::reference_wrapper<const std::vector<std::string>>> previous_;
+};
+
+class RuntimeProcessArgsScope {
+public:
+  explicit RuntimeProcessArgsScope(std::vector<std::string> args) : previous_(get_process_args()) {
+    set_process_args(std::move(args));
+  }
+
+  RuntimeProcessArgsScope(const RuntimeProcessArgsScope&) = delete;
+  auto operator=(const RuntimeProcessArgsScope&) -> RuntimeProcessArgsScope& = delete;
+
+  ~RuntimeProcessArgsScope() { set_process_args(std::move(previous_)); }
+
+private:
+  std::vector<std::string> previous_{};
+};
 
 // Callable/Function handling
 
@@ -442,28 +579,15 @@ inline auto register_callable_pinned(RuntimeCallable fn) -> CallableId {
 // This is safe for execution scopes where callable-ref Values do not escape.
 class CallableRegistryScope {
 public:
-  CallableRegistryScope() {
-    std::scoped_lock lock(callable_registry_mutex());
-    checkpoint_log_size_ = callable_registry().registration_log.size();
-  }
+  CallableRegistryScope() : checkpoint_(callable_registry(), callable_registry_mutex()) {}
 
   CallableRegistryScope(const CallableRegistryScope&) = delete;
   auto operator=(const CallableRegistryScope&) -> CallableRegistryScope& = delete;
   CallableRegistryScope(CallableRegistryScope&&) = delete;
   auto operator=(CallableRegistryScope&&) -> CallableRegistryScope& = delete;
 
-  ~CallableRegistryScope() {
-    std::scoped_lock lock(callable_registry_mutex());
-    auto& call_reg = callable_registry();
-    const auto log_size = call_reg.registration_log.size();
-    for (std::size_t i = checkpoint_log_size_; i < log_size; ++i) {
-      call_reg.retire(call_reg.registration_log[i]);
-    }
-    call_reg.registration_log.resize(checkpoint_log_size_);
-  }
-
 private:
-  std::size_t checkpoint_log_size_{0};
+  ScopedRegistryCheckpoint<RuntimeCallable> checkpoint_;
 };
 
 // Global function registry stored as GenericNodeType
@@ -488,57 +612,28 @@ class PinnedCallableRef {
 public:
   PinnedCallableRef() = default;
 
-  explicit PinnedCallableRef(RuntimeCallable fn) {
-    id_ = register_callable_pinned(std::move(fn));
-    ref_ = make_tagged_registry_token(k_callable_tag, id_.slot, id_.generation);
-    valid_ = true;
+  explicit PinnedCallableRef(RuntimeCallable fn)
+      : owner_(callable_registry(), callable_registry_mutex(), std::move(fn)) {
+    ref_ = make_tagged_registry_token(k_callable_tag, owner_.id().slot, owner_.id().generation);
   }
 
   PinnedCallableRef(const PinnedCallableRef&) = delete;
   auto operator=(const PinnedCallableRef&) -> PinnedCallableRef& = delete;
-
-  PinnedCallableRef(PinnedCallableRef&& other) noexcept
-      : id_(other.id_), ref_(std::move(other.ref_)), valid_(other.valid_) {
-    other.valid_ = false;
-  }
-
-  auto operator=(PinnedCallableRef&& other) noexcept -> PinnedCallableRef& {
-    if (this != &other) {
-      if (valid_) {
-        release_callable_ref(id_);
-      }
-      id_ = other.id_;
-      ref_ = std::move(other.ref_);
-      valid_ = other.valid_;
-      other.valid_ = false;
-    }
-    return *this;
-  }
-
-  ~PinnedCallableRef() {
-    if (valid_) {
-      release_callable_ref(id_);
-    }
-  }
+  PinnedCallableRef(PinnedCallableRef&&) noexcept = default;
+  auto operator=(PinnedCallableRef&&) noexcept -> PinnedCallableRef& = default;
 
   // Returns the Value token that can be passed into the runtime.
   [[nodiscard]] auto token() const -> const Value& { return ref_; }
 
   // Explicitly release the pinned ref before destruction.
-  void release() {
-    if (valid_) {
-      release_callable_ref(id_);
-      valid_ = false;
-    }
-  }
+  void release() { owner_.release(); }
 
-  [[nodiscard]] auto id() const -> const CallableId& { return id_; }
-  [[nodiscard]] auto is_valid() const -> bool { return valid_; }
+  [[nodiscard]] auto id() const -> const CallableId& { return owner_.id(); }
+  [[nodiscard]] auto is_valid() const -> bool { return owner_.is_valid(); }
 
 private:
-  CallableId id_{.slot = 0, .generation = 0};
-  Value ref_;
-  bool valid_{false};
+  PinnedRegistryRef<RuntimeCallable> owner_{};
+  Value ref_{};
 };
 
 template <typename F>
@@ -563,6 +658,11 @@ auto make_callable_ref(F&& fn) -> Value {
 // Overload of release_callable_ref that accepts a Value token (defined here after
 // callable_id_from_value is available).
 inline void release_callable_ref(const Value& ref) {
+  const auto token_state_id =
+      parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
+  if (!token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    return;
+  }
   const auto id = callable_id_from_value(ref);
   if (!id) {
     return;
@@ -584,27 +684,12 @@ inline void release_callable_ref(const Value& ref) {
 // Use make_value_ref (transient) or make_pinned_value_ref (persistent).
 // ============================================================================
 
-inline auto value_registry() -> ScopedRegistry<Value>& {
-  static ScopedRegistry<Value> registry;
-  return registry;
-}
+inline auto value_registry() -> ScopedRegistry<Value>& { return runtime_execution_state().value_registry; }
 
-inline auto value_registry_mutex() -> std::mutex& {
-  static std::mutex mutex;
-  return mutex;
-}
-
-struct ValueRegistryTelemetry {
-  std::size_t active_count{0};
-  std::size_t peak_active_count{0};
-  std::size_t rejected_allocations{0};
-  std::size_t stale_deref_rejections{0};
-  std::optional<std::size_t> transient_cap{};
-};
+inline auto value_registry_mutex() -> std::mutex& { return runtime_execution_state().value_registry_mutex; };
 
 inline auto value_registry_telemetry_state() -> ValueRegistryTelemetry& {
-  static ValueRegistryTelemetry state;
-  return state;
+  return runtime_execution_state().value_registry_telemetry;
 }
 
 inline void set_value_registry_transient_cap(const std::optional<std::size_t> cap) {
@@ -632,8 +717,7 @@ inline void reset_value_registry_for_tests() {
 
 // Returns a Value token for a stored value (transient; cleaned up by ValueRegistryScope).
 [[nodiscard]] inline auto make_value_ref(Value val) -> Value {
-  RegistryId id{};
-  {
+  const auto [slot, generation] = [&]() -> RegistryId {
     std::scoped_lock lock(value_registry_mutex());
     auto& telemetry = value_registry_telemetry_state();
     auto& reg = value_registry();
@@ -641,10 +725,11 @@ inline void reset_value_registry_for_tests() {
       ++telemetry.rejected_allocations;
       throw std::runtime_error{"make_value_ref: value-ref transient cap reached"};
     }
-    id = reg.insert(std::move(val), /*logged=*/true);
+    const auto inserted = reg.insert(std::move(val), /*logged=*/true);
     telemetry.peak_active_count = std::max(telemetry.peak_active_count, reg.active_count);
-  }
-  return make_tagged_registry_token(k_value_ref_tag, id.slot, id.generation);
+    return inserted;
+  }();
+  return make_tagged_registry_token(k_value_ref_tag, slot, generation);
 }
 
 [[nodiscard]] inline auto value_ref_id_from_token(const Value& token) -> std::optional<RegistryId> {
@@ -653,6 +738,10 @@ inline void reset_value_registry_for_tests() {
 
 // Returns a copy of the stored value; throws if token is stale.
 [[nodiscard]] inline auto deref_value_ref(const Value& token) -> Value {
+  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_value_ref_tag);
+      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    throw std::runtime_error{"deref_value_ref: stale or unknown value-ref token"};
+  }
   const auto id = value_ref_id_from_token(token);
   if (!id) {
     throw std::runtime_error{"deref_value_ref: not a value-ref token"};
@@ -669,6 +758,10 @@ inline void reset_value_registry_for_tests() {
 
 // Explicitly retire a value ref token. Idempotent.
 inline void release_value_ref(const Value& token) {
+  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_value_ref_tag);
+      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    return;
+  }
   const auto id = value_ref_id_from_token(token);
   if (!id) {
     return;
@@ -683,28 +776,15 @@ inline void release_value_ref(const Value& token) {
 // RAII scope: retires all transient value-refs created within this scope on exit.
 class ValueRegistryScope {
 public:
-  ValueRegistryScope() {
-    std::scoped_lock lock(value_registry_mutex());
-    checkpoint_ = value_registry().registration_log.size();
-  }
+  ValueRegistryScope() : checkpoint_(value_registry(), value_registry_mutex()) {}
 
   ValueRegistryScope(const ValueRegistryScope&) = delete;
   auto operator=(const ValueRegistryScope&) -> ValueRegistryScope& = delete;
   ValueRegistryScope(ValueRegistryScope&&) = delete;
   auto operator=(ValueRegistryScope&&) -> ValueRegistryScope& = delete;
 
-  ~ValueRegistryScope() {
-    std::scoped_lock lock(value_registry_mutex());
-    auto& reg = value_registry();
-    const auto log_size = reg.registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) {
-      reg.retire(reg.registration_log[i]);
-    }
-    reg.registration_log.resize(checkpoint_);
-  }
-
 private:
-  std::size_t checkpoint_{0};
+  ScopedRegistryCheckpoint<Value> checkpoint_;
 };
 
 // RAII pinned value ref: stored value outlives any ValueRegistryScope.
@@ -712,72 +792,32 @@ class PinnedValueRef {
 public:
   PinnedValueRef() = default;
 
-  explicit PinnedValueRef(Value val) {
-    RegistryId id{};
-    {
-      std::scoped_lock lock(value_registry_mutex());
-      id = value_registry().insert(std::move(val), /*logged=*/false);
-    }
-    token_ = make_tagged_registry_token(k_value_ref_tag, id.slot, id.generation);
-    id_ = id;
-    valid_ = true;
+  explicit PinnedValueRef(Value val) : owner_(value_registry(), value_registry_mutex(), std::move(val)) {
+    token_ = make_tagged_registry_token(k_value_ref_tag, owner_.id().slot, owner_.id().generation);
   }
 
   PinnedValueRef(const PinnedValueRef&) = delete;
   auto operator=(const PinnedValueRef&) -> PinnedValueRef& = delete;
-
-  PinnedValueRef(PinnedValueRef&& other) noexcept
-      : id_(other.id_), token_(std::move(other.token_)), valid_(other.valid_) {
-    other.valid_ = false;
-  }
-
-  auto operator=(PinnedValueRef&& other) noexcept -> PinnedValueRef& {
-    if (this != &other) {
-      if (valid_) {
-        do_release();
-      }
-      id_ = other.id_;
-      token_ = std::move(other.token_);
-      valid_ = other.valid_;
-      other.valid_ = false;
-    }
-    return *this;
-  }
-
-  ~PinnedValueRef() {
-    if (valid_) {
-      do_release();
-    }
-  }
+  PinnedValueRef(PinnedValueRef&&) noexcept = default;
+  auto operator=(PinnedValueRef&&) noexcept -> PinnedValueRef& = default;
 
   [[nodiscard]] auto token() const -> const Value& { return token_; }
-  [[nodiscard]] auto id() const -> const RegistryId& { return id_; }
-  [[nodiscard]] auto is_valid() const -> bool { return valid_; }
+  [[nodiscard]] auto id() const -> const RegistryId& { return owner_.id(); }
+  [[nodiscard]] auto is_valid() const -> bool { return owner_.is_valid(); }
 
-  void release() {
-    if (valid_) {
-      do_release();
-      valid_ = false;
-    }
-  }
+  void release() { owner_.release(); }
 
   // Returns a copy of the stored value.
   [[nodiscard]] auto get() const -> Value {
-    if (!valid_) {
+    if (!is_valid()) {
       throw std::runtime_error{"PinnedValueRef::get: already released"};
     }
     return deref_value_ref(token_);
   }
 
 private:
-  void do_release() const {
-    std::scoped_lock lock(value_registry_mutex());
-    value_registry().retire(id_.slot);
-  }
-
-  RegistryId id_{.slot = 0, .generation = 0};
-  Value token_;
-  bool valid_{false};
+  PinnedRegistryRef<Value> owner_{};
+  Value token_{};
 };
 
 // File handle registry
@@ -794,6 +834,11 @@ struct HandleRegistry {
   std::vector<HandleEntry> entries;
   std::vector<UInt> registration_log;
   std::mutex mtx;
+
+  [[nodiscard]] auto log_checkpoint() -> std::size_t {
+    std::scoped_lock lock(mtx);
+    return registration_log.size();
+  }
 
   auto open(const std::string& path, const std::string& mode) -> UInt {
     std::scoped_lock lock(mtx);
@@ -869,33 +914,11 @@ struct HandleRegistry {
     entry.closed = true;
     return true;
   }
-};
 
-inline auto handle_registry() -> HandleRegistry& {
-  static HandleRegistry reg;
-  return reg;
-}
-
-// RAII scope: closes any file handles opened after the checkpoint on scope exit.
-// Handles explicitly closed before scope exit are skipped (idempotent).
-class HandleRegistryScope {
-public:
-  HandleRegistryScope() {
-    auto& reg = handle_registry();
-    std::scoped_lock lock(reg.mtx);
-    checkpoint_ = reg.registration_log.size();
-  }
-
-  HandleRegistryScope(const HandleRegistryScope&) = delete;
-  auto operator=(const HandleRegistryScope&) -> HandleRegistryScope& = delete;
-  HandleRegistryScope(HandleRegistryScope&&) = delete;
-  auto operator=(HandleRegistryScope&&) -> HandleRegistryScope& = delete;
-
-  ~HandleRegistryScope() {
-    auto& [entries, registration_log, mtx] = handle_registry();
+  void close_logged_since(const std::size_t checkpoint) {
     std::scoped_lock lock(mtx);
     const auto log_size = registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) {
+    for (std::size_t i = checkpoint; i < log_size; ++i) {
       if (const auto slot = static_cast<std::size_t>(registration_log[i]); slot < entries.size()) {
         if (auto& entry = entries[slot]; !entry.closed) {
           entry.stream.close();
@@ -903,18 +926,48 @@ public:
         }
       }
     }
-    registration_log.resize(checkpoint_);
+    registration_log.resize(checkpoint);
   }
+
+  void reset_for_tests() {
+    std::scoped_lock lock(mtx);
+    for (auto& entry : entries) {
+      if (!entry.closed && entry.stream.is_open()) {
+        entry.stream.close();
+      }
+      entry.closed = true;
+    }
+    entries.clear();
+    registration_log.clear();
+  }
+};
+
+[[nodiscard]] inline auto make_default_handle_registry() -> std::unique_ptr<HandleRegistry> {
+  return std::make_unique<HandleRegistry>();
+}
+
+inline RuntimeExecutionState::~RuntimeExecutionState() = default;
+
+inline auto handle_registry() -> HandleRegistry& { return *runtime_execution_state().handle_registry; }
+
+inline void reset_handle_registry_for_tests() { handle_registry().reset_for_tests(); }
+
+// RAII scope: closes any file handles opened after the checkpoint on scope exit.
+// Handles explicitly closed before scope exit are skipped (idempotent).
+class HandleRegistryScope {
+public:
+  HandleRegistryScope() : checkpoint_(handle_registry().log_checkpoint()) {}
+
+  HandleRegistryScope(const HandleRegistryScope&) = delete;
+  auto operator=(const HandleRegistryScope&) -> HandleRegistryScope& = delete;
+  HandleRegistryScope(HandleRegistryScope&&) = delete;
+  auto operator=(HandleRegistryScope&&) -> HandleRegistryScope& = delete;
+
+  ~HandleRegistryScope() { handle_registry().close_logged_since(checkpoint_); }
 
 private:
   std::size_t checkpoint_{0};
 };
-
-// Global handle registry stored as GenericNodeType
-inline auto file_handle_registry() -> Value& {
-  static Value registry{mguid::NodeTypeTag::Generic};
-  return registry;
-}
 
 // Handle token with type checking
 struct HandleId {
@@ -922,17 +975,7 @@ struct HandleId {
   UInt gen;
 };
 
-[[nodiscard]] inline auto make_handle_token(UInt slot, UInt gen) -> Value {
-  // Store in Generic node with metadata
-  auto& gen_node = file_handle_registry().Unsafe([](auto&& proxy) -> decltype(auto) { return proxy.GetGeneric(); });
-
-  Object handle_entry;
-  handle_entry["type"] = Value{String{k_handle_tag}};
-  handle_entry["slot"] = Value{slot};
-  handle_entry["gen"] = Value{gen};
-
-  gen_node["handle_" + std::to_string(slot) + "_" + std::to_string(gen)] = Value{std::move(handle_entry)};
-
+[[nodiscard]] inline auto make_handle_token(const UInt slot, const UInt gen) -> Value {
   return make_tagged_registry_token(k_handle_tag, slot, gen);
 }
 
@@ -945,6 +988,13 @@ struct HandleId {
 }
 
 [[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
+  const auto token_state_id = parse_tagged_registry_token_state_id(token, k_handle_tag);
+  if (!token_state_id) {
+    throw std::runtime_error{std::string(op) + ": not a valid handle token"};
+  }
+  if (*token_state_id != runtime_execution_state().token_state_id) {
+    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+  }
   const auto id = handle_id_from_value(token);
   if (!id)
     throw std::runtime_error{std::string(op) + ": not a valid handle token"};
@@ -955,6 +1005,11 @@ struct HandleId {
 }
 
 [[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
+  const auto token_state_id =
+      parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
+  if (!token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    throw std::runtime_error{"Unknown callable reference"};
+  }
   const auto id = callable_id_from_value(ref);
   if (!id) {
     throw std::runtime_error{"Expected callable reference"};

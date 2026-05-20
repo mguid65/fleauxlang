@@ -272,6 +272,157 @@ TEST_CASE("Parser accepts let generic parameter list", "[parser]") {
   REQUIRE(let_stmt.generic_params[0] == "T");
 }
 
+TEST_CASE("Parser accepts top-level immutable value declarations", "[parser][blocks][let]") {
+  const std::string src = "let Meaning: Int64 = 42;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "value_let_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE(let_stmt.is_value_binding);
+  REQUIRE(let_stmt.params.params.empty());
+  REQUIRE(let_stmt.generic_params.empty());
+  REQUIRE_FALSE(let_stmt.is_builtin);
+  REQUIRE(let_stmt.expr.has_value());
+  REQUIRE(std::holds_alternative<std::string>(let_stmt.id));
+  REQUIRE(std::get<std::string>(let_stmt.id) == "Meaning");
+  REQUIRE(std::holds_alternative<std::string>(let_stmt.rtype.value));
+  REQUIRE(std::get<std::string>(let_stmt.rtype.value) == "Int64");
+}
+
+TEST_CASE("Parser accepts braced block expressions in function bodies", "[parser][blocks]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = 1;\n"
+      "  let y: Int64 = (x, 2) -> Std.Add;\n"
+      "  y;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "block_body_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE_FALSE(let_stmt.is_value_binding);
+  REQUIRE(let_stmt.expr.has_value());
+  REQUIRE(let_stmt.expr->expr.rhs.empty());
+
+  const auto* block = std::get_if<fleaux::frontend::model::BlockExpressionBox>(&let_stmt.expr->expr.lhs.base.value);
+  REQUIRE(block != nullptr);
+  REQUIRE(block->has_value());
+  REQUIRE((*block)->items.size() == 2);
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::LocalLetBinding>((*block)->items[0]));
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::LocalLetBinding>((*block)->items[1]));
+  REQUIRE((*block)->result.has_value());
+}
+
+TEST_CASE("Parser accepts nested block expressions", "[parser][blocks]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = 10;\n"
+      "  let y: Int64 = {\n"
+      "    let inner: Int64 = (x, 5) -> Std.Add;\n"
+      "    inner;\n"
+      "  };\n"
+      "  y;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "nested_block_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  const auto* outer_block = std::get_if<fleaux::frontend::model::BlockExpressionBox>(&let_stmt.expr->expr.lhs.base.value);
+  REQUIRE(outer_block != nullptr);
+  REQUIRE(outer_block->has_value());
+  REQUIRE((*outer_block)->items.size() == 2);
+
+  const auto& second_item = std::get<fleaux::frontend::model::LocalLetBinding>((*outer_block)->items[1]);
+  REQUIRE(second_item.expr.has_value());
+  const auto* inner_block = std::get_if<fleaux::frontend::model::BlockExpressionBox>(&second_item.expr->expr.lhs.base.value);
+  REQUIRE(inner_block != nullptr);
+  REQUIRE(inner_block->has_value());
+  REQUIRE((*inner_block)->items.size() == 1);
+}
+
+TEST_CASE("Parser accepts block expressions in nested expression positions", "[parser][blocks]") {
+  const std::string src =
+      "({\n"
+      "  let x: Int64 = 1;\n"
+      "  x;\n"
+      "}, 2) -> Std.Add;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "block_nested_expr_parser.fleaux");
+
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 1);
+
+  const auto& expr_stmt = std::get<fleaux::frontend::model::ExpressionStatement>(parsed->statements[0]);
+  const auto* tuple_atom =
+      std::get_if<fleaux::frontend::model::DelimitedExpressionBox>(&expr_stmt.expr.expr.lhs.base.value);
+  REQUIRE(tuple_atom != nullptr);
+  REQUIRE(tuple_atom->has_value());
+  REQUIRE((*tuple_atom)->items.size() == 2);
+  const auto* nested_block =
+      std::get_if<fleaux::frontend::model::BlockExpressionBox>(&(*tuple_atom)->items[0]->expr.lhs.base.value);
+  REQUIRE(nested_block != nullptr);
+  REQUIRE(nested_block->has_value());
+}
+
+TEST_CASE("Parser rejects anonymous bare top-level blocks", "[parser][blocks]") {
+  const std::string src =
+      "{\n"
+      "  let x: Int64 = 1;\n"
+      "  x;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "top_level_block_reject_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Anonymous top-level block expressions are not supported") != std::string::npos);
+}
+
+TEST_CASE("Parser rejects nested named functions inside blocks", "[parser][blocks]") {
+  const std::string src =
+      "let Outer(): Int64 = {\n"
+      "  let Inner(x: Int64): Int64 = x;\n"
+      "  1;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "nested_named_function_block_reject_parser.fleaux");
+
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Nested named functions are not supported inside block scope") !=
+          std::string::npos);
+}
+
+TEST_CASE("Parser dump_ast includes block expression structure", "[parser][dump_ast][blocks]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = 1;\n"
+      "  x;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "dump_ast_block.fleaux");
+
+  REQUIRE(parsed.has_value());
+
+  const std::string dumped = parser.dump_ast(*parsed);
+  REQUIRE(dumped.find("BlockExpression {") != std::string::npos);
+  REQUIRE(dumped.find("LocalLetBinding {") != std::string::npos);
+  REQUIRE(dumped.find("result: Expression {") != std::string::npos);
+}
+
 TEST_CASE("Parser rejects empty let generic parameter list", "[parser]") {
   const std::string src = "let Identity<>(x: Any): Any = x;\n";
 

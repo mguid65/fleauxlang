@@ -453,6 +453,81 @@ TEST_CASE("Type checker accepts zero-arg inline closure pipeline sugar", "[typec
   REQUIRE(lowered.has_value());
 }
 
+TEST_CASE("Type checker accepts top-level immutable value declarations in expression position",
+          "[typecheck][blocks][let]") {
+  const std::string src =
+      "let Meaning: Int64 = 42;\n"
+      "let NeedsInt(x: Int64): Int64 = x;\n"
+      "Meaning -> NeedsInt;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_top_level_value_ok.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
+TEST_CASE("Type checker gives blocks the type of their final expression", "[typecheck][blocks]") {
+  const std::string src =
+      "import Std;\n"
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = 1;\n"
+      "  let y: Int64 = (x, 2) -> Std.Add;\n"
+      "  y;\n"
+      "};\n"
+      "let NeedsInt(x: Int64): Int64 = x;\n"
+      "() -> Compute -> NeedsInt;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_block_result_ok.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
+TEST_CASE("Type checker allows nested block shadowing", "[typecheck][blocks][shadowing]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let value: Int64 = 1;\n"
+      "  let shadowed: Int64 = {\n"
+      "    let value: Int64 = 2;\n"
+      "    value;\n"
+      "  };\n"
+      "  shadowed;\n"
+      "};\n"
+      "let NeedsInt(x: Int64): Int64 = x;\n"
+      "() -> Compute -> NeedsInt;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_block_shadowing_ok.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+}
+
+TEST_CASE("Type checker rejects local let initializer type mismatch", "[typecheck][blocks][let]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = \"oops\";\n"
+      "  x;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_local_let_initializer_mismatch.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Type mismatch in local let initializer") != std::string::npos);
+}
+
 TEST_CASE("Type checker validates explicit type arguments on Std.Apply zero-arg shorthand",
           "[typecheck][generics][apply]") {
   SECTION("Zero-arg Std.Apply shorthand is still accepted without explicit type arguments") {

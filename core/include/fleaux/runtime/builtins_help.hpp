@@ -3,12 +3,13 @@
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
+#include "fleaux/common/trie.hpp"
 #include "fleaux/runtime/value.hpp"
 
 namespace fleaux::runtime {
@@ -20,16 +21,51 @@ struct HelpMetadata {
   bool is_builtin = false;
 };
 
-// Should probably use a Trie here too
-[[nodiscard]] inline auto help_metadata_registry() -> std::unordered_map<std::string, HelpMetadata>& {
-  static std::unordered_map<std::string, HelpMetadata> registry;
-  return registry;
+using HelpMetadataStore = common::TrieMap<HelpMetadata>;
+
+struct HelpMetadataThreadContext {
+  std::reference_wrapper<HelpMetadataStore> active;
+};
+
+[[nodiscard]] inline auto default_help_metadata_store() -> HelpMetadataStore& {
+  static HelpMetadataStore store{};
+  return store;
 }
 
-inline auto clear_help_metadata_registry() -> void { help_metadata_registry().clear(); }
+[[nodiscard]] inline auto help_metadata_thread_context() -> HelpMetadataThreadContext& {
+  thread_local HelpMetadataThreadContext context{default_help_metadata_store()};
+  return context;
+}
+
+[[nodiscard]] inline auto help_metadata_store() -> HelpMetadataStore& {
+  return help_metadata_thread_context().active.get();
+}
+
+class ActiveHelpMetadataRegistryScope {
+public:
+  explicit ActiveHelpMetadataRegistryScope(HelpMetadataStore& store)
+      : previous_(help_metadata_thread_context().active) {
+    help_metadata_thread_context().active = std::ref(store);
+  }
+
+  ActiveHelpMetadataRegistryScope(const ActiveHelpMetadataRegistryScope&) = delete;
+  auto operator=(const ActiveHelpMetadataRegistryScope&) -> ActiveHelpMetadataRegistryScope& = delete;
+
+  ~ActiveHelpMetadataRegistryScope() { help_metadata_thread_context().active = previous_; }
+
+private:
+  std::reference_wrapper<HelpMetadataStore> previous_;
+};
+
+inline auto clear_help_metadata_registry() -> void { help_metadata_store().clear(); }
+
+inline auto register_help_metadata(HelpMetadataStore& store, HelpMetadata metadata) -> void {
+  const auto key = metadata.name;
+  store.insert_or_assign(key, std::move(metadata));
+}
 
 inline auto register_help_metadata(HelpMetadata metadata) -> void {
-  help_metadata_registry()[metadata.name] = std::move(metadata);
+  register_help_metadata(help_metadata_store(), std::move(metadata));
 }
 
 namespace detail {
@@ -49,13 +85,6 @@ namespace detail {
   }
   return std::string_view(line).starts_with(token);
 }
-
-// template <typename... Tokens>
-//   requires std::same_as<std::remove_cvref_t<Tokens>, std::string_view> && ...)
-// [[nodiscard]] inline auto starts_with_one_of(const std::string& line, const std::string_view token) -> bool {
-//   if (line.size() < token.size()) { return false; }
-//   return std::string_view(line).starts_with(token);
-// }
 
 struct ParsedDoc {
   std::string brief{};
@@ -141,23 +170,21 @@ struct ParsedDoc {
 [[nodiscard]] inline auto Help(Value arg) -> Value {
   std::string name = detail::trim_copy(to_string(unwrap_singleton_arg(std::move(arg))));
 
-  const auto& registry = help_metadata_registry();
+  const auto& store = help_metadata_store();
   if (name.empty()) {
-    if (registry.empty()) {
+    if (store.empty()) {
       return make_string("Help: no symbols available.");
     }
 
-    std::vector<std::string> names;
-    names.reserve(registry.size());
-    for (const auto& key : registry | std::views::keys) {
-      names.push_back(key);
-    }
-    std::ranges::sort(names);
+    const auto names = store.completions("");
 
     std::string result = "Available symbols:\n";
     for (const auto& symbol_name : names) {
-      const auto& metadata = registry.at(symbol_name);
-      const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
+      const auto metadata = store.find(symbol_name);
+      if (!metadata.has_value()) {
+        continue;
+      }
+      const auto parsed = detail::parse_doc_lines(metadata->get().doc_lines);
       result += std::format("- {}", symbol_name);
       if (!parsed.brief.empty()) {
         result += std::format(" - {}", parsed.brief);
@@ -167,48 +194,44 @@ struct ParsedDoc {
     return make_string(result);
   }
 
-  auto it = registry.find(name);
-  if (it == registry.end() && name.find('.') == std::string::npos) {
-    it = registry.find("Std." + name);
+  std::optional<std::reference_wrapper<const HelpMetadata>> metadata = store.find(name);
+  if (!metadata.has_value() && name.find('.') == std::string::npos) {
+    metadata = store.find("Std." + name);
   }
 
-  if (it == registry.end()) {
-    if (registry.empty()) {
+  if (!metadata.has_value()) {
+    if (store.empty()) {
       return make_string("Help: no symbols available.");
     }
 
-    std::vector<std::string> names;
-    names.reserve(registry.size());
-    for (const auto& key : registry | std::views::keys | std::views::filter([name](const auto& entry) -> auto {
-                             return entry.starts_with(name);
-                           })) {
-      names.push_back(key);
-                           }
-    std::ranges::sort(names);
+    const auto names = store.completions(name);
     // if we dont find an exact match, try to find a partial match like Std.Tuple.*
+    if (names.empty()) {
+      return make_string(
+          std::format("Help: unknown symbol '{}'\n\nUse (\"Symbol\") -> Std.Help for symbol help, or (\"\") -> "
+                      "Std.Help() to list symbols.",
+                      name));
+    }
+
     std::string result = std::format("Available symbols({}*):\n", name);
     for (const auto& symbol_name : names) {
-      const auto& metadata = registry.at(symbol_name);
-      const auto parsed = detail::parse_doc_lines(metadata.doc_lines);
+      const auto matched_metadata = store.find(symbol_name);
+      if (!matched_metadata.has_value()) {
+        continue;
+      }
+      const auto parsed = detail::parse_doc_lines(matched_metadata->get().doc_lines);
       result += std::format("- {}", symbol_name);
       if (!parsed.brief.empty()) {
         result += std::format(" - {}", parsed.brief);
       }
       result += "\n";
     }
-    if (result.empty()) {
-      return make_string(
-        std::format("Help: unknown symbol '{}'\n\nUse (\"Symbol\") -> Std.Help for symbol help, or (\"\") -> "
-                    "Std.Help() to list symbols.",
-                    name));
-    }
     return make_string(result);
   }
 
-  const auto& metadata = it->second;
-  const auto [brief, params, tparams, returns, notes] = detail::parse_doc_lines(metadata.doc_lines);
+  const auto [brief, params, tparams, returns, notes] = detail::parse_doc_lines(metadata->get().doc_lines);
 
-  std::string result = std::format("Help on function {} \n\n  {}\n", metadata.name, metadata.signature);
+  std::string result = std::format("Help on function {} \n\n  {}\n", metadata->get().name, metadata->get().signature);
 
   if (!brief.empty()) {
     result += std::format("\n{}\n", brief);

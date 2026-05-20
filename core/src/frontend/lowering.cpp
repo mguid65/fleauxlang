@@ -176,7 +176,17 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
   return out;
 }
 
-auto lower_expr(const model::Expression& expr, const std::unordered_set<std::string>& bound_names)
+struct LoweringContext {
+  std::unordered_set<std::string> bound_names{};
+  std::unordered_set<std::string> visible_top_level_value_symbols{};
+  std::unordered_set<std::string> all_top_level_value_symbols{};
+};
+
+auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
+  return qualifier.has_value() ? (*qualifier + "." + name) : name;
+}
+
+auto lower_expr(const model::Expression& expr, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError>;
 
 auto make_ir_expr_box(ir::IRExpr value) -> ir::IRExprBox {
@@ -257,6 +267,7 @@ void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<st
                      collect_unqualified_names_from_expr(*item, out, seen);
                    }
                  },
+                 [&](const model::BlockExpressionBox&) -> void {},
                  [&](const model::ClosureExpressionBox& value) -> void {
                    collect_unqualified_names_from_expr(*value->body, out, seen);
                  },
@@ -390,18 +401,32 @@ auto replace_placeholder(const ir::IRExpr& template_expr, const ir::IRExpr& curr
   return replaced;
 }
 
-auto lower_delimited_atom(const model::DelimitedExpressionBox& inner,
-                          const std::unordered_set<std::string>& bound_names,
+auto is_future_top_level_value_symbol(const LoweringContext& context, const std::optional<std::string>& qualifier,
+                                      const std::string& name) -> bool {
+  const auto full_name = full_symbol_name(qualifier, name);
+  return context.all_top_level_value_symbols.contains(full_name) &&
+         !context.visible_top_level_value_symbols.contains(full_name);
+}
+
+auto make_use_before_declaration_error(const std::string& symbol, const std::optional<diag::SourceSpan>& span)
+    -> LoweringError {
+  return LoweringError{.message = "Use before declaration in value scope.",
+                       .hint = std::format("'{}' is a top-level value and is only visible from its declaration point forward.",
+                                           symbol),
+                       .span = span};
+}
+
+auto lower_delimited_atom(const model::DelimitedExpressionBox& inner, const LoweringContext& context,
                           const std::optional<diag::SourceSpan>& expr_span)
     -> tl::expected<ir::IRExpr, LoweringError> {
   if (inner->items.size() == 1) {
-    return lower_expr(*inner->items[0], bound_names);
+    return lower_expr(*inner->items[0], context);
   }
 
   ir::IRTupleExpr tuple;
   tuple.span = inner->span;
   for (const auto& item : inner->items) {
-    auto lowered_item = lower_expr(*item, bound_names);
+    auto lowered_item = lower_expr(*item, context);
     if (!lowered_item) {
       return tl::unexpected(lowered_item.error());
     }
@@ -464,8 +489,56 @@ auto collect_closure_captures(const model::Expression& body, const std::unordere
   return captures;
 }
 
-auto lower_closure_atom(const model::ClosureExpressionBox& closure,
-                        const std::unordered_set<std::string>& bound_names,
+auto lower_block_expr(const model::BlockExpressionBox& block, const LoweringContext& context,
+                      const std::optional<diag::SourceSpan>& expr_span) -> tl::expected<ir::IRExpr, LoweringError> {
+  LoweringContext block_context = context;
+  ir::IRBlockExpr block_ir;
+  block_ir.span = block->span;
+
+  for (const auto& item : block->items) {
+    auto lowered_item = std::visit(
+        common::overloaded{
+            [&](const model::LocalLetBinding& local_let) -> tl::expected<ir::IRBlockItem, LoweringError> {
+              auto lowered_init = lower_expr(*local_let.expr, block_context);
+              if (!lowered_init) {
+                return tl::unexpected(lowered_init.error());
+              }
+
+              ir::IRLocalLet lowered_local{
+                  .name = local_let.name,
+                  .type = lower_simple_type(local_let.type),
+                  .expr = make_ir_expr_box(std::move(*lowered_init)),
+                  .span = local_let.span,
+              };
+              block_context.bound_names.insert(local_let.name);
+              return ir::IRBlockItem{std::move(lowered_local)};
+            },
+            [&](const model::ExpressionStatement& expr_stmt) -> tl::expected<ir::IRBlockItem, LoweringError> {
+              auto lowered_expr = lower_expr(expr_stmt.expr, block_context);
+              if (!lowered_expr) {
+                return tl::unexpected(lowered_expr.error());
+              }
+              return ir::IRBlockItem{ir::IRBlockExprStatement{
+                  .expr = make_ir_expr_box(std::move(*lowered_expr)),
+                  .span = expr_stmt.span,
+              }};
+            }},
+        item);
+    if (!lowered_item) {
+      return tl::unexpected(lowered_item.error());
+    }
+    block_ir.items.push_back(std::move(*lowered_item));
+  }
+
+  auto lowered_result = lower_expr(*block->result, block_context);
+  if (!lowered_result) {
+    return tl::unexpected(lowered_result.error());
+  }
+  block_ir.result = make_ir_expr_box(std::move(*lowered_result));
+  return ir::IRExpr{.node = ir::make_ir_block_expr_box(std::move(block_ir)), .span = expr_span};
+}
+
+auto lower_closure_atom(const model::ClosureExpressionBox& closure, const LoweringContext& context,
                         const std::optional<diag::SourceSpan>& expr_span)
     -> tl::expected<ir::IRExpr, LoweringError> {
   std::unordered_set<std::string> param_names;
@@ -474,10 +547,13 @@ auto lower_closure_atom(const model::ClosureExpressionBox& closure,
     return tl::unexpected(valid_params.error());
   }
 
-  auto closure_bound = make_closure_bound_names(bound_names, params);
-  auto captures = collect_closure_captures(*closure->body, param_names, bound_names);
+  auto closure_bound = make_closure_bound_names(context.bound_names, params);
+  auto captures = collect_closure_captures(*closure->body, param_names, context.bound_names);
 
-  auto lowered_body = lower_expr(*closure->body, closure_bound);
+  LoweringContext closure_context = context;
+  closure_context.bound_names = std::move(closure_bound);
+
+  auto lowered_body = lower_expr(*closure->body, closure_context);
   if (!lowered_body) {
     return tl::unexpected(lowered_body.error());
   }
@@ -504,6 +580,7 @@ auto make_name_ref_expr(std::optional<std::string> qualifier, std::string name,
                             .name = std::move(name),
                             .explicit_type_args = std::move(explicit_type_args),
                             .resolved_symbol_key = std::nullopt,
+                             .materialize_as_value = false,
                             .span = ref_span,
                         },
                     .span = expr_span};
@@ -530,7 +607,8 @@ auto lower_qualified_id_atom(const model::QualifiedId& qid, const std::optional<
   return make_name_ref_expr(qid.qualifier.qualifier, qid.id, {}, qid.span, expr_span);
 }
 
-auto lower_named_target_atom(const model::NamedTargetBox& target, const std::optional<diag::SourceSpan>& expr_span)
+auto lower_named_target_atom(const model::NamedTargetBox& target, const LoweringContext& context,
+                            const std::optional<diag::SourceSpan>& expr_span)
     -> tl::expected<ir::IRExpr, LoweringError> {
   std::vector<ir::IRSimpleType> explicit_type_args;
   explicit_type_args.reserve(target->explicit_type_args.size());
@@ -540,6 +618,11 @@ auto lower_named_target_atom(const model::NamedTargetBox& target, const std::opt
 
   return std::visit(
       common::overloaded{[&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+                           if (is_future_top_level_value_symbol(context, qid.qualifier.qualifier, qid.id)) {
+                             return tl::unexpected(make_use_before_declaration_error(
+                                 full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
+                           }
+
                            if (target->explicit_type_args.empty()) {
                              if (auto std_result = lower_std_result_atom(qid, expr_span); std_result.has_value()) {
                                return std::move(*std_result);
@@ -550,21 +633,28 @@ auto lower_named_target_atom(const model::NamedTargetBox& target, const std::opt
                                                      std::move(explicit_type_args), target->span, expr_span);
                          },
                          [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+                            if (!context.bound_names.contains(name) &&
+                                is_future_top_level_value_symbol(context, std::nullopt, name)) {
+                              return tl::unexpected(make_use_before_declaration_error(name, target->span));
+                            }
                            return make_name_ref_expr(std::nullopt, name, std::move(explicit_type_args), target->span,
                                                      expr_span);
                          }},
       target->target);
 }
 
-auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& bound_names)
+auto lower_atom(const model::Atom& atom, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError> {
   return std::visit(
       common::overloaded{
           [&](const model::DelimitedExpressionBox& inner) -> tl::expected<ir::IRExpr, LoweringError> {
-            return lower_delimited_atom(inner, bound_names, atom.span);
+            return lower_delimited_atom(inner, context, atom.span);
           },
           [&](const model::ClosureExpressionBox& closure) -> tl::expected<ir::IRExpr, LoweringError> {
-            return lower_closure_atom(closure, bound_names, atom.span);
+            return lower_closure_atom(closure, context, atom.span);
+          },
+          [&](const model::BlockExpressionBox& block) -> tl::expected<ir::IRExpr, LoweringError> {
+            return lower_block_expr(block, context, atom.span);
           },
           [&](const model::Constant& constant) -> tl::expected<ir::IRExpr, LoweringError> {
             ir::IRConstant c;
@@ -573,12 +663,19 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
             return ir::IRExpr{.node = std::move(c), .span = atom.span};
           },
           [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
+            if (is_future_top_level_value_symbol(context, qid.qualifier.qualifier, qid.id)) {
+              return tl::unexpected(make_use_before_declaration_error(
+                  full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
+            }
             return lower_qualified_id_atom(qid, atom.span);
           },
           [&](const model::NamedTargetBox& target) -> tl::expected<ir::IRExpr, LoweringError> {
-            return lower_named_target_atom(target, atom.span);
+            return lower_named_target_atom(target, context, atom.span);
           },
           [&](const std::string& name) -> tl::expected<ir::IRExpr, LoweringError> {
+            if (!context.bound_names.contains(name) && is_future_top_level_value_symbol(context, std::nullopt, name)) {
+              return tl::unexpected(make_use_before_declaration_error(name, atom.span));
+            }
             return make_name_ref_expr(std::nullopt, name, {}, atom.span, atom.span);
           },
           [&](const std::monostate&) -> tl::expected<ir::IRExpr, LoweringError> {
@@ -589,9 +686,9 @@ auto lower_atom(const model::Atom& atom, const std::unordered_set<std::string>& 
       atom.value);
 }
 
-auto lower_primary(const model::Primary& primary, const std::unordered_set<std::string>& bound_names)
+auto lower_primary(const model::Primary& primary, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  return lower_atom(primary.base, bound_names);
+  return lower_atom(primary.base, context);
 }
 
 auto try_apply_direct_target_stage(const ir::IRExpr& current_value, const model::Primary& stage_primary,
@@ -676,9 +773,9 @@ auto apply_template_stage(const ir::IRExpr& current_value, const std::optional<d
   return ir::IRExpr{.node = std::move(ir_flow), .span = flow_span};
 }
 
-auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std::string>& bound_names)
+auto lower_flow(const model::FlowExpression& flow, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  auto result = lower_primary(flow.lhs, bound_names);
+  auto result = lower_primary(flow.lhs, context);
   if (!result) {
     return tl::unexpected(result.error());
   }
@@ -694,7 +791,7 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
       continue;
     }
 
-    auto stage_expr = lower_primary(flow.rhs[stage_index], bound_names);
+    auto stage_expr = lower_primary(flow.rhs[stage_index], context);
     if (!stage_expr) {
       return tl::unexpected(stage_expr.error());
     }
@@ -725,9 +822,9 @@ auto lower_flow(const model::FlowExpression& flow, const std::unordered_set<std:
   return result;
 }
 
-auto lower_expr(const model::Expression& expr, const std::unordered_set<std::string>& bound_names)
+auto lower_expr(const model::Expression& expr, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  return lower_flow(expr.expr, bound_names);
+  return lower_flow(expr.expr, context);
 }
 
 class IRDumper {
@@ -886,8 +983,40 @@ private:
                          std::format("params: {}", format_list(params, level + 1)),
                          std::format("return_type: {}", format_simple_type(let.return_type, level + 1)),
                          std::format("doc_comments: {}", format_string_list(let.doc_comments, level + 1)),
-                          std::format("body: {}", format_nullable_expr(let.body, level + 1)),
+                         std::format("body: {}", format_nullable_expr(let.body, level + 1)),
+                         std::format("is_value_binding: {}", let.is_value_binding),
                          std::format("is_builtin: {}", let.is_builtin)},
+                        level);
+  }
+
+  [[nodiscard]] auto format_block_expr_statement(const ir::IRBlockExprStatement& stmt, const int level) const -> std::string {
+    return format_block("IRBlockExprStatement", {std::format("expr: {}", format_nullable_expr(stmt.expr, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_local_let(const ir::IRLocalLet& let, const int level) const -> std::string {
+    return format_block("IRLocalLet",
+                        {std::format("name: {}", quote(let.name)),
+                         std::format("type: {}", format_simple_type(let.type, level + 1)),
+                         std::format("expr: {}", format_nullable_expr(let.expr, level + 1))},
+                        level);
+  }
+
+  [[nodiscard]] auto format_block_item(const ir::IRBlockItem& item, const int level) const -> std::string {
+    return std::visit(common::overloaded{[&](const ir::IRLocalLet& let) -> std::string {
+                                           return format_local_let(let, level);
+                                         },
+                                         [&](const ir::IRBlockExprStatement& stmt) -> std::string {
+                                           return format_block_expr_statement(stmt, level);
+                                         }},
+                      item);
+  }
+
+  [[nodiscard]] auto format_block_expr(const ir::IRBlockExpr& block, const int level) const -> std::string {
+    const auto items = collect_formatted_items(block.items, [&](const auto& item) { return format_block_item(item, level + 2); });
+    return format_block("IRBlockExpr",
+                        {std::format("items: {}", format_list(items, level + 1)),
+                         std::format("result: {}", format_nullable_expr(block.result, level + 1))},
                         level);
   }
 
@@ -948,19 +1077,22 @@ private:
   }
 
   [[nodiscard]] static auto expr_kind_name(
-      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox>& node)
+      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox,
+                         ir::IRBlockExprBox>& node)
       -> std::string_view {
     return std::visit(
         common::overloaded{[](const ir::IRFlowExpr&) -> std::string_view { return "IRFlowExpr"; },
                            [](const ir::IRTupleExpr&) -> std::string_view { return "IRTupleExpr"; },
                            [](const ir::IRConstant&) -> std::string_view { return "IRConstant"; },
                            [](const ir::IRNameRef&) -> std::string_view { return "IRNameRef"; },
-                           [](const ir::IRClosureExprBox&) -> std::string_view { return "IRClosureExpr"; }},
+                           [](const ir::IRClosureExprBox&) -> std::string_view { return "IRClosureExpr"; },
+                           [](const ir::IRBlockExprBox&) -> std::string_view { return "IRBlockExpr"; }},
         node);
   }
 
   [[nodiscard]] auto format_expr_node(
-      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox>& node,
+      const std::variant<ir::IRFlowExpr, ir::IRTupleExpr, ir::IRConstant, ir::IRNameRef, ir::IRClosureExprBox,
+                         ir::IRBlockExprBox>& node,
       const int level) const -> std::string {
     return std::visit(
         common::overloaded{
@@ -970,6 +1102,9 @@ private:
             [&](const ir::IRNameRef& name_ref) -> std::string { return format_name_ref(name_ref, level); },
             [&](const ir::IRClosureExprBox& closure) -> std::string {
               return closure ? format_closure_expr(*closure, level) : std::string{"null"};
+            },
+            [&](const ir::IRBlockExprBox& block) -> std::string {
+              return block ? format_block_expr(*block, level) : std::string{"null"};
             }},
         node);
   }
@@ -1018,7 +1153,8 @@ private:
          std::format("name: {}", quote(name_ref.name)),
          std::format("explicit_type_args: {}", format_list(type_args, level + 1)),
          std::format("resolved_symbol_key: {}",
-                     name_ref.resolved_symbol_key ? quote(*name_ref.resolved_symbol_key) : std::string{"null"})},
+                     name_ref.resolved_symbol_key ? quote(*name_ref.resolved_symbol_key) : std::string{"null"}),
+         std::format("materialize_as_value: {}", name_ref.materialize_as_value)},
         level);
   }
 
@@ -1121,13 +1257,13 @@ auto make_bound_name_set(const std::vector<ir::IRParam>& params) -> std::unorder
 }
 
 auto lower_let_body_if_needed(const model::LetStatement& model_let, const bool is_builtin,
-                              const std::unordered_set<std::string>& let_bound_names)
+                              const LoweringContext& context)
     -> tl::expected<ir::IRExprBox, LoweringError> {
   if (is_builtin) {
     return ir::IRExprBox{};
   }
 
-  auto lowered_body = lower_expr(*model_let.expr, let_bound_names);
+  auto lowered_body = lower_expr(*model_let.expr, context);
   if (!lowered_body) {
     return tl::unexpected(lowered_body.error());
   }
@@ -1135,7 +1271,8 @@ auto lower_let_body_if_needed(const model::LetStatement& model_let, const bool i
 }
 
 auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::string, std::size_t>& user_symbol_ordinals,
-                         const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
+                         const model::LetStatement& model_let, const LoweringContext& context)
+    -> tl::expected<void, LoweringError> {
   auto [qualifier, name] = split_id(model_let.id);
   const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
 
@@ -1147,9 +1284,10 @@ auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::stri
   const bool is_builtin = model_let.is_builtin;
   std::string symbol_key = make_symbol_key(public_symbol, is_builtin, user_symbol_ordinals);
 
-  const auto let_bound_names = make_bound_name_set(params);
+  LoweringContext let_context = context;
+  let_context.bound_names = make_bound_name_set(params);
 
-  auto body = lower_let_body_if_needed(model_let, is_builtin, let_bound_names);
+  auto body = lower_let_body_if_needed(model_let, is_builtin, let_context);
   if (!body) {
     return tl::unexpected(body.error());
   }
@@ -1163,16 +1301,17 @@ auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::stri
       .return_type = lower_simple_type(model_let.rtype),
       .doc_comments = model_let.doc_comments,
       .body = std::move(*body),
+      .is_value_binding = model_let.is_value_binding,
       .is_builtin = is_builtin,
       .span = model_let.span,
   });
   return {};
 }
 
-auto lower_expression_statement(ir::IRProgram& ir_program, const model::ExpressionStatement& model_expr_stmt)
+auto lower_expression_statement(ir::IRProgram& ir_program, const model::ExpressionStatement& model_expr_stmt,
+                                const LoweringContext& context)
     -> tl::expected<void, LoweringError> {
-  const std::unordered_set<std::string> no_bound_names;
-  auto lowered_expr = lower_expr(model_expr_stmt.expr, no_bound_names);
+  auto lowered_expr = lower_expr(model_expr_stmt.expr, context);
   if (!lowered_expr) {
     return tl::unexpected(lowered_expr.error());
   }
@@ -1185,7 +1324,7 @@ auto lower_expression_statement(ir::IRProgram& ir_program, const model::Expressi
 }
 
 auto lower_statement(ir::IRProgram& ir_program, std::unordered_map<std::string, std::size_t>& user_symbol_ordinals,
-                     const model::Statement& stmt) -> tl::expected<void, LoweringError> {
+                     const model::Statement& stmt, const LoweringContext& context) -> tl::expected<void, LoweringError> {
   return std::visit(
       common::overloaded{[&](const model::ImportStatement& model_import) -> tl::expected<void, LoweringError> {
                            return lower_import_statement(ir_program, model_import);
@@ -1197,12 +1336,25 @@ auto lower_statement(ir::IRProgram& ir_program, std::unordered_map<std::string, 
                            return lower_alias_statement(ir_program, model_alias);
                          },
                          [&](const model::LetStatement& model_let) -> tl::expected<void, LoweringError> {
-                           return lower_let_statement(ir_program, user_symbol_ordinals, model_let);
+                            return lower_let_statement(ir_program, user_symbol_ordinals, model_let, context);
                          },
                          [&](const model::ExpressionStatement& model_expr_stmt) -> tl::expected<void, LoweringError> {
-                           return lower_expression_statement(ir_program, model_expr_stmt);
+                            return lower_expression_statement(ir_program, model_expr_stmt, context);
                          }},
       stmt);
+}
+
+auto collect_top_level_value_symbols(const model::Program& program) -> std::unordered_set<std::string> {
+  std::unordered_set<std::string> symbols;
+  for (const auto& stmt : program.statements) {
+    const auto* let_stmt = std::get_if<model::LetStatement>(&stmt);
+    if (let_stmt == nullptr || !let_stmt->is_value_binding) {
+      continue;
+    }
+    const auto [qualifier, name] = split_id(let_stmt->id);
+    symbols.insert(full_symbol_name(qualifier, name));
+  }
+  return symbols;
 }
 
 void assign_builtin_overload_symbol_keys(ir::IRProgram& ir_program) {
@@ -1231,10 +1383,18 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
   ir::IRProgram ir_program;
   ir_program.span = program.span;
   std::unordered_map<std::string, std::size_t> user_symbol_ordinals;
+  LoweringContext top_level_context;
+  top_level_context.all_top_level_value_symbols = collect_top_level_value_symbols(program);
 
   for (const auto& stmt : program.statements) {
-    if (auto lowered_stmt = lower_statement(ir_program, user_symbol_ordinals, stmt); !lowered_stmt) {
+    if (auto lowered_stmt = lower_statement(ir_program, user_symbol_ordinals, stmt, top_level_context); !lowered_stmt) {
       return tl::unexpected(lowered_stmt.error());
+    }
+
+    if (const auto* let_stmt = std::get_if<model::LetStatement>(&stmt);
+        let_stmt != nullptr && let_stmt->is_value_binding) {
+      const auto [qualifier, name] = split_id(let_stmt->id);
+      top_level_context.visible_top_level_value_symbols.insert(full_symbol_name(qualifier, name));
     }
   }
 

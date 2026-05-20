@@ -135,6 +135,67 @@ TEST_CASE("Lowerer marks builtin lets and clears body", "[lowering]") {
   REQUIRE_FALSE(lowered->lets[0].body.has_value());
 }
 
+TEST_CASE("Lowerer preserves top-level immutable value declarations as zero-arg lets", "[lowering][blocks][let]") {
+  const std::string src =
+      "let Meaning: Int64 = 42;\n"
+      "Meaning;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_value_let_shape.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->lets.size() == 1);
+  REQUIRE(lowered->lets[0].name == "Meaning");
+  REQUIRE(lowered->lets[0].params.empty());
+  REQUIRE(lowered->lets[0].is_value_binding);
+  REQUIRE(lowered->lets[0].body.has_value());
+}
+
+TEST_CASE("Lowerer preserves explicit block-local lets and final result", "[lowering][blocks]") {
+  const std::string src =
+      "let Compute(): Int64 = {\n"
+      "  let x: Int64 = 1;\n"
+      "  let y: Int64 = (x, 2) -> Std.Add;\n"
+      "  y;\n"
+      "};\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_block_expr_shape.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->lets.size() == 1);
+  REQUIRE(lowered->lets[0].body.has_value());
+
+  const auto* block_ptr = std::get_if<fleaux::frontend::ir::IRBlockExprBox>(&lowered->lets[0].body->node);
+  REQUIRE(block_ptr != nullptr);
+  REQUIRE(block_ptr->has_value());
+  REQUIRE((*block_ptr)->items.size() == 2);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRLocalLet>((*block_ptr)->items[0]));
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRLocalLet>((*block_ptr)->items[1]));
+  REQUIRE((*block_ptr)->result.has_value());
+}
+
+TEST_CASE("Lowerer rejects top-level value use before declaration", "[lowering][blocks][let]") {
+  const std::string src =
+      "let Derived: Int64 = Meaning;\n"
+      "let Meaning: Int64 = 42;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_value_use_before_decl.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE_FALSE(lowered.has_value());
+  REQUIRE(lowered.error().message.find("Use before declaration") != std::string::npos);
+}
+
 TEST_CASE("Lowerer preserves let generic parameters in lower_only", "[lowering]") {
   const std::string src = "let Identity<T>(x: T): T = x;\n";
 

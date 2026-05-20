@@ -1,0 +1,20 @@
+import Std;
+
+let Base: Int64 = 40;
+let Offset: Int64 = {
+  let left: Int64 = 1;
+  let right: Int64 = 1;
+  (left, right) -> Std.Add;
+};
+
+let Compute(): Int64 = {
+  let base: Int64 = Base;
+  let nested: Int64 = {
+    let base: Int64 = 3;
+    base;
+  };
+  ((base, Offset) -> Std.Add, nested) -> Std.Add;
+};
+
+() -> Compute -> Std.Println;
+

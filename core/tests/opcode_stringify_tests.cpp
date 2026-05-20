@@ -10,7 +10,7 @@
 TEST_CASE("All opcodes can be serialized", "[bytecode][opcodes][stringify]") {
   using namespace fleaux::bytecode;
 
-  REQUIRE(opcode_names.size() == static_cast<std::size_t>(Opcode::kDerefValueRef) + 1U);
+  REQUIRE(opcode_names.size() == static_cast<std::size_t>(Opcode::kStoreLocal) + 1U);
 
   Module module;
   module.instructions.reserve(opcode_names.size());

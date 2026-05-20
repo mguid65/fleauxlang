@@ -120,6 +120,11 @@ enum class Opcode {
   kMakeValueRef,
   // kDerefValueRef pops a value-ref token and pushes the referenced Value.
   kDerefValueRef,
+
+  // Local variable store:
+  // Pop TOS and write it into the local slot identified by operand, growing the
+  // current frame's local storage if needed.
+  kStoreLocal,
 };
 
 inline constexpr std::array opcode_names{
@@ -160,7 +165,8 @@ inline constexpr std::array opcode_names{
   std::string_view{"LoopNCall"},
   std::string_view{"Halt"},
   std::string_view{"MakeValueRef"},
-  std::string_view{"DerefValueRef"}
+  std::string_view{"DerefValueRef"},
+  std::string_view{"StoreLocal"}
 };
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {

@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace fleaux::frontend {
+namespace fleaux::common {
 
 namespace detail {
 
@@ -84,4 +84,5 @@ template <class T, class... Args>
   return Box<T>(std::forward<Args>(args)...);
 }
 
-}  // namespace fleaux::frontend
+}  // namespace fleaux::common
+

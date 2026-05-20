@@ -27,6 +27,7 @@ endforeach()
 
 include(CTest)
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -96,10 +97,16 @@ else()
 endif()
 
 add_library(tl_expected INTERFACE)
-target_include_directories(tl_expected INTERFACE ${THIRD_PARTY}/tl/include)
+set_target_properties(tl_expected PROPERTIES EXPORT_NAME tl_expected)
+target_include_directories(tl_expected INTERFACE
+    $<BUILD_INTERFACE:${THIRD_PARTY}/tl/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 add_library(datatree INTERFACE)
-target_include_directories(datatree INTERFACE ${THIRD_PARTY}/datatree/include)
+set_target_properties(datatree PROPERTIES EXPORT_NAME datatree)
+target_include_directories(datatree INTERFACE
+    $<BUILD_INTERFACE:${THIRD_PARTY}/datatree/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(datatree INTERFACE tl_expected)
 
 function(fleaux_set_project_warnings project_name)
@@ -192,7 +199,10 @@ set(FLEAUX_COMMON_SOURCES
 )
 
 add_library(fleaux_common STATIC)
-target_include_directories(fleaux_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(fleaux_common PROPERTIES EXPORT_NAME common)
+target_include_directories(fleaux_common PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_common PRIVATE ${FLEAUX_COMMON_SOURCES})
 fleaux_set_project_warnings(fleaux_common WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
@@ -215,7 +225,10 @@ set(FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES
 )
 
 add_library(fleaux_frontend_diagnostics STATIC)
-target_include_directories(fleaux_frontend_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(fleaux_frontend_diagnostics PROPERTIES EXPORT_NAME frontend_diagnostics)
+target_include_directories(fleaux_frontend_diagnostics PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
 target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected datatree)
 fleaux_set_project_warnings(fleaux_frontend_diagnostics WARNINGS_AS_ERRORS)
@@ -229,7 +242,10 @@ set(FLEAUX_FRONTEND_PARSER_SOURCES
 )
 
 add_library(fleaux_frontend_parser STATIC)
-target_include_directories(fleaux_frontend_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(fleaux_frontend_parser PROPERTIES EXPORT_NAME frontend_parser)
+target_include_directories(fleaux_frontend_parser PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
 target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected datatree)
 fleaux_set_project_warnings(fleaux_frontend_parser WARNINGS_AS_ERRORS)
@@ -251,7 +267,10 @@ set(FLEAUX_FRONTEND_LOWERING_SOURCES
 )
 
 add_library(fleaux_frontend_lowering STATIC)
-target_include_directories(fleaux_frontend_lowering PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(fleaux_frontend_lowering PROPERTIES EXPORT_NAME frontend_lowering)
+target_include_directories(fleaux_frontend_lowering PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
 target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected datatree)
 fleaux_set_project_warnings(fleaux_frontend_lowering WARNINGS_AS_ERRORS)
@@ -265,6 +284,7 @@ if(BUILD_TESTING)
 
   add_executable(fleaux_common_tests
       tests/test_main.cpp
+      tests/box_tests.cpp
       tests/embedded_resource_tests.cpp
       tests/indirect_optional_tests.cpp
       tests/structured_visit_tests.cpp)
@@ -314,7 +334,10 @@ set(FLEAUX_BYTECODE_SOURCES
 )
 
 add_library(fleaux_bytecode STATIC)
-target_include_directories(fleaux_bytecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set_target_properties(fleaux_bytecode PROPERTIES EXPORT_NAME bytecode)
+target_include_directories(fleaux_bytecode PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
 target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected datatree)
 fleaux_set_project_warnings(fleaux_bytecode WARNINGS_AS_ERRORS)
@@ -324,8 +347,11 @@ endif()
 
 if(FLEAUX_PCRE2_TARGET)
   add_library(fleaux_vm STATIC)
+  set_target_properties(fleaux_vm PROPERTIES EXPORT_NAME vm)
   target_include_directories(fleaux_vm
-      PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
+      PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
       PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
 
   set(FLEAUX_VM_SOURCES
@@ -354,7 +380,10 @@ if(FLEAUX_PCRE2_TARGET)
       src/embed/dynamic_loader.cpp
       src/embed/native_bindings.cpp
       src/embed/vm_host.cpp)
-  target_include_directories(fleaux_embed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  set_target_properties(fleaux_embed PROPERTIES EXPORT_NAME embed)
+  target_include_directories(fleaux_embed PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
   target_link_libraries(fleaux_embed PUBLIC fleaux_vm)
   if(CMAKE_DL_LIBS)
     target_link_libraries(fleaux_embed PRIVATE ${CMAKE_DL_LIBS})
@@ -442,6 +471,12 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
   target_link_libraries(fleaux_test_binding_plugin_registration_failed PRIVATE tl_expected datatree)
   fleaux_set_project_warnings(fleaux_test_binding_plugin_registration_failed WARNINGS_AS_ERRORS)
 
+  add_library(fleaux_test_binding_plugin_partial_registration_failed SHARED
+      tests/fixtures/binding_plugin_partial_registration_failed.cpp)
+  target_include_directories(fleaux_test_binding_plugin_partial_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(fleaux_test_binding_plugin_partial_registration_failed PRIVATE tl_expected datatree)
+  fleaux_set_project_warnings(fleaux_test_binding_plugin_partial_registration_failed WARNINGS_AS_ERRORS)
+
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
       tests/embed_dynamic_loader_tests.cpp
@@ -459,25 +494,80 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
       FLEAUX_TEST_BINDING_PLUGIN_PATH="$<TARGET_FILE:fleaux_test_binding_plugin>"
       FLEAUX_TEST_BINDING_PLUGIN_ABI_MISMATCH_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_abi_mismatch>"
       FLEAUX_TEST_BINDING_PLUGIN_MISSING_ENTRYPOINT_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_missing_entrypoint>"
-      FLEAUX_TEST_BINDING_PLUGIN_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_registration_failed>")
+      FLEAUX_TEST_BINDING_PLUGIN_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_registration_failed>"
+      FLEAUX_TEST_BINDING_PLUGIN_PARTIAL_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_partial_registration_failed>")
   add_dependencies(fleaux_core_tests fleaux_test_binding_plugin)
   add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_abi_mismatch)
   add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_missing_entrypoint)
   add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_registration_failed)
+  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_partial_registration_failed)
   add_dependencies(fleaux_core_tests fleaux)
 
 endif()
 
 set(FLEAUX_INSTALL_TARGETS)
+set(FLEAUX_DEVELOPMENT_TARGETS tl_expected datatree fleaux_common fleaux_frontend_diagnostics fleaux_frontend_parser fleaux_frontend_lowering fleaux_bytecode)
 
 if(TARGET fleaux)
   list(APPEND FLEAUX_INSTALL_TARGETS fleaux)
+endif()
+
+if(TARGET fleaux_vm)
+  list(APPEND FLEAUX_DEVELOPMENT_TARGETS fleaux_vm)
+endif()
+
+if(TARGET fleaux_embed)
+  list(APPEND FLEAUX_DEVELOPMENT_TARGETS fleaux_embed)
 endif()
 
 if(FLEAUX_INSTALL_TARGETS)
   install(TARGETS ${FLEAUX_INSTALL_TARGETS}
       RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
       COMPONENT Runtime)
+endif()
+
+if(FLEAUX_DEVELOPMENT_TARGETS)
+  install(TARGETS ${FLEAUX_DEVELOPMENT_TARGETS}
+      EXPORT fleaux-targets
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      COMPONENT Development)
+endif()
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT Development)
+
+install(DIRECTORY ${THIRD_PARTY}/tl/include/tl/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tl
+    COMPONENT Development)
+
+install(DIRECTORY ${THIRD_PARTY}/datatree/include/data_tree/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/data_tree
+    COMPONENT Development)
+
+if(FLEAUX_DEVELOPMENT_TARGETS)
+  write_basic_package_version_file(
+      "${CMAKE_CURRENT_BINARY_DIR}/fleaux-config-version.cmake"
+      VERSION ${PROJECT_VERSION}
+      COMPATIBILITY SameMajorVersion)
+
+  configure_package_config_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/fleaux-config.cmake.in"
+      "${CMAKE_CURRENT_BINARY_DIR}/fleaux-config.cmake"
+      INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fleaux)
+
+  install(EXPORT fleaux-targets
+      FILE fleaux-targets.cmake
+      NAMESPACE fleaux::
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fleaux
+      COMPONENT Development)
+
+  install(FILES
+      "${CMAKE_CURRENT_BINARY_DIR}/fleaux-config.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/fleaux-config-version.cmake"
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fleaux
+      COMPONENT Development)
 endif()
 
 install(FILES
@@ -507,7 +597,7 @@ set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}")
 set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/packages")
 set(CPACK_GENERATOR "TGZ")
-set(CPACK_COMPONENTS_ALL Runtime)
+set(CPACK_COMPONENTS_ALL Runtime Development)
 if(FLEAUX_INSTALL_VISUAL_ASSETS)
   list(APPEND CPACK_COMPONENTS_ALL Visual)
 endif()

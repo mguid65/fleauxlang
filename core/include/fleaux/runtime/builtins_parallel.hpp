@@ -24,16 +24,12 @@ struct TaskControl {
   Value result = ResultErr(make_tuple(make_string("Task: result not ready")));
 };
 
-using TaskControlPtr = std::shared_ptr<TaskControl>;
-
 inline auto task_registry() -> ScopedRegistry<TaskControlPtr>& {
-  static ScopedRegistry<TaskControlPtr> registry;
-  return registry;
+  return runtime_execution_state().task_registry;
 }
 
 inline auto task_registry_mutex() -> std::mutex& {
-  static std::mutex mutex;
-  return mutex;
+  return runtime_execution_state().task_registry_mutex;
 }
 
 [[nodiscard]] inline auto task_registry_size() -> std::size_t {
@@ -41,19 +37,52 @@ inline auto task_registry_mutex() -> std::mutex& {
   return task_registry().active_count;
 }
 
+[[nodiscard]] inline auto collect_registered_tasks_since(const std::size_t checkpoint)
+    -> std::vector<std::pair<RegistryId, TaskControlPtr>> {
+  std::vector<std::pair<RegistryId, TaskControlPtr>> tasks;
+
+  std::scoped_lock lock(task_registry_mutex());
+  const auto& registry = task_registry();
+  const auto log_size = registry.registration_log.size();
+  for (std::size_t index = checkpoint; index < log_size; ++index) {
+    const auto slot = registry.registration_log[index];
+    const auto entry_index = static_cast<std::size_t>(slot);
+    if (entry_index >= registry.entries.size()) {
+      continue;
+    }
+
+    const auto& [value, generation, occupied] = registry.entries[entry_index];
+    if (!occupied || !value) {
+      continue;
+    }
+
+    tasks.emplace_back(RegistryId{.slot = slot, .generation = generation}, value);
+  }
+
+  return tasks;
+}
+
+inline void retire_registered_tasks(const std::vector<std::pair<RegistryId, TaskControlPtr>>& tasks,
+                                    const std::size_t checkpoint) {
+  std::scoped_lock lock(task_registry_mutex());
+  auto& registry = task_registry();
+  for (const auto& [id, task] : tasks) {
+    (void)task;
+    if (registry.get(id) != nullptr) {
+      registry.retire(id.slot);
+    }
+  }
+  registry.registration_log.resize(checkpoint);
+}
+
 inline void reset_task_registry_for_tests() {
-  std::vector<TaskControlPtr> tasks;
+  const auto tasks = collect_registered_tasks_since(0);
   {
     std::scoped_lock lock(task_registry_mutex());
-    auto& registry = task_registry();
-    for (const auto& entry : registry.entries) {
-      if (entry.occupied && entry.value) {
-        tasks.push_back(entry.value);
-      }
-    }
-    registry.clear();
+    task_registry().clear();
   }
-  for (const auto& task : tasks) {
+  for (const auto& [id, task] : tasks) {
+    (void)id;
     {
       std::scoped_lock task_lock(task->mutex);
       task->cancel_requested = true;
@@ -63,51 +92,18 @@ inline void reset_task_registry_for_tests() {
 }
 
 inline auto make_task_handle_from_id(const RegistryId& id) -> Value {
-  Array token;
-  token.Reserve(3);
-  token.PushBack(make_string(String{k_task_handle_tag}));
-  token.PushBack(make_uint(id.slot));
-  token.PushBack(make_uint(id.generation));
-  return Value{std::move(token)};
+  return make_tagged_registry_token(k_task_handle_tag, id.slot, id.generation);
 }
 
 [[nodiscard]] inline auto task_id_from_handle(const Value& task_handle) -> std::optional<RegistryId> {
-  const auto& arr = task_handle.TryGetArray();
-  if (!arr || arr->Size() != 3) {
-    return std::nullopt;
-  }
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_task_handle_tag) {
-    return std::nullopt;
-  }
-
-  const auto as_uint = [](const Number& n) -> std::optional<UInt> {
-    return n.Visit(
-        [](const Int signed_value) -> std::optional<UInt> {
-          return signed_value >= 0 ? std::optional<UInt>(static_cast<UInt>(signed_value)) : std::nullopt;
-        },
-        [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
-        [](const Float float_value) -> std::optional<UInt> {
-          return float_value >= 0 && std::floor(float_value) == float_value
-                     ? std::optional<UInt>(static_cast<UInt>(float_value))
-                     : std::nullopt;
-        });
-  };
-
-  const auto& slot_number = arr->TryGet(1)->TryGetNumber();
-  const auto& gen_number = arr->TryGet(2)->TryGetNumber();
-  if (!slot_number || !gen_number) {
-    return std::nullopt;
-  }
-  const auto slot = as_uint(*slot_number);
-  const auto generation = as_uint(*gen_number);
-  if (!slot || !generation) {
-    return std::nullopt;
-  }
-  return RegistryId{.slot = *slot, .generation = *generation};
+  return parse_tagged_registry_token(task_handle, k_task_handle_tag);
 }
 
 [[nodiscard]] inline auto task_control_from_handle(const Value& task_handle) -> TaskControlPtr {
+  if (const auto token_state_id = parse_tagged_registry_token_state_id(task_handle, k_task_handle_tag);
+      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    return {};
+  }
   const auto id = task_id_from_handle(task_handle);
   if (!id) {
     return {};
@@ -127,6 +123,12 @@ inline auto request_task_cancel(const TaskControlPtr& task) -> bool {
   }
   task->cancel_requested = true;
   return true;
+}
+
+inline void request_task_cancel_and_notify(const TaskControlPtr& task) {
+  if (request_task_cancel(task)) {
+    task->cv.notify_all();
+  }
 }
 
 [[nodiscard]] inline auto wait_task_result(const TaskControlPtr& task) -> Value {
@@ -194,6 +196,7 @@ public:
   // workers do not race on callable-registry cleanup.
   [[nodiscard]] auto submit(const Value& function_ref, Value arg) -> TaskControlPtr {
     auto task = std::make_shared<TaskControl>();
+    auto process_args = get_process_args();
 
     RuntimeCallable callable;
     try {
@@ -216,14 +219,27 @@ public:
       return task;
     }
 
-    enqueue(Job{.callable = std::move(callable), .arg = std::move(arg), .task = task});
+    enqueue(Job{.callable = std::move(callable),
+                .arg = std::move(arg),
+                .task = task,
+                .execution_state = std::ref(runtime_execution_state()),
+                .output_stream = std::ref(runtime_output_stream()),
+                .input_stream = std::ref(runtime_input_stream()),
+                .process_args = std::move(process_args)});
     return task;
   }
 
   // Submit an untracked parallel item (not registered in the task registry).
   [[nodiscard]] auto submit_untracked(RuntimeCallable callable, Value arg) -> TaskControlPtr {
     auto task = std::make_shared<TaskControl>();
-    enqueue(Job{.callable = std::move(callable), .arg = std::move(arg), .task = task});
+    auto process_args = get_process_args();
+    enqueue(Job{.callable = std::move(callable),
+                .arg = std::move(arg),
+                .task = task,
+                .execution_state = std::ref(runtime_execution_state()),
+                .output_stream = std::ref(runtime_output_stream()),
+                .input_stream = std::ref(runtime_input_stream()),
+                .process_args = std::move(process_args)});
     return task;
   }
 
@@ -234,6 +250,10 @@ private:
     RuntimeCallable callable;
     Value arg;
     TaskControlPtr task;
+    std::reference_wrapper<RuntimeExecutionState> execution_state{default_runtime_execution_state()};
+    std::reference_wrapper<std::ostream> output_stream{std::cout};
+    std::reference_wrapper<std::istream> input_stream{std::cin};
+    std::vector<std::string> process_args{};
   };
 
   void enqueue(Job job) {
@@ -256,6 +276,12 @@ private:
         job = std::move(queue_.front());
         queue_.pop_front();
       }
+
+      ActiveRuntimeExecutionStateScope execution_state_scope(job.execution_state.get());
+      RuntimeOutputStreamScope output_scope(job.output_stream.get());
+      RuntimeInputStreamScope input_scope(job.input_stream.get());
+      const auto submitted_process_args = std::move(job.process_args);
+      RuntimeProcessArgsOverrideScope process_args_scope(submitted_process_args);
 
       {
         std::scoped_lock task_lock(job.task->mutex);
@@ -311,42 +337,15 @@ public:
   auto operator=(TaskRegistryScope&&) -> TaskRegistryScope& = delete;
 
   ~TaskRegistryScope() {
-    std::vector<std::pair<RegistryId, TaskControlPtr>> tasks;
-    {
-      std::scoped_lock lock(task_registry_mutex());
-      const auto& registry = task_registry();
-      const auto log_size = registry.registration_log.size();
-      for (std::size_t index = checkpoint_; index < log_size; ++index) {
-        const auto slot = registry.registration_log[index];
-        const auto entry_index = static_cast<std::size_t>(slot);
-        if (entry_index >= registry.entries.size()) {
-          continue;
-        }
-        const auto& [value, generation, occupied] = registry.entries[entry_index];
-        if (!occupied || !value) {
-          continue;
-        }
-        tasks.emplace_back(RegistryId{.slot = slot, .generation = generation}, value);
-      }
-    }
+    const auto tasks = collect_registered_tasks_since(checkpoint_);
 
     for (const auto& [id, task] : tasks) {
       (void)id;
-      if (request_task_cancel(task)) {
-        task->cv.notify_all();
-      }
+      request_task_cancel_and_notify(task);
       (void)wait_task_result(task);
     }
 
-    std::scoped_lock lock(task_registry_mutex());
-    auto& registry = task_registry();
-    for (const auto& [id, task] : tasks) {
-      (void)task;
-      if (registry.get(id) != nullptr) {
-        registry.retire(id.slot);
-      }
-    }
-    registry.registration_log.resize(checkpoint_);
+    retire_registered_tasks(tasks, checkpoint_);
   }
 
 private:
@@ -477,11 +476,10 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
   const Value& value = *args.TryGet(1);
 
   const TaskControlPtr task = task_runtime().submit(function_ref, value);
-  RegistryId id{};
-  {
+  const RegistryId id = [&]() {
     std::scoped_lock lock(task_registry_mutex());
-    id = task_registry().insert(task, /*logged=*/true);
-  }
+    return task_registry().insert(task, /*logged=*/true);
+  }();
   return make_task_handle_from_id(id);
 }
 

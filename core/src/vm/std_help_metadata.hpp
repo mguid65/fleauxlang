@@ -50,8 +50,8 @@ namespace fleaux::vm::detail {
   return out.str();
 }
 
-inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
-  fleaux::runtime::register_help_metadata(fleaux::runtime::HelpMetadata{
+inline auto register_help_for_let(runtime::HelpMetadataStore& store, const frontend::ir::IRLet& let) -> void {
+  fleaux::runtime::register_help_metadata(store, runtime::HelpMetadata{
       .name = frontend::source_loader::symbol_key(let.qualifier, let.name),
       .signature = format_help_signature(let),
       .doc_lines = let.doc_comments,
@@ -72,24 +72,24 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
 
   const auto clear_pending = [&]() -> void { pending_comments.clear(); };
   while (std::getline(input, line)) {
-    const std::string trimmed = fleaux::runtime::detail::trim_copy(line);
+    const std::string trimmed = runtime::detail::trim_copy(line);
     if (trimmed.empty()) {
       clear_pending();
       continue;
     }
 
     if (std::string_view(trimmed).starts_with("//")) {
-      pending_comments.push_back(fleaux::runtime::detail::trim_copy(std::string_view(trimmed).substr(2)));
+      pending_comments.push_back(runtime::detail::trim_copy(std::string_view(trimmed).substr(2)));
       continue;
     }
 
     if (std::string_view(trimmed).starts_with("let ")) {
-      const std::string rest = fleaux::runtime::detail::trim_copy(std::string_view(trimmed).substr(4));
+      const std::string rest = runtime::detail::trim_copy(std::string_view(trimmed).substr(4));
       const auto generic_pos = rest.find('<');
       const auto params_pos = rest.find('(');
       const auto end_pos = std::min(generic_pos == std::string::npos ? rest.size() : generic_pos,
                                     params_pos == std::string::npos ? rest.size() : params_pos);
-      if (const std::string symbol_name = fleaux::runtime::detail::trim_copy(rest.substr(0, end_pos));
+      if (const std::string symbol_name = runtime::detail::trim_copy(rest.substr(0, end_pos));
           !symbol_name.empty() && !pending_comments.empty()) {
         docs_by_symbol[symbol_name] = pending_comments;
       }
@@ -103,10 +103,11 @@ inline auto register_help_for_let(const frontend::ir::IRLet& let) -> void {
   return docs_by_symbol;
 }
 
-inline auto preload_std_help_metadata() -> void {
-  const auto embedded_std = fleaux::common::embedded_resource_text("Std.fleaux");
+[[nodiscard]] inline auto build_std_help_metadata_store() -> runtime::HelpMetadataStore {
+  runtime::HelpMetadataStore store;
+  const auto embedded_std = common::embedded_resource_text("Std.fleaux");
   if (!embedded_std.has_value()) {
-    return;
+    return store;
   }
 
   const std::string source_text{*embedded_std};
@@ -118,7 +119,7 @@ inline auto preload_std_help_metadata() -> void {
       });
 
   if (!parsed_std) {
-    return;
+    return store;
   }
 
   const auto docs_by_symbol = load_std_doc_comments_by_symbol(source_text);
@@ -136,23 +137,29 @@ inline auto preload_std_help_metadata() -> void {
         it != docs_by_symbol.end()) {
       let_with_docs.doc_comments = it->second;
     }
-    register_help_for_let(let_with_docs);
+    register_help_for_let(store, let_with_docs);
   }
+
+  return store;
+}
+
+[[nodiscard]] inline auto cached_std_help_metadata_store() -> const runtime::HelpMetadataStore& {
+  static const runtime::HelpMetadataStore store = build_std_help_metadata_store();
+  return store;
 }
 
 class StdHelpMetadataScope {
 public:
-  StdHelpMetadataScope() {
-    fleaux::runtime::clear_help_metadata_registry();
-    preload_std_help_metadata();
-  }
+  StdHelpMetadataScope() : store_(cached_std_help_metadata_store()), registry_scope_(store_) {}
 
   StdHelpMetadataScope(const StdHelpMetadataScope&) = delete;
   auto operator=(const StdHelpMetadataScope&) -> StdHelpMetadataScope& = delete;
   StdHelpMetadataScope(StdHelpMetadataScope&&) = delete;
   auto operator=(StdHelpMetadataScope&&) -> StdHelpMetadataScope& = delete;
 
-  ~StdHelpMetadataScope() { fleaux::runtime::clear_help_metadata_registry(); }
+private:
+  runtime::HelpMetadataStore store_{};
+  runtime::ActiveHelpMetadataRegistryScope registry_scope_;
 };
 
 }  // namespace fleaux::vm::detail

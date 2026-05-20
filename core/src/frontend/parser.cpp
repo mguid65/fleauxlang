@@ -388,6 +388,65 @@ private:
     return args;
   }
 
+  auto parameter_decl_list() -> PResult<model::ParameterDeclList> {
+    const std::size_t start = i_;
+    FLEAUX_TRYV(eat_symbol("("));
+
+    auto parse_params_after_open_paren = [&](const std::size_t open_paren_index) -> PResult<model::ParameterDeclList> {
+      std::vector<model::Parameter> params;
+      if (!is_symbol(")")) {
+        while (true) {
+          const std::size_t param_start = i_;
+          model::Parameter p;
+          FLEAUX_TRY_ASSIGN(param_name, ident());
+          p.param_name = std::move(param_name);
+          FLEAUX_TRYV(eat_symbol(":"));
+          FLEAUX_TRY_ASSIGN(param_type, type());
+          p.type = std::move(param_type);
+          p.span = span_from_mark(param_start);
+          params.push_back(std::move(p));
+          if (!match_symbol(",")) {
+            break;
+          }
+        }
+      }
+      FLEAUX_TRYV(eat_symbol(")"));
+
+      model::ParameterDeclList out;
+      out.params = std::move(params);
+      out.span = span_from_mark(open_paren_index);
+      return out;
+    };
+
+    return parse_params_after_open_paren(start);
+  }
+
+  auto parameter_decl_list_after_open_paren(const std::size_t open_paren_index) -> PResult<model::ParameterDeclList> {
+    std::vector<model::Parameter> params;
+    if (!is_symbol(")")) {
+      while (true) {
+        const std::size_t param_start = i_;
+        model::Parameter p;
+        FLEAUX_TRY_ASSIGN(param_name, ident());
+        p.param_name = std::move(param_name);
+        FLEAUX_TRYV(eat_symbol(":"));
+        FLEAUX_TRY_ASSIGN(param_type, type());
+        p.type = std::move(param_type);
+        p.span = span_from_mark(param_start);
+        params.push_back(std::move(p));
+        if (!match_symbol(",")) {
+          break;
+        }
+      }
+    }
+    FLEAUX_TRYV(eat_symbol(")"));
+
+    model::ParameterDeclList out;
+    out.params = std::move(params);
+    out.span = span_from_mark(open_paren_index);
+    return out;
+  }
+
   auto type() -> PResult<model::TypeNode> {
     const std::size_t start = i_;
     model::TypeNode base;
@@ -557,50 +616,19 @@ private:
       -> PResult<model::Atom> {
     model::Atom out_atom;
 
-    std::vector<model::Parameter> params;
-    if (!is_symbol(")")) {
-      while (true) {
-        if (peek().kind != TokenKind::kIdent) {
-          return tl::unexpected(err("Expected closure parameter name", peek(),
-                                    "Closure parameters must be declared as name/type pairs, for example: (x: T)."));
-        }
-
-        const std::size_t param_start = i_;
-        model::Parameter p;
-        auto parsed_ident = ident();
-        if (!parsed_ident) {
-          return tl::unexpected(parsed_ident.error());
-        }
-        p.param_name = std::move(*parsed_ident);
-        if (!match_symbol(":")) {
-          return tl::unexpected(err("Expected ':' in closure parameter list", peek(),
-                                    "Declare parameters as name/type pairs, for example: (x: Float64)."));
-        }
-        auto parsed_type = type();
-        if (!parsed_type) {
-          return tl::unexpected(parsed_type.error());
-        }
-        p.type = std::move(*parsed_type);
-        p.span = span_from_mark(param_start);
-        params.push_back(std::move(p));
-
-        if (!match_symbol(",")) {
-          break;
-        }
-      }
+    auto parsed_params = parameter_decl_list_after_open_paren(open_paren_index);
+    if (!parsed_params) {
+      return tl::unexpected(err("Expected closure parameter list", peek(),
+                                "Declare closure parameters as '(x: T, y: U)' or use '()' for zero parameters."));
     }
-
-    FLEAUX_TRYV(eat_symbol(")"));
     FLEAUX_TRYV(eat_symbol(":"));
 
     auto parsed_rtype = type();
     if (!parsed_rtype) {
       return tl::unexpected(parsed_rtype.error());
     }
-    model::ParameterDeclList closure_params{
-        .params = std::move(params),
-        .span = span_from_mark(open_paren_index),
-    };
+    model::ParameterDeclList closure_params = std::move(*parsed_params);
+    closure_params.span = span_from_mark(open_paren_index);
     model::TypeNode closure_rtype = std::move(*parsed_rtype);
 
     // Committed: we have parsed a full closure signature; any failure after this is a hard error.
@@ -807,6 +835,90 @@ private:
     return make_atom(model::NamedTargetBox(std::move(named_target)), start);
   }
 
+  auto local_value_let() -> PResult<model::LocalLetBinding> {
+    const std::size_t start = i_;
+    FLEAUX_TRYV(eat_ident_value("let"));
+
+    model::LocalLetBinding out;
+    FLEAUX_TRY_ASSIGN(name, ident());
+    out.name = std::move(name);
+
+    if (is_symbol("<")) {
+      return tl::unexpected(err("Nested named functions are not supported inside block scope.", peek(),
+                                "Use a local immutable value binding like 'let Name: Type = value;' inside blocks."));
+    }
+    if (is_symbol("(")) {
+      return tl::unexpected(err("Nested named functions are not supported inside block scope.", peek(),
+                                "Use a local immutable value binding like 'let Name: Type = value;' inside blocks."));
+    }
+
+    FLEAUX_TRYV(eat_symbol(":"));
+    FLEAUX_TRY_ASSIGN(binding_type, type());
+    out.type = std::move(binding_type);
+
+    if (is_symbol("::")) {
+      return tl::unexpected(err("Block-local value bindings use '=' as their declaration separator.", peek(),
+                                "Write block-local bindings as 'let Name: Type = value;'."));
+    }
+
+    FLEAUX_TRYV(eat_symbol("="));
+    FLEAUX_TRY_ASSIGN(binding_expr, expr());
+    out.expr = std::move(binding_expr);
+    out.span = span_from_mark(start);
+    return out;
+  }
+
+  auto block_expr(const std::size_t open_brace_index) -> PResult<model::Atom> {
+    std::vector<model::BlockItem> items;
+    std::optional<model::Expression> result_expr;
+
+    while (!is_symbol("}")) {
+      if (is(TokenKind::kEof)) {
+        return tl::unexpected(err("Expected '}' to close block expression", previous_token(),
+                                  "Close the block with '}' after the final expression."));
+      }
+
+      if (is_ident_value("let")) {
+        if (result_expr.has_value()) {
+          return tl::unexpected(err("Block result expression must be the final item in a block.", peek(),
+                                    "Move this declaration before the final expression in the block."));
+        }
+
+        FLEAUX_TRY_ASSIGN(binding, local_value_let());
+        FLEAUX_TRYV(eat_symbol(";"));
+        items.emplace_back(std::move(binding));
+        continue;
+      }
+
+      const std::size_t expr_start = i_;
+      FLEAUX_TRY_ASSIGN(item_expr, expr());
+      FLEAUX_TRYV(eat_symbol(";"));
+
+      if (is_symbol("}")) {
+        result_expr = std::move(item_expr);
+        break;
+      }
+
+      model::ExpressionStatement stmt;
+      stmt.expr = std::move(item_expr);
+      stmt.span = span_from_mark(expr_start);
+      items.emplace_back(std::move(stmt));
+    }
+
+    if (!result_expr.has_value()) {
+      return tl::unexpected(err("Block expressions must end with a final expression.", peek(),
+                                "Add an expression as the final item in the block before '}'."));
+    }
+
+    FLEAUX_TRYV(eat_symbol("}"));
+
+    model::BlockExpression block;
+    block.items = std::move(items);
+    block.result = model::ExpressionBox(std::move(*result_expr));
+    block.span = span_from_mark(open_brace_index);
+    return make_atom(model::make_block_expression_box(std::move(block)), open_brace_index);
+  }
+
   auto atom(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Atom> {
     const std::size_t start = i_;
 
@@ -823,6 +935,10 @@ private:
 
     if (match_symbol("(")) {
       return parse_parenthesized_atom(start, allow_ungrouped_closure_stage_split);
+    }
+
+    if (match_symbol("{")) {
+      return block_expr(start);
     }
 
     if (is_symbol("-") && peek_ahead(1) != nullptr && peek_ahead(1)->kind == TokenKind::kNumeric) {
@@ -959,45 +1075,47 @@ private:
       out.generic_params = std::move(generic_params);
     }
 
-    FLEAUX_TRYV(eat_symbol("("));
-    std::vector<model::Parameter> params;
-    const std::size_t params_paren_start = i_ - 1;
+    if (is_symbol("(")) {
+      FLEAUX_TRY_ASSIGN(params, parameter_decl_list());
+      out.params = std::move(params);
 
-    if (!is_symbol(")")) {
-      while (true) {
-        const std::size_t param_start = i_;
-        model::Parameter p;
-        FLEAUX_TRY_ASSIGN(param_name, ident());
-        p.param_name = std::move(param_name);
-        FLEAUX_TRYV(eat_symbol(":"));
-        FLEAUX_TRY_ASSIGN(param_type, type());
-        p.type = std::move(param_type);
-        p.span = span_from_mark(param_start);
-        params.push_back(std::move(p));
-        if (!match_symbol(",")) {
-          break;
-        }
+      FLEAUX_TRYV(eat_symbol(":"));
+      FLEAUX_TRY_ASSIGN(rtype, type());
+      out.rtype = std::move(rtype);
+
+      FLEAUX_TRYV(eat_one_of("::", "="));
+
+      if (is_ident_value("__builtin__")) {
+        next();
+        out.is_builtin = true;
+        out.expr = std::nullopt;
+      } else {
+        FLEAUX_TRY_ASSIGN(let_expr, expr());
+        out.expr = std::move(let_expr);
       }
-    }
-    FLEAUX_TRYV(eat_symbol(")"));
 
-    out.params.params = std::move(params);
-    out.params.span = span_from_mark(params_paren_start);
+      out.span = span_from_mark(start);
+      return out;
+    }
+
+    if (!out.generic_params.empty()) {
+      return tl::unexpected(err("Value declarations do not support generic parameter lists.", peek(),
+                                "Remove '<...>' or use a function declaration with parameters."));
+    }
 
     FLEAUX_TRYV(eat_symbol(":"));
     FLEAUX_TRY_ASSIGN(rtype, type());
     out.rtype = std::move(rtype);
 
-    FLEAUX_TRYV(eat_one_of("::", "="));
-
-    if (is_ident_value("__builtin__")) {
-      next();
-      out.is_builtin = true;
-      out.expr = std::nullopt;
-    } else {
-      FLEAUX_TRY_ASSIGN(let_expr, expr());
-      out.expr = std::move(let_expr);
+    if (is_symbol("::")) {
+      return tl::unexpected(err("Value declarations use '=' as their declaration separator.", peek(),
+                                "Write value declarations as 'let Name: Type = value;'."));
     }
+
+    FLEAUX_TRYV(eat_symbol("="));
+    FLEAUX_TRY_ASSIGN(let_expr, expr());
+    out.expr = std::move(let_expr);
+    out.is_value_binding = true;
 
     out.span = span_from_mark(start);
     return out;
@@ -1024,6 +1142,11 @@ private:
 
     if (is_ident_value("alias")) {
       return alias_stmt();
+    }
+
+    if (is_symbol("{")) {
+      return tl::unexpected(err("Anonymous top-level block expressions are not supported.", peek(),
+                                "Bind the block to a top-level value, for example: let Value: Type = { ... };"));
     }
 
     const std::size_t start = i_;
@@ -1119,7 +1242,8 @@ private:
         tok.kind == TokenKind::kNull || tok.kind == TokenKind::kIdent) {
       return true;
     }
-    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "-" || is_operator_symbol(tok.value));
+    return tok.kind == TokenKind::kSymbol &&
+           (tok.value == "(" || tok.value == "{" || tok.value == "-" || is_operator_symbol(tok.value));
   }
 
   [[nodiscard]] static auto is_statement_start(const Token& tok) -> bool {
@@ -1127,7 +1251,7 @@ private:
         tok.kind == TokenKind::kBool || tok.kind == TokenKind::kNull) {
       return true;
     }
-    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || is_operator_symbol(tok.value));
+    return tok.kind == TokenKind::kSymbol && (tok.value == "(" || tok.value == "{" || is_operator_symbol(tok.value));
   }
 };
 
@@ -1287,6 +1411,7 @@ private:
     fields.push_back(std::format("params: {}", format_parameter_decl_list(stmt.params, level + 1)));
     fields.push_back(std::format("return_type: {}", format_type(stmt.rtype, level + 1)));
     fields.push_back(std::format("doc_comments: {}", format_string_list(stmt.doc_comments, level + 1)));
+    fields.push_back(std::format("is_value_binding: {}", stmt.is_value_binding));
     fields.push_back(std::format("is_builtin: {}", stmt.is_builtin));
     fields.push_back(
         std::format("expr: {}", stmt.expr ? format_expression(*stmt.expr, level + 1) : std::string{"null"}));
@@ -1430,13 +1555,15 @@ private:
   }
 
   [[nodiscard]] static auto atom_kind_name(
-      const std::variant<std::monostate, model::DelimitedExpressionBox, model::ClosureExpressionBox, model::Constant,
-                         model::QualifiedId, std::string, model::NamedTargetBox>& value) -> std::string_view {
+      const std::variant<std::monostate, model::DelimitedExpressionBox, model::ClosureExpressionBox,
+                         model::BlockExpressionBox, model::Constant, model::QualifiedId, std::string,
+                         model::NamedTargetBox>& value) -> std::string_view {
     return std::visit(
         common::overloaded{
             [](const std::monostate&) -> std::string_view { return "Unit"; },
             [](const model::DelimitedExpressionBox&) -> std::string_view { return "DelimitedExpression"; },
             [](const model::ClosureExpressionBox&) -> std::string_view { return "ClosureExpression"; },
+            [](const model::BlockExpressionBox&) -> std::string_view { return "BlockExpression"; },
             [](const model::Constant&) -> std::string_view { return "Constant"; },
             [](const model::QualifiedId&) -> std::string_view { return "QualifiedId"; },
             [](const std::string&) -> std::string_view { return "RawString"; },
@@ -1445,8 +1572,9 @@ private:
   }
 
   [[nodiscard]] static auto format_atom_value(
-      const std::variant<std::monostate, model::DelimitedExpressionBox, model::ClosureExpressionBox, model::Constant,
-                         model::QualifiedId, std::string, model::NamedTargetBox>& value,
+      const std::variant<std::monostate, model::DelimitedExpressionBox, model::ClosureExpressionBox,
+                         model::BlockExpressionBox, model::Constant, model::QualifiedId, std::string,
+                         model::NamedTargetBox>& value,
       const int level) -> std::string {
     return std::visit(
         common::overloaded{
@@ -1467,6 +1595,33 @@ private:
                      std::format("params: {}", format_parameter_decl_list(inner.params, level + 1)),
                      std::format("return_type: {}", format_type(inner.rtype, level + 1)),
                      std::format("body: {}", format_nullable_expression(inner.body, level + 1))},
+                    level);
+              });
+            },
+            [&](const model::BlockExpressionBox& block) -> std::string {
+              return format_boxed_or_null(block, [&](const model::BlockExpression& inner) -> std::string {
+                const auto items = collect_formatted_items(inner.items, [&](const model::BlockItem& item) -> std::string {
+                  return std::visit(common::overloaded{
+                                        [&](const model::LocalLetBinding& binding) -> std::string {
+                                          return format_block(
+                                              "LocalLetBinding",
+                                              {std::format("name: {}", quote(binding.name)),
+                                               std::format("type: {}", format_type(binding.type, level + 2)),
+                                               std::format("expr: {}", format_nullable_expression(binding.expr, level + 2))},
+                                              level + 1);
+                                        },
+                                        [&](const model::ExpressionStatement& stmt) -> std::string {
+                                          return format_block(
+                                              "ExpressionStatement",
+                                              {std::format("expr: {}", format_expression(stmt.expr, level + 2))},
+                                              level + 1);
+                                        }},
+                                    item);
+                });
+                return format_block(
+                    "BlockExpression",
+                    {std::format("items: {}", format_list(items, level + 1)),
+                     std::format("result: {}", format_nullable_expression(inner.result, level + 1))},
                     level);
               });
             },

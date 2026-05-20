@@ -90,12 +90,13 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
   }
   powershell_script += " -WorkingDirectory " + powershell_quote(working_dir.string()) +
       " -RedirectStandardOutput " + powershell_quote(output_path.string()) +
-      " -RedirectStandardError " + powershell_quote(error_path.string()) + " -PassThru -Wait";
+      " -RedirectStandardError " + powershell_quote(error_path.string()) +
+      " -WindowStyle Hidden -PassThru -Wait";
   if (!stdin_text.empty()) {
     powershell_script += " -RedirectStandardInput " + powershell_quote(input_path.string());
   }
   powershell_script += "; exit $process.ExitCode }";
-  command = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
+  command = "powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"" +
             powershell_script + "\"";
 #else
   command = "cd " + shell_quote(working_dir.string()) + " && " + shell_quote(fleaux_binary_path().string());

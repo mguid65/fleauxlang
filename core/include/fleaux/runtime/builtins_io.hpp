@@ -422,8 +422,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   return make_string(value);
 #else
 #if defined(_WIN32)
-  const int rc = _putenv_s(key.c_str(), value.c_str());
-  if (rc != 0) {
+  if (const int rc = _putenv_s(key.c_str(), value.c_str()); rc != 0) {
     throw std::runtime_error{"OSSetEnv failed"};
   }
 #else
@@ -442,8 +441,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #else
   const bool existed = std::getenv(key.c_str()) != nullptr;
 #if defined(_WIN32)
-  const int rc = _putenv_s(key.c_str(), "");
-  if (rc != 0) {
+  if (const int rc = _putenv_s(key.c_str(), ""); rc != 0) {
     throw std::runtime_error{"OSUnsetEnv failed"};
   }
 #else
@@ -690,6 +688,10 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto FileClose(Value arg) -> Value {
   // arg = handle_token  ->  Bool (true if was open, false if already closed)
   const Value token = unwrap_singleton_arg(std::move(arg));
+  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_handle_tag);
+      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+    return make_bool(false);
+  }
   const auto id = handle_id_from_value(token);
   if (!id)
     return make_bool(false);

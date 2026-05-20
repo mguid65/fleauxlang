@@ -34,16 +34,25 @@ struct ArityRange {
   std::optional<std::size_t> max{1};
 };
 
+// BindingSignature currently records descriptive metadata for hosts, docs, and
+// introspection. Native dispatch still forwards the raw VmValue argument to the
+// binding callable and does not enforce the declared arity range.
 struct BindingSignature {
   ArityRange arity{};
   std::string description{};
 };
 
 struct BindingContext {
-  VmHost* host{nullptr};
+  // Non-owning reference to the active host for the duration of this
+  // invocation. Native bindings may use it to make additional host calls or
+  // other mutating host operations while the callback is running.
+  VmHost& host;
   std::string_view symbol{};
 };
 
+// Native callables receive the raw VmValue provided by the host. Hosts that
+// want stricter argument validation should enforce it inside the callable or in
+// a higher-level wrapper.
 using NativeInvokeResult = HostResult<VmValue>;
 using NativeCallable = std::function<NativeInvokeResult(const BindingContext&, const VmValue&)>;
 
@@ -62,7 +71,12 @@ public:
   [[nodiscard]] auto size() const -> std::size_t;
   [[nodiscard]] auto snapshot_symbols() const -> std::vector<std::string>;
 
-  [[nodiscard]] auto find_callable(std::string_view symbol) const -> const NativeBinding*;
+  // Returns a borrowed view of the stored binding, including its descriptive
+  // BindingSignature metadata, or std::nullopt when the symbol is not
+  // registered. The returned reference is invalidated by any later
+  // register_callable(), unregister_callable(), or clear() call.
+  [[nodiscard]] auto find_callable(std::string_view symbol) const
+      -> std::optional<std::reference_wrapper<const NativeBinding>>;
 
 private:
   std::vector<NativeBinding> bindings_{};

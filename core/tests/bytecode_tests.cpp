@@ -88,7 +88,7 @@ auto make_test_span(const std::string& source_name) -> std::optional<fleaux::fro
 
 auto make_ir_expr(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
                               fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
-                              fleaux::frontend::ir::IRClosureExprBox>
+                               fleaux::frontend::ir::IRClosureExprBox, fleaux::frontend::ir::IRBlockExprBox>
                      node,
                  std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExpr {
   return fleaux::frontend::ir::IRExpr{.node = std::move(node), .span = std::move(span)};
@@ -96,7 +96,7 @@ auto make_ir_expr(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::fronten
 
 auto make_ir_box(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
                              fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
-                             fleaux::frontend::ir::IRClosureExprBox>
+                              fleaux::frontend::ir::IRClosureExprBox, fleaux::frontend::ir::IRBlockExprBox>
                     node,
                 std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
   return fleaux::frontend::ir::IRExprBox(make_ir_expr(std::move(node), std::move(span)));
@@ -193,7 +193,7 @@ void require_copy_vs_auto_byref_equivalent(const std::string& source_text, const
 
   std::ostringstream output_copy;
   std::ostringstream output_byref;
-  constexpr fleaux::vm::Runtime runtime;
+  const fleaux::vm::Runtime runtime;
 
   const auto exec_copy = runtime.execute(*result_copy, output_copy);
   const auto exec_byref = runtime.execute(*result_byref, output_byref);
@@ -1926,6 +1926,66 @@ let Double(x: Float64): Float64 = (x, x) -> Std.Add;
   REQUIRE(fn_instrs.back().opcode == fleaux::bytecode::Opcode::kReturn);
 }
 
+TEST_CASE("Bytecode compiler emits store/load locals for block-scoped lets", "[bytecode][blocks]") {
+  const auto ir_program = lower_source_to_ir(R"(
+import Std;
+let Compute(): Int64 = {
+  let x: Int64 = 1;
+  let y: Int64 = (x, 2) -> Std.Add;
+  y;
+};
+() -> Compute -> Std.Println;
+)",
+                                             "bytecode_block_locals.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto compute_it = std::find_if(result->functions.begin(), result->functions.end(),
+                                       [](const auto& fn) { return fn.name == "Compute#0"; });
+  REQUIRE(compute_it != result->functions.end());
+
+  bool found_store_local = false;
+  bool found_load_local = false;
+  for (const auto& ins : compute_it->instructions) {
+    found_store_local = found_store_local || ins.opcode == fleaux::bytecode::Opcode::kStoreLocal;
+    found_load_local = found_load_local || ins.opcode == fleaux::bytecode::Opcode::kLoadLocal;
+  }
+
+  REQUIRE(found_store_local);
+  REQUIRE(found_load_local);
+}
+
+TEST_CASE("Bytecode compiler materializes bare top-level values as zero-arg calls", "[bytecode][blocks][let]") {
+  const auto ir_program = lower_source_to_ir(R"(
+import Std;
+let Meaning: Int64 = 42;
+Meaning -> Std.Println;
+)",
+                                             "bytecode_top_level_value_materialization.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+  REQUIRE(result->functions.size() == 1U);
+  REQUIRE(result->functions[0].name == "Meaning#0");
+
+  bool found_call_user_func = false;
+  bool found_make_user_func_ref = false;
+  bool found_empty_tuple = false;
+  for (const auto& ins : result->instructions) {
+    found_call_user_func = found_call_user_func || ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc;
+    found_make_user_func_ref = found_make_user_func_ref || ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef;
+    found_empty_tuple = found_empty_tuple ||
+                        (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 0);
+  }
+
+  REQUIRE(found_call_user_func);
+  REQUIRE(found_empty_tuple);
+  REQUIRE_FALSE(found_make_user_func_ref);
+}
+
 // ---------------------------------------------------------------------------
 // Constant pool: constants go into Module::constants.
 // ---------------------------------------------------------------------------
@@ -2362,7 +2422,7 @@ TEST_CASE("Bytecode module loader accepts empty entry source files", "[bytecode]
   REQUIRE(loaded->header.source_path == entry_path.string());
 
   std::ostringstream output;
-  constexpr fleaux::vm::Runtime runtime;
+  const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*loaded, output);
   if (!executed) {
     INFO(executed.error().message);
@@ -2397,7 +2457,7 @@ TEST_CASE("Bytecode module loader accepts imported empty source files", "[byteco
   REQUIRE(loaded.has_value());
 
   std::ostringstream output;
-  constexpr fleaux::vm::Runtime runtime;
+  const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*loaded, output);
   if (!executed) {
     INFO(executed.error().message);

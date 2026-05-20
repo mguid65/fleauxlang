@@ -94,6 +94,7 @@ auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> 
                            }
                            return total;
                          },
+                          [](const IRBlockExprBox&) -> std::optional<std::size_t> { return std::nullopt; },
                          [](const auto&) -> std::optional<std::size_t> { return std::nullopt; }},
       expr.node);
 }
@@ -113,6 +114,18 @@ void collect_unqualified_name_refs(const IRExpr& expr, std::unordered_set<std::s
                                 [&](const IRClosureExprBox& closure_ptr) -> void {
                                   collect_unqualified_name_refs(*closure_ptr->body, out);
                                 },
+                                 [&](const IRBlockExprBox& block_ptr) -> void {
+                                   for (const auto& item : block_ptr->items) {
+                                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
+                                                                    collect_unqualified_name_refs(*local_let.expr, out);
+                                                                  },
+                                                                  [&](const IRBlockExprStatement& stmt) -> void {
+                                                                    collect_unqualified_name_refs(*stmt.expr, out);
+                                                                  }},
+                                                item);
+                                   }
+                                   collect_unqualified_name_refs(*block_ptr->result, out);
+                                 },
                                 [](const auto&) -> void {}},
              expr.node);
 }
@@ -141,6 +154,18 @@ void summarize_let_body(const IRExpr& expr, LetBodySummary& summary) {
                                   }
                                   summarize_let_body(*closure_ptr->body, summary);
                                 },
+                                 [&](const IRBlockExprBox& block_ptr) -> void {
+                                   for (const auto& item : block_ptr->items) {
+                                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
+                                                                    summarize_let_body(*local_let.expr, summary);
+                                                                  },
+                                                                  [&](const IRBlockExprStatement& stmt) -> void {
+                                                                    summarize_let_body(*stmt.expr, summary);
+                                                                  }},
+                                                item);
+                                   }
+                                   summarize_let_body(*block_ptr->result, summary);
+                                 },
                                 [](const auto&) -> void {}},
              expr.node);
 }
@@ -162,6 +187,18 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
                    }
                  },
                  [&](const IRClosureExprBox& closure_ptr) -> void { collect_call_sites(*closure_ptr->body, out); },
+                 [&](const IRBlockExprBox& block_ptr) -> void {
+                   for (const auto& item : block_ptr->items) {
+                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
+                                                    collect_call_sites(*local_let.expr, out);
+                                                  },
+                                                  [&](const IRBlockExprStatement& stmt) -> void {
+                                                    collect_call_sites(*stmt.expr, out);
+                                                  }},
+                                item);
+                   }
+                   collect_call_sites(*block_ptr->result, out);
+                 },
                  [](const auto&) -> auto {}},
              expr.node);
 }
@@ -173,8 +210,8 @@ void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>&
     }
     collect_call_sites(*let.body, out);
   }
-  for (const auto& [expr, span] : program.expressions) {
-    collect_call_sites(expr, out);
+  for (const auto& expr_stmt : program.expressions) {
+    collect_call_sites(expr_stmt.expr, out);
   }
 }
 

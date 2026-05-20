@@ -8,6 +8,8 @@
 
 #include <tl/expected.hpp>
 
+#include "fleaux/embed/binding_plugin.hpp"
+
 namespace fleaux::embed {
 
 struct DynamicLoadError {
@@ -42,6 +44,12 @@ public:
 };
 
 [[nodiscard]] auto make_system_dynamic_loader() -> std::unique_ptr<DynamicLoader>;
+
+// Resolves the required Fleaux binding-module registration entrypoint from a
+// loaded library. The platform-specific symbol-to-function-pointer conversion
+// stays isolated at the dynamic-loader boundary.
+[[nodiscard]] auto resolve_binding_module_entrypoint(const DynamicLibrary& library)
+    -> tl::expected<RegisterBindingModuleFn, DynamicLoadError>;
 
 }  // namespace fleaux::embed
 

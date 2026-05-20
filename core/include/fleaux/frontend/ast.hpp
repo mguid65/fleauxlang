@@ -22,6 +22,9 @@ struct NamedTarget;
 struct Expression;
 struct ClosureExpression;
 struct DelimitedExpression;
+struct ExpressionStatement;
+struct LocalLetBinding;
+struct BlockExpression;
 
 using TypeBox = common::IndirectOptional<TypeNode>;
 using TypeListBox = common::IndirectOptional<TypeList>;
@@ -32,6 +35,7 @@ using NamedTargetBox = common::IndirectOptional<NamedTarget>;
 using ExpressionBox = common::IndirectOptional<Expression>;
 using ClosureExpressionBox = common::IndirectOptional<ClosureExpression>;
 using DelimitedExpressionBox = common::IndirectOptional<DelimitedExpression>;
+using BlockExpressionBox = common::IndirectOptional<BlockExpression>;
 
 struct Qualifier {
   std::string qualifier{};
@@ -102,8 +106,8 @@ struct DelimitedExpression {
 };
 
 struct Atom {
-  std::variant<std::monostate, DelimitedExpressionBox, ClosureExpressionBox, Constant, QualifiedId, std::string,
-               NamedTargetBox>
+  std::variant<std::monostate, DelimitedExpressionBox, ClosureExpressionBox, BlockExpressionBox, Constant,
+               QualifiedId, std::string, NamedTargetBox>
       value;
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
@@ -137,6 +141,30 @@ struct Expression {
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
+struct LocalLetBinding {
+  std::string name{};
+  TypeNode type{};
+  ExpressionBox expr{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+struct ExpressionStatement {
+  Expression expr{};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+using BlockItem = std::variant<LocalLetBinding, ExpressionStatement>;
+
+struct BlockExpression {
+  std::vector<BlockItem> items{};
+  ExpressionBox result{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+[[nodiscard]] inline auto make_block_expression_box(BlockExpression value) -> BlockExpressionBox {
+  return BlockExpressionBox(std::in_place, std::move(value));
+}
+
 struct ImportStatement {
   std::string module_name{};
   std::optional<diag::SourceSpan> span{std::nullopt};
@@ -149,6 +177,7 @@ struct LetStatement {
   TypeNode rtype{};
   std::vector<std::string> doc_comments{};
   ExpressionBox expr{std::nullopt};
+  bool is_value_binding{false};
   bool is_builtin{false};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
@@ -162,11 +191,6 @@ struct TypeStatement {
 struct AliasStatement {
   std::string name{};
   TypeNode target{};
-  std::optional<diag::SourceSpan> span{std::nullopt};
-};
-
-struct ExpressionStatement {
-  Expression expr{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -228,8 +252,12 @@ struct IRImport {
 
 struct IRExpr;
 struct IRClosureExpr;
+struct IRLocalLet;
+struct IRBlockExprStatement;
+struct IRBlockExpr;
 using IRExprBox = common::IndirectOptional<IRExpr>;
 using IRClosureExprBox = common::IndirectOptional<IRClosureExpr>;
+using IRBlockExprBox = common::IndirectOptional<IRBlockExpr>;
 
 struct IRConstant {
   std::variant<std::monostate, std::int64_t, std::uint64_t, double, bool, std::string> val;
@@ -241,6 +269,7 @@ struct IRNameRef {
   std::string name{};
   std::vector<IRSimpleType> explicit_type_args{};
   std::optional<std::string> resolved_symbol_key{std::nullopt};
+  bool materialize_as_value{false};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -262,8 +291,32 @@ struct IRFlowExpr {
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
+struct IRBlockExprStatement {
+  IRExprBox expr{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+struct IRLocalLet {
+  std::string name{};
+  IRSimpleType type{};
+  IRExprBox expr{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+using IRBlockItem = std::variant<IRLocalLet, IRBlockExprStatement>;
+
+struct IRBlockExpr {
+  std::vector<IRBlockItem> items{};
+  IRExprBox result{std::nullopt};
+  std::optional<diag::SourceSpan> span{std::nullopt};
+};
+
+[[nodiscard]] inline auto make_ir_block_expr_box(IRBlockExpr value) -> IRBlockExprBox {
+  return IRBlockExprBox(std::in_place, std::move(value));
+}
+
 struct IRExpr {
-  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprBox> node;
+  std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprBox, IRBlockExprBox> node;
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -289,6 +342,7 @@ struct IRLet {
   IRSimpleType return_type{};
   std::vector<std::string> doc_comments{};
   IRExprBox body{std::nullopt};
+  bool is_value_binding{false};
   bool is_builtin{false};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };

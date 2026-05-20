@@ -167,6 +167,30 @@ auto make_system_dynamic_loader() -> std::unique_ptr<DynamicLoader> {
   return std::make_unique<SystemDynamicLoader>();
 }
 
+auto resolve_binding_module_entrypoint(const DynamicLibrary& library)
+    -> tl::expected<RegisterBindingModuleFn, DynamicLoadError> {
+  const auto entrypoint = library.symbol(kBindingPluginRegisterEntrypoint);
+  if (!entrypoint) {
+    return tl::unexpected(DynamicLoadError{
+        .message = entrypoint.error().message,
+        .hint = std::optional<std::string>{"Binding module is missing the required registration entrypoint."},
+    });
+  }
+
+  // Dynamic-library APIs surface resolved symbols as untyped addresses. Keep
+  // the platform-boundary conversion to the typed registration entrypoint
+  // isolated here rather than spreading it through higher-level host logic.
+  const auto register_module = reinterpret_cast<RegisterBindingModuleFn>(*entrypoint);
+  if (register_module == nullptr) {
+    return tl::unexpected(DynamicLoadError{
+        .message = "Binding module entrypoint pointer is null.",
+        .hint = "Verify the exported registration function signature.",
+    });
+  }
+
+  return register_module;
+}
+
 }  // namespace fleaux::embed
 
 

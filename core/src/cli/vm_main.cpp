@@ -189,20 +189,9 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   }
   auto module = std::move(module_result.value());
 
-  std::vector<std::string> args_storage;
-  args_storage.reserve(process_args.size() + 1U);
-  args_storage.push_back(source_file.string());
-  args_storage.insert(args_storage.end(), process_args.begin(), process_args.end());
-
-  std::vector<char*> argv_ptrs;
-  argv_ptrs.reserve(args_storage.size());
-  for (auto& arg : args_storage) {
-    argv_ptrs.push_back(arg.data());
-  }
-  fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
-
-  constexpr fleaux::vm::Runtime runtime;
-  if (const auto exec = runtime.execute(module); !exec) {
+  const fleaux::vm::Runtime runtime(process_args);
+  if (const auto exec = runtime.execute(module, fleaux::vm::RuntimeInvocationOptions{.entry_label = source_file.string()});
+      !exec) {
     return tl::unexpected(CliError{
         .message = exec.error().message,
         .hint = exec.error().hint.has_value() ? exec.error().hint : vm_runtime_hint_for(exec.error().message),
@@ -299,8 +288,7 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
     std::size_t value = 0;
     const auto* begin = token.data();
     const auto* end = token.data() + token.size();
-    const auto [ptr, ec] = std::from_chars(begin, end, value);
-    if (ec != std::errc{} || ptr != end) {
+    if (const auto [ptr, ec] = std::from_chars(begin, end, value); ec != std::errc{} || ptr != end) {
       return tl::unexpected(CliError{
           .message = std::string("invalid value-ref byte cutoff: ") + std::string(token),
           .hint = "pass a non-negative integer to --value-ref-byte-cutoff",

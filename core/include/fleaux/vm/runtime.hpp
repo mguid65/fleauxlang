@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <iosfwd>
 #include <optional>
 #include <string>
@@ -10,7 +11,7 @@
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/module.hpp"
-#include "fleaux/frontend/box.hpp"
+#include "fleaux/common/indirect_optional.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/runtime/value.hpp"
 
@@ -35,6 +36,12 @@ struct RuntimeCompileOptions {
   std::size_t value_ref_byte_cutoff{256};
 };
 
+struct RuntimeInvocationOptions {
+  std::string entry_label{};
+  std::optional<std::reference_wrapper<std::istream>> input{std::nullopt};
+  std::optional<std::reference_wrapper<std::ostream>> output{std::nullopt};
+};
+
 class RuntimeSession {
 public:
   explicit RuntimeSession(const std::vector<std::string>& process_args = {},
@@ -46,25 +53,40 @@ public:
   ~RuntimeSession();
 
   [[nodiscard]] auto run_snippet(const std::string& snippet_text, std::ostream& output) const -> RuntimeResult;
+  [[nodiscard]] auto run_snippet(const std::string& snippet_text, std::ostream& output, std::istream& input) const
+      -> RuntimeResult;
 
 private:
   struct Impl;
-  mutable frontend::Box<Impl> impl_;
+  mutable common::IndirectOptional<Impl> impl_;
 };
 
 class Runtime {
 public:
-  Runtime() = default;
+  explicit Runtime(std::vector<std::string> process_args = {});
 
   [[nodiscard]] auto execute(const bytecode::Module& bytecode_module) const -> RuntimeResult;
   auto execute(const bytecode::Module& bytecode_module, std::ostream& output) const -> RuntimeResult;
+  [[nodiscard]] auto execute(const bytecode::Module& bytecode_module, const RuntimeInvocationOptions& options) const
+      -> RuntimeResult;
+  auto execute(const bytecode::Module& bytecode_module, std::ostream& output, const RuntimeInvocationOptions& options) const
+      -> RuntimeResult;
   [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
                                    runtime::Value arg) const -> RuntimeValueResult;
   [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
                                    runtime::Value arg, std::ostream& output) const -> RuntimeValueResult;
+  [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
+                                   runtime::Value arg, const RuntimeInvocationOptions& options) const
+      -> RuntimeValueResult;
+  [[nodiscard]] auto invoke_symbol(const bytecode::Module& bytecode_module, std::string_view qualified_symbol,
+                                   runtime::Value arg, std::ostream& output,
+                                   const RuntimeInvocationOptions& options) const -> RuntimeValueResult;
 
   [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {},
                                     const RuntimeCompileOptions& compile_options = {}) const -> RuntimeSession;
+
+private:
+  std::vector<std::string> process_args_{};
 };
 
 }  // namespace fleaux::vm
