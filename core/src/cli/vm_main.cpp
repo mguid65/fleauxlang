@@ -26,6 +26,7 @@ struct CliOptions {
   bool no_run = false;
   bool optimize = false;
   bool write_bytecode_cache = true;
+  bool enable_experimental_builtin_reductions = false;
   bool enable_auto_value_ref = false;
   std::size_t value_ref_byte_cutoff = 256;
   bool no_color = false;
@@ -66,6 +67,7 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
 
 auto usage_text() -> std::string {
   return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] "
+         "[--experimental-builtin-reductions] "
          "[--auto-value-ref] [--value-ref-byte-cutoff N] "
          "[file.fleaux|file.fleaux.bc] "
          "[-- "
@@ -81,6 +83,8 @@ void print_help() {
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
+            << "  --experimental-builtin-reductions\n"
+            << "                         Enable experimental reduction of selected builtin-call chains to equivalent single calls\n"
             << "  --auto-value-ref       Enable automatic by-ref promotion for large safe arguments\n"
             << "  --value-ref-byte-cutoff N\n"
             << "                         Set the byte-size cutoff used by --auto-value-ref (default: 256)\n"
@@ -169,13 +173,15 @@ auto run_ir_dump(const std::filesystem::path& source_file) -> tl::expected<void,
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
-            const bool write_bytecode_cache, const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
+            const bool write_bytecode_cache, const bool enable_experimental_builtin_reductions,
+            const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
     -> tl::expected<void, CliError> {
   auto module_result = fleaux::bytecode::load_linked_module(
       source_file, fleaux::bytecode::ModuleLoadOptions{
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
                                         : fleaux::bytecode::OptimizationMode::kBaseline,
                        .write_bytecode_cache = write_bytecode_cache,
+                       .enable_experimental_builtin_reductions = enable_experimental_builtin_reductions,
                        .enable_value_ref_gate = enable_auto_value_ref,
                        .enable_auto_value_ref = enable_auto_value_ref,
                        .value_ref_byte_cutoff = value_ref_byte_cutoff,
@@ -260,9 +266,11 @@ auto run(const std::optional<std::filesystem::path>& source_path, const std::str
   return 0;
 }
 
-auto make_repl_compile_options(const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
+auto make_repl_compile_options(const bool enable_experimental_builtin_reductions, const bool enable_auto_value_ref,
+                               const std::size_t value_ref_byte_cutoff)
     -> fleaux::vm::RuntimeCompileOptions {
   return fleaux::vm::RuntimeCompileOptions{
+      .enable_experimental_builtin_reductions = enable_experimental_builtin_reductions,
       .enable_value_ref_gate = enable_auto_value_ref,
       .enable_auto_value_ref = enable_auto_value_ref,
       .value_ref_byte_cutoff = value_ref_byte_cutoff,
@@ -270,7 +278,8 @@ auto make_repl_compile_options(const bool enable_auto_value_ref, const std::size
 }
 
 auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_args, const bool no_color,
-                   const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff) -> int {
+                   const bool enable_experimental_builtin_reductions, const bool enable_auto_value_ref,
+                   const std::size_t value_ref_byte_cutoff) -> int {
   if (no_run) {
     std::cout << "[vm] skipped run (--no-run): <repl>\n";
     return 0;
@@ -278,7 +287,8 @@ auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_ar
 
   constexpr fleaux::cli::ReplDriver repl_driver;
   return repl_driver.run(process_args, !no_color,
-                         make_repl_compile_options(enable_auto_value_ref, value_ref_byte_cutoff));
+                         make_repl_compile_options(enable_experimental_builtin_reductions, enable_auto_value_ref,
+                                                   value_ref_byte_cutoff));
 }
 
 auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
@@ -332,6 +342,11 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
 
     if (token == "--no-emit-bytecode") {
       options.write_bytecode_cache = false;
+      continue;
+    }
+
+    if (token == "--experimental-builtin-reductions") {
+      options.enable_experimental_builtin_reductions = true;
       continue;
     }
 
@@ -428,7 +443,8 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, enable_auto_value_ref,
+  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache,
+               enable_experimental_builtin_reductions, enable_auto_value_ref,
                value_ref_byte_cutoff, no_color, repl, show_help, disassemble, dump_ast, dump_ir] = *parsed;
   if (show_help) {
     print_help();
@@ -450,7 +466,8 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (repl) {
-    return run_repl_mode(no_run, process_args, no_color, enable_auto_value_ref, value_ref_byte_cutoff);
+    return run_repl_mode(no_run, process_args, no_color, enable_experimental_builtin_reductions,
+                         enable_auto_value_ref, value_ref_byte_cutoff);
   }
 
   if (!source_path.has_value()) {
@@ -466,7 +483,8 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache, enable_auto_value_ref,
+  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache,
+                                 enable_experimental_builtin_reductions, enable_auto_value_ref,
                                  value_ref_byte_cutoff);
       !result) {
     return print_diag_and_return("vm-run", result.error());

@@ -259,6 +259,26 @@ TEST_CASE("CLI vm mode accepts valid auto value-ref options and bypasses bytecod
   REQUIRE_FALSE(std::filesystem::exists(bytecode_path));
 }
 
+TEST_CASE("CLI vm mode accepts experimental builtin reductions and bypasses bytecode cache writes",
+          "[vm][cli][optimizer][experimental]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_builtin_reductions_ok";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  const auto bytecode_path = temp_dir / "entry.fleaux.bc";
+  fleaux::tests::write_text_file(source_path, "import Std;\n\"  hi  \" -> Std.String.TrimStart -> Std.String.TrimEnd -> Std.Println;\n");
+
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+  const auto result = run_cli("--experimental-builtin-reductions " + shell_quote(source_path.string()), temp_dir);
+  INFO("stdout: " << result.stdout_text);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 0);
+  REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("hi"));
+  REQUIRE(result.stderr_text.empty());
+  REQUIRE_FALSE(std::filesystem::exists(bytecode_path));
+}
+
 TEST_CASE("CLI REPL threads auto value-ref options into snippet compilation", "[vm][cli][repl][value_ref]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_value_ref_repl";
   std::filesystem::remove_all(temp_dir);

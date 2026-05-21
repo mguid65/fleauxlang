@@ -11,6 +11,8 @@ This repository contains:
 
 ## Documentation
 
+- Comprehensive language manual: docs/fleaux_book/README.md
+- Quick-start language guide: docs/fleaux_language_usage_guide.md
 - Developer feature routing map: `docs/developer_feature_map.md`
 - Embedding guide: `docs/embedding.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`

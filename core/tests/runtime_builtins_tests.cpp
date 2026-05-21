@@ -130,7 +130,8 @@ TEST_CASE("Runtime builtins: arithmetic, comparison, and logic", "[runtime]") {
   REQUIRE_THROWS_AS(make_tuple(make_int(-10), make_uint(3)) | Mod, std::invalid_argument);
   REQUIRE(to_double(make_int(5) | UnaryMinus) == -5.0);
   REQUIRE(to_double(make_tuple(make_int(5)) | UnaryPlus) == 5.0);
-  REQUIRE(as_string(make_tuple(make_string("hello"), make_string(" world")) | Add) == "hello world");
+  REQUIRE_THROWS_WITH(make_tuple(make_string("hello"), make_string(" world")) | Add,
+                      Catch::Matchers::ContainsSubstring("expected Int64, UInt64, or Float64"));
 
   REQUIRE(as_bool(make_tuple(make_int(5), make_int(3)) | GreaterThan));
   REQUIRE(as_bool(make_tuple(make_int(3), make_int(5)) | LessThan));
@@ -1159,6 +1160,44 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(stepped, 0)) == 5.0);
     REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
     REQUIRE(to_double(array_at(stepped, 2)) == 1.0);
+  }
+
+  SECTION("Tuple higher-order helpers preserve tuple traversal semantics") {
+    const Value values = make_tuple(make_int(1), make_int(2), make_int(3), make_int(2));
+    const Value add_one = make_callable_ref([](const Value& value) -> Value { return make_int(as_int_value(value) + 1); });
+    const Value is_even =
+        make_callable_ref([](const Value& value) -> Value { return make_bool((as_int_value(value) % 2) == 0); });
+    const Value is_positive = make_callable_ref([](const Value& value) -> Value { return make_bool(as_int_value(value) > 0); });
+    const Value greater_than_three =
+        make_callable_ref([](const Value& value) -> Value { return make_bool(as_int_value(value) > 3); });
+    const Value sum_pair = make_callable_ref([](const Value& value) -> Value {
+      const auto& pair = as_array(value);
+      return make_int(as_int_value(*pair.TryGet(0)) + as_int_value(*pair.TryGet(1)));
+    });
+
+    const Value mapped = TupleMap(make_tuple(values, add_one));
+    REQUIRE(as_array(mapped).Size() == 4U);
+    REQUIRE(to_double(array_at(mapped, 0)) == 2.0);
+    REQUIRE(to_double(array_at(mapped, 3)) == 3.0);
+
+    const Value filtered = TupleFilter(make_tuple(values, is_even));
+    REQUIRE(as_array(filtered).Size() == 2U);
+    REQUIRE(to_double(array_at(filtered, 0)) == 2.0);
+    REQUIRE(to_double(array_at(filtered, 1)) == 2.0);
+
+    REQUIRE(to_double(TupleReduce(make_tuple(values, make_int(0), sum_pair))) == 8.0);
+    REQUIRE(to_double(TupleFindIndex(make_tuple(values, is_even))) == 1.0);
+    REQUIRE(to_double(TupleFindIndex(make_tuple(values, greater_than_three))) == -1.0);
+    REQUIRE(as_bool(TupleAny(make_tuple(values, is_even))));
+    REQUIRE_FALSE(as_bool(TupleAny(make_tuple(values, greater_than_three))));
+    REQUIRE(as_bool(TupleAll(make_tuple(values, is_positive))));
+    REQUIRE_FALSE(as_bool(TupleAll(make_tuple(values, is_even))));
+
+    const Value unique = TupleUnique(values);
+    REQUIRE(as_array(unique).Size() == 3U);
+    REQUIRE(to_double(array_at(unique, 0)) == 1.0);
+    REQUIRE(to_double(array_at(unique, 1)) == 2.0);
+    REQUIRE(to_double(array_at(unique, 2)) == 3.0);
   }
 
   SECTION("TupleMin and TupleMax reject empty tuples") {

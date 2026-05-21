@@ -7,6 +7,19 @@ namespace fleaux::runtime {
 
 // Multidimensional array builtins
 
+template <typename Visitor>
+void for_each_array_value(const Array& arr, Visitor&& visitor) {
+  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
+    visitor(*arr.TryGet(element_index));
+  }
+}
+
+inline void append_array_range(Array& out, const Array& src, const std::size_t start, const std::size_t stop) {
+  for (std::size_t element_index = start; element_index < stop; ++element_index) {
+    out.PushBack(*src.TryGet(element_index));
+  }
+}
+
 [[nodiscard]] inline auto checked_index(const Value& value, const char* name) -> std::size_t {
   const Int index_value = as_int_value_strict(value, name);
   if (index_value < 0) {
@@ -48,9 +61,7 @@ inline void flatten_into(const Value& value, Array& out) {
     return;
   }
   const auto& arr = as_array(value);
-  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-    flatten_into(*arr.TryGet(element_index), out);
-  }
+  for_each_array_value(arr, [&](const Value& item) { flatten_into(item, out); });
 }
 
 [[nodiscard]] inline auto set_at_path(const Value& value, const std::vector<std::size_t>& path, const std::size_t depth,
@@ -77,8 +88,8 @@ inline void flatten_into(const Value& value, Array& out) {
   return Value{std::move(out)};
 }
 
-[[nodiscard]] inline auto reshape_from_flat(const Array& flat, const std::vector<std::size_t>& dims, std::size_t depth,
-                                            std::size_t& cursor) -> Value {
+[[nodiscard]] inline auto reshape_from_flat(const Array& flat, const std::vector<std::size_t>& dims,
+                                            const std::size_t depth, std::size_t& cursor) -> Value {
   if (depth == dims.size()) {
     return *flat.TryGet(cursor++);
   }
@@ -132,13 +143,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
   Array out;
   out.Reserve(arr.Size() + 1);
-  for (std::size_t element_index = 0; element_index < idx; ++element_index) {
-    out.PushBack(*arr.TryGet(element_index));
-  }
+  append_array_range(out, arr, 0, idx);
   out.PushBack(value);
-  for (std::size_t element_index = idx; element_index < arr.Size(); ++element_index) {
-    out.PushBack(*arr.TryGet(element_index));
-  }
+  append_array_range(out, arr, idx, arr.Size());
   return Value{std::move(out)};
 }
 
@@ -176,9 +183,7 @@ inline void flatten_into(const Value& value, Array& out) {
 
   Array out;
   out.Reserve(stop - start);
-  for (std::size_t element_index = start; element_index < stop; ++element_index) {
-    out.PushBack(*arr.TryGet(element_index));
-  }
+  append_array_range(out, arr, start, stop);
   return Value{std::move(out)};
 }
 
@@ -190,12 +195,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
   Array out;
   out.Reserve(lhs.Size() + rhs.Size());
-  for (std::size_t lhs_index = 0; lhs_index < lhs.Size(); ++lhs_index) {
-    out.PushBack(*lhs.TryGet(lhs_index));
-  }
-  for (std::size_t rhs_index = 0; rhs_index < rhs.Size(); ++rhs_index) {
-    out.PushBack(*rhs.TryGet(rhs_index));
-  }
+  append_array_range(out, lhs, 0, lhs.Size());
+  append_array_range(out, rhs, 0, rhs.Size());
   return Value{std::move(out)};
 }
 

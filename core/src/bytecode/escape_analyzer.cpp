@@ -7,6 +7,9 @@
 #include <vector>
 
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/common/symbol_name.hpp"
+#include "fleaux/common/utility.hpp"
+#include "fleaux/frontend/ir_tuple_protocol.hpp"
 
 namespace fleaux::bytecode {
 namespace {
@@ -43,22 +46,18 @@ auto escape_builtins() -> const std::unordered_set<std::string>& {
   return names;
 }
 
-auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
-  return qualifier.has_value() ? (*qualifier + "." + name) : name;
-}
-
 auto let_identity_key(const IRLet& let) -> std::string {
   if (!let.symbol_key.empty()) {
     return let.symbol_key;
   }
-  return full_symbol_name(let.qualifier, let.name);
+  return common::full_symbol_name(let.qualifier, let.name);
 }
 
 auto target_identity_key(const IRNameRef& name_ref) -> std::string {
   if (name_ref.resolved_symbol_key.has_value()) {
     return *name_ref.resolved_symbol_key;
   }
-  return full_symbol_name(name_ref.qualifier, name_ref.name);
+  return common::full_symbol_name(name_ref.qualifier, name_ref.name);
 }
 
 auto saturating_add(const std::size_t lhs, const std::size_t rhs) -> std::size_t {
@@ -66,6 +65,18 @@ auto saturating_add(const std::size_t lhs, const std::size_t rhs) -> std::size_t
     return std::numeric_limits<std::size_t>::max();
   }
   return lhs + rhs;
+}
+
+template <typename Visitor>
+void for_each_block_item_expr(const IRBlockExpr& block, Visitor&& visitor) {
+  for (const auto& item : block.items) {
+    utility::structured_visit(
+        common::overloaded{
+            [&](const std::string&, const IRSimpleType&, const IRExprBox& expr,
+                const std::optional<frontend::diag::SourceSpan>&) -> void { visitor(*expr); },
+            [&](const IRExprBox& expr, const std::optional<frontend::diag::SourceSpan>&) -> void { visitor(*expr); }},
+        item);
+  }
 }
 
 auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> {
@@ -94,7 +105,7 @@ auto estimate_expr_size_bytes(const IRExpr& expr) -> std::optional<std::size_t> 
                            }
                            return total;
                          },
-                          [](const IRBlockExprBox&) -> std::optional<std::size_t> { return std::nullopt; },
+                         [](const IRBlockExprBox&) -> std::optional<std::size_t> { return std::nullopt; },
                          [](const auto&) -> std::optional<std::size_t> { return std::nullopt; }},
       expr.node);
 }
@@ -114,59 +125,47 @@ void collect_unqualified_name_refs(const IRExpr& expr, std::unordered_set<std::s
                                 [&](const IRClosureExprBox& closure_ptr) -> void {
                                   collect_unqualified_name_refs(*closure_ptr->body, out);
                                 },
-                                 [&](const IRBlockExprBox& block_ptr) -> void {
-                                   for (const auto& item : block_ptr->items) {
-                                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
-                                                                    collect_unqualified_name_refs(*local_let.expr, out);
-                                                                  },
-                                                                  [&](const IRBlockExprStatement& stmt) -> void {
-                                                                    collect_unqualified_name_refs(*stmt.expr, out);
-                                                                  }},
-                                                item);
-                                   }
-                                   collect_unqualified_name_refs(*block_ptr->result, out);
-                                 },
+                                [&](const IRBlockExprBox& block_ptr) -> void {
+                                  for_each_block_item_expr(*block_ptr, [&](const IRExpr& nested_expr) {
+                                    collect_unqualified_name_refs(nested_expr, out);
+                                  });
+                                  collect_unqualified_name_refs(*block_ptr->result, out);
+                                },
                                 [](const auto&) -> void {}},
              expr.node);
 }
 
 void summarize_let_body(const IRExpr& expr, LetBodySummary& summary) {
-  std::visit(common::overloaded{[&](const IRFlowExpr& flow) -> void {
-                                  std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
-                                                                  if (escape_builtins().contains(full_symbol_name(
-                                                                          name_ref.qualifier, name_ref.name))) {
-                                                                    collect_unqualified_name_refs(
-                                                                        *flow.lhs, summary.reaches_escape_builtin);
-                                                                  }
-                                                                },
-                                                                [](const IROperatorRef&) -> void {}},
-                                             flow.rhs);
-                                  summarize_let_body(*flow.lhs, summary);
-                                },
-                                [&](const IRTupleExpr& tuple) -> void {
-                                  for (const auto& item : tuple.items) {
-                                    summarize_let_body(*item, summary);
-                                  }
-                                },
-                                [&](const IRClosureExprBox& closure_ptr) -> void {
-                                  for (const auto& capture : closure_ptr->captures) {
-                                    summary.captured_by_nested_closure.insert(capture);
-                                  }
-                                  summarize_let_body(*closure_ptr->body, summary);
-                                },
-                                 [&](const IRBlockExprBox& block_ptr) -> void {
-                                   for (const auto& item : block_ptr->items) {
-                                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
-                                                                    summarize_let_body(*local_let.expr, summary);
-                                                                  },
-                                                                  [&](const IRBlockExprStatement& stmt) -> void {
-                                                                    summarize_let_body(*stmt.expr, summary);
-                                                                  }},
-                                                item);
-                                   }
-                                   summarize_let_body(*block_ptr->result, summary);
-                                 },
-                                [](const auto&) -> void {}},
+  std::visit(common::overloaded{
+                 [&](const IRFlowExpr& flow) -> void {
+                   std::visit(
+                       common::overloaded{[&](const IRNameRef& name_ref) -> void {
+                                            if (escape_builtins().contains(
+                                                    common::full_symbol_name(name_ref.qualifier, name_ref.name))) {
+                                              collect_unqualified_name_refs(*flow.lhs, summary.reaches_escape_builtin);
+                                            }
+                                          },
+                                          [](const IROperatorRef&) -> void {}},
+                       flow.rhs);
+                   summarize_let_body(*flow.lhs, summary);
+                 },
+                 [&](const IRTupleExpr& tuple) -> void {
+                   for (const auto& item : tuple.items) {
+                     summarize_let_body(*item, summary);
+                   }
+                 },
+                 [&](const IRClosureExprBox& closure_ptr) -> void {
+                   for (const auto& capture : closure_ptr->captures) {
+                     summary.captured_by_nested_closure.insert(capture);
+                   }
+                   summarize_let_body(*closure_ptr->body, summary);
+                 },
+                 [&](const IRBlockExprBox& block_ptr) -> void {
+                   for_each_block_item_expr(
+                       *block_ptr, [&](const IRExpr& nested_expr) { summarize_let_body(nested_expr, summary); });
+                   summarize_let_body(*block_ptr->result, summary);
+                 },
+                 [](const auto&) -> void {}},
              expr.node);
 }
 
@@ -188,18 +187,11 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
                  },
                  [&](const IRClosureExprBox& closure_ptr) -> void { collect_call_sites(*closure_ptr->body, out); },
                  [&](const IRBlockExprBox& block_ptr) -> void {
-                   for (const auto& item : block_ptr->items) {
-                     std::visit(common::overloaded{[&](const IRLocalLet& local_let) -> void {
-                                                    collect_call_sites(*local_let.expr, out);
-                                                  },
-                                                  [&](const IRBlockExprStatement& stmt) -> void {
-                                                    collect_call_sites(*stmt.expr, out);
-                                                  }},
-                                item);
-                   }
+                   for_each_block_item_expr(*block_ptr,
+                                            [&](const IRExpr& nested_expr) { collect_call_sites(nested_expr, out); });
                    collect_call_sites(*block_ptr->result, out);
                  },
-                 [](const auto&) -> auto {}},
+                 [](const auto&) -> void {}},
              expr.node);
 }
 

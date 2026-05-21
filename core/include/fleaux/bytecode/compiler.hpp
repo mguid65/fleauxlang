@@ -22,6 +22,7 @@ struct CompileOptions {
   std::optional<std::string> source_text{std::nullopt};
   std::optional<std::string> module_name{std::nullopt};
   std::vector<Module> imported_modules{};
+  bool enable_experimental_builtin_reductions{false};
   bool enable_value_ref_gate{false};
   bool enable_auto_value_ref{false};
   std::size_t value_ref_byte_cutoff{256};

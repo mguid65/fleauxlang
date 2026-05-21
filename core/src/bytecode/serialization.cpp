@@ -3,10 +3,10 @@
 #include "fleaux/runtime/builtins_core.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 
+#include <algorithm>
+#include <array>
 #include <bit>
-#include <cstring>
 #include <format>
-#include <iostream>
 #include <type_traits>
 #include <utility>
 
@@ -26,18 +26,31 @@ constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
+enum class ConstTag : std::uint8_t {
+  kInt64 = 0,
+  kUInt64 = 1,
+  kFloat64 = 2,
+  kBool = 3,
+  kString = 4,
+  kNull = 5,
+};
+
 template <typename T>
+  requires std::is_trivially_copyable_v<T>
 void write_pod(std::vector<std::uint8_t>& buffer, const T& value) {
-  const auto* bytes = reinterpret_cast<const std::uint8_t*>(&value);
-  buffer.insert(buffer.end(), bytes, bytes + sizeof(T));
+  const auto bytes = std::bit_cast<std::array<std::uint8_t, sizeof(T)>>(value);
+  buffer.insert(buffer.end(), bytes.begin(), bytes.end());
 }
 
 template <typename T>
+  requires std::is_trivially_copyable_v<T>
 auto read_pod(const std::vector<std::uint8_t>& buffer, std::size_t& offset, T& out) -> bool {
   if (offset + sizeof(T) > buffer.size()) {
     return false;
   }
-  std::memcpy(&out, &buffer[offset], sizeof(T));
+  std::array<std::uint8_t, sizeof(T)> bytes{};
+  std::copy_n(buffer.begin() + static_cast<std::ptrdiff_t>(offset), sizeof(T), bytes.begin());
+  out = std::bit_cast<T>(bytes);
   offset += sizeof(T);
   return true;
 }
@@ -56,7 +69,8 @@ auto read_string(const std::vector<std::uint8_t>& buffer, std::size_t& offset, s
   if (offset + len > buffer.size()) {
     return false;
   }
-  out = std::string(reinterpret_cast<const char*>(&buffer[offset]), len);
+  out.assign(buffer.begin() + static_cast<std::ptrdiff_t>(offset),
+             buffer.begin() + static_cast<std::ptrdiff_t>(offset + len));
   offset += len;
   return true;
 }
@@ -71,42 +85,43 @@ auto checksum_bytes(const std::vector<std::uint8_t>& buffer, const std::size_t b
 }
 
 void patch_checksum(std::vector<std::uint8_t>& buffer, const std::uint64_t checksum) {
-  std::memcpy(buffer.data() + kChecksumOffset, &checksum, sizeof(checksum));
+  const auto bytes = std::bit_cast<std::array<std::uint8_t, sizeof(checksum)>>(checksum);
+  std::ranges::copy(bytes, buffer.begin() + static_cast<std::ptrdiff_t>(kChecksumOffset));
 }
 
 void write_const_value(std::vector<std::uint8_t>& buffer, const ConstValue& cv) {
-  std::visit(
-      common::overloaded{[&](const std::int64_t& value) -> void {
-                           write_pod(buffer, static_cast<std::uint8_t>(0));
-                           write_pod(buffer, value);
-                         },
-                         [&](const std::uint64_t& value) -> void {
-                           write_pod(buffer, static_cast<std::uint8_t>(1));
-                           write_pod(buffer, value);
-                         },
-                         [&](const double& value) -> void {
-                           write_pod(buffer, static_cast<std::uint8_t>(2));
-                           write_pod(buffer, value);
-                         },
-                         [&](const bool& value) -> void {
-                           write_pod(buffer, static_cast<std::uint8_t>(3));
-                           write_pod(buffer, value);
-                         },
-                         [&](const std::string& value) -> void {
-                           write_pod(buffer, static_cast<std::uint8_t>(4));
-                           write_string(buffer, value);
-                         },
-                         [&](const std::monostate&) -> void { write_pod(buffer, static_cast<std::uint8_t>(5)); }},
-      cv.data);
+  std::visit(common::overloaded{
+                 [&](const std::int64_t& value) -> void {
+                   write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kInt64));
+                   write_pod(buffer, value);
+                 },
+                 [&](const std::uint64_t& value) -> void {
+                   write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kUInt64));
+                   write_pod(buffer, value);
+                 },
+                 [&](const double& value) -> void {
+                   write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kFloat64));
+                   write_pod(buffer, value);
+                 },
+                 [&](const bool& value) -> void {
+                   write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kBool));
+                   write_pod(buffer, value);
+                 },
+                 [&](const std::string& value) -> void {
+                   write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kString));
+                   write_string(buffer, value);
+                 },
+                 [&](const std::monostate&) -> void { write_pod(buffer, static_cast<std::uint8_t>(ConstTag::kNull)); }},
+             cv.data);
 }
 
 auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ConstValue& out) -> bool {
-  std::uint8_t tag = 0;
-  if (!read_pod(buffer, offset, tag)) {
+  std::uint8_t raw_tag = 0;
+  if (!read_pod(buffer, offset, raw_tag)) {
     return false;
   }
-  switch (tag) {
-    case 0: {
+  switch (static_cast<ConstTag>(raw_tag)) {
+    case ConstTag::kInt64: {
       std::int64_t val = 0;
       if (!read_pod(buffer, offset, val)) {
         return false;
@@ -114,7 +129,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
       out.data = val;
       return true;
     }
-    case 1: {
+    case ConstTag::kUInt64: {
       std::uint64_t val = 0;
       if (!read_pod(buffer, offset, val)) {
         return false;
@@ -122,7 +137,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
       out.data = val;
       return true;
     }
-    case 2: {
+    case ConstTag::kFloat64: {
       double val = 0;
       if (!read_pod(buffer, offset, val)) {
         return false;
@@ -130,7 +145,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
       out.data = val;
       return true;
     }
-    case 3: {
+    case ConstTag::kBool: {
       bool val = false;
       if (!read_pod(buffer, offset, val)) {
         return false;
@@ -138,7 +153,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
       out.data = val;
       return true;
     }
-    case 4: {
+    case ConstTag::kString: {
       std::string val;
       if (!read_string(buffer, offset, val)) {
         return false;
@@ -146,7 +161,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
       out.data = std::move(val);
       return true;
     }
-    case 5: {
+    case ConstTag::kNull: {
       out.data = std::monostate{};
       return true;
     }
@@ -482,8 +497,8 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
       }
       if (const auto instruction_error = read_instruction_stream(buffer, offset, fn.instructions);
           instruction_error.has_value()) {
-        return tl::unexpected(SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name,
-                                                                        *instruction_error)});
+        return tl::unexpected(
+            SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name, *instruction_error)});
       }
       if (!read_string_list(buffer, offset, fn.generic_params) ||
           !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name)) {

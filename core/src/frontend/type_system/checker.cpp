@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "fleaux/frontend/type_system/builtin_contracts.hpp"
+#include "fleaux/frontend/type_system/detail/type_format.hpp"
 
 namespace fleaux::frontend::type_system::detail {
 
@@ -151,12 +152,7 @@ auto join_sorted_type_var_names(const std::unordered_set<std::string>& names) ->
   std::ranges::sort(ordered);
 
   std::string joined;
-  for (std::size_t i = 0; i < ordered.size(); ++i) {
-    if (i > 0U) {
-      joined += ", ";
-    }
-    joined += ordered[i];
-  }
+  append_joined_fragments(joined, ordered, ", ", [](const std::string& name) -> const std::string& { return name; });
   return joined;
 }
 
@@ -195,50 +191,29 @@ auto type_debug_name(const Type& type) -> std::string {
       return type.nominal_name;
     case TypeKind::kTuple: {
       std::string out = "Tuple(";
-      for (std::size_t i = 0; i < type.items.size(); ++i) {
-        if (i > 0U) {
-          out += ", ";
-        }
-        out += type_debug_name(type.items[i]);
-        if (type.items[i].variadic) {
-          out += "...";
-        }
-      }
+      append_joined_type_fragments(
+          out, type.items, ", ", [](const Type& item) { return type_debug_name(item); },
+          [](const Type& item) { return item.variadic; });
       out += ")";
       return out;
     }
     case TypeKind::kUnion: {
       std::string out;
-      for (std::size_t i = 0; i < type.union_members.size(); ++i) {
-        if (i > 0U) {
-          out += " | ";
-        }
-        out += type_debug_name(type.union_members[i]);
-      }
+      append_joined_fragments(out, type.union_members, " | ",
+                              [](const Type& member) { return type_debug_name(member); });
       return out;
     }
     case TypeKind::kApplied: {
       std::string out = type.applied_name + "(";
-      for (std::size_t i = 0; i < type.applied_args.size(); ++i) {
-        if (i > 0U) {
-          out += ", ";
-        }
-        out += type_debug_name(type.applied_args[i]);
-      }
+      append_joined_fragments(out, type.applied_args, ", ", [](const Type& arg) { return type_debug_name(arg); });
       out += ")";
       return out;
     }
     case TypeKind::kFunction: {
       std::string out = "(";
-      for (std::size_t i = 0; i < type.function_params.size(); ++i) {
-        if (i > 0U) {
-          out += ", ";
-        }
-        out += type_debug_name(type.function_params[i]);
-        if (type.function_params[i].variadic) {
-          out += "...";
-        }
-      }
+      append_joined_type_fragments(
+          out, type.function_params, ", ", [](const Type& param) { return type_debug_name(param); },
+          [](const Type& param) { return param.variadic; });
       out += ") => ";
       out += type.function_return.has_value() ? type_debug_name(*type.function_return) : "Any";
       return out;
@@ -272,12 +247,8 @@ auto generic_binding_detail_for_type(const Type& expected_type, const TypeBindin
   }
 
   std::string joined;
-  for (std::size_t i = 0; i < details.size(); ++i) {
-    if (i > 0U) {
-      joined += "; ";
-    }
-    joined += details[i];
-  }
+  append_joined_fragments(joined, details, "; ",
+                          [](const std::string& detail) -> const std::string& { return detail; });
   return std::format("Binding detail: {}. got {}.", joined, type_debug_name(actual));
 }
 
@@ -314,10 +285,8 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
 }
 
 auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_strong_type_names,
-                                 const AliasIndex& alias_index,
-                                 const std::unordered_set<std::string>& generic_params,
-                                 const std::optional<diag::SourceSpan>& span,
-                                 std::unordered_set<std::string>& visiting,
+                                 const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
+                                 const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError>;
 
@@ -326,7 +295,8 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
                             const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                             std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
-  if (generic_params.contains(name) || known_strong_type_names.contains(name) || is_builtin_opaque_nominal_type_name(name)) {
+  if (generic_params.contains(name) || known_strong_type_names.contains(name) ||
+      is_builtin_opaque_nominal_type_name(name)) {
     return make_nominal_type(name);
   }
 
@@ -349,9 +319,9 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
   }
 
   visiting.insert(name);
-  auto expanded = expand_aliases_in_type_impl(alias_decl->target_type, known_strong_type_names, alias_index, generic_params,
-                                              alias_decl->span.has_value() ? alias_decl->span : span, visiting,
-                                              resolved_cache);
+  auto expanded =
+      expand_aliases_in_type_impl(alias_decl->target_type, known_strong_type_names, alias_index, generic_params,
+                                  alias_decl->span.has_value() ? alias_decl->span : span, visiting, resolved_cache);
   visiting.erase(name);
   if (!expanded) {
     return tl::unexpected(expanded.error());
@@ -362,22 +332,19 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
 }
 
 auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_strong_type_names,
-                                 const AliasIndex& alias_index,
-                                 const std::unordered_set<std::string>& generic_params,
-                                 const std::optional<diag::SourceSpan>& span,
-                                 std::unordered_set<std::string>& visiting,
+                                 const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
+                                 const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (type.kind == TypeKind::kNominal) {
-    return expand_alias_name_impl(type.nominal_name, known_strong_type_names, alias_index, generic_params, span, visiting,
-                                  resolved_cache);
+    return expand_alias_name_impl(type.nominal_name, known_strong_type_names, alias_index, generic_params, span,
+                                  visiting, resolved_cache);
   }
 
   Type expanded = type;
   for (auto& item : expanded.items) {
-    auto resolved_item =
-        expand_aliases_in_type_impl(item, known_strong_type_names, alias_index, generic_params, span, visiting,
-                                    resolved_cache);
+    auto resolved_item = expand_aliases_in_type_impl(item, known_strong_type_names, alias_index, generic_params, span,
+                                                     visiting, resolved_cache);
     if (!resolved_item) {
       return tl::unexpected(resolved_item.error());
     }
@@ -386,9 +353,8 @@ auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_stro
     item.variadic = variadic;
   }
   for (auto& member : expanded.union_members) {
-    auto resolved_member =
-        expand_aliases_in_type_impl(member, known_strong_type_names, alias_index, generic_params, span, visiting,
-                                    resolved_cache);
+    auto resolved_member = expand_aliases_in_type_impl(member, known_strong_type_names, alias_index, generic_params,
+                                                       span, visiting, resolved_cache);
     if (!resolved_member) {
       return tl::unexpected(resolved_member.error());
     }
@@ -403,9 +369,8 @@ auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_stro
     arg = *resolved_arg;
   }
   for (auto& param : expanded.function_params) {
-    auto resolved_param =
-        expand_aliases_in_type_impl(param, known_strong_type_names, alias_index, generic_params, span, visiting,
-                                    resolved_cache);
+    auto resolved_param = expand_aliases_in_type_impl(param, known_strong_type_names, alias_index, generic_params, span,
+                                                      visiting, resolved_cache);
     if (!resolved_param) {
       return tl::unexpected(resolved_param.error());
     }
@@ -472,8 +437,8 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
       return {};
     case TypeKind::kFunction:
       for (const auto& param : expanded->function_params) {
-        if (auto validated = validate_declared_type_against_names(param, known_strong_type_names, alias_index,
-                                                                  generic_params, span);
+        if (auto validated =
+                validate_declared_type_against_names(param, known_strong_type_names, alias_index, generic_params, span);
             !validated) {
           return tl::unexpected(validated.error());
         }
@@ -532,8 +497,8 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
   return out;
 }
 
-auto collect_known_strong_type_names(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls)
-    -> TypeNameSet {
+auto collect_known_strong_type_names(const ir::IRProgram& program,
+                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> TypeNameSet {
   TypeNameSet names;
   names.reserve(imported_type_decls.size() + program.type_decls.size());
   for (const auto& imported_type_decl : imported_type_decls) {
@@ -546,8 +511,7 @@ auto collect_known_strong_type_names(const ir::IRProgram& program, const std::ve
 }
 
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
-                                const StrongTypeIndex& type_index,
-                                const AliasIndex& alias_index,
+                                const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                                 const std::unordered_set<std::string>& generic_params,
                                 const std::optional<diag::SourceSpan>& span)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError> {
@@ -616,12 +580,7 @@ auto explicit_type_arg_arity_summary(const FunctionOverloadSet& overloads) -> st
   }
 
   std::string joined;
-  for (std::size_t i = 0; i < arities.size(); ++i) {
-    if (i > 0U) {
-      joined += ", ";
-    }
-    joined += std::to_string(arities[i]);
-  }
+  append_joined_fragments(joined, arities, ", ", [](const std::size_t arity) { return std::to_string(arity); });
   return std::format("available explicit type argument arities are {}", joined);
 }
 
@@ -698,15 +657,9 @@ auto declaration_symbol_key(const ir::IRLet& let) -> std::string {
 
 auto format_signature_debug_name(const std::string& full_name, const FunctionSig& sig) -> std::string {
   std::string out = full_name + "(";
-  for (std::size_t i = 0; i < sig.params.size(); ++i) {
-    if (i > 0U) {
-      out += ", ";
-    }
-    out += type_debug_name(sig.params[i].type);
-    if (sig.params[i].variadic) {
-      out += "...";
-    }
-  }
+  append_joined_type_fragments(
+      out, sig.params, ", ", [](const ParamSig& param) { return type_debug_name(param.type); },
+      [](const ParamSig& param) { return param.variadic; });
   out += "): ";
   out += type_debug_name(sig.return_type);
   return out;
@@ -714,24 +667,18 @@ auto format_signature_debug_name(const std::string& full_name, const FunctionSig
 
 auto overload_candidate_list(const std::string& full_name, const FunctionOverloadSet& overloads) -> std::string {
   std::string out;
-  for (std::size_t i = 0; i < overloads.size(); ++i) {
-    if (i > 0U) {
-      out += "; ";
-    }
-    out += format_signature_debug_name(full_name, overloads[i]);
-  }
+  append_joined_fragments(out, overloads, "; ", [&](const FunctionSig& overload) {
+    return format_signature_debug_name(full_name, overload);
+  });
   return out;
 }
 
 auto overload_candidate_list(const std::string& full_name, const std::vector<const FunctionSig*>& overloads)
     -> std::string {
   std::string out;
-  for (std::size_t i = 0; i < overloads.size(); ++i) {
-    if (i > 0U) {
-      out += "; ";
-    }
-    out += format_signature_debug_name(full_name, *overloads[i]);
-  }
+  append_joined_fragments(out, overloads, "; ", [&](const FunctionSig* overload) {
+    return format_signature_debug_name(full_name, *overload);
+  });
   return out;
 }
 
@@ -785,10 +732,9 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
   seen_aliases.reserve(imported_alias_decls.size() + program.alias_decls.size());
   const auto validate_alias_name = [&](const ir::IRAliasDecl& alias_decl) -> std::optional<type_check::AnalysisError> {
     if (known_strong_type_names.contains(alias_decl.name)) {
-      return make_error(
-          "Duplicate alias declaration.",
-          std::format("Alias '{}' conflicts with an existing strong type declaration.", alias_decl.name),
-          alias_decl.span);
+      return make_error("Duplicate alias declaration.",
+                        std::format("Alias '{}' conflicts with an existing strong type declaration.", alias_decl.name),
+                        alias_decl.span);
     }
 
     if (const auto it = seen_aliases.find(alias_decl.name); it != seen_aliases.end()) {
@@ -819,10 +765,9 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
   AliasIndex alias_index(program, imported_alias_decls);
   const std::unordered_set<std::string> no_generic_params;
   for (const auto& imported_alias_decl : imported_alias_decls) {
-    if (auto validated =
-            validate_declared_type_against_names(alias_index.resolve_name(imported_alias_decl.name)->target_type,
-                                                known_strong_type_names, alias_index, no_generic_params,
-                                                imported_alias_decl.span);
+    if (auto validated = validate_declared_type_against_names(
+            alias_index.resolve_name(imported_alias_decl.name)->target_type, known_strong_type_names, alias_index,
+            no_generic_params, imported_alias_decl.span);
         !validated) {
       return tl::unexpected(validated.error());
     }
@@ -885,8 +830,7 @@ auto validate_supported_overload_sets(const ir::IRProgram& program, const std::v
 
 auto validate_strong_type_declarations(const ir::IRProgram& program,
                                        const std::vector<ir::IRTypeDecl>& imported_type_decls,
-                                       const AliasIndex& alias_index)
-    -> tl::expected<void, type_check::AnalysisError> {
+                                       const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
   std::unordered_map<std::string, std::optional<diag::SourceSpan>> seen;
   seen.reserve(imported_type_decls.size() + program.type_decls.size());
 
@@ -945,8 +889,7 @@ auto expand_aliases_in_type(const Type& type, const StrongTypeIndex& type_index,
   return expand_aliases_in_type(type, type_index.known_names(), alias_index, generic_params, span);
 }
 
-auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index,
-                            const AliasIndex& alias_index,
+auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
@@ -974,7 +917,8 @@ auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string
     param = rewrite_generic_type(param, generic_params);
   }
   if (out.function_return.has_value()) {
-    out.function_return = common::make_indirect_optional<Type>(rewrite_generic_type(*out.function_return, generic_params));
+    out.function_return =
+        common::make_indirect_optional<Type>(rewrite_generic_type(*out.function_return, generic_params));
   }
 
   return out;

@@ -14,6 +14,9 @@
 #include <variant>
 
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/common/symbol_name.hpp"
+#include "fleaux/common/utility.hpp"
+#include "fleaux/frontend/ir_tuple_protocol.hpp"
 
 namespace fleaux::frontend::lowering {
 namespace {
@@ -22,6 +25,16 @@ const std::unordered_set<std::string> kOperators = {
 };
 
 const std::string kMatchWildcardSentinel = "__fleaux_match_wildcard__";
+
+constexpr std::string_view kVariadicTypeSuffix = "...";
+
+auto trim_variadic_type_suffix(std::string_view type_name) -> std::pair<std::string_view, bool> {
+  const bool has_variadic_suffix = type_name.ends_with(kVariadicTypeSuffix);
+  if (has_variadic_suffix) {
+    type_name.remove_suffix(kVariadicTypeSuffix.size());
+  }
+  return {type_name, has_variadic_suffix};
+}
 
 auto analyze_with_symbolic_imports(const ir::IRProgram& program) -> type_check::AnalysisResult {
   std::unordered_set<std::string> imported_symbols;
@@ -64,17 +77,16 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
     out.span = node.span;
     out.variadic = node.variadic;
     std::visit(common::overloaded{[&](const std::string& simple) -> void {
-                                    std::string raw = simple;
-                                    if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                                    const auto [raw, has_variadic_suffix] = trim_variadic_type_suffix(simple);
+                                    if (has_variadic_suffix) {
                                       out.variadic = true;
-                                      raw = raw.substr(0, raw.size() - 3U);
                                     }
                                     out.kind = types::TypeNodeKind::kNamed;
-                                    out.name = raw;
+                                    out.name = std::string(raw);
                                   },
                                   [&](const model::QualifiedId& qualified) -> void {
                                     out.kind = types::TypeNodeKind::kNamed;
-                                    out.name = qualified.qualifier.qualifier + "." + qualified.id;
+                                    out.name = common::full_symbol_name(qualified.qualifier.qualifier, qualified.id);
                                   },
                                   [&](const model::TypeListBox& type_list) -> void {
                                     out.kind = types::TypeNodeKind::kTuple;
@@ -119,15 +131,14 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
   out.variadic = type.variadic;
   out.bridge_type_node = lower_bridge_type_node(lower_bridge_type_node, type);
   std::visit(common::overloaded{[&](const std::string& simple) -> void {
-                                  std::string raw = simple;
-                                  if (raw.size() >= 3U && raw.substr(raw.size() - 3U) == "...") {
+                                  const auto [raw, has_variadic_suffix] = trim_variadic_type_suffix(simple);
+                                  if (has_variadic_suffix) {
                                     out.variadic = true;
-                                    raw = raw.substr(0, raw.size() - 3U);
                                   }
-                                  out.name = raw;
+                                  out.name = std::string(raw);
                                 },
                                 [&](const model::QualifiedId& qualified) -> void {
-                                  out.name = qualified.qualifier.qualifier + "." + qualified.id;
+                                  out.name = common::full_symbol_name(qualified.qualifier.qualifier, qualified.id);
                                 },
                                 [&](const model::UnionTypeListBox& union_list) -> void {
                                   for (const auto& alt : union_list->alternatives) {
@@ -182,9 +193,6 @@ struct LoweringContext {
   std::unordered_set<std::string> all_top_level_value_symbols{};
 };
 
-auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
-  return qualifier.has_value() ? (*qualifier + "." + name) : name;
-}
 
 auto lower_expr(const model::Expression& expr, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError>;
@@ -403,7 +411,7 @@ auto replace_placeholder(const ir::IRExpr& template_expr, const ir::IRExpr& curr
 
 auto is_future_top_level_value_symbol(const LoweringContext& context, const std::optional<std::string>& qualifier,
                                       const std::string& name) -> bool {
-  const auto full_name = full_symbol_name(qualifier, name);
+  const auto full_name = common::full_symbol_name(qualifier, name);
   return context.all_top_level_value_symbols.contains(full_name) &&
          !context.visible_top_level_value_symbols.contains(full_name);
 }
@@ -618,10 +626,10 @@ auto lower_named_target_atom(const model::NamedTargetBox& target, const Lowering
 
   return std::visit(
       common::overloaded{[&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
-                           if (is_future_top_level_value_symbol(context, qid.qualifier.qualifier, qid.id)) {
-                             return tl::unexpected(make_use_before_declaration_error(
-                                 full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
-                           }
+                            if (is_future_top_level_value_symbol(context, qid.qualifier.qualifier, qid.id)) {
+                              return tl::unexpected(make_use_before_declaration_error(
+                                  common::full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
+                            }
 
                            if (target->explicit_type_args.empty()) {
                              if (auto std_result = lower_std_result_atom(qid, expr_span); std_result.has_value()) {
@@ -665,7 +673,7 @@ auto lower_atom(const model::Atom& atom, const LoweringContext& context)
           [&](const model::QualifiedId& qid) -> tl::expected<ir::IRExpr, LoweringError> {
             if (is_future_top_level_value_symbol(context, qid.qualifier.qualifier, qid.id)) {
               return tl::unexpected(make_use_before_declaration_error(
-                  full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
+                  common::full_symbol_name(qid.qualifier.qualifier, qid.id), qid.span));
             }
             return lower_qualified_id_atom(qid, atom.span);
           },
@@ -1003,13 +1011,15 @@ private:
   }
 
   [[nodiscard]] auto format_block_item(const ir::IRBlockItem& item, const int level) const -> std::string {
-    return std::visit(common::overloaded{[&](const ir::IRLocalLet& let) -> std::string {
-                                           return format_local_let(let, level);
-                                         },
-                                         [&](const ir::IRBlockExprStatement& stmt) -> std::string {
-                                           return format_block_expr_statement(stmt, level);
-                                         }},
-                      item);
+    return utility::structured_visit<std::string>(
+        common::overloaded{[&](const std::string& name, const ir::IRSimpleType& type, const ir::IRExprBox& expr,
+                               const std::optional<diag::SourceSpan>&) -> std::string {
+                             return format_local_let(ir::IRLocalLet{.name = name, .type = type, .expr = expr}, level);
+                           },
+                           [&](const ir::IRExprBox& expr, const std::optional<diag::SourceSpan>&) -> std::string {
+                             return format_block_expr_statement(ir::IRBlockExprStatement{.expr = expr}, level);
+                           }},
+        item);
   }
 
   [[nodiscard]] auto format_block_expr(const ir::IRBlockExpr& block, const int level) const -> std::string {
@@ -1274,7 +1284,7 @@ auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::stri
                          const model::LetStatement& model_let, const LoweringContext& context)
     -> tl::expected<void, LoweringError> {
   auto [qualifier, name] = split_id(model_let.id);
-  const std::string public_symbol = qualifier.has_value() ? (*qualifier + "." + name) : name;
+  const std::string public_symbol = common::full_symbol_name(qualifier, name);
 
   auto params = lower_let_params(model_let);
   if (auto valid_params = validate_variadic_params(params); !valid_params) {
@@ -1352,7 +1362,7 @@ auto collect_top_level_value_symbols(const model::Program& program) -> std::unor
       continue;
     }
     const auto [qualifier, name] = split_id(let_stmt->id);
-    symbols.insert(full_symbol_name(qualifier, name));
+    symbols.insert(common::full_symbol_name(qualifier, name));
   }
   return symbols;
 }
@@ -1364,7 +1374,7 @@ void assign_builtin_overload_symbol_keys(ir::IRProgram& ir_program) {
     if (!let.is_builtin) {
       continue;
     }
-    const std::string public_symbol = let.qualifier.has_value() ? (*let.qualifier + "." + let.name) : let.name;
+    const std::string public_symbol = common::full_symbol_name(let.qualifier, let.name);
     builtin_overload_slots[public_symbol].push_back(let_index);
   }
 
@@ -1394,7 +1404,7 @@ auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult 
     if (const auto* let_stmt = std::get_if<model::LetStatement>(&stmt);
         let_stmt != nullptr && let_stmt->is_value_binding) {
       const auto [qualifier, name] = split_id(let_stmt->id);
-      top_level_context.visible_top_level_value_symbols.insert(full_symbol_name(qualifier, name));
+      top_level_context.visible_top_level_value_symbols.insert(common::full_symbol_name(qualifier, name));
     }
   }
 

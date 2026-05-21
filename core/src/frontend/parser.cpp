@@ -17,6 +17,8 @@
 namespace fleaux::frontend::parse {
 namespace {
 
+constexpr std::string_view kUInt64LiteralSuffix = "u64";
+
 template <typename T>
 using PResult = tl::expected<T, ParseError>;
 
@@ -719,12 +721,17 @@ private:
     return make_atom(std::move(constant), start);
   }
 
-  auto parse_number_constant(const Token& num, const bool negate, const std::size_t start) const
+  [[nodiscard]] auto parse_number_constant(const Token& num, const bool negate, const std::size_t start) const
       -> PResult<model::Constant> {
     model::Constant c;
-    const bool is_u64 = num.value.ends_with("u64");
-    const std::string digits = is_u64 ? num.value.substr(0, num.value.size() - 3) : num.value;
-    const auto parse_uint64_literal = [&](const std::string& text) -> PResult<std::uint64_t> {
+    const std::string_view literal = num.value;
+    const bool is_u64 = literal.ends_with(kUInt64LiteralSuffix);
+    std::string_view digits = literal;
+    if (is_u64) {
+      digits.remove_suffix(kUInt64LiteralSuffix.size());
+    }
+    const bool has_fractional_or_exponent_part = digits.find_first_of(".eE") != std::string_view::npos;
+    const auto parse_uint64_literal = [&](const std::string_view text) -> PResult<std::uint64_t> {
       std::uint64_t result{0};
       const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
       if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
@@ -735,7 +742,7 @@ private:
       }
       return result;
     };
-    const auto parse_int64_literal = [&](const std::string& text) -> PResult<std::int64_t> {
+    const auto parse_int64_literal = [&](const std::string_view text) -> PResult<std::int64_t> {
       std::int64_t result{0};
       const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
       if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
@@ -746,7 +753,7 @@ private:
       }
       return result;
     };
-    const auto parse_float64_literal = [&](const std::string& text) -> PResult<double> {
+    const auto parse_float64_literal = [&](const std::string_view text) -> PResult<double> {
       double result{0.0};
       const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), result);
       if (ec == std::errc::invalid_argument || ptr != text.data() + text.size()) {
@@ -763,13 +770,13 @@ private:
         return tl::unexpected(
             err("UInt64 literal cannot be negative", num, "Remove the unary '-' or use an Int64/Float64 literal."));
       }
-      if (digits.find_first_of(".eE") != std::string::npos) {
+      if (has_fractional_or_exponent_part) {
         return tl::unexpected(
             err("Invalid UInt64 literal", num, "UInt64 literals must be whole numbers (for example: 42u64)."));
       }
       FLEAUX_TRY_ASSIGN(result, parse_uint64_literal(digits));
       c.val = result;
-    } else if (digits.find_first_of(".eE") != std::string::npos) {
+    } else if (has_fractional_or_exponent_part) {
       FLEAUX_TRY_ASSIGN(result, parse_float64_literal(digits));
       c.val = negate ? -result : result;
     } else if (negate) {
@@ -1600,29 +1607,29 @@ private:
             },
             [&](const model::BlockExpressionBox& block) -> std::string {
               return format_boxed_or_null(block, [&](const model::BlockExpression& inner) -> std::string {
-                const auto items = collect_formatted_items(inner.items, [&](const model::BlockItem& item) -> std::string {
-                  return std::visit(common::overloaded{
-                                        [&](const model::LocalLetBinding& binding) -> std::string {
-                                          return format_block(
-                                              "LocalLetBinding",
-                                              {std::format("name: {}", quote(binding.name)),
-                                               std::format("type: {}", format_type(binding.type, level + 2)),
-                                               std::format("expr: {}", format_nullable_expression(binding.expr, level + 2))},
-                                              level + 1);
-                                        },
-                                        [&](const model::ExpressionStatement& stmt) -> std::string {
-                                          return format_block(
-                                              "ExpressionStatement",
-                                              {std::format("expr: {}", format_expression(stmt.expr, level + 2))},
-                                              level + 1);
-                                        }},
-                                    item);
-                });
-                return format_block(
-                    "BlockExpression",
-                    {std::format("items: {}", format_list(items, level + 1)),
-                     std::format("result: {}", format_nullable_expression(inner.result, level + 1))},
-                    level);
+                const auto items =
+                    collect_formatted_items(inner.items, [&](const model::BlockItem& item) -> std::string {
+                      return std::visit(
+                          common::overloaded{
+                              [&](const model::LocalLetBinding& binding) -> std::string {
+                                return format_block(
+                                    "LocalLetBinding",
+                                    {std::format("name: {}", quote(binding.name)),
+                                     std::format("type: {}", format_type(binding.type, level + 2)),
+                                     std::format("expr: {}", format_nullable_expression(binding.expr, level + 2))},
+                                    level + 1);
+                              },
+                              [&](const model::ExpressionStatement& stmt) -> std::string {
+                                return format_block("ExpressionStatement",
+                                                    {std::format("expr: {}", format_expression(stmt.expr, level + 2))},
+                                                    level + 1);
+                              }},
+                          item);
+                    });
+                return format_block("BlockExpression",
+                                    {std::format("items: {}", format_list(items, level + 1)),
+                                     std::format("result: {}", format_nullable_expression(inner.result, level + 1))},
+                                    level);
               });
             },
             [&](const model::Constant& constant) -> std::string { return format_constant(constant, level); },

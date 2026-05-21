@@ -114,6 +114,10 @@ auto make_string_constant_box(std::string value) -> fleaux::frontend::ir::IRExpr
   return make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::move(value), .span = std::nullopt});
 }
 
+auto make_null_constant_box() -> fleaux::frontend::ir::IRExprBox {
+  return make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::monostate{}, .span = std::nullopt});
+}
+
 auto make_name_ref_box(std::optional<std::string> qualifier, std::string name,
                        std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
   fleaux::frontend::ir::IRNameRef name_ref{};
@@ -151,13 +155,15 @@ auto make_compile_options(const bool enable_value_ref_gate = false, const bool e
                           std::optional<std::filesystem::path> source_path = std::nullopt,
                           std::optional<std::string> source_text = std::nullopt,
                           std::optional<std::string> module_name = std::nullopt,
-                          std::vector<fleaux::bytecode::Module> imported_modules = {})
+                          std::vector<fleaux::bytecode::Module> imported_modules = {},
+                          const bool enable_experimental_builtin_reductions = false)
     -> fleaux::bytecode::CompileOptions {
   fleaux::bytecode::CompileOptions options{};
   options.source_path = std::move(source_path);
   options.source_text = std::move(source_text);
   options.module_name = std::move(module_name);
   options.imported_modules = std::move(imported_modules);
+  options.enable_experimental_builtin_reductions = enable_experimental_builtin_reductions;
   options.enable_value_ref_gate = enable_value_ref_gate;
   options.enable_auto_value_ref = enable_auto_value_ref;
   options.value_ref_byte_cutoff = value_ref_byte_cutoff;
@@ -298,13 +304,12 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
 // Expected codegen:
 //   [0] kPushConst     idx(4)
 //   [1] kPushConst     idx(5)
-//   [2] kBuildTuple    2
-//   [3] kCallBuiltin   idx(Std.Add)      = 0
-//   [4] kCallBuiltin   idx(Std.Println)  = 1
-//   [5] kPop
-//   [6] kHalt
+//   [2] kAdd
+//   [3] kCallBuiltin   idx(Std.Println)
+//   [4] kPop
+//   [5] kHalt
 // ---------------------------------------------------------------------------
-TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[bytecode]") {
+TEST_CASE("Bytecode compiler emits pipeline with native Std.Add lowering", "[bytecode]") {
   const auto ir_program = lower_source_to_ir("(4, 5) -> Std.Add -> Std.Println;\n", "bytecode_pipeline.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -313,7 +318,7 @@ TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[
   REQUIRE(result.has_value());
 
   const auto& instr = result->instructions;
-  REQUIRE(instr.size() == 7);
+  REQUIRE(instr.size() == 6);
 
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[0].operand)).data) == 4);
@@ -321,17 +326,13 @@ TEST_CASE("Bytecode compiler emits pipeline with BuildTuple and CallBuiltin", "[
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
 
-  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kBuildTuple);
-  REQUIRE(instr[2].operand == 2);
+  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kAdd);
 
   REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Add");
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
 
-  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[4].operand)) == "Std.Println");
-
-  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kPop);
-  REQUIRE(instr[6].opcode == fleaux::bytecode::Opcode::kHalt);
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
 TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overload", "[bytecode][overload]") {
@@ -1222,6 +1223,189 @@ TEST_CASE("Bytecode compiler falls back to builtin dispatch when operator shorth
   REQUIRE_FALSE(found_native_add);
   REQUIRE(found_build_tuple);
   REQUIRE(found_builtin_add);
+}
+
+TEST_CASE("Bytecode compiler lowers explicit Std.Add to native opcode by default", "[bytecode]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {make_int_constant_box(1), make_int_constant_box(2)},
+                  .span = std::nullopt,
+              }),
+              .rhs = make_ir_name_ref("Std", "Add"),
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+
+  bool found_native_add = false;
+  bool found_builtin_add = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kAdd) {
+      found_native_add = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Add") {
+        found_builtin_add = true;
+      }
+    }
+  }
+
+  REQUIRE(found_native_add);
+  REQUIRE_FALSE(found_builtin_add);
+}
+
+TEST_CASE("Bytecode compiler keeps reducible builtin call chains intact by default", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "\"  hello  \" -> Std.String.TrimStart -> Std.String.TrimEnd;\n",
+      "builtin_reductions_default_off.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+
+  bool found_builtin_trim = false;
+  bool found_builtin_trim_start = false;
+  bool found_builtin_trim_end = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
+      if (builtin_name == "Std.String.Trim") found_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart") found_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd") found_builtin_trim_end = true;
+    }
+  }
+
+  REQUIRE_FALSE(found_builtin_trim);
+  REQUIRE(found_builtin_trim_start);
+  REQUIRE(found_builtin_trim_end);
+}
+
+TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to equivalent single calls",
+          "[bytecode][optimizer][experimental]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "\"  hello  \" -> Std.String.TrimStart -> Std.String.TrimEnd;\n"
+      "1 -> Std.Result.Ok -> Std.Result.Tag -> Std.Not;\n"
+      "1 -> Std.Result.Ok -> Std.Result.Tag;\n"
+      "((1, 2), (3, 4)) -> Std.Array.Shape -> Std.Length;\n"
+      "(\"abc\", \"b\", 0) -> Std.String.Find -> (_, -1) -> Std.NotEqual;\n"
+      "(\"abc\", \"b\") -> Std.String.Regex.Find -> (_, -1) -> Std.NotEqual;\n",
+      "builtin_reductions.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt,
+                                                                        std::nullopt, {}, true));
+
+  REQUIRE(result.has_value());
+
+  bool found_builtin_trim = false;
+  bool found_builtin_trim_start = false;
+  bool found_builtin_trim_end = false;
+  bool found_builtin_result_is_err = false;
+  bool found_builtin_result_tag = false;
+  bool found_builtin_result_is_ok = false;
+  bool found_builtin_array_rank = false;
+  bool found_builtin_array_shape = false;
+  bool found_builtin_length = false;
+  bool found_builtin_string_contains = false;
+  bool found_builtin_string_find = false;
+  bool found_builtin_regex_is_match = false;
+  bool found_builtin_regex_find = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
+      if (builtin_name == "Std.String.Trim") found_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart") found_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd") found_builtin_trim_end = true;
+      if (builtin_name == "Std.Result.IsErr") found_builtin_result_is_err = true;
+      if (builtin_name == "Std.Result.Tag") found_builtin_result_tag = true;
+      if (builtin_name == "Std.Result.IsOk") found_builtin_result_is_ok = true;
+      if (builtin_name == "Std.Array.Rank") found_builtin_array_rank = true;
+      if (builtin_name == "Std.Array.Shape") found_builtin_array_shape = true;
+      if (builtin_name == "Std.Length") found_builtin_length = true;
+      if (builtin_name == "Std.String.Contains") found_builtin_string_contains = true;
+      if (builtin_name == "Std.String.Find") found_builtin_string_find = true;
+      if (builtin_name == "Std.String.Regex.IsMatch") found_builtin_regex_is_match = true;
+      if (builtin_name == "Std.String.Regex.Find") found_builtin_regex_find = true;
+    }
+  }
+
+  REQUIRE(found_builtin_trim);
+  REQUIRE_FALSE(found_builtin_trim_start);
+  REQUIRE_FALSE(found_builtin_trim_end);
+  REQUIRE(found_builtin_result_is_err);
+  REQUIRE_FALSE(found_builtin_result_tag);
+  REQUIRE(found_builtin_result_is_ok);
+  REQUIRE(found_builtin_array_rank);
+  REQUIRE_FALSE(found_builtin_array_shape);
+  REQUIRE_FALSE(found_builtin_length);
+  REQUIRE(found_builtin_string_contains);
+  REQUIRE_FALSE(found_builtin_string_find);
+  REQUIRE(found_builtin_regex_is_match);
+  REQUIRE_FALSE(found_builtin_regex_find);
+}
+
+TEST_CASE("Bytecode compiler can experimentally reduce Std.OS.Env null comparison to Std.OS.HasEnv",
+          "[bytecode][experimental][optimizer]") {
+  fleaux::frontend::ir::IRProgram ir_program;
+  ir_program.expressions = {
+      fleaux::frontend::ir::IRExprStatement{
+          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                  .items = {
+                      make_ir_box(fleaux::frontend::ir::IRFlowExpr{
+                          .lhs = make_string_constant_box("PATH"),
+                          .rhs = make_ir_name_ref("Std.OS", "Env"),
+                          .span = std::nullopt,
+                      }),
+                      make_null_constant_box(),
+                  },
+                  .span = std::nullopt,
+              }),
+              .rhs = make_ir_name_ref("Std", "NotEqual"),
+              .span = std::nullopt,
+          }),
+          .span = std::nullopt,
+      },
+  };
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt,
+                                                                        std::nullopt, {}, true));
+
+  REQUIRE(result.has_value());
+
+  bool found_builtin_os_has_env = false;
+  bool found_builtin_os_env = false;
+  for (const auto& ins : result->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
+      if (builtin_name == "Std.OS.HasEnv") found_builtin_os_has_env = true;
+      if (builtin_name == "Std.OS.Env") found_builtin_os_env = true;
+    }
+  }
+
+  REQUIRE(found_builtin_os_has_env);
+  REQUIRE_FALSE(found_builtin_os_env);
 }
 
 TEST_CASE("Bytecode compiler reports unsupported operator shorthand", "[bytecode]") {
@@ -3136,6 +3320,49 @@ TEST_CASE("Bytecode module loader threads auto value-ref options into compilatio
     }
   }
   REQUIRE(saw_make_value_ref);
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
+}
+
+TEST_CASE("Bytecode module loader threads experimental builtin reductions into compilation and bypasses cache writes",
+          "[bytecode][optimizer][experimental][loader]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_builtin_reductions_loader";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "entry.fleaux.bc";
+
+  {
+    std::ofstream out(entry_path);
+    REQUIRE(out.good());
+    out << "import Std;\n"
+            "\"  hi  \" -> Std.String.TrimStart -> Std.String.TrimEnd -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(
+      entry_path,
+      fleaux::bytecode::ModuleLoadOptions{
+          .enable_experimental_builtin_reductions = true,
+      });
+  REQUIRE(loaded.has_value());
+
+  bool saw_builtin_trim = false;
+  bool saw_builtin_trim_start = false;
+  bool saw_builtin_trim_end = false;
+  for (const auto& ins : loaded->instructions) {
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+      REQUIRE(builtin_id.has_value());
+      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
+      if (builtin_name == "Std.String.Trim") saw_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart") saw_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd") saw_builtin_trim_end = true;
+    }
+  }
+
+  REQUIRE(saw_builtin_trim);
+  REQUIRE_FALSE(saw_builtin_trim_start);
+  REQUIRE_FALSE(saw_builtin_trim_end);
   REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
 }
 

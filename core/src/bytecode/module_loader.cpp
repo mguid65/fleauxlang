@@ -2,11 +2,13 @@
 
 #include <fstream>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/common/symbol_name.hpp"
 #include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/frontend/type_check.hpp"
@@ -16,7 +18,7 @@ namespace {
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
-using ResolvedModulePaths = fleaux::frontend::import_resolution::ResolvedModulePaths;
+using ResolvedModulePaths = frontend::import_resolution::ResolvedModulePaths;
 
 struct LoaderState {
   std::unordered_map<std::string, Module> unlinked_cache;
@@ -66,18 +68,15 @@ auto hash_text(const std::string& text) -> std::uint64_t {
 }
 
 auto value_ref_cache_compatible(const ModuleLoadOptions& options) -> bool {
-  return !options.enable_value_ref_gate && !options.enable_auto_value_ref;
-}
-
-auto full_symbol_name(const std::optional<std::string>& qualifier, const std::string& name) -> std::string {
-  return qualifier.has_value() ? (*qualifier + "." + name) : name;
+  return !options.enable_experimental_builtin_reductions && !options.enable_value_ref_gate &&
+         !options.enable_auto_value_ref;
 }
 
 auto let_identity_key(const frontend::ir::IRLet& let) -> std::string {
   if (!let.symbol_key.empty()) {
     return let.symbol_key;
   }
-  return full_symbol_name(let.qualifier, let.name);
+  return common::full_symbol_name(let.qualifier, let.name);
 }
 
 auto export_identity_key(const ExportedSymbol& symbol) -> std::string {
@@ -102,12 +101,19 @@ auto read_binary_file(const std::filesystem::path& file_path)
   return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+void write_raw_bytes(std::ostream& out, const std::span<const std::uint8_t> bytes) {
+  if (bytes.empty()) {
+    return;
+  }
+  out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
 void write_binary_file(const std::filesystem::path& file_path, const std::vector<std::uint8_t>& bytes) {
   std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
   if (!out) {
     return;
   }
-  out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  write_raw_bytes(out, bytes);
 }
 
 auto rebase_instruction_stream(const std::vector<Instruction>& source_instructions, const MergeMaps& maps,
@@ -251,7 +257,7 @@ auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOp
     return std::optional<Module>{deserialized.value()};
   }
 
-  if (const auto source_text = fleaux::frontend::source_loader::read_text_file(*paths.source);
+  if (const auto source_text = frontend::source_loader::read_text_file(*paths.source);
       source_text && deserialized->header.source_hash == hash_text(*source_text) &&
       deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
     return std::optional<Module>{deserialized.value()};
@@ -476,6 +482,7 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
                      .source_text = source_text,
                      .module_name = paths.source->stem().string(),
                      .imported_modules = std::move(loaded_imports.modules),
+                      .enable_experimental_builtin_reductions = options.enable_experimental_builtin_reductions,
                      .enable_value_ref_gate = options.enable_value_ref_gate || options.enable_auto_value_ref,
                      .enable_auto_value_ref = options.enable_auto_value_ref,
                      .value_ref_byte_cutoff = options.value_ref_byte_cutoff,

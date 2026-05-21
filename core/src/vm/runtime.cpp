@@ -1605,6 +1605,8 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
                                                .source_text = snippet_text,
                                                .module_name = std::string{"repl"},
                                                .imported_modules = {},
+                                               .enable_experimental_builtin_reductions =
+                                                   impl_->compile_options.enable_experimental_builtin_reductions,
                                                .enable_value_ref_gate = impl_->compile_options.enable_value_ref_gate ||
                                                                         impl_->compile_options.enable_auto_value_ref,
                                                .enable_auto_value_ref = impl_->compile_options.enable_auto_value_ref,

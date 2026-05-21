@@ -14,6 +14,10 @@ namespace {
 
 #if defined(_WIN32)
 
+auto format_message_buffer_arg(LPSTR& buffer) -> LPSTR { return reinterpret_cast<LPSTR>(&buffer); }
+
+auto symbol_address(FARPROC proc) -> void* { return reinterpret_cast<void*>(proc); }
+
 [[nodiscard]] auto last_error_message() -> std::string {
   const DWORD code = GetLastError();
   if (code == 0) {
@@ -21,8 +25,8 @@ namespace {
   }
 
   LPSTR buffer = nullptr;
-  const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
-  const DWORD length = FormatMessageA(flags, nullptr, code, 0, reinterpret_cast<LPSTR>(&buffer), 0, nullptr);
+  constexpr DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+  const DWORD length = FormatMessageA(flags, nullptr, code, 0, format_message_buffer_arg(buffer), 0, nullptr);
   if (length == 0 || buffer == nullptr) {
     return "Dynamic loader error code: " + std::to_string(code);
   }
@@ -60,7 +64,7 @@ public:
       });
     }
 
-    return reinterpret_cast<void*>(proc);
+    return symbol_address(proc);
   }
 
 private:
@@ -161,11 +165,13 @@ public:
 
 #endif
 
+auto binding_module_entrypoint(void* entrypoint) -> RegisterBindingModuleFn {
+  return reinterpret_cast<RegisterBindingModuleFn>(entrypoint);
+}
+
 }  // namespace
 
-auto make_system_dynamic_loader() -> std::unique_ptr<DynamicLoader> {
-  return std::make_unique<SystemDynamicLoader>();
-}
+auto make_system_dynamic_loader() -> std::unique_ptr<DynamicLoader> { return std::make_unique<SystemDynamicLoader>(); }
 
 auto resolve_binding_module_entrypoint(const DynamicLibrary& library)
     -> tl::expected<RegisterBindingModuleFn, DynamicLoadError> {
@@ -180,7 +186,7 @@ auto resolve_binding_module_entrypoint(const DynamicLibrary& library)
   // Dynamic-library APIs surface resolved symbols as untyped addresses. Keep
   // the platform-boundary conversion to the typed registration entrypoint
   // isolated here rather than spreading it through higher-level host logic.
-  const auto register_module = reinterpret_cast<RegisterBindingModuleFn>(*entrypoint);
+  const auto register_module = binding_module_entrypoint(*entrypoint);
   if (register_module == nullptr) {
     return tl::unexpected(DynamicLoadError{
         .message = "Binding module entrypoint pointer is null.",
@@ -192,5 +198,3 @@ auto resolve_binding_module_entrypoint(const DynamicLibrary& library)
 }
 
 }  // namespace fleaux::embed
-
-

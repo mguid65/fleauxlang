@@ -5,6 +5,39 @@
 #include "fleaux/runtime/value.hpp"
 
 namespace fleaux::runtime {
+
+template <typename Visitor>
+void for_each_tuple_value(const Array& src, Visitor&& visitor) {
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    visitor(*src.TryGet(index));
+  }
+}
+
+template <typename Predicate>
+[[nodiscard]] auto tuple_find_index_if(const Array& src, Predicate&& predicate) -> std::optional<std::size_t> {
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    if (const Value& item = *src.TryGet(index); predicate(item)) {
+      return index;
+    }
+  }
+  return std::nullopt;
+}
+
+template <typename Predicate>
+[[nodiscard]] auto tuple_any_of(const Array& src, Predicate&& predicate) -> bool {
+  return tuple_find_index_if(src, predicate).has_value();
+}
+
+template <typename Predicate>
+[[nodiscard]] auto tuple_all_of(const Array& src, Predicate&& predicate) -> bool {
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    if (const Value& item = *src.TryGet(index); !predicate(item)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Tuple builtins
 
 // arg = [sequence, item]
@@ -49,12 +82,7 @@ namespace fleaux::runtime {
   const auto& args = require_args(arg, 2, "TupleContains");
   const auto& src = as_array(*args.TryGet(0));
   const Value& item = *args.TryGet(1);
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (*src.TryGet(index) == item) {
-      return make_bool(true);
-    }
-  }
-  return make_bool(false);
+  return make_bool(tuple_any_of(src, [&](const Value& candidate) -> bool { return candidate == item; }));
 }
 
 // arg = [sequenceA, sequenceB]  ->  [(a0,b0), (a1,b1), ...]
@@ -79,9 +107,7 @@ namespace fleaux::runtime {
 
   Array out;
   out.Reserve(src.Size());
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    out.PushBack(invoke_callable_ref(function_ref, *src.TryGet(index)));
-  }
+  for_each_tuple_value(src, [&](const Value& item) { out.PushBack(invoke_callable_ref(function_ref, item)); });
   return Value{std::move(out)};
 }
 
@@ -92,11 +118,11 @@ namespace fleaux::runtime {
   const Value& pred = *args.TryGet(1);
 
   Array out;
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (const Value& item = *src.TryGet(index); as_bool(invoke_callable_ref(pred, item))) {
+  for_each_tuple_value(src, [&](const Value& item) {
+    if (as_bool(invoke_callable_ref(pred, item))) {
       out.PushBack(item);
     }
-  }
+  });
   return Value{std::move(out)};
 }
 
@@ -105,9 +131,7 @@ namespace fleaux::runtime {
   const auto& src = as_array(arg);
   std::vector<Value> items;
   items.reserve(src.Size());
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    items.push_back(*src.TryGet(index));
-  }
+  for_each_tuple_value(src, [&](const Value& item) { items.push_back(item); });
 
   std::ranges::stable_sort(
       items, [](const Value& lhs, const Value& rhs) -> bool { return compare_values_for_sort(lhs, rhs) < 0; });
@@ -181,9 +205,9 @@ namespace fleaux::runtime {
   const auto& src = as_array(*args.TryGet(0));
   Value accumulator = *args.TryGet(1);
   const Value& reducer = *args.TryGet(2);
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    accumulator = invoke_callable_ref(reducer, make_tuple(std::move(accumulator), *src.TryGet(index)));
-  }
+  for_each_tuple_value(src, [&](const Value& item) {
+    accumulator = invoke_callable_ref(reducer, make_tuple(std::move(accumulator), item));
+  });
   return accumulator;
 }
 
@@ -192,10 +216,10 @@ namespace fleaux::runtime {
   const auto& args = require_args(arg, 2, "TupleFindIndex");
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
-      return make_int(static_cast<Int>(index));
-    }
+  if (const auto index =
+          tuple_find_index_if(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); });
+      index.has_value()) {
+    return make_int(static_cast<Int>(*index));
   }
   return make_int(-1);
 }
@@ -205,12 +229,8 @@ namespace fleaux::runtime {
   const auto& args = require_args(arg, 2, "TupleAny");
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
-      return make_bool(true);
-    }
-  }
-  return make_bool(false);
+  return make_bool(
+      tuple_any_of(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); }));
 }
 
 // arg = [sequence, pred_ref]
@@ -218,12 +238,8 @@ namespace fleaux::runtime {
   const auto& args = require_args(arg, 2, "TupleAll");
   const auto& src = as_array(*args.TryGet(0));
   const Value& pred = *args.TryGet(1);
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (!as_bool(invoke_callable_ref(pred, *src.TryGet(index)))) {
-      return make_bool(false);
-    }
-  }
-  return make_bool(true);
+  return make_bool(
+      tuple_all_of(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); }));
 }
 
 // arg = [stop] | [start, stop] | [start, stop, step]

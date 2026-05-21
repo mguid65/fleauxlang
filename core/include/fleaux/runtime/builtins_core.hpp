@@ -47,6 +47,13 @@ inline auto normalize_runtime_error_message(std::string message) -> std::string 
   return message;
 }
 
+inline void append_sequence_range(Array& out, const Array& seq, const std::size_t start, const std::size_t stop,
+                                  const std::size_t step = 1) {
+  for (std::size_t index = start; index < stop; index += step) {
+    out.PushBack(*seq.TryGet(index));
+  }
+}
+
 class RuntimePayloadError final : public std::exception {
 public:
   RuntimePayloadError(Value payload, std::string message)
@@ -84,19 +91,17 @@ private:
   const std::size_t take_count = std::min(as_index_strict(array_at(arg, 1), "Take count"), seq.Size());
   Array out;
   out.Reserve(take_count);
-  for (std::size_t index = 0; index < take_count; ++index) {
-    out.PushBack(*seq.TryGet(index));
-  }
+  append_sequence_range(out, seq, 0, take_count);
   return Value{std::move(out)};
 }
 
 [[nodiscard]] inline auto Drop(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
   const std::size_t start = as_index_strict(array_at(arg, 1), "Drop count");
+  const std::size_t clamped_start = std::min(start, seq.Size());
   Array out;
-  for (std::size_t index = start; index < seq.Size(); ++index) {
-    out.PushBack(*seq.TryGet(index));
-  }
+  out.Reserve(seq.Size() - clamped_start);
+  append_sequence_range(out, seq, clamped_start, seq.Size());
   return Value{std::move(out)};
 }
 
@@ -125,9 +130,7 @@ private:
 
   Array out;
   const std::size_t end = std::min(real_stop, seq.Size());
-  for (std::size_t index = real_start; index < end; index += real_step) {
-    out.PushBack(*seq.TryGet(index));
-  }
+  append_sequence_range(out, seq, real_start, end, real_step);
   return Value{std::move(out)};
 }
 
@@ -155,9 +158,6 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 [[nodiscard]] inline auto Add(Value arg) -> Value {
   const Value& lhs = array_at(arg, 0);
   const Value& rhs = array_at(arg, 1);
-  if (lhs.HasString() && rhs.HasString()) {
-    return make_string(as_string(lhs) + as_string(rhs));
-  }
   require_no_implicit_float_promotion(lhs, rhs, "Add");
   require_same_integer_kind(lhs, rhs, "Add");
   return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),

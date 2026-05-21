@@ -1,5 +1,7 @@
 #include "fleaux/common/embedded_resource.hpp"
 
+#include <algorithm>
+
 namespace fleaux::common {
 namespace {
 
@@ -12,10 +14,8 @@ auto registry_storage() -> std::span<const EmbeddedResourceView>& {
 
 auto find_embedded_resource(const std::span<const EmbeddedResourceView> resources, const std::string_view name)
     -> std::optional<EmbeddedResourceView> {
-  for (const auto& resource : resources) {
-    if (resource.name == name) {
-      return resource;
-    }
+  if (const auto it = std::ranges::find(resources, name, &EmbeddedResourceView::name); it != resources.end()) {
+    return *it;
   }
   return std::nullopt;
 }
@@ -40,11 +40,10 @@ auto find_embedded_resource(const std::string_view name) -> std::optional<Embedd
 }
 
 auto embedded_resource_text(const std::string_view name) -> std::optional<std::string_view> {
-  const auto resource = find_embedded_resource(name);
-  if (!resource.has_value()) {
-    return std::nullopt;
+  if (const auto resource = find_embedded_resource(name); resource.has_value()) {
+    return embedded_resource_text(*resource);
   }
-  return embedded_resource_text(*resource);
+  return std::nullopt;
 }
 
 }  // namespace fleaux::common

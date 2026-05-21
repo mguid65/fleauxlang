@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "fleaux/frontend/type_system/detail/type_format.hpp"
+
 namespace fleaux::frontend::type_system {
 namespace {
 
@@ -65,51 +67,30 @@ auto type_sort_key(const Type& type) -> std::string {
       return "10:V:" + type.nominal_name;
     case TypeKind::kApplied: {
       std::string key = "11:A:" + type.applied_name + "(";
-      for (std::size_t i = 0; i < type.applied_args.size(); ++i) {
-        if (i > 0U) {
-          key += ",";
-        }
-        key += type_sort_key(type.applied_args[i]);
-      }
+      detail::append_joined_fragments(key, type.applied_args, ",", [](const Type& arg) { return type_sort_key(arg); });
       key += ")";
       return key;
     }
     case TypeKind::kTuple: {
       std::string key = "12:T(";
-      for (std::size_t i = 0; i < type.items.size(); ++i) {
-        if (i > 0U) {
-          key += ",";
-        }
-        key += type_sort_key(type.items[i]);
-        if (type.items[i].variadic) {
-          key += "...";
-        }
-      }
+      detail::append_joined_type_fragments(
+          key, type.items, ",", [](const Type& item) { return type_sort_key(item); },
+          [](const Type& item) { return item.variadic; });
       key += ")";
       return key;
     }
     case TypeKind::kUnion: {
       std::string key = "13:U(";
-      for (std::size_t i = 0; i < type.union_members.size(); ++i) {
-        if (i > 0U) {
-          key += "|";
-        }
-        key += type_sort_key(type.union_members[i]);
-      }
+      detail::append_joined_fragments(key, type.union_members, "|",
+                                      [](const Type& member) { return type_sort_key(member); });
       key += ")";
       return key;
     }
     case TypeKind::kFunction: {
       std::string key = "14:F(";
-      for (std::size_t i = 0; i < type.function_params.size(); ++i) {
-        if (i > 0U) {
-          key += ",";
-        }
-        key += type_sort_key(type.function_params[i]);
-        if (type.function_params[i].variadic) {
-          key += "...";
-        }
-      }
+      detail::append_joined_type_fragments(
+          key, type.function_params, ",", [](const Type& param) { return type_sort_key(param); },
+          [](const Type& param) { return param.variadic; });
       key += ")->";
       if (type.function_return.has_value()) {
         key += type_sort_key(*type.function_return);
@@ -289,8 +270,9 @@ auto are_tuple_types_consistent(const Type& expected, const Type& actual) -> boo
     return false;
   }
 
-  const auto variadic_it = std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
-  if (variadic_it != expected.items.end()) {
+  if (const auto variadic_it =
+          std::ranges::find_if(expected.items, [](const Type& item) -> bool { return item.variadic; });
+      variadic_it != expected.items.end()) {
     const auto variadic_index = static_cast<std::size_t>(std::distance(expected.items.begin(), variadic_it));
     if (variadic_index + 1U != expected.items.size()) {
       return false;

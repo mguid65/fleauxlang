@@ -17,6 +17,7 @@ struct ModuleLoadError {
 struct ModuleLoadOptions {
   OptimizationMode mode{OptimizationMode::kBaseline};
   bool write_bytecode_cache{true};
+  bool enable_experimental_builtin_reductions{false};
   bool enable_value_ref_gate{false};
   bool enable_auto_value_ref{false};
   std::size_t value_ref_byte_cutoff{256};
