@@ -379,7 +379,7 @@ inline auto parse_and_analyze_repl_text(const std::string& source_text, const st
       return tl::unexpected(std_program.error());
     }
 
-    seed_repl_std_symbolic_import(**std_program, imported_symbols, imported_typed_lets, imported_type_decls,
+    seed_repl_std_symbolic_import(std_program->get(), imported_symbols, imported_typed_lets, imported_type_decls,
                                   imported_alias_decls, symbolic_imported_lets, symbolic_imported_type_decls,
                                   symbolic_imported_alias_decls);
   }

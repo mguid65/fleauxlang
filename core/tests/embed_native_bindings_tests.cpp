@@ -1,3 +1,4 @@
+#include <memory>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
@@ -103,5 +104,88 @@ TEST_CASE("VmHost call_native forwards raw args without enforcing binding arity 
 
   REQUIRE(call_result.has_value());
   REQUIRE(fleaux::runtime::as_int_value(*call_result) == 5);
+}
+
+TEST_CASE("NativeBindingRegistry stores optional binary callable specializations", "[embed]") {
+  fleaux::embed::NativeBindingRegistry registry;
+  auto registration = registry.register_callable(
+      fleaux::embed::NativeBinding{
+          .symbol = "Host.Sum",
+          .signature = fleaux::embed::BindingSignature{},
+          .callable = [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
+              -> fleaux::embed::NativeInvokeResult { return args; },
+      },
+      [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& lhs, const fleaux::embed::VmValue& rhs)
+          -> fleaux::embed::NativeInvokeResult {
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(lhs) + fleaux::runtime::as_int_value(rhs));
+      });
+
+  REQUIRE(registration.has_value());
+  REQUIRE(registry.has_callable("Host.Sum"));
+  REQUIRE(registry.has_binary_callable("Host.Sum"));
+  REQUIRE(registry.find_binary_callable("Host.Sum").has_value());
+  REQUIRE(registry.unregister_callable("Host.Sum"));
+  REQUIRE_FALSE(registry.has_binary_callable("Host.Sum"));
+}
+
+TEST_CASE("VmHost call_native_binary uses registered binary specialization", "[embed]") {
+  fleaux::embed::NativeBindingRegistry registry;
+  const auto unary_calls = std::make_shared<int>(0);
+  const auto binary_calls = std::make_shared<int>(0);
+  auto registration = registry.register_callable(
+      fleaux::embed::NativeBinding{
+          .symbol = "Host.Sum",
+          .signature = fleaux::embed::BindingSignature{},
+          .callable = [unary_calls](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
+              -> fleaux::embed::NativeInvokeResult {
+            ++*unary_calls;
+            return args;
+          },
+      },
+      [binary_calls](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& lhs,
+                     const fleaux::embed::VmValue& rhs) -> fleaux::embed::NativeInvokeResult {
+        ++*binary_calls;
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(lhs) + fleaux::runtime::as_int_value(rhs));
+      });
+  REQUIRE(registration.has_value());
+
+  fleaux::embed::VmHostConfig config;
+  config.binding_registry = &registry;
+  fleaux::embed::VmHost host(config);
+
+  const auto call_result = host.call_native_binary("Host.Sum", fleaux::runtime::make_int(2), fleaux::runtime::make_int(3));
+
+  REQUIRE(call_result.has_value());
+  REQUIRE(fleaux::runtime::as_int_value(*call_result) == 5);
+  REQUIRE(*binary_calls == 1);
+  REQUIRE(*unary_calls == 0);
+}
+
+TEST_CASE("VmHost call_native_binary falls back to unary tuple invocation", "[embed]") {
+  fleaux::embed::NativeBindingRegistry registry;
+  const auto unary_calls = std::make_shared<int>(0);
+  auto registration = registry.register_callable(fleaux::embed::NativeBinding{
+      .symbol = "Host.SumUnary",
+      .signature = fleaux::embed::BindingSignature{},
+      .callable = [unary_calls](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
+          -> fleaux::embed::NativeInvokeResult {
+        ++*unary_calls;
+        const auto& pair = fleaux::runtime::as_array(args);
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
+                                         fleaux::runtime::as_int_value(*pair.TryGet(1)));
+      },
+  });
+  REQUIRE(registration.has_value());
+
+  fleaux::embed::VmHostConfig config;
+  config.binding_registry = &registry;
+  fleaux::embed::VmHost host(config);
+
+  const auto call_result =
+      host.call_native_binary("Host.SumUnary", fleaux::runtime::make_int(7), fleaux::runtime::make_int(8));
+
+  REQUIRE(call_result.has_value());
+  REQUIRE(fleaux::runtime::as_int_value(*call_result) == 15);
+  REQUIRE(*unary_calls == 1);
 }
 

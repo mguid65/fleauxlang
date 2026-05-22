@@ -35,13 +35,6 @@ namespace {
   };
 }
 
-[[nodiscard]] auto optional_input_ref(std::istream* input) -> std::optional<std::reference_wrapper<std::istream>> {
-  if (input == nullptr) {
-    return std::nullopt;
-  }
-  return std::ref(*input);
-}
-
 [[nodiscard]] auto host_register_callable(NativeBindingRegistry* registry, NativeBinding binding) -> BindingResult {
   if (registry == nullptr) {
     return tl::unexpected(BindingError{
@@ -72,7 +65,7 @@ void rollback_registered_symbols(NativeBindingRegistry& registry, const std::vec
 }
 
 [[nodiscard]] auto has_fleaux_export(const bytecode::Module& module, const std::string_view qualified_symbol) -> bool {
-  return std::ranges::any_of(module.exports, [qualified_symbol](const bytecode::ExportedSymbol& exported_symbol) {
+  return std::ranges::any_of(module.exports, [qualified_symbol](const bytecode::ExportedSymbol& exported_symbol) -> bool {
     return exported_symbol.name == qualified_symbol;
   });
 }
@@ -177,7 +170,7 @@ struct VmHost::Impl {
     std::ostringstream captured_stdout;
     const auto exec_result = runtime.execute(module, vm::RuntimeInvocationOptions{
                                                          .entry_label = entry_label,
-                                                         .input = optional_input_ref(config.stdin_stream),
+                                                         .input = config.stdin_stream,
                                                          .output = std::ref(captured_stdout),
                                                      });
     emit_stdout(captured_stdout.str());
@@ -188,7 +181,7 @@ struct VmHost::Impl {
     return runtime::make_int(static_cast<runtime::Int>(exec_result->exit_code));
   }
 
-  [[nodiscard]] auto invoke_native(VmHost* host, const std::string_view qualified_symbol, const VmValue& args) const
+  [[nodiscard]] auto invoke_native(VmHost& host, const std::string_view qualified_symbol, const VmValue& args) const
       -> VmResult {
     const auto* registry = config.binding_registry;
     if (registry == nullptr) {
@@ -205,10 +198,38 @@ struct VmHost::Impl {
     }
 
     const BindingContext context{
-        .host = *host,
+        .host = host,
         .symbol = qualified_symbol,
     };
     return binding->get().callable(context, args);
+  }
+
+  [[nodiscard]] auto invoke_native_binary(VmHost& host, const std::string_view qualified_symbol, const VmValue& lhs,
+                                          const VmValue& rhs) const -> VmResult {
+    const auto* registry = config.binding_registry;
+    if (registry == nullptr) {
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "No binding registry configured for VmHost.call_native_binary().",
+                     std::optional<std::string>{"Set VmHostConfig.binding_registry or call set_binding_registry()."}));
+    }
+
+    const auto binding = registry->find_callable(qualified_symbol);
+    if (!binding.has_value()) {
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "Binding symbol not found: '" + std::string{qualified_symbol} + "'.",
+                     std::optional<std::string>{"Register the symbol in NativeBindingRegistry before calling it."}));
+    }
+
+    const BindingContext context{
+        .host = host,
+        .symbol = qualified_symbol,
+    };
+
+    if (const auto binary_callable = registry->find_binary_callable(qualified_symbol); binary_callable.has_value()) {
+      return binary_callable->get()(context, lhs, rhs);
+    }
+
+    return binding->get().callable(context, runtime::make_tuple(lhs, rhs));
   }
 
   [[nodiscard]] auto invoke_fleaux(const std::string_view qualified_symbol, const VmValue& args) const -> VmResult {
@@ -222,7 +243,7 @@ struct VmHost::Impl {
     const auto invoked = runtime.invoke_symbol(*last_fleaux_module, qualified_symbol, args,
                                                vm::RuntimeInvocationOptions{
                                                    .entry_label = std::string{qualified_symbol},
-                                                   .input = optional_input_ref(config.stdin_stream),
+                                                   .input = config.stdin_stream,
                                                    .output = std::ref(captured_stdout),
                                                });
     emit_stdout(captured_stdout.str());
@@ -340,7 +361,13 @@ auto VmHost::run_source(const std::string_view module_name, const std::string_vi
 }
 
 auto VmHost::call_native(const std::string_view qualified_symbol, const VmValue& args) -> VmResult {
-  auto result = impl_->invoke_native(this, qualified_symbol, args);
+  auto result = impl_->invoke_native(*this, qualified_symbol, args);
+  return impl_->finalize_result(std::move(result));
+}
+
+auto VmHost::call_native_binary(const std::string_view qualified_symbol, const VmValue& lhs, const VmValue& rhs)
+    -> VmResult {
+  auto result = impl_->invoke_native_binary(*this, qualified_symbol, lhs, rhs);
   return impl_->finalize_result(std::move(result));
 }
 
@@ -365,7 +392,7 @@ auto VmHost::call(const std::string_view qualified_symbol, const VmValue& args) 
       return impl_->invoke_fleaux(qualified_symbol, args);
     }
     if (has_native_symbol) {
-      return impl_->invoke_native(this, qualified_symbol, args);
+      return impl_->invoke_native(*this, qualified_symbol, args);
     }
     if (impl_->last_fleaux_module.has_value() || registry != nullptr) {
       return tl::unexpected(make_error(

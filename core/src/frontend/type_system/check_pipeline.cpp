@@ -2,12 +2,14 @@
 
 #include "fleaux/frontend/type_system/call_shape.hpp"
 
+#include <functional>
+
 namespace fleaux::frontend::type_system::detail {
 
 namespace {
 
 struct FlowTargetResolution {
-  const FunctionOverloadSet* overloads = nullptr;
+  std::optional<std::reference_wrapper<const FunctionOverloadSet>> overloads{std::nullopt};
   bool fallback_to_any = false;
 };
 
@@ -29,7 +31,7 @@ auto resolve_flow_explicit_type_args(const ir::IRCallTarget& target, const Stron
 
 auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const FunctionIndex& index)
     -> tl::expected<FlowTargetResolution, type_check::AnalysisError> {
-  if (const auto* overloads = resolve_signature(index, target); overloads != nullptr) {
+  if (const auto overloads = resolve_signature(index, target); overloads.has_value()) {
     return FlowTargetResolution{.overloads = overloads, .fallback_to_any = false};
   }
 
@@ -40,7 +42,7 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
             make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
       }
       if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) {
-        return FlowTargetResolution{.overloads = nullptr, .fallback_to_any = true};
+        return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
       }
       return tl::unexpected(
           make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
@@ -51,7 +53,7 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
     }
   }
 
-  return FlowTargetResolution{.overloads = nullptr, .fallback_to_any = true};
+  return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
 }
 
 auto flow_args_from_lhs_type(const FunctionOverloadSet& overloads, const Type& lhs_type) -> std::vector<Type> {
@@ -319,7 +321,7 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
     return make_type(TypeKind::kAny);
   }
 
-  return finalize_flow_resolution(flow, *target_resolution->overloads, *lhs_type, type_index, generic_params,
+  return finalize_flow_resolution(flow, target_resolution->overloads->get(), *lhs_type, type_index, generic_params,
                                   *explicit_type_args);
 }
 

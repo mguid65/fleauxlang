@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -49,7 +50,7 @@ public:
                          const std::vector<ir::IRLet>& imported_typed_lets = {});
 
   [[nodiscard]] auto resolve_name(const std::optional<std::string>& qualifier, const std::string& name) const
-      -> const FunctionOverloadSet*;
+      -> std::optional<std::reference_wrapper<const FunctionOverloadSet>>;
 
   [[nodiscard]] auto has_unqualified_symbol(const std::string& name) const -> bool;
   [[nodiscard]] auto has_qualified_symbol(const std::optional<std::string>& qualifier, const std::string& name) const
@@ -66,7 +67,7 @@ public:
   explicit AliasIndex(const ir::IRProgram& program,
                       const std::vector<ir::IRAliasDecl>& imported_alias_decls = {});
 
-  [[nodiscard]] auto resolve_name(const std::string& name) const -> const AliasDecl*;
+  [[nodiscard]] auto resolve_name(const std::string& name) const -> std::optional<std::reference_wrapper<const AliasDecl>>;
   [[nodiscard]] auto has_name(const std::string& name) const -> bool;
 
 private:
@@ -78,7 +79,8 @@ public:
   explicit StrongTypeIndex(const ir::IRProgram& program, const AliasIndex& alias_index,
                            const std::vector<ir::IRTypeDecl>& imported_type_decls = {});
 
-  [[nodiscard]] auto resolve_name(const std::string& name) const -> const StrongTypeDecl*;
+  [[nodiscard]] auto resolve_name(const std::string& name) const
+      -> std::optional<std::reference_wrapper<const StrongTypeDecl>>;
   [[nodiscard]] auto has_name(const std::string& name) const -> bool;
   [[nodiscard]] auto known_names() const -> const std::unordered_set<std::string>&;
 

@@ -449,7 +449,7 @@ endif()
 if(BUILD_TESTING AND TARGET fleaux_vm)
   add_executable(fleaux_runtime_microbench
       tests/runtime_microbench.cpp)
-  target_link_libraries(fleaux_runtime_microbench PRIVATE fleaux_vm)
+  target_link_libraries(fleaux_runtime_microbench PRIVATE fleaux_vm fleaux_embed)
   fleaux_set_project_warnings(fleaux_runtime_microbench WARNINGS_AS_ERRORS)
 
   add_library(fleaux_test_binding_plugin SHARED

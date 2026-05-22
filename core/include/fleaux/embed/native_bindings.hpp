@@ -55,6 +55,7 @@ struct BindingContext {
 // a higher-level wrapper.
 using NativeInvokeResult = HostResult<VmValue>;
 using NativeCallable = std::function<NativeInvokeResult(const BindingContext&, const VmValue&)>;
+using NativeBinaryCallable = std::function<NativeInvokeResult(const BindingContext&, const VmValue&, const VmValue&)>;
 
 struct NativeBinding {
   std::string symbol{};
@@ -65,8 +66,10 @@ struct NativeBinding {
 class NativeBindingRegistry {
 public:
   [[nodiscard]] auto register_callable(NativeBinding binding) -> BindingResult;
+  [[nodiscard]] auto register_callable(NativeBinding binding, NativeBinaryCallable binary_callable) -> BindingResult;
   [[nodiscard]] auto unregister_callable(std::string_view symbol) -> bool;
   [[nodiscard]] auto has_callable(std::string_view symbol) const -> bool;
+  [[nodiscard]] auto has_binary_callable(std::string_view symbol) const -> bool;
   [[nodiscard]] auto clear() -> std::size_t;
   [[nodiscard]] auto size() const -> std::size_t;
   [[nodiscard]] auto snapshot_symbols() const -> std::vector<std::string>;
@@ -78,8 +81,19 @@ public:
   [[nodiscard]] auto find_callable(std::string_view symbol) const
       -> std::optional<std::reference_wrapper<const NativeBinding>>;
 
+  // Returns the optional borrowed binary specialization for a symbol when one
+  // was registered. The returned reference is invalidated by any later
+  // register_callable(), unregister_callable(), or clear() call.
+  [[nodiscard]] auto find_binary_callable(std::string_view symbol) const
+      -> std::optional<std::reference_wrapper<const NativeBinaryCallable>>;
+
 private:
-  std::vector<NativeBinding> bindings_{};
+  struct StoredBinding {
+    NativeBinding binding{};
+    NativeBinaryCallable binary_callable{};
+  };
+
+  std::vector<StoredBinding> bindings_{};
 };
 
 }  // namespace fleaux::embed

@@ -300,8 +300,8 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
     return make_nominal_type(name);
   }
 
-  const auto* alias_decl = alias_index.resolve_name(name);
-  if (alias_decl == nullptr) {
+  const auto alias_decl = alias_index.resolve_name(name);
+  if (!alias_decl.has_value()) {
     return make_nominal_type(name);
   }
 
@@ -315,13 +315,14 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
     return tl::unexpected(make_error(
         "Alias cycle detected.",
         std::format("Transparent aliases form a declaration cycle: {}.", join_sorted_type_var_names(cycle_names)),
-        alias_decl->span.has_value() ? alias_decl->span : span));
+        alias_decl->get().span.has_value() ? alias_decl->get().span : span));
   }
 
   visiting.insert(name);
-  auto expanded =
-      expand_aliases_in_type_impl(alias_decl->target_type, known_strong_type_names, alias_index, generic_params,
-                                  alias_decl->span.has_value() ? alias_decl->span : span, visiting, resolved_cache);
+  auto expanded = expand_aliases_in_type_impl(alias_decl->get().target_type, known_strong_type_names, alias_index,
+                                              generic_params,
+                                              alias_decl->get().span.has_value() ? alias_decl->get().span : span,
+                                              visiting, resolved_cache);
   visiting.erase(name);
   if (!expanded) {
     return tl::unexpected(expanded.error());
@@ -465,7 +466,8 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
 
 [[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index,
                                                     const std::optional<std::string>& qualifier,
-                                                    const std::string& name) -> const FunctionOverloadSet* {
+                                                    const std::string& name)
+    -> std::optional<std::reference_wrapper<const FunctionOverloadSet>> {
   return index.resolve_name(qualifier, name);
 }
 
@@ -477,11 +479,11 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
 }
 
 [[nodiscard]] auto resolve_signature(const FunctionIndex& index, const ir::IRCallTarget& target)
-    -> const FunctionOverloadSet* {
+    -> std::optional<std::reference_wrapper<const FunctionOverloadSet>> {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
     return resolve_name_or_symbolic_builtin(index, name_ref->qualifier, name_ref->name);
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type {
@@ -766,16 +768,16 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
   const std::unordered_set<std::string> no_generic_params;
   for (const auto& imported_alias_decl : imported_alias_decls) {
     if (auto validated = validate_declared_type_against_names(
-            alias_index.resolve_name(imported_alias_decl.name)->target_type, known_strong_type_names, alias_index,
+            alias_index.resolve_name(imported_alias_decl.name)->get().target_type, known_strong_type_names, alias_index,
             no_generic_params, imported_alias_decl.span);
         !validated) {
       return tl::unexpected(validated.error());
     }
   }
   for (const auto& alias_decl : program.alias_decls) {
-    if (auto validated = validate_declared_type_against_names(alias_index.resolve_name(alias_decl.name)->target_type,
-                                                              known_strong_type_names, alias_index, no_generic_params,
-                                                              alias_decl.span);
+    if (auto validated = validate_declared_type_against_names(alias_index.resolve_name(alias_decl.name)->get().target_type,
+                                                              known_strong_type_names, alias_index,
+                                                              no_generic_params, alias_decl.span);
         !validated) {
       return tl::unexpected(validated.error());
     }
@@ -1213,15 +1215,15 @@ auto types_are_identical(const Type& lhs, const Type& rhs) -> bool {
 auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target, const StrongTypeIndex& type_index)
     -> bool {
   if (source.kind == TypeKind::kNominal) {
-    if (const auto* source_decl = type_index.resolve_name(source.nominal_name);
-        source_decl != nullptr && types_are_identical(source_decl->target_type, target)) {
+    if (const auto source_decl = type_index.resolve_name(source.nominal_name);
+        source_decl.has_value() && types_are_identical(source_decl->get().target_type, target)) {
       return true;
     }
   }
 
   if (target.kind == TypeKind::kNominal) {
-    if (const auto* target_decl = type_index.resolve_name(target.nominal_name);
-        target_decl != nullptr && types_are_identical(source, target_decl->target_type)) {
+    if (const auto target_decl = type_index.resolve_name(target.nominal_name);
+        target_decl.has_value() && types_are_identical(source, target_decl->get().target_type)) {
       return true;
     }
   }

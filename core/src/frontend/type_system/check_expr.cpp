@@ -170,7 +170,8 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
     name_ref.materialize_as_value = true;
     return instantiated.return_type;
   }
-  if (auto unresolved_callable = unresolved_generic_callable_error(full_name, instantiated, generic_params, name_ref.span);
+  if (auto unresolved_callable =
+          unresolved_generic_callable_error(full_name, instantiated, generic_params, name_ref.span);
       unresolved_callable.has_value()) {
     return tl::unexpected(std::move(*unresolved_callable));
   }
@@ -190,30 +191,30 @@ auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, co
   if (!name_ref.qualifier.has_value()) {
     if (const auto it = locals.find(name_ref.name); it != locals.end()) {
       if (!explicit_type_args->empty()) {
-        return tl::unexpected(make_error(
-            "Invalid explicit type argument application.",
-            std::format("{} is a local value and does not accept explicit type arguments.", name_ref.name),
-            name_ref.span));
+        return tl::unexpected(
+            make_error("Invalid explicit type argument application.",
+                       std::format("{} is a local value and does not accept explicit type arguments.", name_ref.name),
+                       name_ref.span));
       }
       return it->second;
     }
   }
 
-  if (const auto* overloads = resolve_name_or_symbolic_builtin(index, name_ref.qualifier, name_ref.name);
-      overloads != nullptr) {
-    return infer_overloaded_name_ref(name_ref, *overloads, generic_params, *explicit_type_args);
+  if (const auto overloads = resolve_name_or_symbolic_builtin(index, name_ref.qualifier, name_ref.name);
+      overloads.has_value()) {
+    return infer_overloaded_name_ref(name_ref, overloads->get(), generic_params, *explicit_type_args);
   }
 
   if (name_ref.qualifier.has_value()) {
     if (is_removed_symbolic_alias(name_ref.qualifier, name_ref.name)) {
-      return tl::unexpected(make_unresolved_symbol_error(
-          qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
+      return tl::unexpected(
+          make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
     }
     if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) {
       return make_type(TypeKind::kAny);
     }
-    return tl::unexpected(make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name),
-                                                       name_ref.span));
+    return tl::unexpected(
+        make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
   }
   if (index.has_unqualified_symbol(name_ref.name)) {
     return make_type(TypeKind::kAny);
@@ -245,24 +246,25 @@ auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index,
                 return tl::unexpected(expanded_declared.error());
               }
 
-              auto inferred_init = infer_expr(*local_let.expr, index, type_index, alias_index, block_locals, generic_params);
+              auto inferred_init =
+                  infer_expr(*local_let.expr, index, type_index, alias_index, block_locals, generic_params);
               if (!inferred_init) {
                 return tl::unexpected(inferred_init.error());
               }
 
               if (!is_consistent(*expanded_declared, *inferred_init)) {
-                return tl::unexpected(make_error(
-                    "Type mismatch in local let initializer.",
-                    std::format("{} declares a type that does not match its initializer.", local_let.name),
-                    local_let.span));
+                return tl::unexpected(
+                    make_error("Type mismatch in local let initializer.",
+                               std::format("{} declares a type that does not match its initializer.", local_let.name),
+                               local_let.span));
               }
 
               block_locals.insert_or_assign(local_let.name, *expanded_declared);
               return {};
             },
             [&](ir::IRBlockExprStatement& stmt) -> tl::expected<void, type_check::AnalysisError> {
-              auto inferred = infer_expr(*stmt.expr, index, type_index, alias_index, block_locals, generic_params);
-              if (!inferred) {
+              if (auto inferred = infer_expr(*stmt.expr, index, type_index, alias_index, block_locals, generic_params);
+                  !inferred) {
                 return tl::unexpected(inferred.error());
               }
               return {};
@@ -276,8 +278,8 @@ auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index,
   return infer_expr(*block.result, index, type_index, alias_index, block_locals, generic_params);
 }
 
-auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                        const AliasIndex& alias_index, const LocalTypes& locals,
+auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& index,
+                        const StrongTypeIndex& type_index, const AliasIndex& alias_index, const LocalTypes& locals,
                         const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto& closure = *closure_box;
@@ -308,8 +310,8 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
     });
   }
   const Type declared_return = rewrite_generic_type(from_ir_type(closure.return_type), closure_generic_params);
-  if (auto validated = validate_declared_type(declared_return, type_index, alias_index, closure_generic_params,
-                                              closure.span);
+  if (auto validated =
+          validate_declared_type(declared_return, type_index, alias_index, closure_generic_params, closure.span);
       !validated) {
     return tl::unexpected(validated.error());
   }
@@ -320,14 +322,14 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
   }
   closure_sig.return_type = *expanded_return;
 
-  auto inferred_body = infer_expr(*closure.body, index, type_index, alias_index, closure_locals, closure_generic_params);
+  auto inferred_body =
+      infer_expr(*closure.body, index, type_index, alias_index, closure_locals, closure_generic_params);
   if (!inferred_body) {
     return tl::unexpected(inferred_body.error());
   }
   if (!is_consistent(closure_sig.return_type, *inferred_body)) {
-    return tl::unexpected(
-        make_error("Type mismatch in function return.", "Closure body type does not match declared return type.",
-                   closure.span));
+    return tl::unexpected(make_error("Type mismatch in function return.",
+                                     "Closure body type does not match declared return type.", closure.span));
   }
 
   return function_type_from_sig(closure_sig);
@@ -339,28 +341,28 @@ auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIn
                 const AliasIndex& alias_index, const LocalTypes& locals,
                 const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
-  return std::visit(
-      common::overloaded{
-          [&](const ir::IRConstant& constant) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_constant_expr(constant);
-          },
-          [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_tuple_expr(tuple, index, type_index, alias_index, locals, generic_params);
-          },
-          [&](ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_name_ref_expr(name_ref, index, type_index, alias_index, locals, generic_params);
-          },
-          [&](ir::IRClosureExprBox& closure_box) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_closure_expr(closure_box, index, type_index, alias_index, locals, generic_params);
-          },
-          [&](ir::IRBlockExprBox& block_box) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_block_expr(block_box, index, type_index, alias_index, locals, generic_params);
-          },
-          [&](ir::IRFlowExpr& flow) -> tl::expected<Type, type_check::AnalysisError> {
-            return infer_flow_expr(flow, index, type_index, alias_index, locals, generic_params);
-          },
-      },
-      expr.node);
+  return std::visit(common::overloaded{
+                        [&](const ir::IRConstant& constant) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_constant_expr(constant);
+                        },
+                        [&](ir::IRTupleExpr& tuple) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_tuple_expr(tuple, index, type_index, alias_index, locals, generic_params);
+                        },
+                        [&](ir::IRNameRef& name_ref) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_name_ref_expr(name_ref, index, type_index, alias_index, locals, generic_params);
+                        },
+                        [&](ir::IRClosureExprBox& closure_box) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_closure_expr(closure_box, index, type_index, alias_index, locals,
+                                                    generic_params);
+                        },
+                        [&](ir::IRBlockExprBox& block_box) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_block_expr(block_box, index, type_index, alias_index, locals, generic_params);
+                        },
+                        [&](ir::IRFlowExpr& flow) -> tl::expected<Type, type_check::AnalysisError> {
+                          return infer_flow_expr(flow, index, type_index, alias_index, locals, generic_params);
+                        },
+                    },
+                    expr.node);
 }
 
 }  // namespace fleaux::frontend::type_system::detail

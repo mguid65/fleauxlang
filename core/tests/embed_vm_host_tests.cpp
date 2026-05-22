@@ -126,7 +126,7 @@ TEST_CASE("VmHost routes Std.Input through configured stdin stream", "[embed]") 
   std::istringstream configured_input{"Ada\n"};
   std::string captured;
   fleaux::embed::VmHostConfig config;
-  config.stdin_stream = &configured_input;
+  config.stdin_stream = std::ref(configured_input);
   config.stdout_sink = [&captured](const std::string_view text) { captured.append(text); };
   fleaux::embed::VmHost host(config);
 

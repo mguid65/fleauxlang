@@ -129,22 +129,22 @@ AliasIndex::AliasIndex(const ir::IRProgram& program, const std::vector<ir::IRAli
   }
 }
 
-auto AliasIndex::resolve_name(const std::string& name) const -> const AliasDecl* {
+auto AliasIndex::resolve_name(const std::string& name) const -> std::optional<std::reference_wrapper<const AliasDecl>> {
   if (const auto it = decls_.find(name); it != decls_.end()) {
-    return &it->second;
+    return std::cref(it->second);
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 auto AliasIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }
 
 auto FunctionIndex::resolve_name(const std::optional<std::string>& qualifier, const std::string& name) const
-    -> const FunctionOverloadSet* {
+    -> std::optional<std::reference_wrapper<const FunctionOverloadSet>> {
   const auto key = symbol_key(qualifier, name);
   if (const auto it = symbols_.find(key); it != symbols_.end()) {
-    return &it->second;
+    return std::cref(it->second);
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 auto FunctionIndex::has_unqualified_symbol(const std::string& name) const -> bool {
@@ -186,11 +186,12 @@ StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const AliasIndex&
   }
 }
 
-auto StrongTypeIndex::resolve_name(const std::string& name) const -> const StrongTypeDecl* {
+auto StrongTypeIndex::resolve_name(const std::string& name) const
+    -> std::optional<std::reference_wrapper<const StrongTypeDecl>> {
   if (const auto it = decls_.find(name); it != decls_.end()) {
-    return &it->second;
+    return std::cref(it->second);
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 auto StrongTypeIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }

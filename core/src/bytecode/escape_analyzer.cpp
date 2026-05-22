@@ -18,7 +18,7 @@ using namespace frontend::ir;
 
 struct CallSite {
   std::string target_name;
-  const IRExpr* lhs{nullptr};
+  std::reference_wrapper<const IRExpr> lhs;
 };
 
 struct LetBodySummary {
@@ -175,7 +175,7 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
                    collect_call_sites(*flow.lhs, out);
                    std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
                                                    out.push_back(CallSite{.target_name = target_identity_key(name_ref),
-                                                                          .lhs = &*flow.lhs});
+                                                                           .lhs = *flow.lhs});
                                                  },
                                                  [](const IROperatorRef&) -> void {}},
                               flow.rhs);
@@ -313,7 +313,7 @@ auto analyze_auto_value_ref_params(const IRProgram& program, const AutoValueRefA
       bool saw_call = false;
 
       for (const auto* call_site : callsite_it->second) {
-        const auto* arg_expr = call_arg_for_param(*call_site->lhs, arity, param_idx);
+        const auto* arg_expr = call_arg_for_param(call_site->lhs.get(), arity, param_idx);
         if (arg_expr == nullptr) {
           all_calls_large = false;
           break;

@@ -203,6 +203,11 @@ That means these are the binding author's responsibility:
 - validating shape/arity inside the callable
 - returning a `HostError` if the input is not acceptable
 
+For in-process hosts that have a true binary native operation, `NativeBindingRegistry` also supports an optional binary
+specialization alongside the normal unary raw-`VmValue` callable. When present, `VmHost::call_native_binary(...)` uses
+that binary specialization directly. If no binary specialization was registered, `call_native_binary(...)` falls back to
+calling the unary binding with the usual 2-tuple argument shape.
+
 Native bindings also receive a non-owning `BindingContext::host` reference for the duration of the callback. That reference refers to the active `VmHost` instance and is intentionally mutable, so bindings may make additional host calls while they execute.
 
 `VmHostConfig::binding_registry` is likewise a nullable non-owning observer. If you provide one, it must outlive any `VmHost` calls that dispatch native bindings or load binding modules.

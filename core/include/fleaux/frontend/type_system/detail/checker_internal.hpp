@@ -42,10 +42,11 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
     -> bool;
 [[nodiscard]] auto resolve_name_or_symbolic_builtin(const FunctionIndex& index,
                                                     const std::optional<std::string>& qualifier,
-                                                    const std::string& name) -> const FunctionOverloadSet*;
+                                                    const std::string& name)
+    -> std::optional<std::reference_wrapper<const FunctionOverloadSet>>;
 [[nodiscard]] auto target_name(const ir::IRCallTarget& target) -> std::optional<std::string>;
 [[nodiscard]] auto resolve_signature(const FunctionIndex& index, const ir::IRCallTarget& target)
-    -> const FunctionOverloadSet*;
+    -> std::optional<std::reference_wrapper<const FunctionOverloadSet>>;
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type;
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
                                 const StrongTypeIndex& type_index, const AliasIndex& alias_index,

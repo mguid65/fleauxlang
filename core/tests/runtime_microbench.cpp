@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "fleaux/bytecode/module.hpp"
+#include "fleaux/embed/native_bindings.hpp"
+#include "fleaux/embed/vm_host.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 #include "fleaux/vm/runtime.hpp"
 
@@ -327,7 +329,7 @@ auto main(int argc, char** argv) -> int {
     fleaux::runtime::RuntimeProcessArgsScope process_args_scope({"<runtime-microbench>"});
 
     std::vector<BenchmarkResult> results;
-    results.reserve(8);
+    results.reserve(12);
 
     const Value increment_ref = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
       return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1);
@@ -399,6 +401,54 @@ auto main(int argc, char** argv) -> int {
     const Module vm_loop_module = make_vm_loop_module();
     const Module vm_user_call_module = make_vm_user_call_module();
     const fleaux::vm::Runtime runtime;
+
+    fleaux::embed::NativeBindingRegistry binding_registry;
+    auto unary_native_registration = binding_registry.register_callable(fleaux::embed::NativeBinding{
+        .symbol = "Host.SumUnary",
+        .signature = fleaux::embed::BindingSignature{},
+        .callable = [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
+            -> fleaux::embed::NativeInvokeResult {
+          const auto& pair = fleaux::runtime::as_array(args);
+          return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
+                                           fleaux::runtime::as_int_value(*pair.TryGet(1)));
+        },
+    });
+    if (!unary_native_registration) {
+      throw std::runtime_error(unary_native_registration.error().message);
+    }
+
+    auto binary_native_registration = binding_registry.register_callable(
+        fleaux::embed::NativeBinding{
+            .symbol = "Host.SumBinary",
+            .signature = fleaux::embed::BindingSignature{},
+            .callable = [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
+                -> fleaux::embed::NativeInvokeResult {
+              const auto& pair = fleaux::runtime::as_array(args);
+              return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
+                                               fleaux::runtime::as_int_value(*pair.TryGet(1)));
+            },
+        },
+        [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& lhs,
+           const fleaux::embed::VmValue& rhs) -> fleaux::embed::NativeInvokeResult {
+          return fleaux::runtime::make_int(fleaux::runtime::as_int_value(lhs) + fleaux::runtime::as_int_value(rhs));
+        });
+    if (!binary_native_registration) {
+      throw std::runtime_error(binary_native_registration.error().message);
+    }
+
+    fleaux::embed::VmHostConfig host_config;
+    host_config.binding_registry = &binding_registry;
+    fleaux::embed::VmHost host(host_config);
+    std::vector<Value> host_native_lhs_inputs;
+    std::vector<Value> host_native_tuple_args;
+    host_native_lhs_inputs.reserve(config.call_iterations);
+    host_native_tuple_args.reserve(config.call_iterations);
+    const Value host_native_one = fleaux::runtime::make_int(1);
+    for (std::size_t index = 0; index < config.call_iterations; ++index) {
+      Value lhs = fleaux::runtime::make_int(static_cast<Int>(index));
+      host_native_lhs_inputs.push_back(lhs);
+      host_native_tuple_args.push_back(fleaux::runtime::make_tuple(lhs, host_native_one));
+    }
     results.push_back(run_benchmark("VM CallUserFunc unary", config.call_iterations, config, [&]() -> void {
       auto result = runtime.invoke_symbol(vm_user_call_module, "BenchUnary",
                                           fleaux::runtime::make_int(static_cast<Int>(config.call_iterations)));
@@ -406,6 +456,42 @@ auto main(int argc, char** argv) -> int {
         throw std::runtime_error(result.error().message);
       }
       consume_value(*result);
+    }));
+
+    results.push_back(run_benchmark("VmHost call_native tuple", config.call_iterations, config, [&]() -> void {
+      Int total = 0;
+      for (std::size_t index = 0; index < config.call_iterations; ++index) {
+        auto result = host.call_native("Host.SumUnary", host_native_tuple_args[index]);
+        if (!result) {
+          throw std::runtime_error(result.error().message);
+        }
+        total += fleaux::runtime::as_int_value(*result);
+      }
+      g_sink += static_cast<std::uint64_t>(total);
+    }));
+
+    results.push_back(run_benchmark("VmHost native binary fallback", config.call_iterations, config, [&]() -> void {
+      Int total = 0;
+      for (std::size_t index = 0; index < config.call_iterations; ++index) {
+        auto result = host.call_native_binary("Host.SumUnary", host_native_lhs_inputs[index], host_native_one);
+        if (!result) {
+          throw std::runtime_error(result.error().message);
+        }
+        total += fleaux::runtime::as_int_value(*result);
+      }
+      g_sink += static_cast<std::uint64_t>(total);
+    }));
+
+    results.push_back(run_benchmark("VmHost native binary direct", config.call_iterations, config, [&]() -> void {
+      Int total = 0;
+      for (std::size_t index = 0; index < config.call_iterations; ++index) {
+        auto result = host.call_native_binary("Host.SumBinary", host_native_lhs_inputs[index], host_native_one);
+        if (!result) {
+          throw std::runtime_error(result.error().message);
+        }
+        total += fleaux::runtime::as_int_value(*result);
+      }
+      g_sink += static_cast<std::uint64_t>(total);
     }));
 
     results.push_back(run_benchmark("VM CallUserFunc binary", config.call_iterations, config, [&]() -> void {

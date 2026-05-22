@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -321,12 +322,12 @@ template <typename ErrorT, typename ErrorFactory>
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto load_lowered_symbolic_std_program(ErrorFactory&& make_error,
                                                      const std::optional<diag::SourceSpan>& span = std::nullopt)
-    -> tl::expected<const ir::IRProgram*, ErrorT> {
+    -> tl::expected<std::reference_wrapper<const ir::IRProgram>, ErrorT> {
   const auto& cached = cached_lowered_symbolic_std_program();
   if (!cached) {
     return tl::unexpected(make_error("Failed to read source file.", std::optional<std::string>{cached.error()}, span));
   }
-  return &*cached;
+  return std::cref(*cached);
 }
 
 template <typename ErrorT, typename ErrorFactory>
@@ -364,7 +365,7 @@ template <typename ErrorT, typename ErrorFactory>
       return tl::unexpected(std_program.error());
     }
 
-    seed_std_symbolic_import(**std_program, imported_symbols, imported_typed_lets, imported_typed_let_keys,
+    seed_std_symbolic_import(std_program->get(), imported_symbols, imported_typed_lets, imported_typed_let_keys,
                              imported_type_decls, imported_type_decl_keys, imported_alias_decls,
                              imported_alias_decl_keys);
   }

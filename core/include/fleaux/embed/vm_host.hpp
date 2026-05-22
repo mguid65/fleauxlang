@@ -57,9 +57,9 @@ struct VmHostConfig {
   std::vector<std::filesystem::path> import_roots{};
   vm::RuntimeCompileOptions compile_options{};
   std::optional<OutputSink> stdout_sink{std::nullopt};
-  // Nullable non-owning observer. When null, runtime input falls back to the
+  // Optional non-owning observer. When unset, runtime input falls back to the
   // process stdin stream for execution and Fleaux calls that use Std.Input.
-  std::istream* stdin_stream{nullptr};
+  std::optional<std::reference_wrapper<std::istream>> stdin_stream{std::nullopt};
   // Optional mirrored diagnostic channel for rendered HostError output from
   // public VmHost entrypoints. Program/runtime text output still flows through
   // stdout_sink, and HostError values are still returned normally.
@@ -83,6 +83,11 @@ public:
   [[nodiscard]] auto run_file(const std::filesystem::path& path) -> VmResult;
   [[nodiscard]] auto run_source(std::string_view module_name, std::string_view source_text) -> VmResult;
   [[nodiscard]] auto call_native(std::string_view qualified_symbol, const VmValue& args) -> VmResult;
+  // If the binding registry stores a binary specialization for the symbol, it
+  // is used directly. Otherwise this falls back to calling the unary binding
+  // with the usual 2-tuple argument shape.
+  [[nodiscard]] auto call_native_binary(std::string_view qualified_symbol, const VmValue& lhs, const VmValue& rhs)
+      -> VmResult;
   [[nodiscard]] auto call_fleaux(std::string_view qualified_symbol, const VmValue& args) -> VmResult;
   // call() dispatches to the loaded Fleaux module or the configured native
   // binding registry. If the symbol exists in both surfaces, call() returns an
