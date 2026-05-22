@@ -155,93 +155,122 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   return is_float_number(lhs) || is_float_number(rhs);
 }
 
-[[nodiscard]] inline auto Add(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto AddBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Add");
   require_same_integer_kind(lhs, rhs, "Add");
   return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
                     prefer_float_numeric_result(lhs, rhs));
 }
 
-[[nodiscard]] inline auto Subtract(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto Add(Value arg) -> Value {
+  return AddBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto SubtractBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Subtract");
   require_same_integer_kind(lhs, rhs, "Subtract");
   return num_result(to_double(lhs) - to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
                     prefer_float_numeric_result(lhs, rhs));
 }
 
-[[nodiscard]] inline auto Multiply(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto Subtract(Value arg) -> Value {
+  return SubtractBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto MultiplyBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Multiply");
   require_same_integer_kind(lhs, rhs, "Multiply");
   return num_result(to_double(lhs) * to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
                     prefer_float_numeric_result(lhs, rhs));
 }
 
-[[nodiscard]] inline auto Divide(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto Multiply(Value arg) -> Value {
+  return MultiplyBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto DivideBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Divide");
   require_same_integer_kind(lhs, rhs, "Divide");
   return num_result(to_double(lhs) / to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
                     prefer_float_numeric_result(lhs, rhs));
 }
 
-[[nodiscard]] inline auto Mod(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto Divide(Value arg) -> Value {
+  return DivideBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto ModBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Mod");
   require_same_integer_kind(lhs, rhs, "Mod");
   return num_result(std::fmod(to_double(lhs), to_double(rhs)), is_uint_number(lhs) && is_uint_number(rhs),
                     prefer_float_numeric_result(lhs, rhs));
 }
 
-[[nodiscard]] inline auto Pow(Value arg) -> Value {
-  const Value& lhs = array_at(arg, 0);
-  const Value& rhs = array_at(arg, 1);
+[[nodiscard]] inline auto Mod(Value arg) -> Value {
+  return ModBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto PowBinary(const Value& lhs, const Value& rhs) -> Value {
   require_no_implicit_float_promotion(lhs, rhs, "Pow");
   return num_result(std::pow(to_double(lhs), to_double(rhs)), false, prefer_float_numeric_result(lhs, rhs));
 }
 
+[[nodiscard]] inline auto Pow(Value arg) -> Value {
+  return PowBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto BitAndBinary(const Value& lhs, const Value& rhs) -> Value {
+  return make_int(as_int_value_strict(lhs, "BitAnd lhs") & as_int_value_strict(rhs, "BitAnd rhs"));
+}
+
 [[nodiscard]] inline auto BitAnd(Value arg) -> Value {
-  return make_int(as_int_value_strict(array_at(arg, 0), "BitAnd lhs") &
-                  as_int_value_strict(array_at(arg, 1), "BitAnd rhs"));
+  return BitAndBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto BitOrBinary(const Value& lhs, const Value& rhs) -> Value {
+  return make_int(as_int_value_strict(lhs, "BitOr lhs") | as_int_value_strict(rhs, "BitOr rhs"));
 }
 
 [[nodiscard]] inline auto BitOr(Value arg) -> Value {
-  return make_int(as_int_value_strict(array_at(arg, 0), "BitOr lhs") |
-                  as_int_value_strict(array_at(arg, 1), "BitOr rhs"));
+  return BitOrBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto BitXorBinary(const Value& lhs, const Value& rhs) -> Value {
+  return make_int(as_int_value_strict(lhs, "BitXor lhs") ^ as_int_value_strict(rhs, "BitXor rhs"));
 }
 
 [[nodiscard]] inline auto BitXor(Value arg) -> Value {
-  return make_int(as_int_value_strict(array_at(arg, 0), "BitXor lhs") ^
-                  as_int_value_strict(array_at(arg, 1), "BitXor rhs"));
+  return BitXorBinary(array_at(arg, 0), array_at(arg, 1));
 }
 
 [[nodiscard]] inline auto BitNot(Value arg) -> Value {
   return make_int(~as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "BitNot value"));
 }
 
-[[nodiscard]] inline auto BitShiftLeft(Value arg) -> Value {
-  const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftLeft value");
-  const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftLeft shift");
+[[nodiscard]] inline auto BitShiftLeftBinary(const Value& lhs, const Value& rhs) -> Value {
+  const Int value = as_int_value_strict(lhs, "BitShiftLeft value");
+  const Int shift = as_int_value_strict(rhs, "BitShiftLeft shift");
   if (shift < 0) {
     throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"};
   }
   return make_int(value << shift);
 }
 
-[[nodiscard]] inline auto BitShiftRight(Value arg) -> Value {
-  const Int value = as_int_value_strict(array_at(arg, 0), "BitShiftRight value");
-  const Int shift = as_int_value_strict(array_at(arg, 1), "BitShiftRight shift");
+[[nodiscard]] inline auto BitShiftLeft(Value arg) -> Value {
+  return BitShiftLeftBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto BitShiftRightBinary(const Value& lhs, const Value& rhs) -> Value {
+  const Int value = as_int_value_strict(lhs, "BitShiftRight value");
+  const Int shift = as_int_value_strict(rhs, "BitShiftRight shift");
   if (shift < 0) {
     throw std::invalid_argument{"BitShiftRight: shift must be non-negative"};
   }
   return make_int(value >> shift);
+}
+
+[[nodiscard]] inline auto BitShiftRight(Value arg) -> Value {
+  return BitShiftRightBinary(array_at(arg, 0), array_at(arg, 1));
 }
 
 [[nodiscard]] inline auto UnaryMinus(Value arg) -> Value {
@@ -256,39 +285,63 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 // Comparison & logical
 
+[[nodiscard]] inline auto GreaterThanBinary(const Value& lhs, const Value& rhs) -> Value {
+  require_no_implicit_float_promotion(lhs, rhs, "GreaterThan");
+  return make_bool(compare_numbers(lhs, rhs) > 0);
+}
+
 [[nodiscard]] inline auto GreaterThan(Value arg) -> Value {
-  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "GreaterThan");
-  return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) > 0);
+  return GreaterThanBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto LessThanBinary(const Value& lhs, const Value& rhs) -> Value {
+  require_no_implicit_float_promotion(lhs, rhs, "LessThan");
+  return make_bool(compare_numbers(lhs, rhs) < 0);
 }
 
 [[nodiscard]] inline auto LessThan(Value arg) -> Value {
-  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "LessThan");
-  return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) < 0);
+  return LessThanBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto GreaterOrEqualBinary(const Value& lhs, const Value& rhs) -> Value {
+  require_no_implicit_float_promotion(lhs, rhs, "GreaterOrEqual");
+  return make_bool(compare_numbers(lhs, rhs) >= 0);
 }
 
 [[nodiscard]] inline auto GreaterOrEqual(Value arg) -> Value {
-  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "GreaterOrEqual");
-  return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) >= 0);
+  return GreaterOrEqualBinary(array_at(arg, 0), array_at(arg, 1));
+}
+
+[[nodiscard]] inline auto LessOrEqualBinary(const Value& lhs, const Value& rhs) -> Value {
+  require_no_implicit_float_promotion(lhs, rhs, "LessOrEqual");
+  return make_bool(compare_numbers(lhs, rhs) <= 0);
 }
 
 [[nodiscard]] inline auto LessOrEqual(Value arg) -> Value {
-  require_no_implicit_float_promotion(array_at(arg, 0), array_at(arg, 1), "LessOrEqual");
-  return make_bool(compare_numbers(array_at(arg, 0), array_at(arg, 1)) <= 0);
+  return LessOrEqualBinary(array_at(arg, 0), array_at(arg, 1));
 }
 
-[[nodiscard]] inline auto Equal(Value arg) -> Value { return make_bool(array_at(arg, 0) == array_at(arg, 1)); }
+[[nodiscard]] inline auto EqualBinary(const Value& lhs, const Value& rhs) -> Value { return make_bool(lhs == rhs); }
 
-[[nodiscard]] inline auto NotEqual(Value arg) -> Value { return make_bool(array_at(arg, 0) != array_at(arg, 1)); }
+[[nodiscard]] inline auto Equal(Value arg) -> Value { return EqualBinary(array_at(arg, 0), array_at(arg, 1)); }
+
+[[nodiscard]] inline auto NotEqualBinary(const Value& lhs, const Value& rhs) -> Value { return make_bool(lhs != rhs); }
+
+[[nodiscard]] inline auto NotEqual(Value arg) -> Value { return NotEqualBinary(array_at(arg, 0), array_at(arg, 1)); }
 
 [[nodiscard]] inline auto Not(Value arg) -> Value { return make_bool(!as_bool(unwrap_singleton_arg(std::move(arg)))); }
 
-[[nodiscard]] inline auto And(Value arg) -> Value {
-  return make_bool(as_bool(array_at(arg, 0)) && as_bool(array_at(arg, 1)));
+[[nodiscard]] inline auto AndBinary(const Value& lhs, const Value& rhs) -> Value {
+  return make_bool(as_bool(lhs) && as_bool(rhs));
 }
 
-[[nodiscard]] inline auto Or(Value arg) -> Value {
-  return make_bool(as_bool(array_at(arg, 0)) || as_bool(array_at(arg, 1)));
+[[nodiscard]] inline auto And(Value arg) -> Value {
+  return AndBinary(array_at(arg, 0), array_at(arg, 1));
 }
+
+[[nodiscard]] inline auto OrBinary(const Value& lhs, const Value& rhs) -> Value { return make_bool(as_bool(lhs) || as_bool(rhs)); }
+
+[[nodiscard]] inline auto Or(Value arg) -> Value { return OrBinary(array_at(arg, 0), array_at(arg, 1)); }
 
 // Output
 
@@ -540,30 +593,34 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 [[nodiscard]] inline auto Loop(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref]
-  const auto& args = require_args(arg, 3, "Loop");
-  Value state = *args.TryGet(0);
+  auto& args = require_args(arg, 3, "Loop");
+  Value state = std::move(args[0]);
   const Value& continue_func = *args.TryGet(1);
   const Value& step_func = *args.TryGet(2);
-  while (as_bool(invoke_callable_ref(continue_func, state))) {
-    state = invoke_callable_ref(step_func, std::move(state));
+  const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
+  const RuntimeCallable step_callable = resolve_callable_ref(step_func);
+  while (as_bool(continue_callable(state))) {
+    state = step_callable(std::move(state));
   }
   return state;
 }
 
 [[nodiscard]] inline auto LoopN(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref, max_iters]
-  const auto& args = require_args(arg, 4, "LoopN");
-  Value state = *args.TryGet(0);
+  auto& args = require_args(arg, 4, "LoopN");
+  Value state = std::move(args[0]);
   const Value& continue_func = *args.TryGet(1);
   const Value& step_func = *args.TryGet(2);
   const std::size_t max_iters = as_index_strict(*args.TryGet(3), "LoopN max_iters");
+  const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
+  const RuntimeCallable step_callable = resolve_callable_ref(step_func);
 
   std::size_t steps = 0;
-  while (as_bool(invoke_callable_ref(continue_func, state))) {
+  while (as_bool(continue_callable(state))) {
     if (steps >= max_iters) {
       throw std::runtime_error{"LoopN: exceeded max_iters"};
     }
-    state = invoke_callable_ref(step_func, std::move(state));
+    state = step_callable(std::move(state));
     ++steps;
   }
   return state;

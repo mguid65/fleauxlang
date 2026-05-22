@@ -101,28 +101,34 @@ template <typename Predicate>
 
 // arg = [sequence, func_ref]
 [[nodiscard]] inline auto TupleMap(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleMap");
-  const auto& src = as_array(*args.TryGet(0));
+  auto& args = require_args(arg, 2, "TupleMap");
+  auto& src = as_array(args[0]);
   const Value& function_ref = *args.TryGet(1);
+  const RuntimeCallable function = resolve_callable_ref(function_ref);
 
   Array out;
   out.Reserve(src.Size());
-  for_each_tuple_value(src, [&](const Value& item) { out.PushBack(invoke_callable_ref(function_ref, item)); });
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    out.PushBack(function(std::move(src[index])));
+  }
   return Value{std::move(out)};
 }
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFilter(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleFilter");
-  const auto& src = as_array(*args.TryGet(0));
+  auto& args = require_args(arg, 2, "TupleFilter");
+  auto& src = as_array(args[0]);
   const Value& pred = *args.TryGet(1);
+  const RuntimeCallable predicate = resolve_callable_ref(pred);
 
   Array out;
-  for_each_tuple_value(src, [&](const Value& item) {
-    if (as_bool(invoke_callable_ref(pred, item))) {
-      out.PushBack(item);
+  out.Reserve(src.Size());
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    Value item = std::move(src[index]);
+    if (as_bool(predicate(item))) {
+      out.PushBack(std::move(item));
     }
-  });
+  }
   return Value{std::move(out)};
 }
 
@@ -201,45 +207,57 @@ template <typename Predicate>
 
 // arg = [sequence, initial, func_ref]
 [[nodiscard]] inline auto TupleReduce(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "TupleReduce");
-  const auto& src = as_array(*args.TryGet(0));
-  Value accumulator = *args.TryGet(1);
+  auto& args = require_args(arg, 3, "TupleReduce");
+  auto& src = as_array(args[0]);
+  Value accumulator = std::move(args[1]);
   const Value& reducer = *args.TryGet(2);
-  for_each_tuple_value(src, [&](const Value& item) {
-    accumulator = invoke_callable_ref(reducer, make_tuple(std::move(accumulator), item));
-  });
+  const RegisteredCallable reducer_callable = resolve_registered_callable_ref(reducer);
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    accumulator = invoke_binary_callable(reducer_callable, std::move(accumulator), std::move(src[index]));
+  }
   return accumulator;
 }
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFindIndex(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleFindIndex");
-  const auto& src = as_array(*args.TryGet(0));
+  auto& args = require_args(arg, 2, "TupleFindIndex");
+  auto& src = as_array(args[0]);
   const Value& pred = *args.TryGet(1);
-  if (const auto index =
-          tuple_find_index_if(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); });
-      index.has_value()) {
-    return make_int(static_cast<Int>(*index));
+  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    if (as_bool(predicate(std::move(src[index])))) {
+      return make_int(static_cast<Int>(index));
+    }
   }
   return make_int(-1);
 }
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAny(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleAny");
-  const auto& src = as_array(*args.TryGet(0));
+  auto& args = require_args(arg, 2, "TupleAny");
+  auto& src = as_array(args[0]);
   const Value& pred = *args.TryGet(1);
-  return make_bool(
-      tuple_any_of(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); }));
+  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    if (as_bool(predicate(std::move(src[index])))) {
+      return make_bool(true);
+    }
+  }
+  return make_bool(false);
 }
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAll(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleAll");
-  const auto& src = as_array(*args.TryGet(0));
+  auto& args = require_args(arg, 2, "TupleAll");
+  auto& src = as_array(args[0]);
   const Value& pred = *args.TryGet(1);
-  return make_bool(
-      tuple_all_of(src, [&](const Value& item) -> bool { return as_bool(invoke_callable_ref(pred, item)); }));
+  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  for (std::size_t index = 0; index < src.Size(); ++index) {
+    if (!as_bool(predicate(std::move(src[index])))) {
+      return make_bool(false);
+    }
+  }
+  return make_bool(true);
 }
 
 // arg = [stop] | [start, stop] | [start, stop, step]

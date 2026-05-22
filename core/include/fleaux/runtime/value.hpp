@@ -60,6 +60,12 @@ using UInt = mguid::UnsignedIntegerType;  // uint64_t
 using Float = mguid::DoubleType;          // double
 
 using RuntimeCallable = std::function<Value(Value)>;
+using BinaryRuntimeCallable = std::function<Value(Value, Value)>;
+
+struct RegisteredCallable {
+  RuntimeCallable unary{};
+  BinaryRuntimeCallable binary{};
+};
 
 struct TaskControl;
 using TaskControlPtr = std::shared_ptr<TaskControl>;
@@ -267,7 +273,7 @@ private:
 };
 
 // ============================================================================
-// Callable registry (ScopedRegistry<RuntimeCallable>)
+// Callable registry (ScopedRegistry<RegisteredCallable>)
 // ============================================================================
 
 inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
@@ -383,7 +389,7 @@ struct RuntimeExecutionState {
   ~RuntimeExecutionState();
 
   UInt token_state_id{0};
-  ScopedRegistry<RuntimeCallable> callable_registry{};
+  ScopedRegistry<RegisteredCallable> callable_registry{};
   std::mutex callable_registry_mutex{};
 
   ScopedRegistry<Value> value_registry{};
@@ -442,7 +448,7 @@ private:
   std::reference_wrapper<RuntimeExecutionState> previous_;
 };
 
-inline auto callable_registry() -> ScopedRegistry<RuntimeCallable>& {
+inline auto callable_registry() -> ScopedRegistry<RegisteredCallable>& {
   return runtime_execution_state().callable_registry;
 }
 
@@ -550,9 +556,13 @@ private:
 
 // Callable/Function handling
 
-inline auto register_callable(RuntimeCallable fn) -> CallableId {
+inline auto register_callable(RegisteredCallable callable) -> CallableId {
   std::scoped_lock lock(callable_registry_mutex());
-  return callable_registry().insert(std::move(fn), /*logged=*/true);
+  return callable_registry().insert(std::move(callable), /*logged=*/true);
+}
+
+inline auto register_callable(RuntimeCallable fn) -> CallableId {
+  return register_callable(RegisteredCallable{.unary = std::move(fn)});
 }
 
 [[nodiscard]] inline auto callable_registry_size() -> std::size_t {
@@ -570,9 +580,13 @@ inline void reset_callable_registry() {
 // Registers a callable outside the registration log so it survives
 // CallableRegistryScope teardown. The caller owns the returned CallableId and
 // must eventually call release_callable_ref to retire it.
-inline auto register_callable_pinned(RuntimeCallable fn) -> CallableId {
+inline auto register_callable_pinned(RegisteredCallable callable) -> CallableId {
   std::scoped_lock lock(callable_registry_mutex());
-  return callable_registry().insert(std::move(fn), /*logged=*/false);
+  return callable_registry().insert(std::move(callable), /*logged=*/false);
+}
+
+inline auto register_callable_pinned(RuntimeCallable fn) -> CallableId {
+  return register_callable_pinned(RegisteredCallable{.unary = std::move(fn)});
 }
 
 // Snapshots callable-registry log position and retires transient entries on scope exit.
@@ -587,7 +601,7 @@ public:
   auto operator=(CallableRegistryScope&&) -> CallableRegistryScope& = delete;
 
 private:
-  ScopedRegistryCheckpoint<RuntimeCallable> checkpoint_;
+  ScopedRegistryCheckpoint<RegisteredCallable> checkpoint_;
 };
 
 // Global function registry stored as GenericNodeType
@@ -612,10 +626,12 @@ class PinnedCallableRef {
 public:
   PinnedCallableRef() = default;
 
-  explicit PinnedCallableRef(RuntimeCallable fn)
-      : owner_(callable_registry(), callable_registry_mutex(), std::move(fn)) {
+  explicit PinnedCallableRef(RegisteredCallable callable)
+      : owner_(callable_registry(), callable_registry_mutex(), std::move(callable)) {
     ref_ = make_tagged_registry_token(k_callable_tag, owner_.id().slot, owner_.id().generation);
   }
+
+  explicit PinnedCallableRef(RuntimeCallable fn) : PinnedCallableRef(RegisteredCallable{.unary = std::move(fn)}) {}
 
   PinnedCallableRef(const PinnedCallableRef&) = delete;
   auto operator=(const PinnedCallableRef&) -> PinnedCallableRef& = delete;
@@ -632,13 +648,22 @@ public:
   [[nodiscard]] auto is_valid() const -> bool { return owner_.is_valid(); }
 
 private:
-  PinnedRegistryRef<RuntimeCallable> owner_{};
+  PinnedRegistryRef<RegisteredCallable> owner_{};
   Value ref_{};
 };
+
+[[nodiscard]] inline auto make_pinned_callable_ref(RegisteredCallable callable) -> PinnedCallableRef {
+  return PinnedCallableRef(std::move(callable));
+}
 
 template <typename F>
 [[nodiscard]] auto make_pinned_callable_ref(F&& fn) -> PinnedCallableRef {
   return PinnedCallableRef(RuntimeCallable(std::forward<F>(fn)));
+}
+
+[[nodiscard]] inline auto make_callable_ref(RegisteredCallable callable) -> Value {
+  const auto [slot, generation] = register_callable(std::move(callable));
+  return make_tagged_registry_token(k_callable_tag, slot, generation);
 }
 
 [[nodiscard]] inline auto make_callable_ref(RuntimeCallable fn) -> Value {
@@ -1004,7 +1029,7 @@ struct HandleId {
   return *entry;
 }
 
-[[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
+[[nodiscard]] inline auto resolve_registered_callable_ref(const Value& ref) -> RegisteredCallable {
   const auto token_state_id =
       parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
   if (!token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
@@ -1015,16 +1040,43 @@ struct HandleId {
     throw std::runtime_error{"Expected callable reference"};
   }
 
-  RuntimeCallable callable;
-  {
-    std::scoped_lock lock(callable_registry_mutex());
-    const RuntimeCallable* ptr = callable_registry().get(*id);
-    if (!ptr) {
-      throw std::runtime_error{"Unknown callable reference"};
-    }
-    callable = *ptr;
+  std::scoped_lock lock(callable_registry_mutex());
+  const RegisteredCallable* ptr = callable_registry().get(*id);
+  if (!ptr) {
+    throw std::runtime_error{"Unknown callable reference"};
   }
+  return *ptr;
+}
 
+[[nodiscard]] inline auto resolve_callable_ref(const Value& ref) -> RuntimeCallable {
+  const RegisteredCallable callable = resolve_registered_callable_ref(ref);
+  if (!callable.unary) {
+    throw std::runtime_error{"Unknown callable reference"};
+  }
+  return callable.unary;
+}
+
+[[nodiscard]] inline auto invoke_binary_callable(const RegisteredCallable& callable, Value lhs, Value rhs) -> Value {
+  if (callable.binary) {
+    return callable.binary(std::move(lhs), std::move(rhs));
+  }
+  if (!callable.unary) {
+    throw std::runtime_error{"Unknown callable reference"};
+  }
+  Array pair_args;
+  pair_args.Reserve(2U);
+  pair_args.EmplaceBack(std::move(lhs));
+  pair_args.EmplaceBack(std::move(rhs));
+  return callable.unary(Value{std::move(pair_args)});
+}
+
+[[nodiscard]] inline auto invoke_binary_callable_ref(const Value& ref, Value lhs, Value rhs) -> Value {
+  const RegisteredCallable callable = resolve_registered_callable_ref(ref);
+  return invoke_binary_callable(callable, std::move(lhs), std::move(rhs));
+}
+
+[[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
+  const RuntimeCallable callable = resolve_callable_ref(ref);
   return callable(std::move(arg));
 }
 
@@ -1483,6 +1535,14 @@ enum class SortTag {
 
 [[nodiscard]] inline auto require_args(const Value& arg, std::size_t expected_count, const char* name) -> const Array& {
   const auto& args = as_array(arg);
+  if (args.Size() != expected_count) {
+    throw std::invalid_argument(std::format("{} expects {} arguments", name, expected_count));
+  }
+  return args;
+}
+
+[[nodiscard]] inline auto require_args(Value& arg, std::size_t expected_count, const char* name) -> Array& {
+  auto& args = as_array(arg);
   if (args.Size() != expected_count) {
     throw std::invalid_argument(std::format("{} expects {} arguments", name, expected_count));
   }

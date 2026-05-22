@@ -21,7 +21,7 @@ concept box_factory = complete_type<T> && std::constructible_from<T, Args&&...>;
 template <class T>
 class Box {
 public:
-  explicit constexpr Box() noexcept : ptr_(std::make_unique<T>()){};
+  explicit constexpr Box() noexcept : ptr_(std::make_unique<T>()) {};
 
   template <class... Args>
     requires detail::box_factory<T, Args...>
@@ -85,4 +85,3 @@ template <class T, class... Args>
 }
 
 }  // namespace fleaux::common
-

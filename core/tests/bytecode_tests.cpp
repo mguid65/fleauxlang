@@ -2110,6 +2110,37 @@ let Double(x: Float64): Float64 = (x, x) -> Std.Add;
   REQUIRE(fn_instrs.back().opcode == fleaux::bytecode::Opcode::kReturn);
 }
 
+TEST_CASE("Bytecode compiler emits kCallUserFuncBinary for direct binary user calls", "[bytecode]") {
+  const auto ir_program = lower_source_to_ir(R"(
+import Std;
+let AddPair(a: Int64, b: Int64): Int64 = (a, b) -> Std.Add;
+(7, 8) -> AddPair -> Std.Println;
+)",
+                                             "bytecode_user_func_binary.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->functions.size() == 1U);
+  REQUIRE(result->functions[0].name == "AddPair#0");
+  REQUIRE(result->functions[0].arity == 2U);
+
+  bool found_binary_call = false;
+  bool found_generic_call = false;
+  bool found_pair_build = false;
+  for (const auto& ins : result->instructions) {
+    found_binary_call = found_binary_call || ins.opcode == fleaux::bytecode::Opcode::kCallUserFuncBinary;
+    found_generic_call = found_generic_call || ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc;
+    found_pair_build = found_pair_build ||
+                       (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 2);
+  }
+
+  REQUIRE(found_binary_call);
+  REQUIRE_FALSE(found_generic_call);
+  REQUIRE_FALSE(found_pair_build);
+}
+
 TEST_CASE("Bytecode compiler emits store/load locals for block-scoped lets", "[bytecode][blocks]") {
   const auto ir_program = lower_source_to_ir(R"(
 import Std;

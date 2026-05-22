@@ -134,6 +134,7 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
       case Opcode::kMakeBuiltinFuncRef:
         break;
       case Opcode::kCallUserFunc:
+      case Opcode::kCallUserFuncBinary:
       case Opcode::kMakeUserFuncRef:
         operand = static_cast<std::int64_t>(maps.functions[static_cast<std::size_t>(operand)]);
         break;

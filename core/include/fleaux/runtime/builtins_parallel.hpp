@@ -200,16 +200,7 @@ public:
 
     RuntimeCallable callable;
     try {
-      const auto callable_id = callable_id_from_value(function_ref);
-      if (!callable_id) {
-        throw std::runtime_error{"Expected callable reference"};
-      }
-      std::scoped_lock callable_lock(callable_registry_mutex());
-      const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-      if (!resolved) {
-        throw std::runtime_error{"Unknown callable reference"};
-      }
-      callable = *resolved;
+      callable = resolve_callable_ref(function_ref);
     } catch (const std::exception& ex) {
       std::scoped_lock task_lock(task->mutex);
       task->started = true;
@@ -399,16 +390,7 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
   // Resolve callable once before submitting.
   RuntimeCallable callable;
   try {
-    const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) {
-      throw std::runtime_error{"Expected callable reference"};
-    }
-    std::scoped_lock callable_lock(callable_registry_mutex());
-    const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) {
-      throw std::runtime_error{"Unknown callable reference"};
-    }
-    callable = *resolved;
+    callable = resolve_callable_ref(function_ref);
   } catch (const std::exception& ex) {
     return ResultErr(
         make_tuple(make_tuple(make_int(static_cast<Int>(0)), make_string(normalize_runtime_error_message(ex.what())))));
@@ -588,16 +570,7 @@ inline auto run_parallel_foreach_pooled(const Array& items, const Value& functio
 
   RuntimeCallable callable;
   try {
-    const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) {
-      throw std::runtime_error{"Expected callable reference"};
-    }
-    std::scoped_lock callable_lock(callable_registry_mutex());
-    const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) {
-      throw std::runtime_error{"Unknown callable reference"};
-    }
-    callable = *resolved;
+    callable = resolve_callable_ref(function_ref);
   } catch (const std::exception& ex) {
     return ResultErr(
         make_tuple(make_tuple(make_int(static_cast<Int>(0)), make_string(normalize_runtime_error_message(ex.what())))));
@@ -659,18 +632,9 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
     return ResultOk(make_tuple(init));
   }
 
-  RuntimeCallable callable;
+  RegisteredCallable callable;
   try {
-    const auto callable_id = callable_id_from_value(function_ref);
-    if (!callable_id) {
-      throw std::runtime_error{"Expected callable reference"};
-    }
-    std::scoped_lock callable_lock(callable_registry_mutex());
-    const RuntimeCallable* resolved = callable_registry().get(*callable_id);
-    if (!resolved) {
-      throw std::runtime_error{"Unknown callable reference"};
-    }
-    callable = *resolved;
+    callable = resolve_registered_callable_ref(function_ref);
   } catch (const std::exception& ex) {
     return ResultErr(
         make_tuple(make_tuple(make_int(static_cast<Int>(0)), make_string(normalize_runtime_error_message(ex.what())))));
@@ -724,7 +688,7 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
     // The task receives (seed, items_tuple) and calls callable(acc, item) repeatedly.
     Value seed_copy = acc;
     Array chunk_copy = chunk_items;
-    RuntimeCallable fn_copy = callable;
+    RegisteredCallable fn_copy = callable;
     const std::size_t first_idx = global_index;
 
     auto chunk_task = task_runtime().submit_untracked(
@@ -733,9 +697,8 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
           Value local_acc = std::move(seed);
           std::size_t idx = base_idx;
           for (std::size_t i = 0; i < items_arr.Size(); ++i, ++idx) {
-            Value step_arg = make_tuple(local_acc, *items_arr.TryGet(i));
             try {
-              local_acc = fn(std::move(step_arg));
+              local_acc = invoke_binary_callable(fn, std::move(local_acc), std::move(items_arr[i]));
             } catch (const std::exception& ex) {
               const auto message = normalize_runtime_error_message(ex.what());
               throw RuntimePayloadError{make_tuple(make_int(static_cast<Int>(idx)), make_string(message)), message};

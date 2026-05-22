@@ -1606,6 +1606,41 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
   REQUIRE(output.str() == "-10\n");
 }
 
+TEST_CASE("VM builtin function refs drive TupleReduce through builtin reducers", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kAddBuiltin = builtin(fleaux::vm::BuiltinId::Add);
+  constexpr auto kTupleReduceBuiltin = builtin(fleaux::vm::BuiltinId::TupleReduce);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c0 = push_i64_const(bytecode_module, 0);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kAddBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleReduceBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "10\n");
+}
+
 TEST_CASE("VM nested callable refs preserve local state across reused invocation scratch", "[vm][closure]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c1 = push_i64_const(bytecode_module, 1);
@@ -2469,6 +2504,41 @@ TEST_CASE("VM kCallUserFunc binds fixed-arity tuple arguments", "[vm]") {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c32},
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
       {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "42\n");
+}
+
+TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto c10 = push_i64_const(bytecode_module, 10);
+  const auto c32 = push_i64_const(bytecode_module, 32);
+
+  fleaux::bytecode::FunctionDef sum2;
+  sum2.name = "Sum2";
+  sum2.arity = 2;
+  sum2.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(sum2));
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c32},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFuncBinary, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},

@@ -447,6 +447,11 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
 endif()
 
 if(BUILD_TESTING AND TARGET fleaux_vm)
+  add_executable(fleaux_runtime_microbench
+      tests/runtime_microbench.cpp)
+  target_link_libraries(fleaux_runtime_microbench PRIVATE fleaux_vm)
+  fleaux_set_project_warnings(fleaux_runtime_microbench WARNINGS_AS_ERRORS)
+
   add_library(fleaux_test_binding_plugin SHARED
       tests/fixtures/binding_plugin_echo.cpp)
   target_include_directories(fleaux_test_binding_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

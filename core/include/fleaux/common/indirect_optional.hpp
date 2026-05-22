@@ -20,40 +20,40 @@ template <class T>
 concept complete_type = requires { sizeof(T); };
 
 template <class T, class U>
-concept indirect_optional_value_or_lvalue = complete_type<T> && std::copy_constructible<T> && std::constructible_from<T, U&&>;
+concept indirect_optional_value_or_lvalue =
+    complete_type<T> && std::copy_constructible<T> && std::constructible_from<T, U&&>;
 
 template <class T, class U>
-concept indirect_optional_value_or_rvalue = complete_type<T> && std::move_constructible<T> && std::constructible_from<T, U&&>;
+concept indirect_optional_value_or_rvalue =
+    complete_type<T> && std::move_constructible<T> && std::constructible_from<T, U&&>;
 
 template <class T, class U>
 concept indirect_optional_direct_value_source = std::same_as<std::remove_cvref_t<U>, T>;
 
 template <class T, class U>
-concept indirect_optional_direct_value_lvalue_construction = complete_type<T> &&
-                                                             indirect_optional_direct_value_source<T, U> &&
-                                                             std::is_lvalue_reference_v<U&&> &&
-                                                             std::constructible_from<T, U&&>;
+concept indirect_optional_direct_value_lvalue_construction =
+    complete_type<T> && indirect_optional_direct_value_source<T, U> && std::is_lvalue_reference_v<U&&> &&
+    std::constructible_from<T, U&&>;
 
 template <class T, class U>
-concept indirect_optional_direct_value_rvalue_construction = complete_type<T> &&
-                                                             indirect_optional_direct_value_source<T, U> &&
-                                                             !std::is_lvalue_reference_v<U&&> &&
-                                                             std::constructible_from<T, U&&>;
+concept indirect_optional_direct_value_rvalue_construction =
+    complete_type<T> && indirect_optional_direct_value_source<T, U> && !std::is_lvalue_reference_v<U&&> &&
+    std::constructible_from<T, U&&>;
 
 template <class T, class U>
-concept indirect_optional_direct_value_lvalue_assignment = indirect_optional_direct_value_lvalue_construction<T, U> &&
-                                                          std::assignable_from<T&, U&&>;
+concept indirect_optional_direct_value_lvalue_assignment =
+    indirect_optional_direct_value_lvalue_construction<T, U> && std::assignable_from<T&, U&&>;
 
 template <class T, class U>
-concept indirect_optional_direct_value_rvalue_assignment = indirect_optional_direct_value_rvalue_construction<T, U> &&
-                                                          std::assignable_from<T&, U&&>;
+concept indirect_optional_direct_value_rvalue_assignment =
+    indirect_optional_direct_value_rvalue_construction<T, U> && std::assignable_from<T&, U&&>;
 
 template <class T, class... Args>
 concept indirect_optional_factory = complete_type<T> && std::constructible_from<T, Args&&...>;
 
 template <class T, class U, class... Args>
-concept indirect_optional_initializer_list_factory = complete_type<T> &&
-                                                    std::constructible_from<T, std::initializer_list<U>, Args&&...>;
+concept indirect_optional_initializer_list_factory =
+    complete_type<T> && std::constructible_from<T, std::initializer_list<U>, Args&&...>;
 
 }  // namespace detail
 
@@ -151,7 +151,6 @@ public:
     }
     return *this;
   }
-
 
   [[nodiscard]] constexpr auto has_value() const noexcept -> bool { return ptr_ != nullptr; }
 

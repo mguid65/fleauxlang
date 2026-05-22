@@ -35,8 +35,7 @@ namespace {
   };
 }
 
-[[nodiscard]] auto optional_input_ref(std::istream* input)
-    -> std::optional<std::reference_wrapper<std::istream>> {
+[[nodiscard]] auto optional_input_ref(std::istream* input) -> std::optional<std::reference_wrapper<std::istream>> {
   if (input == nullptr) {
     return std::nullopt;
   }
@@ -80,20 +79,20 @@ void rollback_registered_symbols(NativeBindingRegistry& registry, const std::vec
 
 [[nodiscard]] auto diagnostic_stage_name(const HostErrorCategory category) -> std::string_view {
   switch (category) {
-  case HostErrorCategory::kParse:
-    return "parse";
-  case HostErrorCategory::kAnalysis:
-    return "analysis";
-  case HostErrorCategory::kBytecode:
-    return "bytecode";
-  case HostErrorCategory::kRuntime:
-    return "runtime";
-  case HostErrorCategory::kIo:
-    return "io";
-  case HostErrorCategory::kBinding:
-    return "binding";
-  case HostErrorCategory::kInternal:
-    return "internal";
+    case HostErrorCategory::kParse:
+      return "parse";
+    case HostErrorCategory::kAnalysis:
+      return "analysis";
+    case HostErrorCategory::kBytecode:
+      return "bytecode";
+    case HostErrorCategory::kRuntime:
+      return "runtime";
+    case HostErrorCategory::kIo:
+      return "io";
+    case HostErrorCategory::kBinding:
+      return "binding";
+    case HostErrorCategory::kInternal:
+      return "internal";
   }
   return "internal";
 }
@@ -109,7 +108,8 @@ struct VmHost::Impl {
   };
 
   explicit Impl(VmHostConfig initial_config)
-      : config(std::move(initial_config)), runtime(config.process_args), owned_dynamic_loader(make_system_dynamic_loader()) {}
+      : config(std::move(initial_config)), runtime(config.process_args),
+        owned_dynamic_loader(make_system_dynamic_loader()) {}
   Impl(Impl&& other) noexcept = default;
   auto operator=(Impl&& other) noexcept -> Impl& = default;
 
@@ -143,8 +143,8 @@ struct VmHost::Impl {
   }
 
   void emit_host_error(const HostError& error) const {
-    std::string rendered = frontend::diag::format_diagnostic(
-        std::string{diagnostic_stage_name(error.category)}, error.message, error.span, error.hint);
+    std::string rendered = frontend::diag::format_diagnostic(std::string{diagnostic_stage_name(error.category)},
+                                                             error.message, error.span, error.hint);
     rendered.push_back('\n');
     emit_stderr(rendered);
   }
@@ -177,8 +177,8 @@ struct VmHost::Impl {
     std::ostringstream captured_stdout;
     const auto exec_result = runtime.execute(module, vm::RuntimeInvocationOptions{
                                                          .entry_label = entry_label,
-                                                          .input = optional_input_ref(config.stdin_stream),
-                                                          .output = std::ref(captured_stdout),
+                                                         .input = optional_input_ref(config.stdin_stream),
+                                                         .output = std::ref(captured_stdout),
                                                      });
     emit_stdout(captured_stdout.str());
     if (!exec_result) {
@@ -192,16 +192,16 @@ struct VmHost::Impl {
       -> VmResult {
     const auto* registry = config.binding_registry;
     if (registry == nullptr) {
-      return tl::unexpected(make_error(
-          HostErrorCategory::kBinding, "No binding registry configured for VmHost.call_native.",
-          std::optional<std::string>{"Set VmHostConfig.binding_registry or call set_binding_registry()."}));
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "No binding registry configured for VmHost.call_native.",
+                     std::optional<std::string>{"Set VmHostConfig.binding_registry or call set_binding_registry()."}));
     }
 
     const auto binding = registry->find_callable(qualified_symbol);
     if (!binding.has_value()) {
-      return tl::unexpected(make_error(
-          HostErrorCategory::kBinding, "Binding symbol not found: '" + std::string{qualified_symbol} + "'.",
-          std::optional<std::string>{"Register the symbol in NativeBindingRegistry before calling it."}));
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "Binding symbol not found: '" + std::string{qualified_symbol} + "'.",
+                     std::optional<std::string>{"Register the symbol in NativeBindingRegistry before calling it."}));
     }
 
     const BindingContext context{
@@ -228,8 +228,8 @@ struct VmHost::Impl {
     emit_stdout(captured_stdout.str());
 
     if (!invoked) {
-      return tl::unexpected(make_error(HostErrorCategory::kRuntime, invoked.error().message, invoked.error().hint,
-                                       invoked.error().span));
+      return tl::unexpected(
+          make_error(HostErrorCategory::kRuntime, invoked.error().message, invoked.error().hint, invoked.error().span));
     }
     return *invoked;
   }
@@ -385,16 +385,16 @@ auto VmHost::call(const std::string_view qualified_symbol, const VmValue& args) 
 auto VmHost::load_binding_module(const std::filesystem::path& module_path) -> HostStatus {
   auto result = [&]() -> HostStatus {
     if (module_path.empty()) {
-      return tl::unexpected(make_error(
-          HostErrorCategory::kBinding, "Binding module path cannot be empty.",
-          std::optional<std::string>{"Pass an absolute or relative shared library path."}));
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "Binding module path cannot be empty.",
+                     std::optional<std::string>{"Pass an absolute or relative shared library path."}));
     }
 
     auto* registry = impl_->config.binding_registry;
     if (registry == nullptr) {
-      return tl::unexpected(make_error(
-          HostErrorCategory::kBinding, "No binding registry configured for module loading.",
-          std::optional<std::string>{"Set VmHostConfig.binding_registry or call set_binding_registry()."}));
+      return tl::unexpected(
+          make_error(HostErrorCategory::kBinding, "No binding registry configured for module loading.",
+                     std::optional<std::string>{"Set VmHostConfig.binding_registry or call set_binding_registry()."}));
     }
 
     const auto* loader = impl_->dynamic_loader;

@@ -125,6 +125,13 @@ enum class Opcode {
   // Pop TOS and write it into the local slot identified by operand, growing the
   // current frame's local storage if needed.
   kStoreLocal,
+
+  // Specialized user-defined binary function call:
+  // Pop rhs then lhs, enter the non-variadic arity-2 user function identified
+  // by operand, and bind the two values directly as locals without building a
+  // tuple argument first.
+  // operand = index into Module::functions.
+  kCallUserFuncBinary,
 };
 
 inline constexpr std::array opcode_names{
@@ -166,7 +173,8 @@ inline constexpr std::array opcode_names{
   std::string_view{"Halt"},
   std::string_view{"MakeValueRef"},
   std::string_view{"DerefValueRef"},
-  std::string_view{"StoreLocal"}
+  std::string_view{"StoreLocal"},
+  std::string_view{"CallUserFuncBinary"}
 };
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {

@@ -721,6 +721,41 @@ auto emit_tuple_items(const IRTupleExpr& tuple_expr, std::vector<Instruction>& o
   return {};
 }
 
+auto try_emit_user_binary_call_fast_path(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
+                                         CompileState& state, Module& bytecode_module)
+    -> tl::expected<bool, CompileError> {
+  const auto user_fn_idx = user_function_index_from_target(flow.rhs, state);
+  if (!user_fn_idx.has_value() || *user_fn_idx >= bytecode_module.functions.size()) {
+    return false;
+  }
+
+  if (const auto& function = bytecode_module.functions[*user_fn_idx];
+      function.has_variadic_tail || function.arity != 2U) {
+    return false;
+  }
+
+  const auto* tuple_expr = std::get_if<IRTupleExpr>(&flow.lhs->node);
+  if (tuple_expr == nullptr || tuple_expr->items.size() != 2U) {
+    return false;
+  }
+
+  const auto by_ref_it = state.enable_auto_value_ref ? state.by_ref_param_slots.find(*user_fn_idx)
+                                                      : state.by_ref_param_slots.end();
+  for (std::uint32_t param_index = 0; param_index < 2U; ++param_index) {
+    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module);
+        !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+    if (state.enable_auto_value_ref && by_ref_it != state.by_ref_param_slots.end() &&
+        by_ref_it->second.contains(param_index)) {
+      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
+    }
+  }
+
+  out.push_back(Instruction{.opcode = Opcode::kCallUserFuncBinary, .operand = static_cast<std::int64_t>(*user_fn_idx)});
+  return true;
+}
+
 auto builtin_symbol_key_from_call_target(const IRCallTarget& target, const CompileState& state)
     -> std::optional<std::string> {
   return std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> std::optional<std::string> {
@@ -1204,6 +1239,13 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
     return tl::unexpected(handled.error());
   }
   if (*handled) {
+    return {};
+  }
+
+  if (auto emitted_binary_call = try_emit_user_binary_call_fast_path(flow, out, locals, state, bytecode_module);
+      !emitted_binary_call) {
+    return tl::unexpected(emitted_binary_call.error());
+  } else if (*emitted_binary_call) {
     return {};
   }
 

@@ -126,7 +126,7 @@ void collect_unqualified_name_refs(const IRExpr& expr, std::unordered_set<std::s
                                   collect_unqualified_name_refs(*closure_ptr->body, out);
                                 },
                                 [&](const IRBlockExprBox& block_ptr) -> void {
-                                  for_each_block_item_expr(*block_ptr, [&](const IRExpr& nested_expr) {
+                                  for_each_block_item_expr(*block_ptr, [&](const IRExpr& nested_expr) -> void {
                                     collect_unqualified_name_refs(nested_expr, out);
                                   });
                                   collect_unqualified_name_refs(*block_ptr->result, out);
@@ -136,10 +136,10 @@ void collect_unqualified_name_refs(const IRExpr& expr, std::unordered_set<std::s
 }
 
 void summarize_let_body(const IRExpr& expr, LetBodySummary& summary) {
-  std::visit(common::overloaded{
-                 [&](const IRFlowExpr& flow) -> void {
-                   std::visit(
-                       common::overloaded{[&](const IRNameRef& name_ref) -> void {
+  std::visit(
+      common::overloaded{
+          [&](const IRFlowExpr& flow) -> void {
+            std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> void {
                                             if (escape_builtins().contains(
                                                     common::full_symbol_name(name_ref.qualifier, name_ref.name))) {
                                               collect_unqualified_name_refs(*flow.lhs, summary.reaches_escape_builtin);
@@ -147,26 +147,26 @@ void summarize_let_body(const IRExpr& expr, LetBodySummary& summary) {
                                           },
                                           [](const IROperatorRef&) -> void {}},
                        flow.rhs);
-                   summarize_let_body(*flow.lhs, summary);
-                 },
-                 [&](const IRTupleExpr& tuple) -> void {
-                   for (const auto& item : tuple.items) {
-                     summarize_let_body(*item, summary);
-                   }
-                 },
-                 [&](const IRClosureExprBox& closure_ptr) -> void {
-                   for (const auto& capture : closure_ptr->captures) {
-                     summary.captured_by_nested_closure.insert(capture);
-                   }
-                   summarize_let_body(*closure_ptr->body, summary);
-                 },
-                 [&](const IRBlockExprBox& block_ptr) -> void {
-                   for_each_block_item_expr(
-                       *block_ptr, [&](const IRExpr& nested_expr) { summarize_let_body(nested_expr, summary); });
-                   summarize_let_body(*block_ptr->result, summary);
-                 },
-                 [](const auto&) -> void {}},
-             expr.node);
+            summarize_let_body(*flow.lhs, summary);
+          },
+          [&](const IRTupleExpr& tuple) -> void {
+            for (const auto& item : tuple.items) {
+              summarize_let_body(*item, summary);
+            }
+          },
+          [&](const IRClosureExprBox& closure_ptr) -> void {
+            for (const auto& capture : closure_ptr->captures) {
+              summary.captured_by_nested_closure.insert(capture);
+            }
+            summarize_let_body(*closure_ptr->body, summary);
+          },
+          [&](const IRBlockExprBox& block_ptr) -> void {
+            for_each_block_item_expr(
+                *block_ptr, [&](const IRExpr& nested_expr) -> void { summarize_let_body(nested_expr, summary); });
+            summarize_let_body(*block_ptr->result, summary);
+          },
+          [](const auto&) -> void {}},
+      expr.node);
 }
 
 void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
@@ -187,8 +187,8 @@ void collect_call_sites(const IRExpr& expr, std::vector<CallSite>& out) {
                  },
                  [&](const IRClosureExprBox& closure_ptr) -> void { collect_call_sites(*closure_ptr->body, out); },
                  [&](const IRBlockExprBox& block_ptr) -> void {
-                   for_each_block_item_expr(*block_ptr,
-                                            [&](const IRExpr& nested_expr) { collect_call_sites(nested_expr, out); });
+                   for_each_block_item_expr(
+                       *block_ptr, [&](const IRExpr& nested_expr) -> void { collect_call_sites(nested_expr, out); });
                    collect_call_sites(*block_ptr->result, out);
                  },
                  [](const auto&) -> void {}},
@@ -202,8 +202,9 @@ void collect_program_call_sites(const IRProgram& program, std::vector<CallSite>&
     }
     collect_call_sites(*let.body, out);
   }
-  for (const auto& expr_stmt : program.expressions) {
-    collect_call_sites(expr_stmt.expr, out);
+  for (const auto& [expr, span] : program.expressions) {
+    (void)span;
+    collect_call_sites(expr, out);
   }
 }
 

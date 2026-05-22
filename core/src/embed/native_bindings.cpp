@@ -61,9 +61,8 @@ auto NativeBindingRegistry::register_callable(NativeBinding binding) -> BindingR
 }
 
 auto NativeBindingRegistry::unregister_callable(const std::string_view symbol) -> bool {
-  const auto it = std::ranges::find_if(bindings_, [symbol](const NativeBinding& binding) {
-    return binding.symbol == symbol;
-  });
+  const auto it = std::ranges::find_if(
+      bindings_, [symbol](const NativeBinding& binding) -> bool { return binding.symbol == symbol; });
   if (it == bindings_.end()) {
     return false;
   }
@@ -73,7 +72,8 @@ auto NativeBindingRegistry::unregister_callable(const std::string_view symbol) -
 }
 
 auto NativeBindingRegistry::has_callable(const std::string_view symbol) const -> bool {
-  return std::ranges::any_of(bindings_, [symbol](const NativeBinding& binding) { return binding.symbol == symbol; });
+  return std::ranges::any_of(bindings_,
+                             [symbol](const NativeBinding& binding) -> bool { return binding.symbol == symbol; });
 }
 
 auto NativeBindingRegistry::clear() -> std::size_t {
@@ -95,9 +95,8 @@ auto NativeBindingRegistry::snapshot_symbols() const -> std::vector<std::string>
 
 auto NativeBindingRegistry::find_callable(const std::string_view symbol) const
     -> std::optional<std::reference_wrapper<const NativeBinding>> {
-  const auto it = std::ranges::find_if(bindings_, [symbol](const NativeBinding& binding) {
-    return binding.symbol == symbol;
-  });
+  const auto it = std::ranges::find_if(
+      bindings_, [symbol](const NativeBinding& binding) -> bool { return binding.symbol == symbol; });
   if (it == bindings_.end()) {
     return std::nullopt;
   }
@@ -106,4 +105,3 @@ auto NativeBindingRegistry::find_callable(const std::string_view symbol) const
 }
 
 }  // namespace fleaux::embed
-

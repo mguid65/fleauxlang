@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <sstream>
 #include <thread>
@@ -771,7 +772,7 @@ TEST_CASE("Runtime builtins: concurrency property tests", "[runtime][concurrency
     for (int run = 0; run < runs; ++run) {
       const int n = (run % 16) + 1;
       Array items;
-      items.Reserve(n);
+      items.Reserve(static_cast<std::size_t>(n));
       for (int i = 0; i < n; ++i) { items.PushBack(make_int(i + 1)); }
 
       const Value result = ParallelMap(make_tuple(Value{items}, double_val));
@@ -1198,6 +1199,27 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(unique, 0)) == 1.0);
     REQUIRE(to_double(array_at(unique, 1)) == 2.0);
     REQUIRE(to_double(array_at(unique, 2)) == 3.0);
+  }
+
+  SECTION("TupleReduce preserves binary callable specializations") {
+    const Value values = make_tuple(make_int(1), make_int(2), make_int(3), make_int(2));
+    const auto unary_calls = std::make_shared<int>(0);
+    const auto binary_calls = std::make_shared<int>(0);
+    const Value sum_pair = make_callable_ref(RegisteredCallable{
+        .unary = [unary_calls](Value value) -> Value {
+          ++*unary_calls;
+          const auto& pair = as_array(value);
+          return make_int(as_int_value(*pair.TryGet(0)) + as_int_value(*pair.TryGet(1)));
+        },
+        .binary = [binary_calls](Value lhs, Value rhs) -> Value {
+          ++*binary_calls;
+          return make_int(as_int_value(lhs) + as_int_value(rhs));
+        },
+    });
+
+    REQUIRE(to_double(TupleReduce(make_tuple(values, make_int(0), sum_pair))) == 8.0);
+    REQUIRE(*binary_calls == 4);
+    REQUIRE(*unary_calls == 0);
   }
 
   SECTION("TupleMin and TupleMax reject empty tuples") {

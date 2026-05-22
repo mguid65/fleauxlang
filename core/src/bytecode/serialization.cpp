@@ -293,6 +293,7 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
       return std::format("builtin={}", fleaux::vm::builtin_name(*builtin_id));
     }
     case Opcode::kCallUserFunc:
+    case Opcode::kCallUserFuncBinary:
     case Opcode::kMakeUserFuncRef: {
       if (!valid_index(instruction.operand, module.functions.size())) {
         return index_label(instruction.operand, module.functions.size(), "function");
