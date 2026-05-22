@@ -22,8 +22,8 @@ namespace {
 using Clock = std::chrono::steady_clock;
 using Duration = std::chrono::nanoseconds;
 using fleaux::bytecode::ConstValue;
-using fleaux::bytecode::ExportKind;
 using fleaux::bytecode::ExportedSymbol;
+using fleaux::bytecode::ExportKind;
 using fleaux::bytecode::FunctionDef;
 using fleaux::bytecode::Instruction;
 using fleaux::bytecode::Module;
@@ -31,8 +31,8 @@ using fleaux::bytecode::Opcode;
 using fleaux::runtime::Array;
 using fleaux::runtime::Int;
 using fleaux::runtime::RegisteredCallable;
-using fleaux::runtime::RuntimeExecutionState;
 using fleaux::runtime::RuntimeCallable;
+using fleaux::runtime::RuntimeExecutionState;
 using fleaux::runtime::Value;
 
 struct NullBuffer final : std::streambuf {
@@ -243,19 +243,19 @@ auto run_benchmark(const std::string& name, const std::size_t operation_count, c
 }
 
 void print_results(const std::vector<BenchmarkResult>& results) {
-  std::cout << std::left << std::setw(28) << "benchmark" << std::right << std::setw(14) << "ops"
-            << std::setw(14) << "best ns/op" << std::setw(16) << "median ns/op" << std::setw(14) << "worst ns/op"
-            << '\n';
+  std::cout << std::left << std::setw(28) << "benchmark" << std::right << std::setw(14) << "ops" << std::setw(14)
+            << "best ns/op" << std::setw(16) << "median ns/op" << std::setw(14) << "worst ns/op" << '\n';
   std::cout << std::string(86, '=') << '\n';
 
   for (const auto& result : results) {
     const auto to_ns_per_op = [&](const Duration duration) -> double {
-      return static_cast<double>(duration.count()) / static_cast<double>(std::max<std::size_t>(1, result.operation_count));
+      return static_cast<double>(duration.count()) /
+             static_cast<double>(std::max<std::size_t>(1, result.operation_count));
     };
 
     std::cout << std::left << std::setw(28) << result.name << std::right << std::setw(14) << result.operation_count
-              << std::setw(14) << std::fixed << std::setprecision(1) << to_ns_per_op(result.best)
-              << std::setw(16) << to_ns_per_op(result.median) << std::setw(14) << to_ns_per_op(result.worst) << '\n';
+              << std::setw(14) << std::fixed << std::setprecision(1) << to_ns_per_op(result.best) << std::setw(16)
+              << to_ns_per_op(result.median) << std::setw(14) << to_ns_per_op(result.worst) << '\n';
   }
 
   std::cout << '\n' << "sink=" << g_sink << '\n';
@@ -269,7 +269,7 @@ auto parse_positive_size(const std::string_view text, const char* flag_name) -> 
   std::size_t value = 0;
   const std::string owned{text};
   try {
-    value = static_cast<std::size_t>(std::stoull(owned));
+    value = std::stoull(owned);
   } catch (const std::exception&) {
     throw std::invalid_argument(std::string(flag_name) + " must be a non-negative integer");
   }
@@ -331,9 +331,8 @@ auto main(int argc, char** argv) -> int {
     std::vector<BenchmarkResult> results;
     results.reserve(12);
 
-    const Value increment_ref = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1);
-    });
+    const Value increment_ref = fleaux::runtime::make_callable_ref(
+        [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1); });
 
     results.push_back(run_benchmark("invoke_callable_ref", config.call_iterations, config, [&]() -> void {
       Int total = 0;
@@ -356,9 +355,8 @@ auto main(int argc, char** argv) -> int {
     }));
 
     const Value values = make_int_tuple(config.tuple_size);
-    const Value add_one = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1);
-    });
+    const Value add_one = fleaux::runtime::make_callable_ref(
+        [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1); });
     results.push_back(run_benchmark("TupleMap", config.tuple_size, config, [&]() -> void {
       const Value mapped = fleaux::runtime::TupleMap(fleaux::runtime::make_tuple(values, add_one));
       consume_value(mapped);
@@ -366,8 +364,8 @@ auto main(int argc, char** argv) -> int {
 
     const Value sum_pair = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
       const auto& pair = fleaux::runtime::as_array(arg);
-      return fleaux::runtime::make_int(
-          fleaux::runtime::as_int_value(*pair.TryGet(0)) + fleaux::runtime::as_int_value(*pair.TryGet(1)));
+      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
+                                       fleaux::runtime::as_int_value(*pair.TryGet(1)));
     });
     results.push_back(run_benchmark("TupleReduce", config.tuple_size, config, [&]() -> void {
       const Value reduced =
@@ -385,16 +383,13 @@ auto main(int argc, char** argv) -> int {
       consume_value(reduced);
     }));
 
-    const Value continue_func = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
-      return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(arg) > 0);
-    });
-    const Value step_func = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) - 1);
-    });
+    const Value continue_func = fleaux::runtime::make_callable_ref(
+        [](Value arg) -> Value { return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(arg) > 0); });
+    const Value step_func = fleaux::runtime::make_callable_ref(
+        [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) - 1); });
     results.push_back(run_benchmark("Runtime::Loop", config.call_iterations, config, [&]() -> void {
-      const Value loop_result = fleaux::runtime::Loop(
-          fleaux::runtime::make_tuple(fleaux::runtime::make_int(static_cast<Int>(config.call_iterations)),
-                                      continue_func, step_func));
+      const Value loop_result = fleaux::runtime::Loop(fleaux::runtime::make_tuple(
+          fleaux::runtime::make_int(static_cast<Int>(config.call_iterations)), continue_func, step_func));
       consume_value(loop_result);
     }));
 
@@ -406,8 +401,8 @@ auto main(int argc, char** argv) -> int {
     auto unary_native_registration = binding_registry.register_callable(fleaux::embed::NativeBinding{
         .symbol = "Host.SumUnary",
         .signature = fleaux::embed::BindingSignature{},
-        .callable = [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
-            -> fleaux::embed::NativeInvokeResult {
+        .callable = [](const fleaux::embed::BindingContext&,
+                       const fleaux::embed::VmValue& args) -> fleaux::embed::NativeInvokeResult {
           const auto& pair = fleaux::runtime::as_array(args);
           return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
                                            fleaux::runtime::as_int_value(*pair.TryGet(1)));
@@ -421,8 +416,8 @@ auto main(int argc, char** argv) -> int {
         fleaux::embed::NativeBinding{
             .symbol = "Host.SumBinary",
             .signature = fleaux::embed::BindingSignature{},
-            .callable = [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
-                -> fleaux::embed::NativeInvokeResult {
+            .callable = [](const fleaux::embed::BindingContext&,
+                           const fleaux::embed::VmValue& args) -> fleaux::embed::NativeInvokeResult {
               const auto& pair = fleaux::runtime::as_array(args);
               return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
                                                fleaux::runtime::as_int_value(*pair.TryGet(1)));
@@ -519,5 +514,3 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 }
-
-
