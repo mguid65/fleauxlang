@@ -347,6 +347,10 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 // arg = [format, arg0, arg1, ...]
 // Returns the formatted string without printing.
 [[nodiscard]] inline auto StringFormat(Value arg) -> Value {
+  if (!arg.HasArray()) {
+    return make_string(format_values(to_string(arg), std::vector<Value>{}));
+  }
+
   const auto& args = as_array(arg);
   if (args.Size() < 1) {
     throw std::invalid_argument{"String.Format expects at least 1 argument"};

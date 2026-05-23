@@ -356,6 +356,12 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 [[nodiscard]] inline auto Printf(Value arg) -> Value {
   // arg = [format, arg0, arg1, ...]
   // Prints formatted text and returns the original argument tuple unchanged.
+  if (!arg.HasArray()) {
+    const std::string fmt = to_string(arg);
+    runtime_output_stream() << format_values(fmt, std::vector<Value>{});
+    return make_tuple(std::move(arg));
+  }
+
   const auto& args = as_array(arg);
   if (args.Size() < 1) {
     throw std::invalid_argument{"Printf expects at least 1 argument"};

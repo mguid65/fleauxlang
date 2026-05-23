@@ -456,6 +456,65 @@ TEST_CASE("VM Std.Printf returns the expected tuple shape", "[vm][samples][print
   }
 }
 
+TEST_CASE("VM Std.Printf accepts a format string with no substitution arguments", "[vm][samples][printf]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_printf_single_argument";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "printf_single_argument.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "\"hello\" -> Std.Printf -> Std.Length -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled_module, output);
+  if (!runtime_result.has_value()) {
+    INFO("bytecode error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "hello1\n");
+}
+
+TEST_CASE("VM Std.String.Format accepts a format string with no substitution arguments",
+          "[vm][samples][string][format]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_string_format_single_argument";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "string_format_single_argument.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "\"hello\" -> Std.String.Format -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled_module, output);
+  if (!runtime_result.has_value()) {
+    INFO("bytecode error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "hello\n");
+}
+
 TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][println]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_println_return_shape";
   std::filesystem::remove_all(temp_dir);
