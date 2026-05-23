@@ -1,17 +1,21 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 
 #include <tl/expected.hpp>
 
 #include "fleaux/bytecode/module.hpp"
 #include "fleaux/bytecode/optimizer.hpp"
+#include "fleaux/frontend/diagnostics.hpp"
 
 namespace fleaux::bytecode {
 
 struct ModuleLoadError {
   std::string message{};
+  std::optional<std::string> hint{std::nullopt};
+  std::optional<frontend::diag::SourceSpan> span{std::nullopt};
 };
 
 struct ModuleLoadOptions {

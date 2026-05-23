@@ -65,6 +65,17 @@ auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::s
   return "Resolve the VM load or typing failure, then retry.";
 }
 
+auto dedupe_hint_if_embedded(const std::string& message, const std::optional<std::string>& hint)
+    -> std::optional<std::string> {
+  if (!hint.has_value() || hint->empty()) {
+    return hint;
+  }
+  if (message.find(*hint) != std::string::npos) {
+    return std::nullopt;
+  }
+  return hint;
+}
+
 auto usage_text() -> std::string {
   return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] "
          "[--experimental-builtin-reductions] "
@@ -189,8 +200,10 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   if (!module_result) {
     return tl::unexpected(CliError{
         .message = module_result.error().message,
-        .hint = vm_loader_hint_for(module_result.error().message),
-        .span = std::nullopt,
+        .hint = module_result.error().hint.has_value()
+                    ? dedupe_hint_if_embedded(module_result.error().message, module_result.error().hint)
+                    : std::optional<std::string>{vm_loader_hint_for(module_result.error().message)},
+        .span = module_result.error().span,
     });
   }
   auto module = std::move(module_result.value());

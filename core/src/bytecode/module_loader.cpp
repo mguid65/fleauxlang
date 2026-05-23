@@ -1,5 +1,6 @@
 #include "fleaux/bytecode/module_loader.hpp"
 
+#include <cctype>
 #include <fstream>
 #include <optional>
 #include <span>
@@ -51,11 +52,30 @@ struct ImportSeeds {
   std::vector<frontend::ir::IRAliasDecl> alias_decls;
 };
 
-auto make_error(const std::string& message) -> ModuleLoadError { return ModuleLoadError{.message = message}; }
+auto make_error(const std::string& message, const std::optional<std::string>& hint = std::nullopt,
+                const std::optional<frontend::diag::SourceSpan>& span = std::nullopt) -> ModuleLoadError {
+  return ModuleLoadError{
+      .message = message,
+      .hint = hint,
+      .span = span,
+  };
+}
+
+auto compose_detailed_message(const std::string& message, const std::optional<std::string>& hint) -> std::string {
+  if (!hint.has_value() || hint->empty() || message.find(*hint) != std::string::npos) {
+    return message;
+  }
+
+  if (!message.empty() && std::isspace(static_cast<unsigned char>(message.back())) != 0) {
+    return message + *hint;
+  }
+
+  return message + " " + *hint;
+}
 
 auto make_parse_error(const std::string& message, const std::optional<std::string>& hint,
-                      const std::optional<frontend::diag::SourceSpan>&) -> ModuleLoadError {
-  return ModuleLoadError{.message = hint.has_value() ? message + " (" + *hint + ")" : message};
+                      const std::optional<frontend::diag::SourceSpan>& span) -> ModuleLoadError {
+  return make_error(compose_detailed_message(message, hint), hint, span);
 }
 
 auto hash_text(const std::string& text) -> std::uint64_t {
@@ -275,16 +295,17 @@ auto load_imports(const frontend::ir::IRProgram& ir_program, const ResolvedModul
   loaded.paths.reserve(ir_program.imports.size());
 
   for (const auto& [module_name, src_span] : ir_program.imports) {
-    (void)src_span;
     if (frontend::import_resolution::is_symbolic_import(module_name)) {
       continue;
     }
 
     const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name);
     if (!import_paths.source.has_value() && !import_paths.bytecode.has_value()) {
-      return tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
-                                       "'. Checked relative to '" + paths.source->string() +
-                                       "'. Verify module name and file location."));
+      return tl::unexpected(make_error(
+          "import-unresolved: Import not found: '" + module_name + "'.",
+          std::optional<std::string>{"Checked relative to '" + paths.source->string() +
+                                     "'. Verify module name and file location."},
+          src_span));
     }
 
     auto imported_module = load_unlinked_module(import_paths, options, state);
@@ -372,8 +393,12 @@ auto load_import_source_ir(const std::filesystem::path& source_path)
   const auto imported_ir =
       fleaux::frontend::source_loader::load_ir_program<ModuleLoadError>(source_path, make_parse_error);
   if (!imported_ir) {
-    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string() + " (" +
-                                     imported_ir.error().message + ")"));
+    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string(),
+                                     imported_ir.error().hint.has_value()
+                                         ? std::optional<std::string>{imported_ir.error().message + " (" +
+                                                                      *imported_ir.error().hint + ")"}
+                                         : std::optional<std::string>{imported_ir.error().message},
+                                     imported_ir.error().span));
   }
   return *imported_ir;
 }
@@ -420,8 +445,9 @@ auto seed_imports_from_source_module(const Module& imported_module, const std::f
     if (seeded_export_names.contains(exported_key)) {
       continue;
     }
-    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string() +
-                                     " (Missing exported declaration for typed import seed: '" + exported_key + "'.)"));
+    return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string(),
+                                     std::optional<std::string>{"Missing exported declaration for typed import seed: '" +
+                                                                exported_key + "'."}));
   }
 
   return {};
@@ -471,9 +497,8 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
   const auto analyzed = frontend::type_check::analyze_program(ir_program, import_seeds.symbols, import_seeds.typed_lets,
                                                               import_seeds.type_decls, import_seeds.alias_decls);
   if (!analyzed) {
-    return tl::unexpected(make_error(analyzed.error().hint.has_value()
-                                         ? analyzed.error().message + " (" + *analyzed.error().hint + ")"
-                                         : analyzed.error().message));
+    return tl::unexpected(make_error(compose_detailed_message(analyzed.error().message, analyzed.error().hint),
+                                     analyzed.error().hint, analyzed.error().span));
   }
 
   constexpr BytecodeCompiler compiler;

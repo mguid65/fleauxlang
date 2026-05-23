@@ -2750,7 +2750,42 @@ TEST_CASE("Bytecode module loader reports unresolved import category and diagnos
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.starts_with("import-unresolved:"));
   REQUIRE(loaded.error().message.find("Import not found: 'missing_dep'") != std::string::npos);
-  REQUIRE(loaded.error().message.find("Verify module name and file location") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("Verify module name and file location") != std::string::npos);
+  REQUIRE(loaded.error().span.has_value());
+  REQUIRE(loaded.error().span->source_name == entry_path.string());
+  REQUIRE(loaded.error().span->line == 1);
+}
+
+TEST_CASE("Bytecode module loader preserves source span for typed import analysis failures",
+          "[bytecode][serialization][imports][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_import_type_error_span";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dep_path = temp_dir / "typed_dep.fleaux";
+  const auto entry_path = temp_dir / "typed_entry.fleaux";
+  {
+    std::ofstream out(dep_path);
+    out << "let Add4(x: String): Int64 = 4;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import typed_dep;\n"
+           "(1) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().span.has_value());
+  REQUIRE(loaded.error().span->source_name == entry_path.string());
+  REQUIRE(loaded.error().span->line == 3);
+  REQUIRE(loaded.error().span->source_line().has_value());
+  REQUIRE(loaded.error().span->source_line()->find("Add4") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader reports import cycle category and diagnostic shape",
@@ -2931,7 +2966,8 @@ TEST_CASE("Bytecode module loader enforces typed imported signatures during anal
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(loaded.error().message.find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader propagates imported transparent aliases into entry analysis",
@@ -3013,7 +3049,8 @@ TEST_CASE("Bytecode module loader revalidates typed import seeds when entry cach
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(loaded.error().message.find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
   REQUIRE(loaded.error().message.find("Module source and bytecode were both unavailable") == std::string::npos);
   REQUIRE(loaded.error().message.find("Failed to resolve imported module") == std::string::npos);
 }
@@ -3076,8 +3113,10 @@ TEST_CASE("Bytecode module loader reports missing typed import seed declaration 
 
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(loaded.has_value());
-  REQUIRE(loaded.error().message.find("Missing exported declaration for typed import seed") != std::string::npos);
-  REQUIRE(loaded.error().message.find("Ghost.Export") != std::string::npos);
+  REQUIRE(loaded.error().message.find("Failed to seed typed imports from source") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("Missing exported declaration for typed import seed") != std::string::npos);
+  REQUIRE(loaded.error().hint->find("Ghost.Export") != std::string::npos);
   REQUIRE(loaded.error().message.find("Module source and bytecode were both unavailable") == std::string::npos);
 }
 
@@ -3105,7 +3144,8 @@ TEST_CASE("Bytecode module loader enforces typed signatures for qualified import
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(loaded.error().message.find("expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("expects argument 0") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader accepts qualified imported exports when typed signatures match",

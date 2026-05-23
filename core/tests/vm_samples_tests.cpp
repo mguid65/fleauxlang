@@ -62,7 +62,9 @@ void set_runtime_process_args(const std::filesystem::path& sample_path, const st
 
   std::vector<char*> argv_ptrs;
   argv_ptrs.reserve(args_storage.size());
-  for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
+  for (auto& arg : args_storage) {
+    argv_ptrs.push_back(arg.data());
+  }
   fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
 }
 
@@ -73,13 +75,17 @@ void run_sample_in_vm_and_assert(const std::string_view sample_file) {
 
   const auto loaded_module = fleaux::bytecode::load_linked_module(sample_path);
   INFO("sample file: " << sample_path);
-  if (!loaded_module) { INFO("vm load error: " << loaded_module.error().message); }
+  if (!loaded_module) {
+    INFO("vm load error: " << loaded_module.error().message);
+  }
   REQUIRE(loaded_module.has_value());
 
   const fleaux::vm::Runtime runtime;
   set_runtime_process_args(sample_path, runtime_args);
   const auto runtime_result = runtime.execute(*loaded_module);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -90,18 +96,24 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
 
   const auto analyzed = load_ir_program(sample_path);
   INFO("sample file: " << sample_path);
-  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
+  if (!analyzed) {
+    INFO("analysis error: " << analyzed.error());
+  }
   REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled_module = compiler.compile(analyzed.value());
-  if (!compiled_module) { INFO("bytecode compile error: " << compiled_module.error().message); }
+  if (!compiled_module) {
+    INFO("bytecode compile error: " << compiled_module.error().message);
+  }
   REQUIRE(compiled_module.has_value());
 
   const fleaux::vm::Runtime runtime;
   set_runtime_process_args(sample_path, runtime_args);
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -164,12 +176,18 @@ constexpr std::array<std::string_view, 52> kExpectedSamples = {
 
 TEST_CASE("VM sample list stays in sync with samples directory", "[vm][samples]") {
   std::set<std::string> expected;
-  for (const auto name : kExpectedSamples) { expected.insert(std::string(name)); }
+  for (const auto name : kExpectedSamples) {
+    expected.insert(std::string(name));
+  }
 
   std::set<std::string> discovered;
   for (const auto& entry : std::filesystem::directory_iterator(samples_dir_path())) {
-    if (!entry.is_regular_file()) { continue; }
-    if (const auto& path = entry.path(); path.extension() == ".fleaux") { discovered.insert(path.filename().string()); }
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    if (const auto& path = entry.path(); path.extension() == ".fleaux") {
+      discovered.insert(path.filename().string());
+    }
   }
 
   REQUIRE(discovered == expected);
@@ -214,7 +232,8 @@ TEST_CASE("Qualified Std symbols require an explicit Std import", "[vm][samples]
            vm_load_result.error().message.find("Std.Println") != std::string::npos));
 }
 
-TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help registry state", "[vm][help][contract]") {
+TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help registry state",
+          "[vm][help][contract]") {
   const auto sample_path = samples_dir_path() / "34_help.fleaux";
   REQUIRE(std::filesystem::exists(sample_path));
 
@@ -238,7 +257,9 @@ TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help r
   const fleaux::vm::Runtime runtime;
   set_runtime_process_args(sample_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
@@ -309,7 +330,7 @@ TEST_CASE("VM loader reports imported type mismatches", "[vm][imports][contract]
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(vm_load_result.error().message.find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(vm_load_result.error().hint.value().find("Add4 expects argument 0") != std::string::npos);
 }
 
 TEST_CASE("VM loader enforces direct import visibility", "[vm][imports][contract][types]") {
@@ -391,12 +412,16 @@ TEST_CASE("VM loader resolves qualified exported overload symbol keys", "[vm][im
   }
 
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
-  if (!vm_load_result) { INFO("vm load error: " << vm_load_result.error().message); }
+  if (!vm_load_result) {
+    INFO("vm load error: " << vm_load_result.error().message);
+  }
   REQUIRE(vm_load_result.has_value());
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(*vm_load_result);
-  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -423,7 +448,9 @@ TEST_CASE("VM Std.Printf returns the expected tuple shape", "[vm][samples][print
     std::ostringstream output;
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(*compiled_module, output);
-    if (!runtime_result.has_value()) { INFO("bytecode error: " << runtime_result.error().message); }
+    if (!runtime_result.has_value()) {
+      INFO("bytecode error: " << runtime_result.error().message);
+    }
     REQUIRE(runtime_result.has_value());
     REQUIRE(output.str() == "value:7|Int64\n");
   }
@@ -452,7 +479,9 @@ TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][prin
     std::ostringstream output;
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(*compiled_module, output);
-    if (!runtime_result.has_value()) { INFO("bytecode error: " << runtime_result.error().message); }
+    if (!runtime_result.has_value()) {
+      INFO("bytecode error: " << runtime_result.error().message);
+    }
     REQUIRE(runtime_result.has_value());
     REQUIRE(output.str() == "x\nString\n");
   }
@@ -486,7 +515,9 @@ TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samp
   for (int iter = 0; iter < 40; ++iter) {
     const fleaux::vm::Runtime runtime;
     const auto runtime_result = runtime.execute(compiled_module.value());
-    if (!runtime_result.has_value()) { INFO("vm churn error: " << runtime_result.error().message); }
+    if (!runtime_result.has_value()) {
+      INFO("vm churn error: " << runtime_result.error().message);
+    }
     REQUIRE(runtime_result.has_value());
     REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
   }
@@ -526,7 +557,9 @@ TEST_CASE("Task and Parallel samples keep VM registry stability", "[vm][samples]
       const fleaux::vm::Runtime runtime;
       set_runtime_process_args(sample_path, runtime_args);
       const auto runtime_result = runtime.execute(compiled_module.value());
-      if (!runtime_result.has_value()) { INFO("vm concurrency sample error: " << runtime_result.error().message); }
+      if (!runtime_result.has_value()) {
+        INFO("vm concurrency sample error: " << runtime_result.error().message);
+      }
       REQUIRE(runtime_result.has_value());
       REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
       REQUIRE(fleaux::runtime::task_registry_size() == 0U);
@@ -564,7 +597,9 @@ TEST_CASE("Std import is symbolic and ignores local Std.fleaux", "[vm][samples]"
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result.has_value()) { INFO("bytecode runtime error: " << runtime_result.error().message); }
+  if (!runtime_result.has_value()) {
+    INFO("bytecode runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -591,7 +626,9 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(compiled_module.value());
-  if (!runtime_result.has_value()) { INFO("bytecode runtime error: " << runtime_result.error().message); }
+  if (!runtime_result.has_value()) {
+    INFO("bytecode runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -635,17 +672,23 @@ TEST_CASE("Imported user overloads dispatch correctly in the VM", "[vm][samples]
   }
 
   const auto analyzed = load_ir_program(entry_path);
-  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
+  if (!analyzed) {
+    INFO("analysis error: " << analyzed.error());
+  }
   REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled = compiler.compile(*analyzed);
-  if (!compiled) { INFO("bytecode compile error: " << compiled.error().message); }
+  if (!compiled) {
+    INFO("bytecode compile error: " << compiled.error().message);
+  }
   REQUIRE(compiled.has_value());
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(*compiled);
-  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -664,18 +707,24 @@ TEST_CASE("Std.Dict.Create clone overload executes in the VM", "[vm][samples][di
   }
 
   const auto analyzed = load_ir_program(source_path);
-  if (!analyzed) { INFO("analysis error: " << analyzed.error()); }
+  if (!analyzed) {
+    INFO("analysis error: " << analyzed.error());
+  }
   REQUIRE(analyzed.has_value());
 
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled = compiler.compile(*analyzed);
-  if (!compiled) { INFO("bytecode compile error: " << compiled.error().message); }
+  if (!compiled) {
+    INFO("bytecode compile error: " << compiled.error().message);
+  }
   REQUIRE(compiled.has_value());
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(*compiled, output);
-  if (!runtime_result) { INFO("runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str() == "1\n");
 }
@@ -934,7 +983,8 @@ TEST_CASE("VM Std.Task.WithTimeout negative timeout stays typed", "[vm][samples]
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Identity(x: Float64): Float64 = x;\n"
-           "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout -> Std.Result.UnwrapErr -> Std.Println;\n";
+           "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout -> Std.Result.UnwrapErr -> "
+           "Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);

@@ -603,6 +603,26 @@ TEST_CASE("CLI vm mode requires an explicit module path outside the REPL", "[vm]
 }
 
 TEST_CASE("CLI vm mode reports loader failures with actionable hints", "[vm][cli]") {
+  SECTION("parse diagnostic includes location context and caret") {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_loader_parse_context";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto source_path = temp_dir / "entry_parse_error.fleaux";
+    fleaux::tests::write_text_file(source_path, "import Std;\n(1) -> Std.Println\n");
+
+    const auto result = run_cli(shell_quote(source_path.string()), temp_dir);
+    INFO("stdout: " << result.stdout_text);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code != 0);
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("error[vm-run]"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring(source_path.string() + ":3:1"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("2 | (1) -> Std.Println"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("^"));
+    REQUIRE_THAT(result.stderr_text,
+                 Catch::Matchers::ContainsSubstring("Add ';' to terminate the final statement"));
+  }
+
   SECTION("import unresolved") {
     const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_loader_hint_unresolved";
     std::filesystem::remove_all(temp_dir);
@@ -617,8 +637,11 @@ TEST_CASE("CLI vm mode reports loader failures with actionable hints", "[vm][cli
     REQUIRE(result.exit_code != 0);
     REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("vm-run"));
     REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("import-unresolved:"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring(source_path.string() + ":1:"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("1 | import missing_dep;"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("^"));
     REQUIRE_THAT(result.stderr_text,
-                 Catch::Matchers::ContainsSubstring("Resolve the missing module path or module name, then retry."));
+                 Catch::Matchers::ContainsSubstring("Verify module name and file location."));
   }
 
   SECTION("import cycle") {
@@ -655,8 +678,11 @@ TEST_CASE("CLI vm mode reports loader failures with actionable hints", "[vm][cli
     REQUIRE(result.exit_code != 0);
     REQUIRE_THAT(result.stderr_text,
                  Catch::Matchers::ContainsSubstring("Type mismatch in call target arguments"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring((temp_dir / "typed_entry.fleaux").string() + ":3:"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("3 | (1) -> Add4 -> Std.Println;"));
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("^"));
     REQUIRE_THAT(result.stderr_text,
-                 Catch::Matchers::ContainsSubstring("Imported module API typing must match consuming usage across module boundaries."));
+                 Catch::Matchers::ContainsSubstring("Add4 expects argument 0 to match declared type."));
   }
 }
 
