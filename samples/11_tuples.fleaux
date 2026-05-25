@@ -1,12 +1,12 @@
 import Std;
 // -- ElementAt, Length --
-(1, 2, 3) -> (_, 0) -> Std.ElementAt -> Std.Println;             // 1
-(1, 2, 3) -> (_, 1) -> Std.ElementAt -> Std.Println;             // 2
+(1, 2, 3) -> (_, 0u64) -> Std.ElementAt -> Std.Println;             // 1
+(1, 2, 3) -> (_, 1u64) -> Std.ElementAt -> Std.Println;             // 2
 ((1, 2, 3)) -> Std.Length -> Std.Println;                         // 3
 // -- Take, Drop, Slice --
-((1, 2, 3, 4, 5), 3) -> Std.Take -> Std.Println;                 // (1, 2, 3)
-((1, 2, 3, 4, 5), 2) -> Std.Drop -> Std.Println;                 // (3, 4, 5)
-((1, 2, 3, 4, 5), 1) -> Std.Drop -> (_, 3) -> Std.Take -> Std.Println;   // (2, 3, 4)
+((1, 2, 3, 4, 5), 3u64) -> Std.Take -> Std.Println;                 // (1, 2, 3)
+((1, 2, 3, 4, 5), 2u64) -> Std.Drop -> Std.Println;                 // (3, 4, 5)
+((1, 2, 3, 4, 5), 1u64) -> Std.Drop -> (_, 3u64) -> Std.Take -> Std.Println;   // (2, 3, 4)
 // -- Append, Prepend, Reverse --
 ((1, 2, 3), 4) -> Std.Tuple.Append -> Std.Println;               // (1, 2, 3, 4)
 ((1, 2, 3), 0) -> Std.Tuple.Prepend -> Std.Println;              // (0, 1, 2, 3)

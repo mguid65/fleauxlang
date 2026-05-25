@@ -50,6 +50,17 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
                         Catch::Matchers::ContainsSubstring("Unwrap expects 1 arguments"));
   }
 
+  SECTION("First and Second") {
+    const Value pair = make_tuple(make_int(10), make_string("hello"));
+    REQUIRE(to_double(First(pair)) == 10.0);
+    REQUIRE(as_string(Second(pair)) == "hello");
+
+    REQUIRE_THROWS_WITH(First(make_tuple(make_int(1), make_int(2), make_int(3))),
+                        Catch::Matchers::ContainsSubstring("First: expected a 2-tuple"));
+    REQUIRE_THROWS_WITH(Second(make_tuple(make_int(1))),
+                        Catch::Matchers::ContainsSubstring("Second: expected a 2-tuple"));
+  }
+
   SECTION("Cast returns the original runtime value") {
     const Value int_value = Cast(make_tuple(make_int(42)));
     REQUIRE(to_double(int_value) == 42.0);
@@ -175,9 +186,9 @@ TEST_CASE("Runtime builtins: arithmetic and bitwise boundaries", "[runtime][boun
 
   SECTION("Bit shifts reject negative and non-integer shift values") {
     REQUIRE_THROWS_WITH(make_tuple(make_int(1), make_int(-1)) | BitShiftLeft,
-                        Catch::Matchers::ContainsSubstring("non-negative"));
+                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
     REQUIRE_THROWS_WITH(make_tuple(make_int(8), make_int(-1)) | BitShiftRight,
-                        Catch::Matchers::ContainsSubstring("non-negative"));
+                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
     REQUIRE_THROWS_WITH(make_tuple(make_int(1), make_float(1.5)) | BitShiftLeft,
                         Catch::Matchers::ContainsSubstring("expects an integer value"));
     REQUIRE_THROWS_WITH(make_tuple(make_int(8), make_float(1.5)) | BitShiftRight,
@@ -195,9 +206,41 @@ TEST_CASE("Runtime builtins: math helpers", "[runtime]") {
   REQUIRE(std::abs(to_double(MathAbs(make_tuple(make_float(-7.5)))) - 7.5) < 1e-12);
   REQUIRE(std::abs(to_double(MathLog(make_tuple(make_float(std::exp(2.0))))) - 2.0) < 1e-12);
   REQUIRE(std::abs(to_double(MathClamp(make_tuple(make_int(9), make_int(0), make_int(5)))) - 5.0) < 1e-12);
+}
 
-  REQUIRE_THROWS_WITH(MathClamp(make_tuple(make_int(1), make_int(2))),
-                      Catch::Matchers::ContainsSubstring("MathClamp expects 3 arguments"));
+TEST_CASE("Runtime builtins: deterministic random generators", "[runtime][random]") {
+  const Value seed = make_uint(123456789ULL);
+  const Value generator = RandomCreate(make_tuple(seed));
+
+  const Value next_uint = RandomNextUInt64(generator);
+  REQUIRE(as_array(next_uint).Size() == 2);
+  REQUIRE(as_string(Type(First(next_uint))) == "UInt64");
+  REQUIRE(as_string(ToString(First(next_uint))) == "2466975172287755897");
+
+  const Value next_generator = Second(next_uint);
+  const Value next_float = RandomNextFloat64(next_generator);
+  REQUIRE(is_float_number(First(next_float)));
+  REQUIRE(to_double(First(next_float)) >= 0.0);
+  REQUIRE(to_double(First(next_float)) < 1.0);
+  REQUIRE(std::abs(to_double(First(next_float)) - 0.500049775767424) < 1e-15);
+
+  const Value next_int = RandomNextInt64(RandomCreate(make_tuple(make_uint(0ULL))));
+  REQUIRE(as_string(Type(First(next_int))) == "Int64");
+  REQUIRE(as_string(ToString(First(next_int))) == "-2152535657050944081");
+
+  const Value next_bool = RandomNextBool(RandomCreate(make_tuple(seed)));
+  REQUIRE(as_bool(First(next_bool)));
+
+  const Value split = RandomSplit(generator);
+  const Value left_step = RandomNextUInt64(First(split));
+  const Value right_step = RandomNextUInt64(Second(split));
+  REQUIRE(as_string(ToString(First(left_step))) == "1278849761381179246");
+  REQUIRE(as_string(ToString(First(right_step))) == "15883818742529415426");
+
+  REQUIRE_THROWS_WITH(RandomCreate(make_tuple(make_int(-1))),
+                      Catch::Matchers::ContainsSubstring("seed must be non-negative"));
+  REQUIRE_THROWS_WITH(RandomNextUInt64(make_string("bad")),
+                      Catch::Matchers::ContainsSubstring("expected RandomGenerator"));
 }
 
 TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
@@ -550,13 +593,12 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
     REQUIRE(to_double(ResultUnwrap(awaited)) == 7.0);
   }
 
-  SECTION("Task.WithTimeout returns Err(String) for negative timeout") {
+  SECTION("Task.WithTimeout rejects negative timeout through shared integer helper") {
     const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
     const Value task = TaskSpawn(make_tuple(identity, make_int(7)));
 
-    const Value result = TaskWithTimeout(make_tuple(task, make_int(-1)));
-    REQUIRE(as_bool(ResultIsErr(result)));
-    REQUIRE(as_string(ResultUnwrapErr(result)) == "Task.WithTimeout: timeout_ms must be non-negative");
+    REQUIRE_THROWS_WITH(TaskWithTimeout(make_tuple(task, make_int(-1))),
+                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
   }
 
   SECTION("Task.WithTimeout returns Err(String) for invalid task handle") {
@@ -1059,20 +1101,19 @@ TEST_CASE("Runtime builtins: stdlib environment helpers", "[runtime]") {
   }
 
   SECTION("Input uses the shared runtime streams") {
-    std::istringstream input("Ada\n");
+    std::istringstream input("Ada\nGrace\n");
     RuntimeInputStreamScope input_scope(input);
     StdoutCapture capture;
 
-    const Value result = Input(make_tuple(make_string("name> ")));
+    const Value first = Input_Void(make_tuple());
+    const Value second = Input_String(make_string("name> "));
+
     REQUIRE(capture.str() == "name> ");
-    REQUIRE(as_string(result) == "Ada");
+    REQUIRE(as_string(first) == "Ada");
+    REQUIRE(as_string(second) == "Grace");
   }
 
   SECTION("Exit validates non-terminating error paths") {
-    REQUIRE_THROWS_WITH(Exit_Void(make_tuple(make_int(1))),
-                        Catch::Matchers::ContainsSubstring("Exit_Void expects 0 arguments"));
-    REQUIRE_THROWS_WITH(Exit_Int64(make_tuple(make_int(1), make_int(2))),
-                        Catch::Matchers::ContainsSubstring("Exit_Int64 expects 1 argument"));
     REQUIRE_THROWS_WITH(Exit_Int64(make_float(1.25)), Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 }
@@ -1082,8 +1123,10 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
     const Value empty = DictCreate_Void(make_tuple());
     const Value seeded = DictSet(make_tuple(empty, make_string("answer"), make_int(42)));
     const Value cloned = DictCreate_Dict(seeded);
+    const Value cloned_from_tuple = DictCreate_Dict(make_tuple(seeded));
 
     REQUIRE(to_double(DictGet(make_tuple(cloned, make_string("answer")))) == 42.0);
+    REQUIRE(to_double(DictGet(make_tuple(cloned_from_tuple, make_string("answer")))) == 42.0);
     REQUIRE(to_double(DictGetDefault(make_tuple(cloned, make_string("missing"), make_int(9)))) == 9.0);
     REQUIRE(as_bool(DictContains(make_tuple(cloned, make_string("answer")))));
 
@@ -1253,7 +1296,10 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     REQUIRE(as_array(ArraySlice(make_tuple(one_d, make_int(1), make_int(3)))).Size() == 2U);
     REQUIRE(as_array(ArrayConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))))).Size() == 5U);
     REQUIRE(to_double(ArrayRank(grid)) == 2.0);
-    REQUIRE(as_array(ArrayShape(grid)).Size() == 2U);
+    const Value shape = ArrayShape(grid);
+    REQUIRE(as_array(shape).Size() == 2U);
+    REQUIRE(as_string(Type(array_at(shape, 0))) == "UInt64");
+    REQUIRE(as_string(Type(array_at(shape, 1))) == "UInt64");
     REQUIRE(as_array(ArrayFlatten(grid)).Size() == 6U);
   }
 
@@ -1342,6 +1388,9 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     REQUIRE(to_double(ArrayRank(cube)) == 3.0);
     const Value shape = ArrayShape(cube);
     REQUIRE(as_array(shape).Size() == 3);
+    REQUIRE(as_string(Type(array_at(shape, 0))) == "UInt64");
+    REQUIRE(as_string(Type(array_at(shape, 1))) == "UInt64");
+    REQUIRE(as_string(Type(array_at(shape, 2))) == "UInt64");
     REQUIRE(to_double(array_at(shape, 0)) == 2.0);
     REQUIRE(to_double(array_at(shape, 1)) == 2.0);
     REQUIRE(to_double(array_at(shape, 2)) == 2.0);

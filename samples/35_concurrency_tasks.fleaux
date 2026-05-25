@@ -10,7 +10,7 @@ let BuildOptions(): Dict(String, Any) =
 
 let AwaitTask(task: TaskHandle): Result(Any, String) = (task) -> Std.Task.Await;
 let CancelTask(task: TaskHandle): Bool = (task) -> Std.Task.Cancel;
-let AwaitTaskWithTimeout(task: TaskHandle, timeout: Int64): Result(Any, String) = (task, timeout) -> Std.Task.WithTimeout;
+let AwaitTaskWithTimeout(task: TaskHandle, timeout: UInt64): Result(Any, String) = (task, timeout) -> Std.Task.WithTimeout;
 
 let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
 
@@ -29,7 +29,7 @@ let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
 (Inc, 9) -> Std.Task.Spawn -> CancelTask -> Std.Type -> Std.Println;
 
 // Task.WithTimeout
-(Inc, 7) -> Std.Task.Spawn -> (_, 500) -> AwaitTaskWithTimeout -> Std.Result.Unwrap -> Std.Println;
+(Inc, 7) -> Std.Task.Spawn -> (_, 500u64) -> AwaitTaskWithTimeout -> Std.Result.Unwrap -> Std.Println;
 
 // Parallel.WithOptions with max_workers
 ((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;

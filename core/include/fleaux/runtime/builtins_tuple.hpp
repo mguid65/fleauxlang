@@ -42,24 +42,22 @@ template <typename Predicate>
 
 // arg = [sequence, item]
 [[nodiscard]] inline auto TupleAppend(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleAppend");
-  const auto& src = as_array(*args.TryGet(0));
+  const auto& src = as_array(array_at(arg, 0));
   Array out;
   out.Reserve(src.Size() + 1);
   for (std::size_t index = 0; index < src.Size(); ++index) {
     out.PushBack(*src.TryGet(index));
   }
-  out.PushBack(*args.TryGet(1));
+  out.PushBack(array_at(arg, 1));
   return Value{std::move(out)};
 }
 
 // arg = [sequence, item]  ->  [item, ...sequence]
 [[nodiscard]] inline auto TuplePrepend(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TuplePrepend");
-  const auto& src = as_array(*args.TryGet(0));
+  const auto& src = as_array(array_at(arg, 0));
   Array out;
   out.Reserve(src.Size() + 1);
-  out.PushBack(*args.TryGet(1));
+  out.PushBack(array_at(arg, 1));
   for (std::size_t index = 0; index < src.Size(); ++index) {
     out.PushBack(*src.TryGet(index));
   }
@@ -79,17 +77,15 @@ template <typename Predicate>
 
 // arg = [sequence, item]
 [[nodiscard]] inline auto TupleContains(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleContains");
-  const auto& src = as_array(*args.TryGet(0));
-  const Value& item = *args.TryGet(1);
+  const auto& src = as_array(array_at(arg, 0));
+  const Value& item = array_at(arg, 1);
   return make_bool(tuple_any_of(src, [&](const Value& candidate) -> bool { return candidate == item; }));
 }
 
 // arg = [sequenceA, sequenceB]  ->  [(a0,b0), (a1,b1), ...]
 [[nodiscard]] inline auto TupleZip(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "TupleZip");
-  const auto& lhs_arr = as_array(*args.TryGet(0));
-  const auto& rhs_arr = as_array(*args.TryGet(1));
+  const auto& lhs_arr = as_array(array_at(arg, 0));
+  const auto& rhs_arr = as_array(array_at(arg, 1));
   const std::size_t min_size = std::min(lhs_arr.Size(), rhs_arr.Size());
   Array out;
   out.Reserve(min_size);
@@ -101,9 +97,8 @@ template <typename Predicate>
 
 // arg = [sequence, func_ref]
 [[nodiscard]] inline auto TupleMap(Value arg) -> Value {
-  auto& args = require_args(arg, 2, "TupleMap");
-  auto& src = as_array(args[0]);
-  const Value& function_ref = *args.TryGet(1);
+  auto& src = as_array(array_at(arg, 0));
+  const Value& function_ref = array_at(arg, 1);
   const RuntimeCallable function = resolve_callable_ref(function_ref);
 
   Array out;
@@ -116,9 +111,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFilter(Value arg) -> Value {
-  auto& args = require_args(arg, 2, "TupleFilter");
-  auto& src = as_array(args[0]);
-  const Value& pred = *args.TryGet(1);
+  auto& src = as_array(array_at(arg, 0));
+  const Value& pred = array_at(arg, 1);
   const RuntimeCallable predicate = resolve_callable_ref(pred);
 
   Array out;
@@ -207,10 +201,9 @@ template <typename Predicate>
 
 // arg = [sequence, initial, func_ref]
 [[nodiscard]] inline auto TupleReduce(Value arg) -> Value {
-  auto& args = require_args(arg, 3, "TupleReduce");
-  auto& src = as_array(args[0]);
-  Value accumulator = std::move(args[1]);
-  const Value& reducer = *args.TryGet(2);
+  auto& src = as_array(array_at(arg, 0));
+  Value accumulator = std::move(array_at(arg, 1));
+  const Value& reducer = array_at(arg, 2);
   const RegisteredCallable reducer_callable = resolve_registered_callable_ref(reducer);
   for (std::size_t index = 0; index < src.Size(); ++index) {
     accumulator = invoke_binary_callable(reducer_callable, std::move(accumulator), std::move(src[index]));
@@ -220,9 +213,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFindIndex(Value arg) -> Value {
-  auto& args = require_args(arg, 2, "TupleFindIndex");
-  auto& src = as_array(args[0]);
-  const Value& pred = *args.TryGet(1);
+  auto& src = as_array(array_at(arg, 0));
+  const Value& pred = array_at(arg, 1);
   const RuntimeCallable predicate = resolve_callable_ref(pred);
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (as_bool(predicate(std::move(src[index])))) {
@@ -234,9 +226,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAny(Value arg) -> Value {
-  auto& args = require_args(arg, 2, "TupleAny");
-  auto& src = as_array(args[0]);
-  const Value& pred = *args.TryGet(1);
+  auto& src = as_array(array_at(arg, 0));
+  const Value& pred = array_at(arg, 1);
   const RuntimeCallable predicate = resolve_callable_ref(pred);
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (as_bool(predicate(std::move(src[index])))) {
@@ -248,9 +239,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAll(Value arg) -> Value {
-  auto& args = require_args(arg, 2, "TupleAll");
-  auto& src = as_array(args[0]);
-  const Value& pred = *args.TryGet(1);
+  auto& src = as_array(array_at(arg, 0));
+  const Value& pred = array_at(arg, 1);
   const RuntimeCallable predicate = resolve_callable_ref(pred);
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (!as_bool(predicate(std::move(src[index])))) {
@@ -269,17 +259,21 @@ template <typename Predicate>
   if (!arg.HasArray()) {
     stop = as_int_value(arg);
   } else {
-    if (const auto& args = as_array(arg); args.Size() == 1) {
-      stop = as_int_value(*args.TryGet(0));
-    } else if (args.Size() == 2) {
-      start = as_int_value(*args.TryGet(0));
-      stop = as_int_value(*args.TryGet(1));
-    } else if (args.Size() == 3) {
-      start = as_int_value(*args.TryGet(0));
-      stop = as_int_value(*args.TryGet(1));
-      step = as_int_value(*args.TryGet(2));
-    } else {
-      throw std::invalid_argument{"TupleRange expects 1, 2, or 3 arguments"};
+    switch (const auto& args = as_array(arg); args.Size()) {
+      case 1:
+        stop = as_int_value(array_at(arg, 0));
+        break;
+      case 2:
+        start = as_int_value(array_at(arg, 0));
+        stop = as_int_value(array_at(arg, 1));
+        break;
+      case 3:
+        start = as_int_value(array_at(arg, 0));
+        stop = as_int_value(array_at(arg, 1));
+        step = as_int_value(array_at(arg, 2));
+        break;
+      default:
+        throw std::logic_error{"internal error: TupleRange called with unexpected validated arity"};
     }
   }
 

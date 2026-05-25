@@ -5,7 +5,7 @@ import Std;
 // -- Bounded countdown with a safety cap --
 let CountContinue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
 let CountStep(n: Float64): Float64   = (n, 1.0) -> Std.Subtract;
-(10.0, CountContinue, CountStep, 100) -> Std.LoopN -> Std.Println; // 0
+(10.0, CountContinue, CountStep, 100u64) -> Std.LoopN -> Std.Println; // 0
 // -- Collatz conjecture: iterate until reaching 1, bounded --
 // step: if even -> n/2, if odd -> 3n+1
 let CollatzContinue(n: Float64): Bool = (n, 1.0) -> Std.GreaterThan;
@@ -13,8 +13,8 @@ let CollatzEvenStep(n: Float64): Float64 = (n, 2.0) -> Std.Divide;
 let CollatzOddStep(n: Float64): Float64  = ((n, 3.0) -> Std.Multiply, 1.0) -> Std.Add;
 let CollatzStep(n: Float64): Float64 =
     ((n, 2.0) -> Std.Mod -> (_, 0.0) -> Std.Equal, n, CollatzEvenStep, CollatzOddStep) -> Std.Branch;
-(27.0, CollatzContinue, CollatzStep, 1000) -> Std.LoopN -> Std.Println;  // 1
+(27.0, CollatzContinue, CollatzStep, 1000u64) -> Std.LoopN -> Std.Println;  // 1
 // -- Power of 2 just below a limit: double until >= 500 --
 let PowContinue(n: Float64): Bool = (n, 500.0) -> Std.LessThan;
 let PowStep(n: Float64): Float64   = (n, 2.0) -> Std.Multiply;
-(1.0, PowContinue, PowStep, 50) -> Std.LoopN -> Std.Println;     // 512
+(1.0, PowContinue, PowStep, 50u64) -> Std.LoopN -> Std.Println;     // 512

@@ -1212,6 +1212,14 @@ auto types_are_identical(const Type& lhs, const Type& rhs) -> bool {
   return is_consistent(lhs, rhs) && is_consistent(rhs, lhs);
 }
 
+auto is_builtin_opaque_nominal_type(const Type& type) -> bool {
+  return type.kind == TypeKind::kNominal && is_builtin_opaque_nominal_type_name(type.nominal_name);
+}
+
+auto are_same_builtin_opaque_nominal_type(const Type& lhs, const Type& rhs) -> bool {
+  return is_builtin_opaque_nominal_type(lhs) && is_builtin_opaque_nominal_type(rhs) && lhs.nominal_name == rhs.nominal_name;
+}
+
 auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target, const StrongTypeIndex& type_index)
     -> bool {
   if (source.kind == TypeKind::kNominal) {
@@ -1234,8 +1242,23 @@ auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target
 auto validate_std_cast_invocation(const Type& source_type, const Type& target_type, const StrongTypeIndex& type_index,
                                   const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
-  if (types_are_identical(source_type, target_type) ||
-      is_exact_strong_underlying_cast_pair(source_type, target_type, type_index)) {
+  if (is_builtin_opaque_nominal_type(source_type) || is_builtin_opaque_nominal_type(target_type)) {
+    if (are_same_builtin_opaque_nominal_type(source_type, target_type)) {
+      return {};
+    }
+
+    return tl::unexpected(make_error(
+        "Invalid Std.Cast invocation.",
+        std::format("Std.Cast does not permit casts to or from builtin opaque types. Got {} -> {}.",
+                    type_debug_name(source_type), type_debug_name(target_type)),
+        span));
+  }
+
+  if (types_are_identical(source_type, target_type)) {
+    return {};
+  }
+
+  if (is_exact_strong_underlying_cast_pair(source_type, target_type, type_index)) {
     return {};
   }
 
@@ -1329,7 +1352,8 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     }
   }
 
-  if (std::string builtin_contract_error; !validate_builtin_contract(full_name, args, builtin_contract_error)) {
+  if (std::string builtin_contract_error;
+      !validate_builtin_contract(full_name, args, type_index, builtin_contract_error)) {
     return tl::unexpected(make_error("Type mismatch in call target arguments.", builtin_contract_error, span));
   }
 

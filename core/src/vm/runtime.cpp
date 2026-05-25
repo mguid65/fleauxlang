@@ -331,6 +331,53 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
   return std::nullopt;
 }
 
+[[nodiscard]] auto builtin_call_arity(const Value& arg) -> std::size_t {
+  if (!arg.HasArray()) {
+    return 1U;
+  }
+  return runtime::as_array(arg).Size();
+}
+
+[[nodiscard]] auto format_builtin_arity_expectation(const BuiltinArityContract contract) -> std::string {
+  switch (contract.kind) {
+    case BuiltinArityKind::kExact:
+      return std::to_string(contract.primary);
+    case BuiltinArityKind::kOneOf: {
+      std::string formatted;
+      for (std::size_t index = 0; index < contract.allowed_count; ++index) {
+        if (index > 0U) {
+          formatted += (index + 1U == contract.allowed_count) ? " or " : ", ";
+        }
+        formatted += std::to_string(contract.allowed[index]);
+      }
+      return formatted;
+    }
+    case BuiltinArityKind::kVariadicMinimum:
+      return std::to_string(contract.primary) + "+";
+    case BuiltinArityKind::kUnchecked:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+auto validate_builtin_dispatch_arity(const BuiltinId builtin_id, const Value& arg) -> tl::expected<void, RuntimeError> {
+  if (!builtin_has_arity_contract(builtin_id)) {
+    return {};
+  }
+
+  const std::size_t arity = builtin_call_arity(arg);
+  if (builtin_accepts_arity(builtin_id, arity)) {
+    return {};
+  }
+
+  const BuiltinArityContract contract = builtin_arity_contract(builtin_id);
+  const std::string expectation = format_builtin_arity_expectation(contract);
+  const bool plural_expected = contract.kind != BuiltinArityKind::kExact || contract.primary != 1U;
+  const std::string suffix = plural_expected ? " arguments" : " argument";
+  return tl::unexpected(make_runtime_error("builtin '" + std::string(builtin_name(builtin_id)) + "' expected " + expectation +
+                                           suffix + " but got " + std::to_string(arity)));
+}
+
 // Forward declarations.
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
@@ -1451,6 +1498,10 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 }
 
 auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
+  if (auto validated = validate_builtin_dispatch_arity(builtin_id, arg); !validated) {
+    return tl::unexpected(validated.error());
+  }
+
   try {
     switch (builtin_id) {
       case BuiltinId::UnaryPlus:
@@ -1519,8 +1570,10 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::GetArgs(std::move(arg));
       case BuiltinId::Type:
         return runtime::Type(std::move(arg));
-      case BuiltinId::Input:
-        return runtime::Input(std::move(arg));
+      case BuiltinId::InputVoid:
+        return runtime::Input_Void(std::move(arg));
+      case BuiltinId::InputString:
+        return runtime::Input_String(std::move(arg));
       case BuiltinId::Help:
         return runtime::Help(std::move(arg));
       case BuiltinId::ExitVoid:
@@ -1711,6 +1764,18 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::ToUInt64(std::move(arg));
       case BuiltinId::ToFloat64:
         return runtime::ToFloat64(std::move(arg));
+      case BuiltinId::RandomCreate:
+        return runtime::RandomCreate(std::move(arg));
+      case BuiltinId::RandomNextUInt64:
+        return runtime::RandomNextUInt64(std::move(arg));
+      case BuiltinId::RandomNextInt64:
+        return runtime::RandomNextInt64(std::move(arg));
+      case BuiltinId::RandomNextFloat64:
+        return runtime::RandomNextFloat64(std::move(arg));
+      case BuiltinId::RandomNextBool:
+        return runtime::RandomNextBool(std::move(arg));
+      case BuiltinId::RandomSplit:
+        return runtime::RandomSplit(std::move(arg));
       case BuiltinId::MathFloor:
         return runtime::MathFloor(std::move(arg));
       case BuiltinId::MathCeil:
@@ -1769,6 +1834,10 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::Wrap(std::move(arg));
       case BuiltinId::Unwrap:
         return runtime::Unwrap(std::move(arg));
+      case BuiltinId::First:
+        return runtime::First(std::move(arg));
+      case BuiltinId::Second:
+        return runtime::Second(std::move(arg));
       case BuiltinId::ElementAt:
         return runtime::ElementAt(std::move(arg));
       case BuiltinId::Length:

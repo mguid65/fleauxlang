@@ -1155,8 +1155,8 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
 
   SECTION("Std.Array.GetAtND rejects fractional indices through typed shape") {
     const std::string src =
-        "let Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)): Any :: __builtin__;\n"
-        "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND;\n";
+        "let Std.Array.GetAtND(value: Any, indices: Tuple(UInt64...)): Any :: __builtin__;\n"
+        "(((1, 2), (3, 4)), (1u64, 0.5)) -> Std.Array.GetAtND;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3f_array_getatnd_fractional_indices.fleaux");
@@ -1170,10 +1170,10 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
-  SECTION("Std.Array.Shape produces Tuple(Int64...) compatible output") {
+  SECTION("Std.Array.Shape produces Tuple(UInt64...) compatible output") {
     const std::string src =
-        "let Std.Array.Shape(value: Any): Tuple(Int64...) :: __builtin__;\n"
-        "let NeedsShape(s: Tuple(Int64...)): Tuple(Int64...) = s;\n"
+        "let Std.Array.Shape(value: Any): Tuple(UInt64...) :: __builtin__;\n"
+        "let NeedsShape(s: Tuple(UInt64...)): Tuple(UInt64...) = s;\n"
         "(((1, 2), (3, 4))) -> Std.Array.Shape -> NeedsShape;\n";
 
     const fleaux::frontend::parse::Parser parser;
@@ -1243,9 +1243,9 @@ TEST_CASE("Type checker matrix: Stage-3g typed tuple outputs", "[typecheck][stag
 TEST_CASE("Type checker matrix: Stage-3h Array 1-D generic tightening", "[typecheck][stage3h][generics]") {
   SECTION("Std.Array.GetAt propagates element type") {
     const std::string src =
-        "let Std.Array.GetAt<T>(array: Tuple(T...), index: Int64): T :: __builtin__;\n"
+        "let Std.Array.GetAt<T>(array: Tuple(T...), index: UInt64): T :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
-        "((1, 2, 3), 1) -> Std.Array.GetAt -> NeedsInt;\n";
+        "((1, 2, 3), 1u64) -> Std.Array.GetAt -> NeedsInt;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3h_array_getat_type_propagation.fleaux");
@@ -1290,8 +1290,8 @@ TEST_CASE("Type checker matrix: Stage-3h Array 1-D generic tightening", "[typech
 
   SECTION("Std.Array.SetAt rejects replacement value type mismatch") {
     const std::string src =
-        "let Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T): Tuple(T...) :: __builtin__;\n"
-        "((1, 2, 3), 1, \"oops\") -> Std.Array.SetAt;\n";
+        "let Std.Array.SetAt<T>(array: Tuple(T...), index: UInt64, value: T): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), 1u64, \"oops\") -> Std.Array.SetAt;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3h_array_setat_value_mismatch.fleaux");
@@ -1324,9 +1324,9 @@ TEST_CASE("Type checker matrix: Stage-3h Array 1-D generic tightening", "[typech
 
   SECTION("Std.Array.Slice preserves tuple element type") {
     const std::string src =
-        "let Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64): Tuple(T...) :: __builtin__;\n"
+        "let Std.Array.Slice<T>(array: Tuple(T...), start: UInt64, stop: UInt64): Tuple(T...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1, 2, 3, 4), 1, 3) -> Std.Array.Slice -> NeedsInts;\n";
+        "((1, 2, 3, 4), 1u64, 3u64) -> Std.Array.Slice -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3h_array_slice_type_preservation.fleaux");
@@ -1341,9 +1341,9 @@ TEST_CASE("Type checker matrix: Stage-3h Array 1-D generic tightening", "[typech
 TEST_CASE("Type checker matrix: Stage-3i Array.Fill generic tightening", "[typecheck][stage3i][generics]") {
   SECTION("Std.Array.Fill accepts matching replacement element type") {
     const std::string src =
-        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T): Tuple(T...) :: "
+        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: UInt64, length: UInt64, value: T): Tuple(T...) :: "
         "__builtin__;\n"
-        "((1, 2, 3, 4), 1, 2, 9) -> Std.Array.Fill;\n";
+        "((1, 2, 3, 4), 1u64, 2u64, 9) -> Std.Array.Fill;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3i_array_fill_accepts_matching_type.fleaux");
@@ -1356,9 +1356,9 @@ TEST_CASE("Type checker matrix: Stage-3i Array.Fill generic tightening", "[typec
 
   SECTION("Std.Array.Fill rejects mismatched replacement element type") {
     const std::string src =
-        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T): Tuple(T...) :: "
+        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: UInt64, length: UInt64, value: T): Tuple(T...) :: "
         "__builtin__;\n"
-        "((1, 2, 3, 4), 1, 2, \"oops\") -> Std.Array.Fill;\n";
+        "((1, 2, 3, 4), 1u64, 2u64, \"oops\") -> Std.Array.Fill;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3i_array_fill_rejects_mismatch.fleaux");
@@ -1374,10 +1374,10 @@ TEST_CASE("Type checker matrix: Stage-3i Array.Fill generic tightening", "[typec
 
   SECTION("Std.Array.Fill preserves tuple element type through pipeline") {
     const std::string src =
-        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T): Tuple(T...) :: "
+        "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: UInt64, length: UInt64, value: T): Tuple(T...) :: "
         "__builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1, 2, 3, 4), 1, 2, 9) -> Std.Array.Fill -> NeedsInts;\n";
+        "((1, 2, 3, 4), 1u64, 2u64, 9) -> Std.Array.Fill -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3i_array_fill_preserves_output_type.fleaux");
@@ -1393,9 +1393,9 @@ TEST_CASE("Type checker matrix: Stage-3j Std.Take/Drop/ElementAt generic tighten
           "[typecheck][stage3j][generics]") {
   SECTION("Std.ElementAt propagates tuple element type") {
     const std::string src =
-        "let Std.ElementAt<T>(tuple: Tuple(T...), count: Int64): T :: __builtin__;\n"
+        "let Std.ElementAt<T>(tuple: Tuple(T...), count: UInt64): T :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
-        "((1, 2, 3), 1) -> Std.ElementAt -> NeedsInt;\n";
+        "((1, 2, 3), 1u64) -> Std.ElementAt -> NeedsInt;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3j_elementat_type_propagation.fleaux");
@@ -1408,9 +1408,9 @@ TEST_CASE("Type checker matrix: Stage-3j Std.Take/Drop/ElementAt generic tighten
 
   SECTION("Std.ElementAt rejects downstream element-type mismatch") {
     const std::string src =
-        "let Std.ElementAt<T>(tuple: Tuple(T...), count: Int64): T :: __builtin__;\n"
+        "let Std.ElementAt<T>(tuple: Tuple(T...), count: UInt64): T :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
-        "((1.0, 2.0, 3.0), 1) -> Std.ElementAt -> NeedsInt;\n";
+        "((1.0, 2.0, 3.0), 1u64) -> Std.ElementAt -> NeedsInt;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3j_elementat_type_mismatch.fleaux");
@@ -1426,9 +1426,9 @@ TEST_CASE("Type checker matrix: Stage-3j Std.Take/Drop/ElementAt generic tighten
 
   SECTION("Std.Take preserves tuple element type") {
     const std::string src =
-        "let Std.Take<T>(tuple: Tuple(T...), count: Int64): Tuple(T...) :: __builtin__;\n"
+        "let Std.Take<T>(tuple: Tuple(T...), count: UInt64): Tuple(T...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1, 2, 3, 4), 2) -> Std.Take -> NeedsInts;\n";
+        "((1, 2, 3, 4), 2u64) -> Std.Take -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3j_take_type_preservation.fleaux");
@@ -1441,9 +1441,9 @@ TEST_CASE("Type checker matrix: Stage-3j Std.Take/Drop/ElementAt generic tighten
 
   SECTION("Std.Drop preserves tuple element type") {
     const std::string src =
-        "let Std.Drop<T>(tuple: Tuple(T...), count: Int64): Tuple(T...) :: __builtin__;\n"
+        "let Std.Drop<T>(tuple: Tuple(T...), count: UInt64): Tuple(T...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1, 2, 3, 4), 2) -> Std.Drop -> NeedsInts;\n";
+        "((1, 2, 3, 4), 2u64) -> Std.Drop -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3j_drop_type_preservation.fleaux");
@@ -1458,9 +1458,9 @@ TEST_CASE("Type checker matrix: Stage-3j Std.Take/Drop/ElementAt generic tighten
 TEST_CASE("Type checker matrix: Stage-3k Std.Slice/Length tuple consistency", "[typecheck][stage3k][generics]") {
   SECTION("Std.Slice preserves tuple element type") {
     const std::string src =
-        "let Std.Slice<T>(tuple: Tuple(T...), stop: Int64): Tuple(T...) :: __builtin__;\n"
+        "let Std.Slice<T>(tuple: Tuple(T...), stop: UInt64): Tuple(T...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1, 2, 3, 4), 2) -> Std.Slice -> NeedsInts;\n";
+        "((1, 2, 3, 4), 2u64) -> Std.Slice -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3k_slice_type_preservation.fleaux");
@@ -1473,9 +1473,9 @@ TEST_CASE("Type checker matrix: Stage-3k Std.Slice/Length tuple consistency", "[
 
   SECTION("Std.Slice rejects downstream tuple element mismatch") {
     const std::string src =
-        "let Std.Slice<T>(tuple: Tuple(T...), stop: Int64): Tuple(T...) :: __builtin__;\n"
+        "let Std.Slice<T>(tuple: Tuple(T...), stop: UInt64): Tuple(T...) :: __builtin__;\n"
         "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
-        "((1.0, 2.0, 3.0, 4.0), 2) -> Std.Slice -> NeedsInts;\n";
+        "((1.0, 2.0, 3.0, 4.0), 2u64) -> Std.Slice -> NeedsInts;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3k_slice_type_mismatch.fleaux");
@@ -2563,6 +2563,78 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Exit surface contract", "[typecheck
   }
 }
 
+TEST_CASE("Type checker matrix: Stage-4c Std.Input surface contract", "[typecheck][stage4c][input]") {
+  SECTION("Std.Input accepts nullary and prompt call shapes") {
+    const std::string src =
+        "let Std.Input(): String :: __builtin__;\n"
+        "let Std.Input(prompt: String): String :: __builtin__;\n"
+        "() -> Std.Input;\n"
+        "\"name> \" -> Std.Input;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4c_input_surface_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Annotated analysis records the resolved Std.Input overload symbol key") {
+    const std::string src =
+        "let Std.Input(): String :: __builtin__;\n"
+        "let Std.Input(prompt: String): String :: __builtin__;\n"
+        "() -> Std.Input;\n"
+        "\"name> \" -> Std.Input;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4c_input_overload_annotation_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const std::unordered_set<std::string> imported_symbols;
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
+    REQUIRE(analyzed.has_value());
+    REQUIRE(analyzed->expressions.size() == 2U);
+
+    const auto* nullary_flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&analyzed->expressions[0].expr.node);
+    REQUIRE(nullary_flow != nullptr);
+    const auto* nullary_name = std::get_if<fleaux::frontend::ir::IRNameRef>(&nullary_flow->rhs);
+    REQUIRE(nullary_name != nullptr);
+    REQUIRE(nullary_name->resolved_symbol_key.has_value());
+    REQUIRE(*nullary_name->resolved_symbol_key == "Std.Input#0");
+
+    const auto* prompt_flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&analyzed->expressions[1].expr.node);
+    REQUIRE(prompt_flow != nullptr);
+    const auto* prompt_name = std::get_if<fleaux::frontend::ir::IRNameRef>(&prompt_flow->rhs);
+    REQUIRE(prompt_name != nullptr);
+    REQUIRE(prompt_name->resolved_symbol_key.has_value());
+    REQUIRE(*prompt_name->resolved_symbol_key == "Std.Input#1");
+  }
+
+  SECTION("Bare Std.Input reference is rejected because the overload set is ambiguous") {
+    const std::string src =
+        "let Std.Input(): String :: __builtin__;\n"
+        "let Std.Input(prompt: String): String :: __builtin__;\n"
+        "let Keep(value: Any): Any = value;\n"
+        "Std.Input -> Keep;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4c_input_ambiguous_ref_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Ambiguous overloaded function reference") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("multiple overloads") != std::string::npos);
+  }
+}
+
 TEST_CASE("Type checker matrix: Stage-4c user overload dispatch", "[typecheck][stage4c][overload]") {
   SECTION("User-defined overloads are accepted in direct call position") {
     const std::string src =
@@ -2638,9 +2710,9 @@ TEST_CASE("Type checker matrix: Stage-4c user overload dispatch", "[typecheck][s
 TEST_CASE("Type checker matrix: Stage-4c structural Shape and Indices contract", "[typecheck][stage4c][array]") {
   SECTION("Std.Array.ReshapeND accepts structural Tuple(Int64...) shape") {
     const std::string src =
-        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)): Any :: __builtin__;\n"
+        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)): Any :: __builtin__;\n"
         "let NeedsAny(x: Any): Any = x;\n"
-        "((1, 2, 3, 4), (2, 2)) -> Std.Array.ReshapeND -> NeedsAny;\n";
+        "((1, 2, 3, 4), (2u64, 2u64)) -> Std.Array.ReshapeND -> NeedsAny;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage4c_array_reshapend_structural_shape_ok.fleaux");
@@ -2653,8 +2725,8 @@ TEST_CASE("Type checker matrix: Stage-4c structural Shape and Indices contract",
 
   SECTION("Std.Array.ReshapeND rejects fractional structural shape elements") {
     const std::string src =
-        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)): Any :: __builtin__;\n"
-        "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND;\n";
+        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)): Any :: __builtin__;\n"
+        "((1, 2, 3, 4), (2u64, 2.5)) -> Std.Array.ReshapeND;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage4c_array_reshapend_fractional_shape_rejects.fleaux");
@@ -2686,6 +2758,415 @@ TEST_CASE("Type checker matrix: Stage-4c structural Shape and Indices contract",
   }
 }
 
+TEST_CASE("Type checker matrix: Stage-4i array integer builtin contracts", "[typecheck][stage4i][array]") {
+  SECTION("Std.Array.Slice rejects fractional coordinates through widened builtin declarations") {
+    const std::string src =
+        "let Std.Array.Slice<T>(array: Tuple(T...), start: Any, stop: Any): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3, 4), 0.5, 2) -> Std.Array.Slice;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4i_array_slice_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Array.SetAt2D rejects fractional row coordinates through widened builtin declarations") {
+    const std::string src =
+        "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Any, col: Any, value: T): Tuple(Tuple(T...)...) :: "
+        "__builtin__;\n"
+        "(((1, 2), (3, 4)), 0.5, 1, 9) -> Std.Array.SetAt2D;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4i_array_setat2d_fractional_row_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Array.Reshape rejects fractional dimensions through widened builtin declarations") {
+    const std::string src =
+        "let Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Any, cols: Any): Tuple(Tuple(T...)...) :: __builtin__;\n"
+        "((1, 2, 3, 4), 2.5, 2) -> Std.Array.Reshape;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4i_array_reshape_fractional_rows_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Array.SetAtND preserves tuple-index contract hint through widened builtin declarations") {
+    const std::string src =
+        "let Std.Array.SetAtND(value: Any, indices: Any, replacement: Any): Any :: __builtin__;\n"
+        "(((1, 2), (3, 4)), 1, 9) -> Std.Array.SetAtND;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4i_array_setatnd_tuple_hint_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects tuple indices") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker matrix: Stage-4j core sequence integer builtin contracts", "[typecheck][stage4j][sequence]") {
+  SECTION("Std.ElementAt rejects fractional indices through widened builtin declarations") {
+    const std::string src =
+        "let Std.ElementAt<T>(tuple: Tuple(T...), count: Any): T :: __builtin__;\n"
+        "((1, 2, 3), 1.5) -> Std.ElementAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4j_elementat_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Take rejects fractional counts through widened builtin declarations") {
+    const std::string src =
+        "let Std.Take<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), 1.5) -> Std.Take;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4j_take_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Drop rejects fractional counts through widened builtin declarations") {
+    const std::string src =
+        "let Std.Drop<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), 1.5) -> Std.Drop;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4j_drop_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Slice rejects fractional stop counts through widened builtin declarations") {
+    const std::string src =
+        "let Std.Slice<T>(tuple: Tuple(T...), stop: Any): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), 1.5) -> Std.Slice;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4j_slice_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker rejects negative string and file bounds before runtime", "[typecheck][builtins][string][io]") {
+  SECTION("Std.String.CharAt rejects negative indices") {
+    const std::string src =
+        "let Std.String.CharAt(s: String, index: UInt64): String :: __builtin__;\n"
+        "(\"abc\", -1) -> Std.String.CharAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_string_charat_negative_index_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.String.CharAt expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.String.Slice rejects negative bounds") {
+    const std::string src =
+        "let Std.String.Slice(s: String, start: UInt64, stop: UInt64): String :: __builtin__;\n"
+        "(\"abcdef\", -1, 3u64) -> Std.String.Slice;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_string_slice_negative_start_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.String.Slice expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.String.Find rejects negative start indices") {
+    const std::string src =
+        "let Std.String.Find(s: String, sub: String, start: UInt64): Int64 :: __builtin__;\n"
+        "(\"abcabc\", \"bc\", -1) -> Std.String.Find;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_string_find_negative_start_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.String.Find expects argument 2") != std::string::npos);
+  }
+
+  SECTION("Std.File.ReadChunk rejects negative nbytes") {
+    const std::string src =
+        "type FileHandle = Any;\n"
+        "let Std.File.ReadChunk(handle: FileHandle, nbytes: UInt64): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+        "let Open(): FileHandle :: __builtin__;\n"
+        "() -> Open -> (_, -1) -> Std.File.ReadChunk;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_file_readchunk_negative_nbytes_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.File.ReadChunk expects argument 1") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker matrix: Stage-4k string and file integer builtin contracts", "[typecheck][stage4k][string][io]") {
+  SECTION("Std.String.CharAt rejects fractional indices through widened builtin declarations") {
+    const std::string src =
+        "let Std.String.CharAt(s: String, index: Any): String :: __builtin__;\n"
+        "(\"abc\", 1.5) -> Std.String.CharAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4k_string_charat_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.String.Slice rejects fractional bounds through widened builtin declarations") {
+    const std::string src =
+        "let Std.String.Slice(s: String, start: Any, stop: Any): String :: __builtin__;\n"
+        "(\"abcdef\", 1.5, 4) -> Std.String.Slice;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4k_string_slice_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.String.Find rejects fractional starts through widened builtin declarations") {
+    const std::string src =
+        "let Std.String.Find(s: String, sub: String, start: Any): Int64 :: __builtin__;\n"
+        "(\"abcabc\", \"bc\", 1.5) -> Std.String.Find;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4k_string_find_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.File.ReadChunk rejects fractional nbytes through widened builtin declarations") {
+    const std::string src =
+        "type FileHandle = Any;\n"
+        "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+        "let Open(): FileHandle :: __builtin__;\n"
+        "() -> Open -> (_, 1.5) -> Std.File.ReadChunk;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4k_file_readchunk_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Random.Create rejects fractional seeds through widened builtin declarations") {
+    const std::string src =
+        "type RandomGenerator = Any;\n"
+        "let Std.Random.Create(seed: Any): RandomGenerator :: __builtin__;\n"
+        "1.5 -> Std.Random.Create;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4k_random_create_fractional_seed_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker matrix: Stage-4l bit shift integer builtin contracts", "[typecheck][stage4l][bit]") {
+  SECTION("Std.Bit.ShiftLeft rejects fractional shift counts through widened builtin declarations") {
+    const std::string src =
+        "let Std.Bit.ShiftLeft(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+        "(1, 1.5) -> Std.Bit.ShiftLeft;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4l_shiftleft_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Bit.ShiftRight rejects fractional shift counts through widened builtin declarations") {
+    const std::string src =
+        "let Std.Bit.ShiftRight(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+        "(8, 1.5) -> Std.Bit.ShiftRight;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4l_shiftright_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker matrix: Stage-4m exit and tuple range integer builtin contracts",
+          "[typecheck][stage4m][control][tuple]") {
+  SECTION("Std.Exit rejects fractional codes through widened builtin declarations") {
+    const std::string src =
+        "let Std.Exit(): Never :: __builtin__;\n"
+        "let Std.Exit(code: Any): Never :: __builtin__;\n"
+        "(1.25) -> Std.Exit;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4m_exit_fractional_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Tuple.Range rejects fractional unary stop through widened builtin declarations") {
+    const std::string src =
+        "let Std.Tuple.Range(stop: Any): Tuple(Int64...) :: __builtin__;\n"
+        "(1.5) -> Std.Tuple.Range;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4m_tuple_range_fractional_stop_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Tuple.Range rejects fractional step through widened builtin declarations") {
+    const std::string src =
+        "let Std.Tuple.Range(start: Any, stop: Any, step: Any): Tuple(Int64...) :: __builtin__;\n"
+        "(1, 7, 1.5) -> Std.Tuple.Range;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4m_tuple_range_fractional_step_contract_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  }
+
+  SECTION("Std.Tuple.Range still accepts signed Int64 values through widened builtin declarations") {
+    const std::string src =
+        "let Std.Tuple.Range(start: Any, stop: Any, step: Any): Tuple(Int64...) :: __builtin__;\n"
+        "let NeedsInts(values: Tuple(Int64...)): Tuple(Int64...) = values;\n"
+        "(-3, 4, 2) -> Std.Tuple.Range -> NeedsInts;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4m_tuple_range_signed_int_contract_accepts.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+}
+
 TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[typecheck][stage3r][generics]") {
   SECTION("Std.Task.Await propagates Result(Any, String)") {
     const std::string src =
@@ -2705,10 +3186,10 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
 
   SECTION("Std.Task.WithTimeout propagates Result(Any, String)") {
     const std::string src =
-        "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64): Result(Any, String) :: __builtin__;\n"
+        "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: UInt64): Result(Any, String) :: __builtin__;\n"
         "let MakeTask(): TaskHandle :: __builtin__;\n"
         "let NeedsTimeoutResult(r: Result(Any, String)): Result(Any, String) = r;\n"
-        "(() -> MakeTask, 50) -> Std.Task.WithTimeout -> NeedsTimeoutResult;\n";
+        "(() -> MakeTask, 50u64) -> Std.Task.WithTimeout -> NeedsTimeoutResult;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3r_task_timeout_result_shape.fleaux");
@@ -2762,10 +3243,10 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
 TEST_CASE("Type checker matrix: Stage-3s Std.Array 2-D generic tightening", "[typecheck][stage3s][generics]") {
   SECTION("Std.Array.SetAt2D preserves nested grid element type") {
     const std::string src =
-        "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T): "
+        "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: UInt64, col: UInt64, value: T): "
         "Tuple(Tuple(T...)...) :: __builtin__;\n"
         "let NeedsGrid(g: Tuple(Tuple(Int64...)...)): Tuple(Tuple(Int64...)...) = g;\n"
-        "(((1, 2), (3, 4)), 0, 1, 9) -> Std.Array.SetAt2D -> NeedsGrid;\n";
+        "(((1, 2), (3, 4)), 0u64, 1u64, 9) -> Std.Array.SetAt2D -> NeedsGrid;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3s_array_setat2d_grid_type_propagation.fleaux");
@@ -2778,9 +3259,9 @@ TEST_CASE("Type checker matrix: Stage-3s Std.Array 2-D generic tightening", "[ty
 
   SECTION("Std.Array.SetAt2D rejects replacement value type mismatch") {
     const std::string src =
-        "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T): "
+        "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: UInt64, col: UInt64, value: T): "
         "Tuple(Tuple(T...)...) :: __builtin__;\n"
-        "(((1, 2), (3, 4)), 0, 1, \"oops\") -> Std.Array.SetAt2D;\n";
+        "(((1, 2), (3, 4)), 0u64, 1u64, \"oops\") -> Std.Array.SetAt2D;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3s_array_setat2d_value_mismatch.fleaux");
@@ -3771,6 +4252,10 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     return imported_cast;
   };
 
+  const auto make_builtin_opaque_type_decl = [](const std::string& name) {
+    return make_ir_type_decl(name, make_ir_simple_type("Any"));
+  };
+
   SECTION("Explicit type arguments reject non-generic call targets") {
     const auto analyzed = analyze_program("let Echo(x: Int64): Int64 = x;\n(1) -> Echo<Int64>;\n",
                                           "typecheck_explicit_type_args_non_generic.fleaux");
@@ -3941,6 +4426,46 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     REQUIRE(analyzed.has_value());
   }
 
+  SECTION("Std.Cast rejects underlying to builtin opaque type casts") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const std::vector<std::string> opaque_type_names = {"TaskHandle", "FileHandle", "RandomGenerator"};
+
+    for (const auto& type_name : opaque_type_names) {
+      INFO("opaque type: " << type_name);
+      const auto analyzed = analyze_program(
+          std::format("let Accept(x: {}): {} = x;\n(42) -> Std.Cast<{}> -> Accept;\n", type_name, type_name, type_name),
+          std::format("typecheck_std_cast_underlying_to_opaque_{}.fleaux", type_name), imported_symbols,
+          imported_typed_lets, {make_builtin_opaque_type_decl(type_name)});
+
+      REQUIRE_FALSE(analyzed.has_value());
+      REQUIRE(analyzed.error().message.find("Invalid Std.Cast invocation") != std::string::npos);
+      REQUIRE(analyzed.error().hint.has_value());
+      REQUIRE(analyzed.error().hint->find("builtin opaque types") != std::string::npos);
+      REQUIRE(analyzed.error().hint->find(type_name) != std::string::npos);
+    }
+  }
+
+  SECTION("Std.Cast rejects builtin opaque type to underlying casts") {
+    const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
+    const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
+    const std::vector<std::string> opaque_type_names = {"TaskHandle", "FileHandle", "RandomGenerator"};
+
+    for (const auto& type_name : opaque_type_names) {
+      INFO("opaque type: " << type_name);
+      const auto analyzed = analyze_program(
+          std::format("let Reveal(x: {}): Any = x -> Std.Cast<Any>;\n", type_name),
+          std::format("typecheck_std_cast_opaque_to_underlying_{}.fleaux", type_name), imported_symbols,
+          imported_typed_lets, {make_builtin_opaque_type_decl(type_name)});
+
+      REQUIRE_FALSE(analyzed.has_value());
+      REQUIRE(analyzed.error().message.find("Invalid Std.Cast invocation") != std::string::npos);
+      REQUIRE(analyzed.error().hint.has_value());
+      REQUIRE(analyzed.error().hint->find("builtin opaque types") != std::string::npos);
+      REQUIRE(analyzed.error().hint->find(type_name) != std::string::npos);
+    }
+  }
+
   SECTION("Std.Cast rejects unrelated strong type casts") {
     const std::unordered_set<std::string> imported_symbols = {"Std.Cast"};
     const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {make_imported_std_cast()};
@@ -3970,6 +4495,361 @@ TEST_CASE("Type checker enforces explicit type argument legality and Std.Cast se
     REQUIRE(analyzed.error().message.find("Invalid Std.Cast reference") != std::string::npos);
     REQUIRE(analyzed.error().hint.has_value());
     REQUIRE(analyzed.error().hint->find("direct call position") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker rejects invalid builtin opaque random invocations before runtime", "[typecheck][builtins][random]") {
+  const std::string src = "(\"bad\") -> Std.Random.NextUInt64;\n";
+
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "typecheck_random_generator_arg_mismatch.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+
+  fleaux::frontend::ir::IRLet imported_random_next;
+  imported_random_next.qualifier = std::string{"Std.Random"};
+  imported_random_next.name = "NextUInt64";
+  imported_random_next.params = {make_ir_param("gen", make_ir_simple_type("RandomGenerator"))};
+  imported_random_next.return_type = make_ir_simple_type("Any");
+
+  const std::unordered_set<std::string> imported_symbols = {"Std.Random.NextUInt64"};
+  const std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets = {imported_random_next};
+  const std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls = {
+      make_ir_type_decl("RandomGenerator", make_ir_simple_type("Any")),
+  };
+
+  const auto analyzed =
+      fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets, imported_type_decls);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(analyzed.error().hint.has_value());
+  REQUIRE(analyzed.error().hint->find("Std.Random.NextUInt64 expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Type checker rejects invalid bit shift counts before runtime", "[typecheck][builtins][bit]") {
+  SECTION("Std.Bit.ShiftLeft accepts UInt64 shift counts") {
+    const std::string src =
+        "let Std.Bit.ShiftLeft(value: Int64, bits: UInt64): Int64 :: __builtin__;\n"
+        "let NeedsInt(x: Int64): Int64 = x;\n"
+        "(3, 2u64) -> Std.Bit.ShiftLeft -> NeedsInt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_bit_shiftleft_uint64_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Bit.ShiftLeft rejects negative shift counts") {
+    const std::string src =
+        "let Std.Bit.ShiftLeft(value: Int64, bits: UInt64): Int64 :: __builtin__;\n"
+        "(1, -1) -> Std.Bit.ShiftLeft;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_bit_shiftleft_negative_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftLeft expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.Bit.ShiftRight rejects fractional shift counts") {
+    const std::string src =
+        "let Std.Bit.ShiftRight(value: Int64, bits: UInt64): Int64 :: __builtin__;\n"
+        "(8, 1.5) -> Std.Bit.ShiftRight;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_bit_shiftright_fractional_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftRight expects argument 1") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker enforces scalar dictionary key contracts before runtime", "[typecheck][builtins][dict]") {
+  SECTION("Std.Dict.Set rejects tuple keys even through Dict(Any, Any)") {
+    const std::string src =
+        "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+        "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
+        "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_dict_set_tuple_key_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("dictionary key types to be scalar values") != std::string::npos);
+  }
+
+  SECTION("Std.Dict.Keys rejects non-scalar key channels") {
+    const std::string src =
+        "let Std.Dict.Keys<K, V>(dict: Dict(K, V)): Tuple(K...) :: __builtin__;\n"
+        "let Bad(d: Dict(Tuple(Int64, Int64), String)): Tuple(Tuple(Int64, Int64)...) = d -> Std.Dict.Keys;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_dict_keys_tuple_channel_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("dictionary key types to be scalar values") != std::string::npos);
+  }
+
+  SECTION("Std.Dict.Keys accepts strong scalar key channels") {
+    const std::string src =
+        "let Std.Dict.Keys<K, V>(dict: Dict(K, V)): Tuple(K...) :: __builtin__;\n"
+        "type UserId = Int64;\n"
+        "let KeepKeys(d: Dict(UserId, String)): Tuple(UserId...) = d -> Std.Dict.Keys;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_dict_keys_strong_scalar_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+}
+
+TEST_CASE("Type checker validates Parallel.WithOptions options as Dict(String, Any) before runtime",
+          "[typecheck][builtins][parallel]") {
+  SECTION("Std.Parallel.WithOptions accepts Dict(String, Any)") {
+    const std::string src =
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+        "let ToInt(x: Float64): Int64 = 1;\n"
+        "let UseOptions(opts: Dict(String, Any)): Result(Tuple(Int64...), Tuple(Int64, String)) = "
+        "((1.0, 2.0), ToInt, opts) -> Std.Parallel.WithOptions;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_parallel_with_options_dict_string_any_ok.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Parallel.WithOptions rejects Dict(String, Float64)") {
+    const std::string src =
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+        "let ToInt(x: Float64): Int64 = 1;\n"
+        "let MakeOptions(): Dict(String, Float64) :: __builtin__;\n"
+        "((1.0, 2.0), ToInt, () -> MakeOptions) -> Std.Parallel.WithOptions;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_parallel_with_options_float64_value_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Dict(String, Any)") != std::string::npos);
+  }
+
+  SECTION("Std.Parallel.WithOptions rejects Dict(String, Int64)") {
+    const std::string src =
+        "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)): "
+        "Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+        "let ToInt(x: Float64): Int64 = 1;\n"
+        "let MakeOptions(): Dict(String, Int64) :: __builtin__;\n"
+        "((1.0, 2.0), ToInt, () -> MakeOptions) -> Std.Parallel.WithOptions;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_parallel_with_options_int64_value_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Dict(String, Any)") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker rejects negative array indices and dimensions before runtime", "[typecheck][builtins][array]") {
+  SECTION("Std.Array.GetAt rejects negative indices") {
+    const std::string src =
+        "let Std.Array.GetAt<T>(array: Tuple(T...), index: UInt64): T :: __builtin__;\n"
+        "((1, 2, 3), -1) -> Std.Array.GetAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_array_getat_negative_index_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Array.GetAt expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.Array.Shape produces UInt64 shape tuples") {
+    const std::string src =
+        "let Std.Array.Shape(value: Any): Tuple(UInt64...) :: __builtin__;\n"
+        "let NeedsShape(s: Tuple(UInt64...)): Tuple(UInt64...) = s;\n"
+        "(((1, 2), (3, 4))) -> Std.Array.Shape -> NeedsShape;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_array_shape_uint64_output.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE(lowered.has_value());
+  }
+
+  SECTION("Std.Array.ReshapeND rejects negative shape elements") {
+    const std::string src =
+        "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)): Any :: __builtin__;\n"
+        "((1, 2, 3, 4), (2u64, -1)) -> Std.Array.ReshapeND;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_array_reshapend_negative_shape_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker rejects negative core sequence indices and counts before runtime", "[typecheck][builtins][sequence]") {
+  SECTION("Std.ElementAt rejects negative indices") {
+    const std::string src =
+        "let Std.ElementAt<T>(tuple: Tuple(T...), count: UInt64): T :: __builtin__;\n"
+        "((1, 2, 3), -1) -> Std.ElementAt;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_elementat_negative_index_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.ElementAt expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.Take rejects negative counts") {
+    const std::string src =
+        "let Std.Take<T>(tuple: Tuple(T...), count: UInt64): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), -1) -> Std.Take;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_take_negative_count_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Take expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.Drop rejects negative counts") {
+    const std::string src =
+        "let Std.Drop<T>(tuple: Tuple(T...), count: UInt64): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), -1) -> Std.Drop;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_drop_negative_count_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Drop expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Std.Slice rejects negative stops") {
+    const std::string src =
+        "let Std.Slice<T>(tuple: Tuple(T...), stop: UInt64): Tuple(T...) :: __builtin__;\n"
+        "((1, 2, 3), -1) -> Std.Slice;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_slice_negative_stop_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Slice expects argument 1") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker rejects negative loop and task bounds before runtime", "[typecheck][builtins][control]") {
+  SECTION("Std.LoopN rejects negative max_iters") {
+    const std::string src =
+        "let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64): S :: "
+        "__builtin__;\n"
+        "let ContinueOk(x: Float64): Bool = True;\n"
+        "let StepOk(x: Float64): Float64 = x;\n"
+        "(1.0, ContinueOk, StepOk, -1) -> Std.LoopN;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_loopn_negative_max_iters_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.LoopN expects argument 3") != std::string::npos);
+  }
+
+  SECTION("Std.Task.WithTimeout rejects negative timeout") {
+    const std::string src =
+        "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: UInt64): Result(Any, String) :: __builtin__;\n"
+        "let MakeTask(): TaskHandle :: __builtin__;\n"
+        "(() -> MakeTask, -1) -> Std.Task.WithTimeout;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_task_with_timeout_negative_rejects.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Task.WithTimeout expects argument 1") != std::string::npos);
   }
 }
 
@@ -4260,23 +5140,20 @@ TEST_CASE("Type checker matrix: higher-order builtin callable semantics", "[type
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
-  SECTION("Std.LoopN requires Int64 max_iters") {
+  SECTION("Std.LoopN accepts UInt64 max_iters") {
     const std::string src =
-        "let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64): S :: "
+        "let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64): S :: "
         "__builtin__;\n"
         "let ContinueOk(x: Float64): Bool = True;\n"
         "let StepOk(x: Float64): Float64 = x;\n"
         "(1.0, ContinueOk, StepOk, 5u64) -> Std.LoopN;\n";
     const fleaux::frontend::parse::Parser parser;
-    const auto parsed = parser.parse_program(src, "typecheck_stage2b_loopn_max_iters_int64.fleaux");
+    const auto parsed = parser.parse_program(src, "typecheck_stage2b_loopn_max_iters_uint64.fleaux");
     REQUIRE(parsed.has_value());
 
     const fleaux::frontend::lowering::Lowerer lowerer;
     const auto lowered = lowerer.lower(parsed.value());
-    REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-    REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
+    REQUIRE(lowered.has_value());
   }
 
   SECTION("Std.Tuple.Filter requires predicate to return Bool") {

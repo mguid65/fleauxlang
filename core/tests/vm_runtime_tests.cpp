@@ -242,6 +242,18 @@ TEST_CASE("RuntimeSession scopes explicit input to snippet execution", "[vm][rep
   REQUIRE(ambient_line == "Outer");
 }
 
+TEST_CASE("RuntimeSession supports the prompt overload of Std.Input", "[vm][repl]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+  std::istringstream provided_input{"Ada\n"};
+
+  const auto result = session.run_snippet("import Std;\n\"name> \" -> Std.Input -> Std.Println;\n", output, provided_input);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "name> Ada\n");
+}
+
 TEST_CASE("RuntimeSession uses scoped Std help metadata without clobbering ambient help registry", "[vm][repl]") {
   fleaux::runtime::clear_help_metadata_registry();
   fleaux::runtime::register_help_metadata(fleaux::runtime::HelpMetadata{
@@ -3197,7 +3209,1149 @@ TEST_CASE("VM kCallBuiltin reports bitwise shift errors through primary builtin 
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message == "builtin 'Std.Bit.ShiftLeft' threw: BitShiftLeft: shift must be non-negative");
+  REQUIRE(result.error().message ==
+          "builtin 'Std.Bit.ShiftLeft' threw: BitShiftLeft shift expects non-negative integer");
+}
+
+TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before builtin dispatch", "[vm]") {
+  SECTION("Std.Add rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Add)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Add' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Subtract rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Subtract)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Subtract' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Bit.Not rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::BitNot)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Bit.Not' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.Not rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{false});
+    constexpr std::int64_t cTrue = 0;
+    constexpr std::int64_t cFalse = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cTrue},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFalse},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Not)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Not' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.ToUInt64 rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ToUInt64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.ToUInt64' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.OS.Cwd rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Cwd)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.OS.Cwd' expected 0 arguments but got 1");
+  }
+
+  SECTION("Std.OS.SetEnv rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"NAME"}});
+    constexpr std::int64_t cName = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cName},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::OSSetEnv)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.OS.SetEnv' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.File.ReadChunk rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::FileReadChunk)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.File.ReadChunk' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.File.WithOpen rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"file.txt"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"r"}});
+    constexpr std::int64_t cPath = 0;
+    constexpr std::int64_t cMode = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cPath},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cMode},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::FileWithOpen)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.File.WithOpen' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Dict.Set rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"dict"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"key"}});
+    constexpr std::int64_t cDict = 0;
+    constexpr std::int64_t cKey = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cDict},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cKey},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictSet)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Set' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Dict.Get rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"dict"}});
+    constexpr std::int64_t cDict = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cDict},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictGet)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Get' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Tuple.Append rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleAppend)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Append' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Tuple.Zip rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleZip)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Zip' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Tuple.Map rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleMap)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Map' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Tuple.Any rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleAny)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Any' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Tuple.Reduce rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleReduce)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Reduce' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Printf rejects malformed empty tuple bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Printf)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Printf' expected 1+ arguments but got 0");
+  }
+
+  SECTION("Std.String.Split rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"a,b,c"}});
+    constexpr std::int64_t cCsv = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cCsv},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringSplit)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Split' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.String.Join rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{","}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"def"}});
+    constexpr std::int64_t cComma = 0;
+    constexpr std::int64_t cAbc = 1;
+    constexpr std::int64_t cDef = 2;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cComma},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cAbc},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cDef},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringJoin)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Join' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.String.Format rejects malformed empty tuple bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringFormat)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Format' expected 1+ arguments but got 0");
+  }
+
+  SECTION("Std.String.Replace rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"a,b,c"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{","}});
+    constexpr std::int64_t cCsv = 0;
+    constexpr std::int64_t cComma = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cCsv},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cComma},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringReplace)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Replace' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.String.Regex.IsMatch rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc-123"}});
+    constexpr std::int64_t cText = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringRegexIsMatch)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Regex.IsMatch' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.String.Regex.Replace rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abc-123"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"[0-9]+"}});
+    constexpr std::int64_t cText = 0;
+    constexpr std::int64_t cPattern = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cPattern},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringRegexReplace)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Regex.Replace' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Task.Spawn rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskSpawn)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Task.Spawn' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Parallel.Reduce rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ParallelReduce)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Parallel.Reduce' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Select rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+    const auto c10 = push_i64_const(bytecode_module, 10);
+    constexpr std::int64_t cTrue = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cTrue},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Select)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Select' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.GetArgs rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"ignored"}});
+    constexpr std::int64_t cIgnored = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cIgnored},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::GetArgs)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.GetArgs' expected 0 arguments but got 1");
+  }
+
+  SECTION("Std.ElementAt rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ElementAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.ElementAt' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Take rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Take)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Take' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Drop rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Drop)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Drop' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Try rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Try)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Try' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Apply rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Apply)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Apply' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Branch rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    constexpr std::int64_t cTrue = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cTrue},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Branch)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Branch' expected 4 arguments but got 3");
+  }
+
+  SECTION("Std.Loop rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Loop)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Loop' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.LoopN rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::LoopN)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.LoopN' expected 4 arguments but got 3");
+  }
+
+  SECTION("Std.Array.GetAt rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayGetAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.GetAt' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Array.SetAt rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySetAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.SetAt' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Array.InsertAt rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayInsertAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.InsertAt' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Array.RemoveAt rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayRemoveAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.RemoveAt' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Array.Slice rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySlice)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Slice' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Array.Concat rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayConcat)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Concat' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Array.SetAt2D rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySetAt2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.SetAt2D' expected 4 arguments but got 3");
+  }
+
+  SECTION("Std.Array.Fill rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayFill)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Fill' expected 4 arguments but got 3");
+  }
+
+  SECTION("Std.Array.Slice2D rejects malformed four-argument bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    const auto c4 = push_i64_const(bytecode_module, 4);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySlice2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Slice2D' expected 5 arguments but got 4");
+  }
+
+  SECTION("Std.Array.Reshape rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayReshape)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Reshape' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Array.GetAtND rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayGetAtND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.GetAtND' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Array.SetAtND rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySetAtND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.SetAtND' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Array.ReshapeND rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayReshapeND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.ReshapeND' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Math.Clamp rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::MathClamp)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Math.Clamp' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Exit nullary overload rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ExitVoid)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Exit' expected 0 arguments but got 1");
+  }
+
+  SECTION("Std.Dict.Create nullary overload rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"seed"}});
+    constexpr std::int64_t cSeed = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cSeed},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictCreateVoid)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Create' expected 0 arguments but got 1");
+  }
+
+  SECTION("Std.Dict.Create unary overload rejects malformed nullary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictCreateDict)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Create' expected 1 argument but got 0");
+  }
+
+  SECTION("Std.Exit unary overload rejects malformed nullary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ExitInt64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Exit' expected 1 argument but got 0");
+  }
+
+  SECTION("Std.Tuple.Range rejects malformed four-argument bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleRange)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected 1, 2 or 3 arguments but got 4");
+  }
+
+  SECTION("Std.Input nullary overload rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"name> "}});
+    constexpr std::int64_t cPrompt = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cPrompt},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::InputVoid)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Input' expected 0 arguments but got 1");
+  }
+
+  SECTION("Std.Input prompt overload rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"name> "}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"extra"}});
+    constexpr std::int64_t cPrompt = 0;
+    constexpr std::int64_t cExtra = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cPrompt},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cExtra},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::InputString)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Input' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.String.Slice rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abcdef"}});
+    constexpr std::int64_t cText = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringSlice)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Slice' expected 2 or 3 arguments but got 1");
+  }
+
+  SECTION("Std.String.Find rejects malformed four-argument bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"abcabc"}});
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"bc"}});
+    constexpr std::int64_t cText = 0;
+    constexpr std::int64_t cNeedle = 1;
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c4 = push_i64_const(bytecode_module, 4);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cNeedle},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringFind)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.String.Find' expected 2 or 3 arguments but got 4");
+  }
 }
 
 TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, cast, and to_num through primary builtin dispatch", "[vm]") {
@@ -4219,6 +5373,8 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.Task.Await") == fleaux::vm::BuiltinId::TaskAwait);
   REQUIRE(require_builtin("Std.Wrap") == fleaux::vm::BuiltinId::Wrap);
   REQUIRE(require_builtin("Std.Unwrap") == fleaux::vm::BuiltinId::Unwrap);
+  REQUIRE(require_builtin("Std.First") == fleaux::vm::BuiltinId::First);
+  REQUIRE(require_builtin("Std.Second") == fleaux::vm::BuiltinId::Second);
   REQUIRE(require_builtin("Std.ElementAt") == fleaux::vm::BuiltinId::ElementAt);
   REQUIRE(require_builtin("Std.Length") == fleaux::vm::BuiltinId::Length);
   REQUIRE(require_builtin("Std.Take") == fleaux::vm::BuiltinId::Take);
@@ -4228,6 +5384,12 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.ToInt64") == fleaux::vm::BuiltinId::ToInt64);
   REQUIRE(require_builtin("Std.ToUInt64") == fleaux::vm::BuiltinId::ToUInt64);
   REQUIRE(require_builtin("Std.ToFloat64") == fleaux::vm::BuiltinId::ToFloat64);
+  REQUIRE(require_builtin("Std.Random.Create") == fleaux::vm::BuiltinId::RandomCreate);
+  REQUIRE(require_builtin("Std.Random.NextUInt64") == fleaux::vm::BuiltinId::RandomNextUInt64);
+  REQUIRE(require_builtin("Std.Random.NextInt64") == fleaux::vm::BuiltinId::RandomNextInt64);
+  REQUIRE(require_builtin("Std.Random.NextFloat64") == fleaux::vm::BuiltinId::RandomNextFloat64);
+  REQUIRE(require_builtin("Std.Random.NextBool") == fleaux::vm::BuiltinId::RandomNextBool);
+  REQUIRE(require_builtin("Std.Random.Split") == fleaux::vm::BuiltinId::RandomSplit);
   REQUIRE(require_builtin("Std.Math.Sqrt") == fleaux::vm::BuiltinId::Sqrt);
   REQUIRE(require_builtin("Std.Math.Sin") == fleaux::vm::BuiltinId::Sin);
   REQUIRE(require_builtin("Std.Math.Cos") == fleaux::vm::BuiltinId::Cos);
@@ -4339,6 +5501,10 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::as_array(wrapped).Size() == 1);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Unwrap(wrapped)) == 7.0);
 
+  const auto pair = fleaux::runtime::make_tuple(fleaux::runtime::make_int(7), fleaux::runtime::make_string("rng"));
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::First(pair)) == 7.0);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Second(pair)) == "rng");
+
   const auto seq = fleaux::runtime::make_tuple(
       fleaux::runtime::make_int(10), fleaux::runtime::make_int(20), fleaux::runtime::make_int(30));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Length(seq)) == 3.0);
@@ -4363,6 +5529,30 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto as_float = fleaux::runtime::ToFloat64(fleaux::runtime::make_int(7));
   REQUIRE(fleaux::runtime::is_float_number(as_float));
   REQUIRE(fleaux::runtime::to_double(as_float) == 7.0);
+
+  const auto generator = fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL)));
+  const auto random_uint = fleaux::runtime::RandomNextUInt64(generator);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_uint))) == "UInt64");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_uint))) == "2466975172287755897");
+
+  const auto random_int = fleaux::runtime::RandomNextInt64(
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(0ULL))));
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_int))) == "Int64");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_int))) == "-2152535657050944081");
+
+  const auto random_float = fleaux::runtime::RandomNextFloat64(fleaux::runtime::Second(random_uint));
+  REQUIRE(fleaux::runtime::is_float_number(fleaux::runtime::First(random_float)));
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::First(random_float)) >= 0.0);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::First(random_float)) < 1.0);
+
+  const auto random_bool = fleaux::runtime::RandomNextBool(generator);
+  REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::First(random_bool)));
+
+  const auto split = fleaux::runtime::RandomSplit(generator);
+  const auto left_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::First(split));
+  const auto right_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::Second(split));
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(left_step))) == "1278849761381179246");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(right_step))) == "15883818742529415426");
 
   REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::Sqrt(fleaux::runtime::make_tuple(fleaux::runtime::make_int(9)))) -
                    3.0) < 1e-12);
@@ -4415,9 +5605,11 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
   REQUIRE(require_builtin("Std.Println") == fleaux::vm::BuiltinId::Println);
   REQUIRE(require_builtin("Std.GetArgs") == fleaux::vm::BuiltinId::GetArgs);
   REQUIRE(require_builtin("Std.Type") == fleaux::vm::BuiltinId::Type);
-  REQUIRE(require_builtin("Std.Input") == fleaux::vm::BuiltinId::Input);
+  REQUIRE(require_builtin("Std.Input") == fleaux::vm::BuiltinId::InputVoid);
   REQUIRE(require_builtin("Std.Help") == fleaux::vm::BuiltinId::Help);
   REQUIRE(require_builtin("Std.Exit") == fleaux::vm::BuiltinId::ExitVoid);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#0") == fleaux::vm::BuiltinId::InputVoid);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#1") == fleaux::vm::BuiltinId::InputString);
 
   std::ostringstream output;
   fleaux::runtime::RuntimeOutputStreamScope output_scope(output);
@@ -4447,6 +5639,8 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("{} + {}"), fleaux::runtime::make_int(1),
                                   fleaux::runtime::make_int(2)));
   REQUIRE(fleaux::runtime::as_array(printf_result).Size() == 3U);
+  const auto printf_literal = fleaux::runtime::Printf(fleaux::runtime::make_string("hello"));
+  REQUIRE(fleaux::runtime::as_array(printf_literal).Size() == 1U);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::make_uint(7))) == "UInt64");
 
   const auto args = fleaux::runtime::GetArgs(fleaux::runtime::make_tuple());
@@ -4456,7 +5650,7 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
   const auto help = fleaux::runtime::Help(fleaux::runtime::make_string("Std.Add"));
   REQUIRE_THAT(fleaux::runtime::as_string(help), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
 
-  const auto input_value = fleaux::runtime::Input(fleaux::runtime::make_tuple(fleaux::runtime::make_string("name> ")));
+  const auto input_value = fleaux::runtime::Input_String(fleaux::runtime::make_string("name> "));
   REQUIRE(fleaux::runtime::as_string(input_value) == "Ada");
 
   const auto continue_func = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
@@ -4471,11 +5665,8 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
               fleaux::runtime::make_tuple(fleaux::runtime::make_int(3), continue_func, step_func,
                                           fleaux::runtime::make_int(3)))) == 0.0);
 
-  REQUIRE_THROWS_WITH(fleaux::runtime::Exit_Int64(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1),
-                                                                              fleaux::runtime::make_int(2))),
-                      Catch::Matchers::ContainsSubstring("Exit_Int64 expects 1 argument"));
 
-  REQUIRE(output.str() == "8\n1 + 2name> ");
+  REQUIRE(output.str() == "8\n1 + 2helloname> ");
   fleaux::runtime::clear_help_metadata_registry();
 }
 
@@ -4508,6 +5699,11 @@ TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct
   const auto joined = fleaux::runtime::PathJoin(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("file.txt")));
   REQUIRE(fleaux::runtime::as_string(joined) == (std::filesystem::path("/tmp") / "file.txt").string());
+  const auto joined_nested = fleaux::runtime::PathJoin(fleaux::runtime::make_tuple(
+      fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("nested"),
+      fleaux::runtime::make_string("file.txt")));
+  REQUIRE(fleaux::runtime::as_string(joined_nested) ==
+          (std::filesystem::path("/tmp") / "nested" / "file.txt").string());
   const auto with_ext = fleaux::runtime::PathWithExtension(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp/file.txt"), fleaux::runtime::make_string("log")));
   auto expected_with_ext = std::filesystem::path("/tmp/file.txt");
@@ -4538,7 +5734,7 @@ TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct
 #endif
 }
 
-TEST_CASE("VM Std.Path.Join reports builtin error prefix", "[vm]") {
+TEST_CASE("VM Std.Path.Join rejects malformed unary bytecode shape", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"/tmp"}});
   bytecode_module.instructions = {
@@ -4553,7 +5749,7 @@ TEST_CASE("VM Std.Path.Join reports builtin error prefix", "[vm]") {
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message == "builtin 'Std.Path.Join' threw: PathJoin expects at least 2 arguments");
+  REQUIRE(result.error().message == "builtin 'Std.Path.Join' expected 2+ arguments but got 1");
 }
 
 TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through primary builtin dispatch", "[vm]") {

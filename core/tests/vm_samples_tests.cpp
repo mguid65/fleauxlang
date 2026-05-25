@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 52> kExpectedSamples = {
+constexpr std::array<std::string_view, 53> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -170,6 +170,7 @@ constexpr std::array<std::string_view, 52> kExpectedSamples = {
     "50_multi_accumulator_loop_state.fleaux",
     "51_strong_type_casts.fleaux",
     "52_variables_and_blocks.fleaux",
+    "53_random_seeded.fleaux",
 };
 
 }  // namespace
@@ -434,7 +435,7 @@ TEST_CASE("VM Std.Printf returns the expected tuple shape", "[vm][samples][print
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(\"value:{}|\", 7) -> Std.Printf -> (_, 1) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
+           "(\"value:{}|\", 7) -> Std.Printf -> (_, 1u64) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -513,6 +514,77 @@ TEST_CASE("VM Std.String.Format accepts a format string with no substitution arg
   }
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str() == "hello\n");
+}
+
+TEST_CASE("VM Std.Path.Join accepts more than two path segments", "[vm][samples][path]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_path_join_variadic";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "path_join_variadic.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(\"root\", \"nested\", \"file.txt\") -> Std.Path.Join -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled_module, output);
+  if (!runtime_result.has_value()) {
+    INFO("bytecode error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == (std::filesystem::path("root") / "nested" / "file.txt").string() + "\n");
+}
+
+TEST_CASE("VM deterministic Std.Random builtins support immutable generator threading", "[vm][samples][random]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_random_generator_sample";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "random_generator.fleaux";
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let G0: Any = 123456789 -> Std.ToUInt64 -> Std.Random.Create;\n"
+           "let Step1: Tuple(UInt64, Any) = G0 -> Std.Random.NextUInt64;\n"
+           "let Value1: UInt64 = Step1 -> Std.First;\n"
+           "let G1: Any = Step1 -> Std.Second;\n"
+           "let Step2: Tuple(Float64, Any) = G1 -> Std.Random.NextFloat64;\n"
+           "let SplitPair: Tuple(Any, Any) = G0 -> Std.Random.Split;\n"
+           "let LeftStep: Tuple(UInt64, Any) = SplitPair -> Std.First -> Std.Random.NextUInt64;\n"
+           "let RightStep: Tuple(UInt64, Any) = SplitPair -> Std.Second -> Std.Random.NextUInt64;\n"
+           "Value1 -> Std.Println;\n"
+           "Step2 -> Std.First -> Std.Println;\n"
+           "G0 -> Std.Random.NextBool -> Std.First -> Std.Println;\n"
+           "LeftStep -> Std.First -> Std.Println;\n"
+           "RightStep -> Std.First -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(*analyzed);
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(*compiled_module, output);
+  if (!runtime_result.has_value()) {
+    INFO("bytecode error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() ==
+          "2466975172287755897\n0.500049775767424\nTrue\n1278849761381179246\n15883818742529415426\n");
 }
 
 TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][println]") {
@@ -795,22 +867,171 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.GetAt(array: Tuple(Any...), index: Int64): Any :: __builtin__;\n"
-           "let Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)): Any :: __builtin__;\n"
-           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)): Any :: __builtin__;\n"
+    out << "let Std.Array.GetAt(array: Tuple(Any...), index: UInt64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple(UInt64...)): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)): Any :: __builtin__;\n"
            "let Std.Exit(): Never :: __builtin__;\n"
            "let Std.Exit(code: Int64): Never :: __builtin__;\n"
            "let UseFloatExit(code: Float64): Any = (code) -> Std.Exit;\n"
            "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
            "((1, 2, 3), 1.5) -> Std.Array.GetAt -> Std.Println;\n"
-           "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
-           "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
+           "(((1, 2), (3, 4)), (1u64, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
+           "((1, 2, 3, 4), (2u64, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
            "(1) -> UseFloatExit -> Std.Println;\n"
            "(1.25) -> Std.Exit -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
+}
+
+TEST_CASE("VM widened Std.Array.Slice integer params reject Float64 during analysis", "[vm][samples][array]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_array_slice_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "array_slice_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Array.Slice<T>(array: Tuple(T...), start: Any, stop: Any): Tuple(T...) :: __builtin__;\n"
+           "((1, 2, 3, 4), 0.5, 2) -> Std.Array.Slice;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened core sequence integer params reject Float64 during analysis", "[vm][samples][sequence]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_sequence_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "sequence_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Take<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
+           "let Std.Drop<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
+           "let Std.ElementAt<T>(tuple: Tuple(T...), count: Any): T :: __builtin__;\n"
+           "let Std.Slice<T>(tuple: Tuple(T...), stop: Any): Tuple(T...) :: __builtin__;\n"
+           "((1, 2, 3), 1.5) -> Std.Take;\n"
+           "((1, 2, 3), 1.5) -> Std.Drop;\n"
+           "((1, 2, 3), 1.5) -> Std.ElementAt;\n"
+           "((1, 2, 3), 1.5) -> Std.Slice;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened string and file integer params reject Float64 during analysis", "[vm][samples][string][io]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_string_file_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "string_file_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "type FileHandle = Any;\n"
+           "let Std.String.CharAt(s: String, index: Any): String :: __builtin__;\n"
+           "let Std.String.Slice(s: String, start: Any, stop: Any): String :: __builtin__;\n"
+           "let Std.String.Find(s: String, sub: String, start: Any): Int64 :: __builtin__;\n"
+           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+           "let Open(): FileHandle :: __builtin__;\n"
+           "(\"abc\", 1.5) -> Std.String.CharAt;\n"
+           "(\"abcdef\", 1.5, 4) -> Std.String.Slice;\n"
+           "(\"abcabc\", \"bc\", 1.5) -> Std.String.Find;\n"
+           "() -> Open -> (_, 1.5) -> Std.File.ReadChunk;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened Random.Create seed rejects Float64 during analysis", "[vm][samples][random]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_random_seed_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "random_seed_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "type RandomGenerator = Any;\n"
+           "let Std.Random.Create(seed: Any): RandomGenerator :: __builtin__;\n"
+           "1.5 -> Std.Random.Create;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened bit shift counts reject Float64 during analysis", "[vm][samples][bit]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_bit_shift_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "bit_shift_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Bit.ShiftLeft(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+           "let Std.Bit.ShiftRight(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+           "(1, 1.5) -> Std.Bit.ShiftLeft;\n"
+           "(8, 1.5) -> Std.Bit.ShiftRight;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened Exit and Tuple.Range integer params reject Float64 during analysis",
+          "[vm][samples][control][tuple]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_exit_range_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "exit_range_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Exit(): Never :: __builtin__;\n"
+           "let Std.Exit(code: Any): Never :: __builtin__;\n"
+           "let Std.Tuple.Range(stop: Any): Tuple(Int64...) :: __builtin__;\n"
+           "(1.25) -> Std.Exit;\n"
+           "(1.5) -> Std.Tuple.Range;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+}
+
+TEST_CASE("VM Std.Array.Shape returns UInt64 dimensions", "[vm][samples][array]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_array_shape_uint64";
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "array_shape_uint64.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "(((1, 2), (3, 4))) -> Std.Array.Shape -> (_, 0u64) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  set_runtime_process_args(source_path, {});
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "UInt64\n");
 }
 
 TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
@@ -962,6 +1183,26 @@ TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][sampl
   REQUIRE(output.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
 }
 
+TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict(String, Any) options during analysis",
+          "[vm][samples][parallel]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_with_options_typed_reject";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "parallel_with_options_typed_reject.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "let Identity(x: Float64): Float64 = x;\n"
+           "let MakeBadOptions(): Dict(String, Float64) :: __builtin__;\n"
+           "((1.0, 2.0), Identity, () -> MakeBadOptions) -> Std.Parallel.WithOptions;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("Dict(String, Any)") != std::string::npos);
+}
+
 TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][parallel]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_reduce_error";
   std::filesystem::remove_all(temp_dir);
@@ -1032,7 +1273,7 @@ TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
   REQUIRE(output.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
 }
 
-TEST_CASE("VM Std.Task.WithTimeout negative timeout stays typed", "[vm][samples][task]") {
+TEST_CASE("VM Std.Task.WithTimeout negative timeout is rejected during analysis", "[vm][samples][task]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_timeout_preflight";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1042,23 +1283,13 @@ TEST_CASE("VM Std.Task.WithTimeout negative timeout stays typed", "[vm][samples]
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Identity(x: Float64): Float64 = x;\n"
-           "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout -> Std.Result.UnwrapErr -> "
-           "Std.Println;\n";
+           "(Identity, 1.0) -> Std.Task.Spawn -> (_, -1) -> Std.Task.WithTimeout;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
-  REQUIRE(analyzed.has_value());
-
-  constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled_module = compiler.compile(analyzed.value());
-  REQUIRE(compiled_module.has_value());
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  set_runtime_process_args(source_path, {});
-  const auto runtime_result = runtime.execute(compiled_module.value(), output);
-  REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "Task.WithTimeout: timeout_ms must be non-negative\n");
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("Std.Task.WithTimeout expects argument 1") != std::string::npos);
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \
@@ -1120,6 +1351,7 @@ FLEAUX_VM_SAMPLE_TEST("49_same_input_fanout.fleaux")
 FLEAUX_VM_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 FLEAUX_VM_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_SAMPLE_TEST("52_variables_and_blocks.fleaux")
+FLEAUX_VM_SAMPLE_TEST("53_random_seeded.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1172,6 +1404,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("49_same_input_fanout.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("52_variables_and_blocks.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("53_random_seeded.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

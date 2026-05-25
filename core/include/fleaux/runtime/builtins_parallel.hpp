@@ -453,9 +453,8 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 }
 
 [[nodiscard]] inline auto TaskSpawn(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "Task.Spawn");
-  const Value& function_ref = *args.TryGet(0);
-  const Value& value = *args.TryGet(1);
+  const Value& function_ref = array_at(arg, 0);
+  const Value& value = array_at(arg, 1);
 
   const TaskControlPtr task = task_runtime().submit(function_ref, value);
   const RegistryId id = [&]() {
@@ -511,16 +510,12 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 }
 
 [[nodiscard]] inline auto TaskWithTimeout(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "Task.WithTimeout");
-  const Int timeout_ms = as_int_value_strict(*args.TryGet(1), "Task.WithTimeout timeout_ms");
-  if (timeout_ms < 0) {
-    return ResultErr(make_tuple(make_string("Task.WithTimeout: timeout_ms must be non-negative")));
-  }
-  const TaskControlPtr task = task_control_from_handle(*args.TryGet(0));
+  const std::size_t timeout_ms = as_index_strict(array_at(arg, 1), "Task.WithTimeout timeout_ms");
+  const TaskControlPtr task = task_control_from_handle(array_at(arg, 0));
   if (!task) {
     return ResultErr(make_tuple(make_string("Task.WithTimeout: invalid task handle")));
   }
-  const auto result = wait_task_result_for(task, std::chrono::milliseconds{timeout_ms});
+  const auto result = wait_task_result_for(task, std::chrono::milliseconds{static_cast<Int>(timeout_ms)});
   if (!result) {
     return ResultErr(make_tuple(make_string(String{k_task_timeout_message})));
   }
@@ -528,23 +523,21 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 }
 
 [[nodiscard]] inline auto ParallelMap(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "Parallel.Map");
-  const auto& items = as_array(*args.TryGet(0));
-  const Value function_ref = *args.TryGet(1);
+  const auto& items = as_array(array_at(arg, 0));
+  const Value function_ref = array_at(arg, 1);
   const std::size_t max_in_flight = std::max<std::size_t>(1, items.Size());
   return run_parallel_map_pooled(items, function_ref, max_in_flight);
 }
 
 [[nodiscard]] inline auto ParallelWithOptions(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "Parallel.WithOptions");
-  if (!args.TryGet(2)->HasObject()) {
+  if (!array_at(arg, 2).HasObject()) {
     return ResultErr(
         make_tuple(make_int(static_cast<Int>(0)), make_string("Parallel.WithOptions: options must be a Dict")));
   }
 
-  const auto& items = as_array(*args.TryGet(0));
-  const Value function_ref = *args.TryGet(1);
-  const auto& options = as_object(*args.TryGet(2));
+  const auto& items = as_array(array_at(arg, 0));
+  const Value function_ref = array_at(arg, 1);
+  const auto& options = as_object(array_at(arg, 2));
 
   try {
     validate_parallel_with_options_keys(options);
@@ -731,18 +724,16 @@ inline auto run_parallel_reduce_chunked(const Array& items, const Value& init, c
 }
 
 [[nodiscard]] inline auto ParallelForEach(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "Parallel.ForEach");
-  const auto& items = as_array(*args.TryGet(0));
-  const Value function_ref = *args.TryGet(1);
+  const auto& items = as_array(array_at(arg, 0));
+  const Value function_ref = array_at(arg, 1);
   const std::size_t max_in_flight = std::max<std::size_t>(1, items.Size());
   return run_parallel_foreach_pooled(items, function_ref, max_in_flight);
 }
 
 [[nodiscard]] inline auto ParallelReduce(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "Parallel.Reduce");
-  const auto& items = as_array(*args.TryGet(0));
-  const Value init = *args.TryGet(1);
-  const Value function_ref = *args.TryGet(2);
+  const auto& items = as_array(array_at(arg, 0));
+  const Value init = array_at(arg, 1);
+  const Value function_ref = array_at(arg, 2);
   const std::size_t chunk_size = std::max<std::size_t>(1, task_runtime().worker_count());
   return run_parallel_reduce_chunked(items, init, function_ref, chunk_size);
 }

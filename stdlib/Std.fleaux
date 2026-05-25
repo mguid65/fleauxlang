@@ -76,6 +76,7 @@ let Std.TwoDivRootPi(): Float64 :: 1.1283791670955125738961589031215451716881012
 // Opaque standard-library handle surface types
 type TaskHandle = Any;
 type FileHandle = Any;
+type RandomGenerator = Any;
 
 // Core builtins
 // @brief Print values to the active output stream.
@@ -92,6 +93,11 @@ let Std.Printf(fmt_str: String, args: Any...) : Tuple(String, Any...) :: __built
 // @brief Read a line of input from the active input stream.
 // @return The input line as a String.
 let Std.Input() : String :: __builtin__;
+
+// @brief Print a prompt and then read a line of input from the active input stream.
+// @param prompt Prompt text. Type: String.
+// @return The input line as a String.
+let Std.Input(prompt: String) : String :: __builtin__;
 
 // @brief Return help text for the named symbol.
 // @param name Name string. Type: String.
@@ -123,6 +129,36 @@ let Std.ToUInt64(value: Any) : UInt64 :: __builtin__;
 // @param value Input value. Type: Any.
 // @return A value of type Float64.
 let Std.ToFloat64(value: Any) : Float64 :: __builtin__;
+
+// @brief Create a deterministic random generator from a seed value.
+// @param seed Initial seed. Type: UInt64.
+// @return A value of type RandomGenerator.
+let Std.Random.Create(seed: UInt64) : RandomGenerator :: __builtin__;
+
+// @brief Advance a random generator and return the next UInt64 value with its successor generator.
+// @param gen Input generator. Type: RandomGenerator.
+// @return A value of type Tuple(UInt64, RandomGenerator).
+let Std.Random.NextUInt64(gen: RandomGenerator) : Tuple(UInt64, RandomGenerator) :: __builtin__;
+
+// @brief Advance a random generator and return the next Int64 value with its successor generator.
+// @param gen Input generator. Type: RandomGenerator.
+// @return A value of type Tuple(Int64, RandomGenerator).
+let Std.Random.NextInt64(gen: RandomGenerator) : Tuple(Int64, RandomGenerator) :: __builtin__;
+
+// @brief Advance a random generator and return the next Float64 value in the range [0.0, 1.0) with its successor generator.
+// @param gen Input generator. Type: RandomGenerator.
+// @return A value of type Tuple(Float64, RandomGenerator).
+let Std.Random.NextFloat64(gen: RandomGenerator) : Tuple(Float64, RandomGenerator) :: __builtin__;
+
+// @brief Advance a random generator and return the next Bool value with its successor generator.
+// @param gen Input generator. Type: RandomGenerator.
+// @return A value of type Tuple(Bool, RandomGenerator).
+let Std.Random.NextBool(gen: RandomGenerator) : Tuple(Bool, RandomGenerator) :: __builtin__;
+
+// @brief Deterministically split a generator into two independent successor generators.
+// @param gen Input generator. Type: RandomGenerator.
+// @return A value of type Tuple(RandomGenerator, RandomGenerator).
+let Std.Random.Split(gen: RandomGenerator) : Tuple(RandomGenerator, RandomGenerator) :: __builtin__;
 
 // @brief Terminate the current process.
 // @return This builtin never returns.
@@ -194,15 +230,15 @@ let Std.Bit.Not(value: Int64) : Int64 :: __builtin__;
 
 // @brief Shift an Int64 value left by the requested bit count.
 // @param value Input value. Type: Int64.
-// @param bits Bit count. Type: Int64.
+// @param bits Bit count. Type: UInt64.
 // @return A value of type Int64.
-let Std.Bit.ShiftLeft(value: Int64, bits: Int64) : Int64 :: __builtin__;
+let Std.Bit.ShiftLeft(value: Int64, bits: UInt64) : Int64 :: __builtin__;
 
 // @brief Shift an Int64 value right by the requested bit count.
 // @param value Input value. Type: Int64.
-// @param bits Bit count. Type: Int64.
+// @param bits Bit count. Type: UInt64.
 // @return A value of type Int64.
-let Std.Bit.ShiftRight(value: Int64, bits: Int64) : Int64 :: __builtin__;
+let Std.Bit.ShiftRight(value: Int64, bits: UInt64) : Int64 :: __builtin__;
 
 // @brief Compare two numeric values and return whether lhs is greater than rhs.
 // @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
@@ -395,9 +431,9 @@ let Std.Task.Cancel(task: TaskHandle) : Bool :: __builtin__;
 
 // @brief Wait for a task to complete until the timeout expires.
 // @param task Task handle value. Type: TaskHandle.
-// @param timeout_ms Timeout in milliseconds. Type: Int64.
+// @param timeout_ms Timeout in milliseconds. Type: UInt64.
 // @return A value of type Result(Any, String).
-let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64) : Result(Any, String) :: __builtin__;
+let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: UInt64) : Result(Any, String) :: __builtin__;
 
 // @brief Apply a callable to a value.
 // @tparam T Generic value type.
@@ -429,9 +465,9 @@ let Std.Loop<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S) : S :
 // @param state State value. Type: S.
 // @param continue_func Value for parameter continue_func. Type: (S) => Bool.
 // @param step_func Callable that produces the next state. Type: (S) => S.
-// @param max_iters Maximum number of iterations to execute. Type: Int64.
+// @param max_iters Maximum number of iterations to execute. Type: UInt64.
 // @return A value of type S.
-let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64) : S :: __builtin__;
+let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64) : S :: __builtin__;
 
 // @brief Return the unary plus of a Float64 value.
 // @param val Value for parameter val. Type: Float64.
@@ -583,23 +619,23 @@ let Std.String.Length(s: String) : Int64 :: __builtin__;
 
 // @brief Return the character at the requested string index.
 // @param s Input string. Type: String.
-// @param index Zero-based index. Type: Int64.
+// @param index Zero-based index. Type: UInt64.
 // @return A value of type String.
-let Std.String.CharAt(s: String, index: Int64) : String :: __builtin__;
+let Std.String.CharAt(s: String, index: UInt64) : String :: __builtin__;
 
 // @brief Return a string slice using start and stop indices.
 // @param s Input string. Type: String.
-// @param start Starting index. Type: Int64.
-// @param stop Exclusive ending index. Type: Int64.
+// @param start Starting index. Type: UInt64.
+// @param stop Exclusive ending index. Type: UInt64.
 // @return A value of type String.
-let Std.String.Slice(s: String, start: Int64, stop: Int64) : String :: __builtin__;
+let Std.String.Slice(s: String, start: UInt64, stop: UInt64) : String :: __builtin__;
 
 // @brief Return the index of the first matching substring at or after start.
 // @param s Input string. Type: String.
 // @param sub Substring to locate. Type: String.
-// @param start Starting index. Type: Int64.
+// @param start Starting index. Type: UInt64.
 // @return A value of type Int64.
-let Std.String.Find(s: String, sub: String, start: Int64) : Int64 :: __builtin__;
+let Std.String.Find(s: String, sub: String, start: UInt64) : Int64 :: __builtin__;
 
 // @brief Format values into a string without printing.
 // @param fmt_str Format string. Type: String.
@@ -694,11 +730,12 @@ let Std.OS.IsMacOS() : Bool :: __builtin__;
 
 
 // Path builtins
-// @brief Join two path components.
+// @brief Join two or more path components.
 // @param lhs Left-hand operand value. Type: String.
 // @param rhs Right-hand operand value. Type: String.
+// @param rest Additional path components. Type: String....
 // @return A value of type String.
-let Std.Path.Join(lhs: String, rhs: String) : String :: __builtin__;
+let Std.Path.Join(lhs: String, rhs: String, rest: String...) : String :: __builtin__;
 
 // @brief Normalize a filesystem path string.
 // @param path Filesystem path string. Type: String.
@@ -940,23 +977,23 @@ let Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) : Tuple(Int64...) ::
 // @brief Return the first count items from a tuple.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
-// @param count Element count or index value. Type: Int64.
+// @param count Element count or index value. Type: UInt64.
 // @return A value of type Tuple(T...).
-let Std.Take<T>(tuple: Tuple(T...), count: Int64) : Tuple(T...) :: __builtin__;
+let Std.Take<T>(tuple: Tuple(T...), count: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Return the tuple after dropping the first count items.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
-// @param count Element count or index value. Type: Int64.
+// @param count Element count or index value. Type: UInt64.
 // @return A value of type Tuple(T...).
-let Std.Drop<T>(tuple: Tuple(T...), count: Int64) : Tuple(T...) :: __builtin__;
+let Std.Drop<T>(tuple: Tuple(T...), count: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Return the tuple element at the requested index.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
-// @param count Element count or index value. Type: Int64.
+// @param count Element count or index value. Type: UInt64.
 // @return A value of type T.
-let Std.ElementAt<T>(tuple: Tuple(T...), count: Int64) : T :: __builtin__;
+let Std.ElementAt<T>(tuple: Tuple(T...), count: UInt64) : T :: __builtin__;
 
 // @brief Return the number of tuple elements.
 // @tparam T Generic value type.
@@ -967,9 +1004,9 @@ let Std.Length<T>(tuple: Tuple(T...)) : Int64 :: __builtin__;
 // @brief Return a tuple slice.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
-// @param stop Exclusive ending index. Type: Int64.
+// @param stop Exclusive ending index. Type: UInt64.
 // @return A value of type Tuple(T...).
-let Std.Slice<T>(tuple: Tuple(T...), stop: Int64) : Tuple(T...) :: __builtin__;
+let Std.Slice<T>(tuple: Tuple(T...), stop: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Parse a string into a Float64 value.
 // @param val Value for parameter val. Type: String.
@@ -997,7 +1034,7 @@ let Std.File.ReadLine(handle: FileHandle) : Tuple(FileHandle, String, Bool) :: _
 // @param handle Open file handle token. Type: FileHandle.
 // @param nbytes Maximum number of bytes to read. Type: Int64.
 // @return A value of type Tuple(FileHandle, String, Bool).
-let Std.File.ReadChunk(handle: FileHandle, nbytes: Int64) : Tuple(FileHandle, String, Bool) :: __builtin__;
+let Std.File.ReadChunk(handle: FileHandle, nbytes: UInt64) : Tuple(FileHandle, String, Bool) :: __builtin__;
 
 // @brief Write a string chunk to an open file handle.
 // @param handle Open file handle token. Type: FileHandle.
@@ -1034,6 +1071,20 @@ let Std.Wrap<T>(val: T) : Tuple(T) :: __builtin__;
 // @param tuple Input tuple value. Type: Tuple(T).
 // @return A value of type T.
 let Std.Unwrap<T>(tuple: Tuple(T)) : T :: __builtin__;
+
+// @brief Return the first element of a 2-tuple.
+// @tparam A Generic first element type.
+// @tparam B Generic second element type.
+// @param pair Input pair value. Type: Tuple(A, B).
+// @return A value of type A.
+let Std.First<A, B>(pair: Tuple(A, B)) : A :: __builtin__;
+
+// @brief Return the second element of a 2-tuple.
+// @tparam A Generic first element type.
+// @tparam B Generic second element type.
+// @param pair Input pair value. Type: Tuple(A, B).
+// @return A value of type B.
+let Std.Second<A, B>(pair: Tuple(A, B)) : B :: __builtin__;
 
 
 // Dictionary builtins
@@ -1138,40 +1189,40 @@ let Std.Dict.Length<K, V>(dict: Dict(K, V)) : Int64 :: __builtin__;
 // @brief Return the array element at index.
 // @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
-// @param index Zero-based index. Type: Int64.
+// @param index Zero-based index. Type: UInt64.
 // @return A value of type T.
-let Std.Array.GetAt<T>(array: Tuple(T...), index: Int64) : T :: __builtin__;
+let Std.Array.GetAt<T>(array: Tuple(T...), index: UInt64) : T :: __builtin__;
 
 // @brief Return an array with one element replaced at index.
 // @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
-// @param index Zero-based index. Type: Int64.
+// @param index Zero-based index. Type: UInt64.
 // @param value Input value. Type: T.
 // @return A value of type Tuple(T...).
-let Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T) : Tuple(T...) :: __builtin__;
+let Std.Array.SetAt<T>(array: Tuple(T...), index: UInt64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return an array with value inserted at index.
 // @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
-// @param index Zero-based index. Type: Int64.
+// @param index Zero-based index. Type: UInt64.
 // @param value Input value. Type: T.
 // @return A value of type Tuple(T...).
-let Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T) : Tuple(T...) :: __builtin__;
+let Std.Array.InsertAt<T>(array: Tuple(T...), index: UInt64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Return an array with the element at index removed.
 // @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
-// @param index Zero-based index. Type: Int64.
+// @param index Zero-based index. Type: UInt64.
 // @return A value of type Tuple(T...).
-let Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64) : Tuple(T...) :: __builtin__;
+let Std.Array.RemoveAt<T>(array: Tuple(T...), index: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Return a one-dimensional array slice.
 // @tparam T Generic value type.
 // @param array Input array value. Type: Tuple(T...).
-// @param start Starting index. Type: Int64.
-// @param stop Exclusive ending index. Type: Int64.
+// @param start Starting index. Type: UInt64.
+// @param stop Exclusive ending index. Type: UInt64.
 // @return A value of type Tuple(T...).
-let Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64) : Tuple(T...) :: __builtin__;
+let Std.Array.Slice<T>(array: Tuple(T...), start: UInt64, stop: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Concatenate two one-dimensional arrays.
 // @tparam T Generic value type.
@@ -1183,20 +1234,20 @@ let Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)) : Tuple(T...) :: __b
 // @brief Return a two-dimensional array with one element replaced at row and col.
 // @tparam T Generic value type.
 // @param grid Two-dimensional array value. Type: Tuple(Tuple(T...)...).
-// @param row Row index. Type: Int64.
-// @param col Column index. Type: Int64.
+// @param row Row index. Type: UInt64.
+// @param col Column index. Type: UInt64.
 // @param value Input value. Type: T.
 // @return A value of type Tuple(Tuple(T...)...).
-let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T) : Tuple(Tuple(T...)...) :: __builtin__;
+let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: UInt64, col: UInt64, value: T) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Return a tuple with a contiguous region filled with value.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
-// @param start_index Starting index. Type: Int64.
-// @param length Number of elements to include. Type: Int64.
+// @param start_index Starting index. Type: UInt64.
+// @param length Number of elements to include. Type: UInt64.
 // @param value Input value. Type: T.
 // @return A value of type Tuple(T...).
-let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T) : Tuple(T...) :: __builtin__;
+let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: UInt64, length: UInt64, value: T) : Tuple(T...) :: __builtin__;
 
 // @brief Transpose a two-dimensional array.
 // @tparam T Generic value type.
@@ -1207,20 +1258,20 @@ let Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)) : Tuple(Tuple(T...)...
 // @brief Return a rectangular slice from a two-dimensional array.
 // @tparam T Generic value type.
 // @param grid Two-dimensional array value. Type: Tuple(Tuple(T...)...).
-// @param row_start Starting row index. Type: Int64.
-// @param row_end Exclusive ending row index. Type: Int64.
-// @param col_start Starting column index. Type: Int64.
-// @param col_end Exclusive ending column index. Type: Int64.
+// @param row_start Starting row index. Type: UInt64.
+// @param row_end Exclusive ending row index. Type: UInt64.
+// @param col_start Starting column index. Type: UInt64.
+// @param col_end Exclusive ending column index. Type: UInt64.
 // @return A value of type Tuple(Tuple(T...)...).
-let Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64) : Tuple(Tuple(T...)...) :: __builtin__;
+let Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: UInt64, row_end: UInt64, col_start: UInt64, col_end: UInt64) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Reshape a flat array into a two-dimensional grid.
 // @tparam T Generic value type.
 // @param flat_array Flattened array value. Type: Tuple(T...).
-// @param rows Number of rows. Type: Int64.
-// @param cols Value for parameter cols. Type: Int64.
+// @param rows Number of rows. Type: UInt64.
+// @param cols Value for parameter cols. Type: UInt64.
 // @return A value of type Tuple(Tuple(T...)...).
-let Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Int64, cols: Int64) : Tuple(Tuple(T...)...) :: __builtin__;
+let Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: UInt64, cols: UInt64) : Tuple(Tuple(T...)...) :: __builtin__;
 
 // @brief Return the rank of a rectangular array value.
 // @param value Input value. Type: Any.
@@ -1229,8 +1280,8 @@ let Std.Array.Rank(value: Any) : Int64 :: __builtin__;
 
 // @brief Return the shape tuple for a rectangular array value.
 // @param value Input value. Type: Any.
-// @return A value of type Tuple(Int64...).
-let Std.Array.Shape(value: Any) : Tuple(Int64...) :: __builtin__;
+// @return A value of type Tuple(UInt64...).
+let Std.Array.Shape(value: Any) : Tuple(UInt64...) :: __builtin__;
 
 // @brief Flatten a rectangular array value in row-major order.
 // @param value Input value. Type: Any.
@@ -1239,19 +1290,19 @@ let Std.Array.Flatten(value: Any) : Tuple(Any...) :: __builtin__;
 
 // @brief Return the array element at the requested index tuple.
 // @param value Input value. Type: Any.
-// @param indices Tuple of zero-based indices. Type: Tuple(Int64...).
+// @param indices Tuple of zero-based indices. Type: Tuple(UInt64...).
 // @return A value of type Any.
-let Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)) : Any :: __builtin__;
+let Std.Array.GetAtND(value: Any, indices: Tuple(UInt64...)) : Any :: __builtin__;
 
 // @brief Return an array with one element replaced at the requested index tuple.
 // @param value Input value. Type: Any.
-// @param indices Tuple of zero-based indices. Type: Tuple(Int64...).
+// @param indices Tuple of zero-based indices. Type: Tuple(UInt64...).
 // @param replacement Replacement value. Type: Any.
 // @return A value of type Any.
-let Std.Array.SetAtND(value: Any, indices: Tuple(Int64...), replacement: Any) : Any :: __builtin__;
+let Std.Array.SetAtND(value: Any, indices: Tuple(UInt64...), replacement: Any) : Any :: __builtin__;
 
 // @brief Reshape a flat array into an n-dimensional rectangular array.
 // @param flat_array Flattened array value. Type: Tuple(Any...).
-// @param shape Tuple describing the target shape. Type: Tuple(Int64...).
+// @param shape Tuple describing the target shape. Type: Tuple(UInt64...).
 // @return A value of type Any.
-let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)) : Any :: __builtin__;
+let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)) : Any :: __builtin__;

@@ -32,6 +32,28 @@ inline auto require_result_tuple(const Value& value, const char* op_name) -> con
   return result;
 }
 
+[[nodiscard]] inline auto try_get_pair_tuple(const Value& value) -> mguid::RefExpected<const Array, mguid::Error> {
+  if (const auto arr = value.TryGetArray(); arr.has_value()) {
+    if (arr->Size() == 2) {
+      return arr;
+    }
+    if (arr->Size() == 1) {
+      if (const auto nested = arr->TryGet(0)->TryGetArray(); nested.has_value() && nested->Size() == 2) {
+        return nested;
+      }
+    }
+  }
+
+  return mguid::make_unexpected(mguid::Error{.category = mguid::Error::Category::BadAccess});
+}
+
+inline auto require_pair_tuple(const Value& value, const char* op_name) -> const Array& {
+  if (const auto pair = try_get_pair_tuple(value); pair.has_value()) {
+    return pair.value();
+  }
+  throw std::invalid_argument{std::string(op_name) + ": expected a 2-tuple"};
+}
+
 inline auto normalize_runtime_error_message(std::string message) -> std::string {
   // Unwrap nested runtime wrappers like:
   // "native 'branch_call' threw: native builtin 'Std.X' threw: actual message"
@@ -73,6 +95,16 @@ private:
 [[nodiscard]] inline auto Unwrap(Value value) -> Value {
   const auto& args = require_args(value, 1, "Unwrap");
   return *args.TryGet(0);
+}
+
+[[nodiscard]] inline auto First(Value arg) -> Value {
+  const auto& values = require_pair_tuple(arg, "First");
+  return *values.TryGet(0);
+}
+
+[[nodiscard]] inline auto Second(Value arg) -> Value {
+  const auto& values = require_pair_tuple(arg, "Second");
+  return *values.TryGet(1);
 }
 
 [[nodiscard]] inline auto ElementAt(Value arg) -> Value {
@@ -249,10 +281,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 [[nodiscard]] inline auto BitShiftLeftBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = as_int_value_strict(lhs, "BitShiftLeft value");
-  const Int shift = as_int_value_strict(rhs, "BitShiftLeft shift");
-  if (shift < 0) {
-    throw std::invalid_argument{"BitShiftLeft: shift must be non-negative"};
-  }
+  const std::size_t shift = as_index_strict(rhs, "BitShiftLeft shift");
   return make_int(value << shift);
 }
 
@@ -262,10 +291,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 [[nodiscard]] inline auto BitShiftRightBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = as_int_value_strict(lhs, "BitShiftRight value");
-  const Int shift = as_int_value_strict(rhs, "BitShiftRight shift");
-  if (shift < 0) {
-    throw std::invalid_argument{"BitShiftRight: shift must be non-negative"};
-  }
+  const std::size_t shift = as_index_strict(rhs, "BitShiftRight shift");
   return make_int(value >> shift);
 }
 
@@ -363,51 +389,42 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   }
 
   const auto& args = as_array(arg);
-  if (args.Size() < 1) {
-    throw std::invalid_argument{"Printf expects at least 1 argument"};
+  if (args.Size() == 0U) {
+    throw std::logic_error{"internal error: Printf called with unexpected validated arity"};
   }
-  const std::string fmt = to_string(*args.TryGet(0));
+  const std::string fmt = to_string(array_at(arg, 0));
   std::vector<Value> values;
-  values.reserve(args.Size() > 0 ? args.Size() - 1 : 0);
+  values.reserve(args.Size() - 1U);
   for (std::size_t arg_index = 1; arg_index < args.Size(); ++arg_index) {
-    values.push_back(*args.TryGet(arg_index));
+    values.push_back(array_at(arg, arg_index));
   }
 
   runtime_output_stream() << format_values(fmt, values);
   return arg;
 }
 
-[[nodiscard]] inline auto Input(Value arg) -> Value {
-  // arg = [] | [prompt] | prompt
-  auto read_line = []() -> Value {
-    std::string line;
-    if (!std::getline(runtime_input_stream(), line)) {
-      return make_string("");
-    }
-    return make_string(line);
-  };
+[[nodiscard]] inline auto read_input_line() -> Value {
+  std::string line;
+  if (!std::getline(runtime_input_stream(), line)) {
+    return make_string("");
+  }
+  return make_string(line);
+}
 
+[[nodiscard]] inline auto Input_Void(Value arg) -> Value {
+  (void)arg;
+  return read_input_line();
+}
+
+[[nodiscard]] inline auto Input_String(Value arg) -> Value {
   auto& output = runtime_output_stream();
-  if (!arg.HasArray()) {
-    output << to_string(arg);
-    output.flush();
-    return read_line();
-  }
-
-  const auto& args = as_array(arg);
-  if (args.Size() == 0) {
-    return read_line();
-  }
-  if (args.Size() == 1) {
-    output << to_string(*args.TryGet(0));
-    output.flush();
-    return read_line();
-  }
-  throw std::invalid_argument{"Input expects 0 or 1 argument"};
+  output << to_string(unwrap_singleton_arg(std::move(arg)));
+  output.flush();
+  return read_input_line();
 }
 
 [[nodiscard]] inline auto GetArgs(Value arg) -> Value {
-  (void)require_args(arg, 0, "GetArgs");
+  (void)arg;
   Array out;
   const auto args = get_process_args();
   out.Reserve(args.size());
@@ -454,9 +471,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto Exit_Void(Value arg) -> Value {
-  if (const auto& arr = arg.TryGetArray(); !arr || arr->Size() != 0) {
-    throw std::invalid_argument{"Exit_Void expects 0 arguments"};
-  }
+  (void)arg;
   std::exit(0);
 }
 
@@ -470,14 +485,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
     return static_cast<int>(code);
   };
 
-  if (const auto& arr = arg.TryGetArray()) {
-    if (arr->Size() != 1) {
-      throw std::invalid_argument{"Exit_Int64 expects 1 argument"};
-    }
-    std::exit(to_exit_code(*arr->TryGet(0)));
-  }
-
-  std::exit(to_exit_code(arg));
+  std::exit(to_exit_code(unwrap_singleton_arg(std::move(arg))));
 }
 
 // Control flow (templated: functions remain concrete C++ callables)
@@ -571,9 +579,8 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto Try(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "Try");
-  const Value& value = *args.TryGet(0);
-  const Value& function_ref = *args.TryGet(1);
+  const Value& value = array_at(arg, 0);
+  const Value& function_ref = array_at(arg, 1);
   try {
     return ResultOk(make_tuple(invoke_callable_ref(function_ref, value)));
   } catch (const std::exception& ex) {
@@ -583,26 +590,23 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 [[nodiscard]] inline auto Apply(Value arg) -> Value {
   // arg = [value, func_ref]
-  const auto& args = require_args(arg, 2, "Apply");
-  return invoke_callable_ref(*args.TryGet(1), *args.TryGet(0));
+  return invoke_callable_ref(array_at(arg, 1), array_at(arg, 0));
 }
 
 [[nodiscard]] inline auto Branch(Value arg) -> Value {
   // arg = [condition, value, true_func_ref, false_func_ref]
-  const auto& args = require_args(arg, 4, "Branch");
-  const Value& condition = *args.TryGet(0);
-  const Value& value = *args.TryGet(1);
-  const Value& true_func = *args.TryGet(2);
-  const Value& false_func = *args.TryGet(3);
+  const Value& condition = array_at(arg, 0);
+  const Value& value = array_at(arg, 1);
+  const Value& true_func = array_at(arg, 2);
+  const Value& false_func = array_at(arg, 3);
   return as_bool(condition) ? invoke_callable_ref(true_func, value) : invoke_callable_ref(false_func, value);
 }
 
 [[nodiscard]] inline auto Loop(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref]
-  auto& args = require_args(arg, 3, "Loop");
-  Value state = std::move(args[0]);
-  const Value& continue_func = *args.TryGet(1);
-  const Value& step_func = *args.TryGet(2);
+  Value state = std::move(array_at(arg, 0));
+  const Value& continue_func = array_at(arg, 1);
+  const Value& step_func = array_at(arg, 2);
   const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
   const RuntimeCallable step_callable = resolve_callable_ref(step_func);
   while (as_bool(continue_callable(state))) {
@@ -613,11 +617,10 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 
 [[nodiscard]] inline auto LoopN(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref, max_iters]
-  auto& args = require_args(arg, 4, "LoopN");
-  Value state = std::move(args[0]);
-  const Value& continue_func = *args.TryGet(1);
-  const Value& step_func = *args.TryGet(2);
-  const std::size_t max_iters = as_index_strict(*args.TryGet(3), "LoopN max_iters");
+  Value state = std::move(array_at(arg, 0));
+  const Value& continue_func = array_at(arg, 1);
+  const Value& step_func = array_at(arg, 2);
+  const std::size_t max_iters = as_index_strict(array_at(arg, 3), "LoopN max_iters");
   const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
   const RuntimeCallable step_callable = resolve_callable_ref(step_func);
 

@@ -294,9 +294,1328 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Dict.Create#1") == fleaux::vm::BuiltinId::DictCreateDict);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#0") == fleaux::vm::BuiltinId::ExitVoid);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#1") == fleaux::vm::BuiltinId::ExitInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#0") == fleaux::vm::BuiltinId::InputVoid);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#1") == fleaux::vm::BuiltinId::InputString);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#0") == fleaux::vm::BuiltinId::TupleRange);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRange);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") == fleaux::vm::BuiltinId::TupleRange);
+}
+
+TEST_CASE("VM builtin catalog exposes scalar and overloaded builtin arity contracts", "[bytecode][builtins][arity]") {
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::UnaryPlus));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Add));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Add, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Add, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Subtract));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Subtract, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Subtract, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitAnd));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitAnd, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitAnd, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitNot));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitShiftLeft));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Not));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cwd));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Printf));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 1U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSIsWindows));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSMakeTempFile));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::PathJoin));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::PathWithExtension));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathWithExtension, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathWithExtension, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSSetEnv));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSSetEnv, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSSetEnv, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileReadChunk));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileReadChunk, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileReadChunk, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileWithOpen));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileWithOpen, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileWithOpen, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictSet));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictGet));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictGetDefault));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGetDefault, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGetDefault, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictMerge));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictMerge, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictMerge, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAppend));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAppend, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAppend, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleZip));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleZip, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleZip, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleMap));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleMap, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleMap, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleFilter));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFilter, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFilter, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleFindIndex));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFindIndex, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFindIndex, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAny));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAny, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAny, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAll));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAll, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAll, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleReduce));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleReduce, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleReduce, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSplit));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSplit, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSplit, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringJoin));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringJoin, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringJoin, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringContains));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringContains, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringContains, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringCharAt));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringCharAt, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringCharAt, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringReplace));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringReplace, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringReplace, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexIsMatch));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexIsMatch, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexIsMatch, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexFind));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexFind, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexFind, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexReplace));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexReplace, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexReplace, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexSplit));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexSplit, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexSplit, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskSpawn));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskSpawn, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskSpawn, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskWithTimeout));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskWithTimeout, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskWithTimeout, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelMap));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelMap, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelMap, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelWithOptions));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelWithOptions, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelWithOptions, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelForEach));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelForEach, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelForEach, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelReduce));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 2U));
+
+  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cast));
+  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToString));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ExitVoid));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitVoid, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitVoid, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ExitInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitInt64, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::InputVoid));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputVoid, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputVoid, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::InputString));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRange));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 1U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSlice));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFind));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFormat));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 1U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 0U));
+
+  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Println));
+}
+
+TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadata families", "[bytecode][builtins][arity]") {
+  SECTION("Tuple literal with wrong arity is rejected for Std.Add") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Add", std::string{"Std.Add"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Add' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.Subtract") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Subtract", std::string{"Std.Subtract"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Subtract' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Materialized zero-arg builtin value is rejected for non-nullary Std.Bit.Not") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    auto name_ref = make_ir_name_ref(std::string{"Std"}, "Bit.Not", std::string{"Std.Bit.Not"});
+    name_ref.materialize_as_value = true;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(std::move(name_ref))},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Bit.Not' expects 1 argument but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for unary Std.Not") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_bool_constant_box(true),
+                                                                              make_bool_constant_box(false)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Not", std::string{"Std.Not"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Not' expects 1 argument but got 2.");
+  }
+
+  SECTION("Materialized zero-arg builtin value is rejected for unary Std.ToUInt64") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    auto name_ref = make_ir_name_ref(std::string{"Std"}, "ToUInt64", std::string{"Std.ToUInt64"});
+    name_ref.materialize_as_value = true;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(std::move(name_ref))},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.ToUInt64' expects 1 argument but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for nullary Std.OS.Cwd") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.OS"}, "Cwd", std::string{"Std.OS.Cwd"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.OS.Cwd' expects 0 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.OS.SetEnv") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("NAME")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.OS"}, "SetEnv", std::string{"Std.OS.SetEnv"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.OS.SetEnv' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.File.ReadChunk") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.File"}, "ReadChunk", std::string{"Std.File.ReadChunk"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.File.ReadChunk' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.File.WithOpen") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("file.txt"), make_string_constant_box("r")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.File"}, "WithOpen", std::string{"Std.File.WithOpen"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.File.WithOpen' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Dict.Set") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("dict"), make_string_constant_box("key")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Set", std::string{"Std.Dict.Set"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Set' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Dict.Get") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("dict")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Get", std::string{"Std.Dict.Get"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Get' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Append") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Append", std::string{"Std.Tuple.Append"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Append' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Zip") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Zip", std::string{"Std.Tuple.Zip"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Zip' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Map") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Map", std::string{"Std.Tuple.Map"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Map' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Any") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Any", std::string{"Std.Tuple.Any"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Any' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Tuple.Reduce") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Reduce", std::string{"Std.Tuple.Reduce"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Reduce' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Split") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("a,b,c")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Split", std::string{"Std.String.Split"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Split' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Join") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box(","), make_string_constant_box("abc"), make_string_constant_box("def")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Join", std::string{"Std.String.Join"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Join' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.String.Replace") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("a,b,c"), make_string_constant_box(",")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Replace", std::string{"Std.String.Replace"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Replace' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Regex.IsMatch") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abc")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "IsMatch", std::string{"Std.String.Regex.IsMatch"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Regex.IsMatch' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.String.Regex.Replace") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("abc-123"), make_string_constant_box("[0-9]+")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "Replace", std::string{"Std.String.Regex.Replace"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Regex.Replace' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Task.Spawn") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Task"}, "Spawn", std::string{"Std.Task.Spawn"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Task.Spawn' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Parallel.Reduce") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Parallel"}, "Reduce", std::string{"Std.Parallel.Reduce"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Parallel.Reduce' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Select") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_bool_constant_box(true), make_int_constant_box(10)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Select", std::string{"Std.Select"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Select' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for nullary Std.GetArgs") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("ignored")}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "GetArgs", std::string{"Std.GetArgs"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.GetArgs' expects 0 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.ElementAt") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "ElementAt", std::string{"Std.ElementAt"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.ElementAt' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Take") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Take", std::string{"Std.Take"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Take' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Drop") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Drop", std::string{"Std.Drop"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Drop' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Try") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Try", std::string{"Std.Try"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Try' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Apply") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Apply", std::string{"Std.Apply"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Apply' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Branch") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_bool_constant_box(true), make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Branch", std::string{"Std.Branch"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Branch' expects 4 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Loop") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(0), make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Loop", std::string{"Std.Loop"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Loop' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for quaternary Std.LoopN") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(0), make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "LoopN", std::string{"Std.LoopN"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.LoopN' expects 4 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.GetAt") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAt", std::string{"Std.Array.GetAt"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.GetAt' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.SetAt") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt", std::string{"Std.Array.SetAt"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.SetAt' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.InsertAt") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "InsertAt", std::string{"Std.Array.InsertAt"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.InsertAt' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.RemoveAt") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "RemoveAt", std::string{"Std.Array.RemoveAt"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.RemoveAt' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.Slice") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Slice", std::string{"Std.Array.Slice"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Slice' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.Concat") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Concat", std::string{"Std.Array.Concat"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Concat' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Array.SetAt2D") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt2D", std::string{"Std.Array.SetAt2D"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.SetAt2D' expects 4 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Array.Fill") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Fill", std::string{"Std.Array.Fill"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Fill' expects 4 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for quinary Std.Array.Slice2D") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3),
+                              make_int_constant_box(4)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Slice2D", std::string{"Std.Array.Slice2D"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Slice2D' expects 5 arguments but got 4.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.Reshape") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Reshape", std::string{"Std.Array.Reshape"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Reshape' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.GetAtND") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAtND", std::string{"Std.Array.GetAtND"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.GetAtND' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.SetAtND") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAtND", std::string{"Std.Array.SetAtND"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.SetAtND' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.ReshapeND") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "ReshapeND", std::string{"Std.Array.ReshapeND"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Array.ReshapeND' expects 2 arguments but got 3.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Math.Clamp") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(9), make_int_constant_box(0)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Math"}, "Clamp", std::string{"Std.Math.Clamp"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Math.Clamp' expects 3 arguments but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for nullary Std.Exit overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Exit", std::string{"Std.Exit#0"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Exit#0' expects 0 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for unary Std.Exit overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Exit", std::string{"Std.Exit#1"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Exit#1' expects 1 argument but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for nullary Std.Dict.Create overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("seed")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Create", std::string{"Std.Dict.Create#0"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create#0' expects 0 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for unary Std.Dict.Create overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Create", std::string{"Std.Dict.Create#1"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create#1' expects 1 argument but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for nullary Std.Input overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("name> ")}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Input", std::string{"Std.Input#0"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Input#0' expects 0 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for prompt Std.Input overload") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("name> "), make_string_constant_box("extra")}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Input", std::string{"Std.Input#1"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Input#1' expects 1 argument but got 2.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for variadic Std.Printf") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Printf", std::string{"Std.Printf"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Printf' expects 1+ arguments but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for variadic Std.Path.Join") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("tmp")}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Path.Join", std::string{"Std.Path.Join"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Path.Join' expects 2+ arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for variadic Std.String.Format") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Format", std::string{"Std.String.Format"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Format' expects 1+ arguments but got 0.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.Tuple.Range") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_int_constant_box(0), make_int_constant_box(1), make_int_constant_box(2),
+                              make_int_constant_box(3)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Tuple.Range", std::string{"Std.Tuple.Range"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Range' expects 1, 2 or 3 arguments but got 4.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.String.Slice") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abcdef")}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Slice", std::string{"Std.String.Slice"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Slice' expects 2 or 3 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.String.Find") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abcabc"),
+                                                                              make_string_constant_box("bc"),
+                                                                              make_int_constant_box(2),
+                                                                              make_int_constant_box(4)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Find", std::string{"Std.String.Find"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Find' expects 2 or 3 arguments but got 4.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +1750,8 @@ TEST_CASE("Bytecode compiler rejects explicit Std.Ref and Std.Deref without cata
     const auto result = compiler.compile(ir_program, make_compile_options(gate_on, false));
     INFO("enable_value_ref_gate = " << gate_on);
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Unknown builtin in bytecode compiler: 'Std.Ref'.");
+    REQUIRE((result.error().message == "Unknown builtin in bytecode compiler: 'Std.Ref'." ||
+             result.error().message == "Unknown builtin in bytecode compiler: 'Std.Deref'."));
   }
 }
 
@@ -1032,7 +2352,7 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
   SECTION("Task.WithTimeout non-timeout path") {
     require_copy_vs_auto_byref_equivalent(
         "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
-        "(Inc, 7) -> Std.Task.Spawn -> (_, 500) -> Std.Task.WithTimeout -> Std.Result.Unwrap -> Std.Println;\n",
+        "(Inc, 7) -> Std.Task.Spawn -> (_, 500u64) -> Std.Task.WithTimeout -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_task_with_timeout.fleaux");
   }
 }
@@ -1303,7 +2623,7 @@ TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to eq
       "1 -> Std.Result.Ok -> Std.Result.Tag -> Std.Not;\n"
       "1 -> Std.Result.Ok -> Std.Result.Tag;\n"
       "((1, 2), (3, 4)) -> Std.Array.Shape -> Std.Length;\n"
-      "(\"abc\", \"b\", 0) -> Std.String.Find -> (_, -1) -> Std.NotEqual;\n"
+      "(\"abc\", \"b\", 0u64) -> Std.String.Find -> (_, -1) -> Std.NotEqual;\n"
       "(\"abc\", \"b\") -> Std.String.Regex.Find -> (_, -1) -> Std.NotEqual;\n",
       "builtin_reductions.fleaux");
 
@@ -1579,7 +2899,7 @@ TEST_CASE("Bytecode compiler emits kLoopNCall for Std.LoopN", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
 let Continue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
 let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
-(10.0, Continue, Step, 100) -> Std.LoopN -> Std.Println;
+(10.0, Continue, Step, 100u64) -> Std.LoopN -> Std.Println;
 )",
                                              "bytecode_native_loopn.fleaux");
 

@@ -1,10 +1,10 @@
 import Std;
 
 let Mid(lo: Int64, hi: Int64): Int64 =
-    ((lo, hi) -> Std.Add, 1) -> Std.Bit.ShiftRight;
+    ((lo, hi) -> Std.Add, 1u64) -> Std.Bit.ShiftRight;
 
 let MidValue<T>(arr: Tuple(T...), lo: Int64, hi: Int64): T =
-    (arr, (lo, hi) -> Mid) -> Std.ElementAt;
+    (arr, (lo, hi) -> Mid -> Std.ToUInt64) -> Std.ElementAt;
 
 let BinarySearchNext<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
     (((arr, lo, hi) -> MidValue, less_than_target) -> Std.Apply,

@@ -37,13 +37,9 @@ namespace fleaux::runtime {
 }
 
 [[nodiscard]] inline auto MathClamp(Value arg) -> Value {
-  const auto& args = as_array(arg);
-  if (args.Size() != 3) {
-    throw std::invalid_argument{"MathClamp expects 3 arguments"};
-  }
-  const double value_to_clamp = to_double(*args.TryGet(0));
-  const double lower_bound = to_double(*args.TryGet(1));
-  const double upper_bound = to_double(*args.TryGet(2));
+  const double value_to_clamp = to_double(array_at(arg, 0));
+  const double lower_bound = to_double(array_at(arg, 1));
+  const double upper_bound = to_double(array_at(arg, 2));
   return num_result(std::clamp(value_to_clamp, lower_bound, upper_bound));
 }
 }  // namespace fleaux::runtime

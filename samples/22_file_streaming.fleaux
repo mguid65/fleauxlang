@@ -39,7 +39,7 @@ let ReadFirstLine(path: String): Any =
 
 //  3. Read in fixed-size chunks with ReadChunk + Loop
 let ReadFirstChunk(path: String): Any =
-    (path, "r") -> Std.File.Open -> (_, 4) -> Std.File.ReadChunk -> Std.Println;
+    (path, "r") -> Std.File.Open -> (_, 4u64) -> Std.File.ReadChunk -> Std.Println;
 
 () -> TmpPath -> ReadFirstChunk;                       // (handle, alph, False)
 

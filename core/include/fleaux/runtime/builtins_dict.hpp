@@ -78,37 +78,26 @@ namespace fleaux::runtime {
 
 // arg = () -> {}
 [[nodiscard]] inline auto DictCreate_Void(Value arg) -> Value {
-  if (const auto& arr = arg.TryGetArray(); !arr || arr->Size() != 0) {
-    throw std::invalid_argument{"DictCreate_Void expects 0 arguments"};
-  }
+  (void)arg;
   return Value{Object{}};
 }
 
 // arg = (dict,) or dict -> clone(dict)
 [[nodiscard]] inline auto DictCreate_Dict(Value arg) -> Value {
-  if (const auto& arr = arg.TryGetArray()) {
-    if (arr->Size() != 1) {
-      throw std::invalid_argument{"DictCreate_Dict expects 1 argument"};
-    }
-    return Value{as_object(*arr->TryGet(0))};
-  }
-
-  return Value{as_object(arg)};
+  return Value{as_object(unwrap_singleton_arg(std::move(arg)))};
 }
 
 // arg = (dict, key, value) -> new_dict
 [[nodiscard]] inline auto DictSet(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "DictSet");
-  Object out = as_object(*args.TryGet(0));
-  out[dict_key_from_value(*args.TryGet(1))] = *args.TryGet(2);
+  Object out = as_object(array_at(arg, 0));
+  out[dict_key_from_value(array_at(arg, 1))] = array_at(arg, 2);
   return Value{std::move(out)};
 }
 
 // arg = (dict, key) -> value
 [[nodiscard]] inline auto DictGet(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "DictGet");
-  const auto& obj = as_object(*args.TryGet(0));
-  const auto key = dict_key_from_value(*args.TryGet(1));
+  const auto& obj = as_object(array_at(arg, 0));
+  const auto key = dict_key_from_value(array_at(arg, 1));
   const auto got = obj.TryGet(key);
   if (!got) {
     throw std::runtime_error{"DictGet: key not found"};
@@ -118,28 +107,25 @@ namespace fleaux::runtime {
 
 // arg = (dict, key, default) -> value_or_default
 [[nodiscard]] inline auto DictGetDefault(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "DictGetDefault");
-  const auto& obj = as_object(*args.TryGet(0));
-  const auto key = dict_key_from_value(*args.TryGet(1));
+  const auto& obj = as_object(array_at(arg, 0));
+  const auto key = dict_key_from_value(array_at(arg, 1));
   const auto got = obj.TryGet(key);
   if (!got) {
-    return *args.TryGet(2);
+    return array_at(arg, 2);
   }
   return *got;
 }
 
 // arg = (dict, key) -> bool
 [[nodiscard]] inline auto DictContains(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "DictContains");
-  const auto& obj = as_object(*args.TryGet(0));
-  return make_bool(obj.Contains(dict_key_from_value(*args.TryGet(1))));
+  const auto& obj = as_object(array_at(arg, 0));
+  return make_bool(obj.Contains(dict_key_from_value(array_at(arg, 1))));
 }
 
 // arg = (dict, key) -> new_dict
 [[nodiscard]] inline auto DictDelete(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "DictDelete");
-  Object out = as_object(*args.TryGet(0));
-  out.Erase(dict_key_from_value(*args.TryGet(1)));
+  Object out = as_object(array_at(arg, 0));
+  out.Erase(dict_key_from_value(array_at(arg, 1)));
   return Value{std::move(out)};
 }
 
@@ -194,8 +180,7 @@ namespace fleaux::runtime {
 // arg = (dict_base, dict_overlay) -> new_dict
 // Keys in dict_overlay overwrite those in dict_base.
 [[nodiscard]] inline auto DictMerge(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "DictMerge");
-  return merge_dict_values(*args.TryGet(0), *args.TryGet(1));
+  return merge_dict_values(array_at(arg, 0), array_at(arg, 1));
 }
 
 // arg = (dict) or dict -> Int64 (count of entries)

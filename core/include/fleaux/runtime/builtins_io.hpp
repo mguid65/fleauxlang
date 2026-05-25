@@ -189,19 +189,19 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }  // namespace detail
 
 [[nodiscard]] inline auto Cwd(Value arg) -> Value {
-  (void)require_args(arg, 0, "Cwd");
+  (void)arg;
   return make_string(detail::current_working_directory_path().string());
 }
 
 [[nodiscard]] inline auto PathJoin(Value arg) -> Value {
-  // arg = [seg0, seg1, ...]  — at least 2 segments required.
+  // arg = [seg0, seg1, ...] with at least 2 validated segments.
   const auto& args = as_array(arg);
-  if (args.Size() < 2) {
-    throw std::invalid_argument{"PathJoin expects at least 2 arguments"};
+  if (args.Size() < 2U) {
+    throw std::logic_error{"internal error: PathJoin called with unexpected validated arity"};
   }
-  std::filesystem::path result = to_string(*args.TryGet(0));
+  std::filesystem::path result = to_string(array_at(arg, 0));
   for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
-    result /= to_string(*args.TryGet(segment_index));
+    result /= to_string(array_at(arg, segment_index));
   }
   return make_string(result.string());
 }
@@ -253,9 +253,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto PathWithExtension(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "PathWithExtension");
-  std::filesystem::path path = to_string(*args.TryGet(0));
-  std::string extension = to_string(*args.TryGet(1));
+  std::filesystem::path path = to_string(array_at(arg, 0));
+  std::string extension = to_string(array_at(arg, 1));
   if (!extension.empty() && extension[0] != '.') {
     extension.insert(extension.begin(), '.');
   }
@@ -264,9 +263,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto PathWithBasename(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "PathWithBasename");
-  std::filesystem::path path = to_string(*args.TryGet(0));
-  path.replace_filename(to_string(*args.TryGet(1)));
+  std::filesystem::path path = to_string(array_at(arg, 0));
+  path.replace_filename(to_string(array_at(arg, 1)));
   return make_string(path.string());
 }
 
@@ -283,25 +281,23 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 
 [[nodiscard]] inline auto FileWriteText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto& args = require_args(arg, 2, "FileWriteText");
-  const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
+  const auto path = detail::resolve_runtime_path(to_string(array_at(arg, 0)));
   std::ofstream out(path, std::ios::trunc);
   if (!out) {
     throw std::runtime_error{"FileWriteText failed"};
   }
-  out << to_string(*args.TryGet(1));
+  out << to_string(array_at(arg, 1));
   return make_string(path.string());
 }
 
 [[nodiscard]] inline auto FileAppendText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto& args = require_args(arg, 2, "FileAppendText");
-  const auto path = detail::resolve_runtime_path(to_string(*args.TryGet(0)));
+  const auto path = detail::resolve_runtime_path(to_string(array_at(arg, 0)));
   std::ofstream out(path, std::ios::app);
   if (!out) {
     throw std::runtime_error{"FileAppendText failed"};
   }
-  out << to_string(*args.TryGet(1));
+  out << to_string(array_at(arg, 1));
   return make_string(path.string());
 }
 
@@ -414,9 +410,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSSetEnv(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "OSSetEnv");
-  const std::string key = to_string(*args.TryGet(0));
-  const std::string value = to_string(*args.TryGet(1));
+  const std::string key = to_string(array_at(arg, 0));
+  const std::string value = to_string(array_at(arg, 1));
 #if defined(__EMSCRIPTEN__)
   detail::set_web_env_value(key, value);
   return make_string(value);
@@ -454,7 +449,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSIsWindows(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSIsWindows");
+  (void)arg;
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(_WIN32)
@@ -465,7 +460,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSIsLinux(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSIsLinux");
+  (void)arg;
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(__linux__)
@@ -476,7 +471,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSIsMacOS(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSIsMacOS");
+  (void)arg;
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(__APPLE__)
@@ -487,7 +482,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSHome(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSHome");
+  (void)arg;
 #if defined(__EMSCRIPTEN__)
   return make_string(detail::web_home_directory_path().string());
 #else
@@ -513,7 +508,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSTempDir(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSTempDir");
+  (void)arg;
 #if defined(__EMSCRIPTEN__)
   return make_string(detail::web_temp_directory_path().string());
 #else
@@ -522,7 +517,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSMakeTempFile(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSMakeTempFile");
+  (void)arg;
   std::error_code ec;
 #if defined(__EMSCRIPTEN__)
   const auto dir = detail::web_temp_directory_path();
@@ -544,7 +539,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSMakeTempDir(Value arg) -> Value {
-  (void)require_args(arg, 0, "OSMakeTempDir");
+  (void)arg;
   std::error_code ec;
 #if defined(__EMSCRIPTEN__)
   const auto dir = detail::web_temp_directory_path();
@@ -650,27 +645,25 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 
 [[nodiscard]] inline auto FileReadChunk(Value arg) -> Value {
   // arg = (handle_token, nbytes)  ->  (handle_token, chunk_string, eof_bool)
-  const auto& args = require_args(arg, 2, "FileReadChunk");
-  auto& handle_entry = require_handle(*args.TryGet(0), "FileReadChunk");
-  const std::size_t nbytes = as_index_strict(*args.TryGet(1), "FileReadChunk nbytes");
+  auto& handle_entry = require_handle(array_at(arg, 0), "FileReadChunk");
+  const std::size_t nbytes = as_index_strict(array_at(arg, 1), "FileReadChunk nbytes");
   std::string buf(nbytes, '\0');
   handle_entry.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
   const std::streamsize bytes_read = handle_entry.stream.gcount();
   buf.resize(static_cast<std::size_t>(bytes_read));
   const bool eof = (bytes_read == 0 || handle_entry.stream.eof());
-  auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
+  auto [slot, gen] = handle_id_from_value(array_at(arg, 0)).value();
   return make_tuple(make_handle_token(slot, gen), make_string(std::move(buf)), make_bool(eof));
 }
 
 [[nodiscard]] inline auto FileWriteChunk(Value arg) -> Value {
   // arg = (handle_token, data_string)  ->  handle_token
-  const auto& args = require_args(arg, 2, "FileWriteChunk");
-  auto& handle_entry = require_handle(*args.TryGet(0), "FileWriteChunk");
-  const std::string& data = as_string(*args.TryGet(1));
+  auto& handle_entry = require_handle(array_at(arg, 0), "FileWriteChunk");
+  const std::string& data = as_string(array_at(arg, 1));
   handle_entry.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
   if (!handle_entry.stream)
     throw std::runtime_error{"FileWriteChunk: write failed"};
-  auto [slot, gen] = handle_id_from_value(*args.TryGet(0)).value();
+  auto [slot, gen] = handle_id_from_value(array_at(arg, 0)).value();
   return make_handle_token(slot, gen);
 }
 
@@ -702,10 +695,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   // arg = (path, mode, func_ref)  ->  result of func_ref(handle_token)
   // Guarantees close even if func throws.
   detail::ensure_runtime_filesystem_ready();
-  const auto& args = require_args(arg, 3, "FileWithOpen");
-  const std::string path = detail::resolve_runtime_path(as_string(*args.TryGet(0))).string();
-  const std::string mode = as_string(*args.TryGet(1));
-  const Value& fn = *args.TryGet(2);
+  const std::string path = detail::resolve_runtime_path(as_string(array_at(arg, 0))).string();
+  const std::string mode = as_string(array_at(arg, 1));
+  const Value& fn = array_at(arg, 2);
   const UInt slot = handle_registry().open(path, mode);
   const UInt gen = handle_registry().entries[slot].generation;
   const Value token = make_handle_token(slot, gen);

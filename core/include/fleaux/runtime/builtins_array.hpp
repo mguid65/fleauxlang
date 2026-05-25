@@ -104,9 +104,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [array, index]
 [[nodiscard]] inline auto ArrayGetAt(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "ArrayGetAt");
-  const auto& arr = as_array(*args.TryGet(0));
-  const std::size_t idx = checked_index(*args.TryGet(1), "ArrayGetAt index");
+  const auto& arr = as_array(array_at(arg, 0));
+  const std::size_t idx = checked_index(array_at(arg, 1), "ArrayGetAt index");
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArrayGetAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -115,10 +114,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [array, index, value]
 [[nodiscard]] inline auto ArraySetAt(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "ArraySetAt");
-  const auto& arr = as_array(*args.TryGet(0));
-  const std::size_t idx = checked_index(*args.TryGet(1), "ArraySetAt index");
-  const Value& replacement = *args.TryGet(2);
+  const auto& arr = as_array(array_at(arg, 0));
+  const std::size_t idx = checked_index(array_at(arg, 1), "ArraySetAt index");
+  const Value& replacement = array_at(arg, 2);
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArraySetAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -133,10 +131,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [array, index, value]
 [[nodiscard]] inline auto ArrayInsertAt(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "ArrayInsertAt");
-  const auto& arr = as_array(*args.TryGet(0));
-  const std::size_t idx = checked_index(*args.TryGet(1), "ArrayInsertAt index");
-  const Value& value = *args.TryGet(2);
+  const auto& arr = as_array(array_at(arg, 0));
+  const std::size_t idx = checked_index(array_at(arg, 1), "ArrayInsertAt index");
+  const Value& value = array_at(arg, 2);
   if (idx > arr.Size()) {
     throw std::out_of_range(std::format("ArrayInsertAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -151,9 +148,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [array, index]
 [[nodiscard]] inline auto ArrayRemoveAt(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "ArrayRemoveAt");
-  const auto& arr = as_array(*args.TryGet(0));
-  const std::size_t idx = checked_index(*args.TryGet(1), "ArrayRemoveAt index");
+  const auto& arr = as_array(array_at(arg, 0));
+  const std::size_t idx = checked_index(array_at(arg, 1), "ArrayRemoveAt index");
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArrayRemoveAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -170,10 +166,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [array, start, stop], stop exclusive
 [[nodiscard]] inline auto ArraySlice(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "ArraySlice");
-  const auto& arr = as_array(*args.TryGet(0));
-  const std::size_t start = checked_index(*args.TryGet(1), "ArraySlice start");
-  const std::size_t stop = checked_index(*args.TryGet(2), "ArraySlice stop");
+  const auto& arr = as_array(array_at(arg, 0));
+  const std::size_t start = checked_index(array_at(arg, 1), "ArraySlice start");
+  const std::size_t stop = checked_index(array_at(arg, 2), "ArraySlice stop");
   if (start > stop) {
     throw std::invalid_argument(std::format("ArraySlice: start {} > stop {}", start, stop));
   }
@@ -189,9 +184,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [lhs, rhs]
 [[nodiscard]] inline auto ArrayConcat(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "ArrayConcat");
-  const auto& lhs = as_array(*args.TryGet(0));
-  const auto& rhs = as_array(*args.TryGet(1));
+  const auto& lhs = as_array(array_at(arg, 0));
+  const auto& rhs = as_array(array_at(arg, 1));
 
   Array out;
   out.Reserve(lhs.Size() + rhs.Size());
@@ -204,11 +198,10 @@ inline void flatten_into(const Value& value, Array& out) {
 // grid is a tuple of tuples (rows x cols)
 // Returns a new grid with element at (row, col) replaced.
 [[nodiscard]] inline auto ArraySetAt2D(Value arg) -> Value {
-  const auto& args = require_args(arg, 4, "ArraySetAt2D");
-  const auto& grid = as_array(*args.TryGet(0));
-  const std::size_t row_idx = checked_index(*args.TryGet(1), "ArraySetAt2D row");
-  const std::size_t col_idx = checked_index(*args.TryGet(2), "ArraySetAt2D col");
-  const Value& new_val = *args.TryGet(3);
+  const auto& grid = as_array(array_at(arg, 0));
+  const std::size_t row_idx = checked_index(array_at(arg, 1), "ArraySetAt2D row");
+  const std::size_t col_idx = checked_index(array_at(arg, 2), "ArraySetAt2D col");
+  const Value& new_val = array_at(arg, 3);
 
   if (row_idx >= grid.Size()) {
     throw std::out_of_range(std::format("ArraySetAt2D: row {} out of range for {} rows", row_idx, grid.Size()));
@@ -245,11 +238,10 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [tuple, start_index, length, value]
 // Returns a new tuple with elements [start_index, start_index+length) set to value.
 [[nodiscard]] inline auto ArrayFill(Value arg) -> Value {
-  const auto& args = require_args(arg, 4, "ArrayFill");
-  const auto& src = as_array(*args.TryGet(0));
-  const std::size_t start_idx = checked_index(*args.TryGet(1), "ArrayFill start_index");
-  const std::size_t fill_len = checked_index(*args.TryGet(2), "ArrayFill length");
-  const Value& fill_val = *args.TryGet(3);
+  const auto& src = as_array(array_at(arg, 0));
+  const std::size_t start_idx = checked_index(array_at(arg, 1), "ArrayFill start_index");
+  const std::size_t fill_len = checked_index(array_at(arg, 2), "ArrayFill length");
+  const Value& fill_val = array_at(arg, 3);
 
   if (start_idx > src.Size()) {
     throw std::out_of_range(std::format("ArrayFill: start_index {} exceeds tuple size {}", start_idx, src.Size()));
@@ -305,12 +297,11 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [grid, row_start, row_end, col_start, col_end]
 // Returns a new grid containing elements in [row_start, row_end) x [col_start, col_end).
 [[nodiscard]] inline auto ArraySlice2D(Value arg) -> Value {
-  const auto& args = require_args(arg, 5, "ArraySlice2D");
-  const auto& grid = as_array(*args.TryGet(0));
-  const std::size_t row_start = checked_index(*args.TryGet(1), "ArraySlice2D row_start");
-  const std::size_t row_end = checked_index(*args.TryGet(2), "ArraySlice2D row_end");
-  const std::size_t col_start = checked_index(*args.TryGet(3), "ArraySlice2D col_start");
-  const std::size_t col_end = checked_index(*args.TryGet(4), "ArraySlice2D col_end");
+  const auto& grid = as_array(array_at(arg, 0));
+  const std::size_t row_start = checked_index(array_at(arg, 1), "ArraySlice2D row_start");
+  const std::size_t row_end = checked_index(array_at(arg, 2), "ArraySlice2D row_end");
+  const std::size_t col_start = checked_index(array_at(arg, 3), "ArraySlice2D col_start");
+  const std::size_t col_end = checked_index(array_at(arg, 4), "ArraySlice2D col_end");
 
   if (row_start > row_end) {
     throw std::invalid_argument(std::format("ArraySlice2D: row_start {} > row_end {}", row_start, row_end));
@@ -345,10 +336,9 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [flat_array, rows, cols]
 // Reshapes a flattened array into a grid of rows x cols in row-major order.
 [[nodiscard]] inline auto ArrayReshape(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "ArrayReshape");
-  const auto& flat = as_array(*args.TryGet(0));
-  const std::size_t num_rows = checked_index(*args.TryGet(1), "ArrayReshape rows");
-  const std::size_t num_cols = checked_index(*args.TryGet(2), "ArrayReshape cols");
+  const auto& flat = as_array(array_at(arg, 0));
+  const std::size_t num_rows = checked_index(array_at(arg, 1), "ArrayReshape rows");
+  const std::size_t num_cols = checked_index(array_at(arg, 2), "ArrayReshape cols");
 
   if (num_cols != 0 && num_rows > (std::numeric_limits<std::size_t>::max() / num_cols)) {
     throw std::invalid_argument("ArrayReshape: rows * cols overflows size_t");
@@ -392,7 +382,7 @@ inline void flatten_into(const Value& value, Array& out) {
   Array out;
   out.Reserve(shape->size());
   for (const std::size_t dim : *shape) {
-    out.PushBack(make_int(static_cast<Int>(dim)));
+    out.PushBack(make_uint(static_cast<UInt>(dim)));
   }
   return Value{std::move(out)};
 }
@@ -406,9 +396,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [value, indices]
 [[nodiscard]] inline auto ArrayGetAtND(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "ArrayGetAtND");
-  const Value* current = &*args.TryGet(0);
-  const auto& indices = as_array(*args.TryGet(1));
+  const Value* current = &array_at(arg, 0);
+  const auto& indices = as_array(array_at(arg, 1));
 
   for (std::size_t depth = 0; depth < indices.Size(); ++depth) {
     const auto& arr = as_array(*current);
@@ -424,10 +413,9 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [value, indices, replacement]
 [[nodiscard]] inline auto ArraySetAtND(Value arg) -> Value {
-  const auto& args = require_args(arg, 3, "ArraySetAtND");
-  const Value& value = *args.TryGet(0);
-  const auto& indices = as_array(*args.TryGet(1));
-  const Value& replacement = *args.TryGet(2);
+  const Value& value = array_at(arg, 0);
+  const auto& indices = as_array(array_at(arg, 1));
+  const Value& replacement = array_at(arg, 2);
 
   std::vector<std::size_t> path;
   path.reserve(indices.Size());
@@ -439,9 +427,8 @@ inline void flatten_into(const Value& value, Array& out) {
 
 // arg = [flat_array, shape]
 [[nodiscard]] inline auto ArrayReshapeND(Value arg) -> Value {
-  const auto& args = require_args(arg, 2, "ArrayReshapeND");
-  const auto& flat = as_array(*args.TryGet(0));
-  const auto& shape_tuple = as_array(*args.TryGet(1));
+  const auto& flat = as_array(array_at(arg, 0));
+  const auto& shape_tuple = as_array(array_at(arg, 1));
 
   std::vector<std::size_t> dims;
   dims.reserve(shape_tuple.Size());

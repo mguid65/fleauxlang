@@ -226,7 +226,7 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
 }
 
 auto is_builtin_opaque_nominal_type_name(const std::string& name) -> bool {
-  return name == "TaskHandle" || name == "FileHandle";
+  return name == "TaskHandle" || name == "FileHandle" || name == "RandomGenerator";
 }
 
 auto is_integer_like(const Type& type) -> bool {
