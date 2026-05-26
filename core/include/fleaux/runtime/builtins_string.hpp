@@ -291,23 +291,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   return make_string(str.substr(idx, 1));
 }
 
-// arg = [str, stop] | [str, start, stop]
-[[nodiscard]] inline auto StringSlice(Value arg) -> Value {
-  const auto& args = as_array(arg);
-  const std::string str = to_string(array_at(arg, 0));
-  std::size_t start = 0;
-  std::size_t stop = 0;
-  switch (args.Size()) {
-    case 2:
-      stop = as_index_strict(array_at(arg, 1), "StringSlice stop");
-      break;
-    case 3:
-      start = as_index_strict(array_at(arg, 1), "StringSlice start");
-      stop = as_index_strict(array_at(arg, 2), "StringSlice stop");
-      break;
-    default:
-      throw std::logic_error{"internal error: StringSlice called with unexpected validated arity"};
-  }
+[[nodiscard]] inline auto string_slice_impl(const std::string& str, std::size_t start, std::size_t stop) -> Value {
   if (start > str.size())
     start = str.size();
   if (stop > str.size())
@@ -317,21 +301,20 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
   return make_string(str.substr(start, stop - start));
 }
 
-// arg = [str, needle] | [str, needle, start]
-[[nodiscard]] inline auto StringFind(Value arg) -> Value {
-  const auto& args = as_array(arg);
+[[nodiscard]] inline auto StringSliceStringUInt64(Value arg) -> Value {
   const std::string str = to_string(array_at(arg, 0));
-  const std::string needle = to_string(array_at(arg, 1));
-  std::size_t start = 0;
-  switch (args.Size()) {
-    case 2:
-      break;
-    case 3:
-      start = as_index_strict(array_at(arg, 2), "StringFind start");
-      break;
-    default:
-      throw std::logic_error{"internal error: StringFind called with unexpected validated arity"};
-  }
+  const std::size_t stop = as_index_strict(array_at(arg, 1), "StringSlice stop");
+  return string_slice_impl(str, 0, stop);
+}
+
+[[nodiscard]] inline auto StringSliceStringUInt64UInt64(Value arg) -> Value {
+  const std::string str = to_string(array_at(arg, 0));
+  const std::size_t start = as_index_strict(array_at(arg, 1), "StringSlice start");
+  const std::size_t stop = as_index_strict(array_at(arg, 2), "StringSlice stop");
+  return string_slice_impl(str, start, stop);
+}
+
+[[nodiscard]] inline auto string_find_impl(const std::string& str, const std::string& needle, const std::size_t start) -> Value {
   if (start > str.size()) {
     return make_int(-1);
   }
@@ -340,6 +323,15 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     return make_int(-1);
   }
   return make_int(static_cast<Int>(pos));
+}
+
+[[nodiscard]] inline auto StringFindStringString(Value arg) -> Value {
+  return string_find_impl(to_string(array_at(arg, 0)), to_string(array_at(arg, 1)), 0);
+}
+
+[[nodiscard]] inline auto StringFindStringStringUInt64(Value arg) -> Value {
+  return string_find_impl(to_string(array_at(arg, 0)), to_string(array_at(arg, 1)),
+                          as_index_strict(array_at(arg, 2), "StringFind start"));
 }
 
 // arg = [format, arg0, arg1, ...]

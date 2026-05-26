@@ -296,59 +296,72 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Exit#1") == fleaux::vm::BuiltinId::ExitInt64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#0") == fleaux::vm::BuiltinId::InputVoid);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#1") == fleaux::vm::BuiltinId::InputString);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#0") == fleaux::vm::BuiltinId::TupleRange);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRange);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") == fleaux::vm::BuiltinId::TupleRange);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#0") == fleaux::vm::BuiltinId::TupleRangeInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRangeInt64Int64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") == fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#0") == fleaux::vm::BuiltinId::SliceTupleUInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#1") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#2") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#0") == fleaux::vm::BuiltinId::StringSliceStringUInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#1") == fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#0") == fleaux::vm::BuiltinId::StringFindStringString);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#1") == fleaux::vm::BuiltinId::StringFindStringStringUInt64);
 }
 
-TEST_CASE("VM builtin catalog exposes scalar and overloaded builtin arity contracts", "[bytecode][builtins][arity]") {
+TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded builtin arity contracts",
+          "[bytecode][builtins][arity]") {
+  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
+    INFO(spec.name);
+    REQUIRE(fleaux::vm::builtin_has_arity_contract(spec.id));
+  }
+
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::UnaryPlus));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Add));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Add, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Add, 1U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Subtract));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Subtract, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Subtract, 1U));
-
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 3U));
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitAnd));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitAnd, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitAnd, 3U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitNot));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 2U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitShiftLeft));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 1U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Not));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 2U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToUInt64));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 1U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 0U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cwd));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 0U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 1U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Printf));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 1U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 4U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 0U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSIsWindows));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringString));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 0U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 1U));
-
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSMakeTempFile));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 0U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringStringUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 1U));
 
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::PathJoin));
@@ -480,8 +493,13 @@ TEST_CASE("VM builtin catalog exposes scalar and overloaded builtin arity contra
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 2U));
 
-  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cast));
-  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToString));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cast));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cast, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cast, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToString));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToString, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToString, 0U));
 
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ExitVoid));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitVoid, 0U));
@@ -500,31 +518,112 @@ TEST_CASE("VM builtin catalog exposes scalar and overloaded builtin arity contra
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 0U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRange));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 1U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 2U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 0U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRange, 4U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSlice));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 2U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSlice, 4U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFind));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 2U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFind, 4U));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 4U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringString));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringStringUInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
 
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFormat));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 1U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 0U));
 
-  REQUIRE_FALSE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Println));
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Help));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Help, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Help, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSEnv));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSEnv, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSEnv, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileOpen));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileOpen, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileOpen, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictKeys));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictKeys, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictKeys, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::RandomCreate));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::RandomCreate, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::RandomCreate, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::MathFloor));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::MathFloor, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::MathFloor, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Type));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ResultTag));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskAwait));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringParseInt64));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringParseInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringParseInt64, 0U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Match));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 5U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 1U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Unwrap));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 0U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 2U));
+
+  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Println));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Println, 0U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Println, 3U));
 }
 
 TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadata families", "[bytecode][builtins][arity]") {
@@ -543,6 +642,57 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Add' expects 2 arguments but got 1.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.Help") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Help", std::string{"Std.Help"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Help' expects 1 argument but got 0.");
+  }
+
+  SECTION("Tuple-valued unary call is accepted for Std.Type") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{.lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
+                                                       make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
+                                                           make_int_constant_box(1), make_int_constant_box(2),
+                                                           make_int_constant_box(3)}})}}),
+                                         .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE(result.has_value());
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.Match") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Match", std::string{"Std.Match"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Match' expects 2+ arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.Subtract") {
@@ -1409,8 +1559,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Exit#0' expects 0 arguments but got 1.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Exit overload") {
@@ -1427,8 +1576,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Exit#1' expects 1 argument but got 0.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 1 argument but got 0.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.Dict.Create overload") {
@@ -1446,7 +1594,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create#0' expects 0 arguments but got 1.");
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Dict.Create overload") {
@@ -1464,7 +1612,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create#1' expects 1 argument but got 0.");
+            "Builtin arity mismatch in bytecode compiler: 'Std.Dict.Create' expects 1 argument but got 0.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.Input overload") {
@@ -1481,8 +1629,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Input#0' expects 0 arguments but got 1.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for prompt Std.Input overload") {
@@ -1500,8 +1647,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Input#1' expects 1 argument but got 2.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 1 argument but got 2.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for variadic Std.Printf") {
@@ -1558,6 +1704,25 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
             "Builtin arity mismatch in bytecode compiler: 'Std.String.Format' expects 1+ arguments but got 0.");
   }
 
+  SECTION("Tuple literal with wrong arity is rejected for unary Std.Unwrap") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Unwrap", std::string{"Std.Unwrap"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Unwrap' expects 1 argument but got 2.");
+  }
+
   SECTION("Tuple literal with wrong arity is rejected for Std.Tuple.Range") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
@@ -1566,7 +1731,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(0), make_int_constant_box(1), make_int_constant_box(2),
                               make_int_constant_box(3)}}),
-                .rhs = make_ir_name_ref(std::string{"Std"}, "Tuple.Range", std::string{"Std.Tuple.Range"}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Tuple.Range", std::string{"Std.Tuple.Range#2"}),
             })},
     };
 
@@ -1574,8 +1739,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Range' expects 1, 2 or 3 arguments but got 4.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Range' expects 3 arguments but got 4.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.String.Slice") {
@@ -1584,7 +1748,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
         fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
             fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abcdef")}}),
-                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Slice", std::string{"Std.String.Slice"}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Slice", std::string{"Std.String.Slice#0"}),
             })},
     };
 
@@ -1592,8 +1756,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.String.Slice' expects 2 or 3 arguments but got 1.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.String.Slice' expects 2 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.String.Find") {
@@ -1605,7 +1768,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
                                                                               make_string_constant_box("bc"),
                                                                               make_int_constant_box(2),
                                                                               make_int_constant_box(4)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Find", std::string{"Std.String.Find"}),
+                .rhs = make_ir_name_ref(std::string{"Std.String"}, "Find", std::string{"Std.String.Find#1"}),
             })},
     };
 
@@ -1613,8 +1776,31 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.String.Find' expects 2 or 3 arguments but got 4.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.String.Find' expects 3 arguments but got 4.");
+  }
+
+  SECTION("Tuple literal with wrong arity is rejected for Std.Slice") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(10),
+                                                                                      make_int_constant_box(20),
+                                                                                      make_int_constant_box(30)}}),
+                              make_int_constant_box(0),
+                              make_int_constant_box(3),
+                              make_int_constant_box(1),
+                              make_int_constant_box(9)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Slice", std::string{"Std.Slice#2"}),
+            })},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Slice' expects 4 arguments but got 5.");
   }
 }
 
@@ -2959,8 +3145,11 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
       found_make_builtin_ref = true;
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
+      const auto builtin_shape = fleaux::vm::builtin_call_shape_from_operand(ins.operand);
+      REQUIRE(builtin_shape.has_value());
       const auto name = fleaux::vm::builtin_name(*builtin_id);
       REQUIRE(name == "Std.UnaryMinus");
+      REQUIRE(*builtin_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
     }
   }
   REQUIRE(found_make_builtin_ref);

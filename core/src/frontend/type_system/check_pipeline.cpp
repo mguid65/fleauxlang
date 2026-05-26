@@ -81,6 +81,8 @@ auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& o
     name_ref->resolved_symbol_key = checked->resolved_symbol_key;
   }
 
+  flow.call_shape = args.size() == 1U ? ir::IRFlowCallShape::kDirectValue : ir::IRFlowCallShape::kTupleExpanded;
+
   return checked->return_type;
 }
 

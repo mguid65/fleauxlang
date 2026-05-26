@@ -32,26 +32,12 @@ inline auto require_result_tuple(const Value& value, const char* op_name) -> con
   return result;
 }
 
-[[nodiscard]] inline auto try_get_pair_tuple(const Value& value) -> mguid::RefExpected<const Array, mguid::Error> {
-  if (const auto arr = value.TryGetArray(); arr.has_value()) {
-    if (arr->Size() == 2) {
-      return arr;
-    }
-    if (arr->Size() == 1) {
-      if (const auto nested = arr->TryGet(0)->TryGetArray(); nested.has_value() && nested->Size() == 2) {
-        return nested;
-      }
-    }
-  }
-
-  return mguid::make_unexpected(mguid::Error{.category = mguid::Error::Category::BadAccess});
-}
-
 inline auto require_pair_tuple(const Value& value, const char* op_name) -> const Array& {
-  if (const auto pair = try_get_pair_tuple(value); pair.has_value()) {
-    return pair.value();
+  const auto& pair = as_array(value);
+  if (pair.Size() != 2) {
+    throw std::invalid_argument{std::string(op_name) + ": expected a 2-tuple"};
   }
-  throw std::invalid_argument{std::string(op_name) + ": expected a 2-tuple"};
+  return pair;
 }
 
 inline auto normalize_runtime_error_message(std::string message) -> std::string {
@@ -93,8 +79,11 @@ private:
 [[nodiscard]] inline auto Wrap(Value value) -> Value { return make_tuple(std::move(value)); }
 
 [[nodiscard]] inline auto Unwrap(Value value) -> Value {
-  const auto& args = require_args(value, 1, "Unwrap");
-  return *args.TryGet(0);
+  const auto& args = as_array(value);
+  if (args.Size() != 1U) {
+    throw std::logic_error{"internal error: Unwrap called with unexpected validated arity"};
+  }
+  return array_at(value, 0);
 }
 
 [[nodiscard]] inline auto First(Value arg) -> Value {
@@ -137,33 +126,36 @@ private:
   return Value{std::move(out)};
 }
 
-[[nodiscard]] inline auto Slice(Value arg) -> Value {
-  const auto& arr = as_array(arg);
-  if (arr.Size() < 2 || arr.Size() > 4) {
-    throw std::invalid_argument{"Slice: expected 2, 3, or 4 arguments"};
-  }
-  const auto& seq = as_array(*arr.TryGet(0));
-
-  std::size_t real_start{0};
-  std::size_t real_stop{0};
-  std::size_t real_step{1};
-  if (arr.Size() == 2) {
-    real_stop = as_index_strict(*arr.TryGet(1), "Slice stop");
-  } else if (arr.Size() == 3) {
-    real_start = as_index_strict(*arr.TryGet(1), "Slice start");
-    real_stop = as_index_strict(*arr.TryGet(2), "Slice stop");
-  } else {
-    real_start = as_index_strict(*arr.TryGet(1), "Slice start");
-    real_stop = as_index_strict(*arr.TryGet(2), "Slice stop");
-    real_step = as_index_strict(*arr.TryGet(3), "Slice step");
-    if (real_step == 0)
-      throw std::invalid_argument{"Slice: step cannot be 0"};
-  }
-
+[[nodiscard]] inline auto slice_impl(const Array& seq, const std::size_t real_start, const std::size_t real_stop,
+                                     const std::size_t real_step) -> Value {
   Array out;
   const std::size_t end = std::min(real_stop, seq.Size());
   append_sequence_range(out, seq, real_start, end, real_step);
   return Value{std::move(out)};
+}
+
+[[nodiscard]] inline auto SliceTupleUInt64(Value arg) -> Value {
+  const auto& seq = as_array(array_at(arg, 0));
+  const std::size_t stop = as_index_strict(array_at(arg, 1), "Slice stop");
+  return slice_impl(seq, 0, stop, 1);
+}
+
+[[nodiscard]] inline auto SliceTupleUInt64UInt64(Value arg) -> Value {
+  const auto& seq = as_array(array_at(arg, 0));
+  const std::size_t start = as_index_strict(array_at(arg, 1), "Slice start");
+  const std::size_t stop = as_index_strict(array_at(arg, 2), "Slice stop");
+  return slice_impl(seq, start, stop, 1);
+}
+
+[[nodiscard]] inline auto SliceTupleUInt64UInt64UInt64(Value arg) -> Value {
+  const auto& seq = as_array(array_at(arg, 0));
+  const std::size_t start = as_index_strict(array_at(arg, 1), "Slice start");
+  const std::size_t stop = as_index_strict(array_at(arg, 2), "Slice stop");
+  const std::size_t step = as_index_strict(array_at(arg, 3), "Slice step");
+  if (step == 0) {
+    throw std::invalid_argument{"Slice: step cannot be 0"};
+  }
+  return slice_impl(seq, start, stop, step);
 }
 
 // Arithmetic
@@ -435,7 +427,6 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto Type(Value arg) -> Value {
-  // arg = [value] | value -> String runtime type name
   return make_string(type_name(unwrap_singleton_arg(std::move(arg))));
 }
 
@@ -537,32 +528,27 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto ResultTag(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.Tag");
+  const auto& tuple = require_result_tuple(arg, "Result.Tag");
   return *tuple.TryGet(0);
 }
 
 [[nodiscard]] inline auto ResultPayload(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.Payload");
+  const auto& tuple = require_result_tuple(arg, "Result.Payload");
   return *tuple.TryGet(1);
 }
 
 [[nodiscard]] inline auto ResultIsOk(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.IsOk");
+  const auto& tuple = require_result_tuple(arg, "Result.IsOk");
   return *tuple.TryGet(0);
 }
 
 [[nodiscard]] inline auto ResultIsErr(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.IsErr");
+  const auto& tuple = require_result_tuple(arg, "Result.IsErr");
   return make_bool(!as_bool(*tuple.TryGet(0)));
 }
 
 [[nodiscard]] inline auto ResultUnwrap(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.Unwrap");
+  const auto& tuple = require_result_tuple(arg, "Result.Unwrap");
   if (!as_bool(*tuple.TryGet(0))) {
     throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"};
   }
@@ -570,8 +556,7 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
 }
 
 [[nodiscard]] inline auto ResultUnwrapErr(Value arg) -> Value {
-  const Value result = unwrap_singleton_arg(std::move(arg));
-  const auto& tuple = require_result_tuple(result, "Result.UnwrapErr");
+  const auto& tuple = require_result_tuple(arg, "Result.UnwrapErr");
   if (as_bool(*tuple.TryGet(0))) {
     throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"};
   }

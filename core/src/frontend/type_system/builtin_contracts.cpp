@@ -241,7 +241,7 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
   }
   if (full_name == "Std.Array.GetAt" || full_name == "Std.Array.SetAt" || full_name == "Std.Array.InsertAt" ||
       full_name == "Std.Array.RemoveAt" || full_name == "Std.Take" || full_name == "Std.Drop" ||
-      full_name == "Std.ElementAt" || full_name == "Std.Slice" || full_name == "Std.String.CharAt" ||
+      full_name == "Std.ElementAt" || full_name == "Std.String.CharAt" ||
       full_name == "Std.File.ReadChunk" || full_name == "Std.Bit.ShiftLeft" || full_name == "Std.Bit.ShiftRight") {
     return check_integer_index_arg(args, 1U, error_message, full_name);
   }
@@ -263,15 +263,40 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
         return true;
     }
   }
+  if (full_name == "Std.Slice") {
+    switch (args.size()) {
+      case 2U:
+        return check_integer_index_arg(args, 1U, error_message, full_name);
+      case 3U:
+        return check_integer_index_args(args, {1U, 2U}, error_message, full_name);
+      case 4U:
+        return check_integer_index_args(args, {1U, 2U, 3U}, error_message, full_name);
+      default:
+        return true;
+    }
+  }
   if (full_name == "Std.Array.Slice" || full_name == "Std.Array.SetAt2D" || full_name == "Std.Array.Fill" ||
-      full_name == "Std.Array.Reshape" || full_name == "Std.String.Slice") {
+      full_name == "Std.Array.Reshape") {
     return check_integer_index_args(args, {1U, 2U}, error_message, full_name);
   }
   if (full_name == "Std.Array.Slice2D") {
     return check_integer_index_args(args, {1U, 2U, 3U, 4U}, error_message, full_name);
   }
+  if (full_name == "Std.String.Slice") {
+    switch (args.size()) {
+      case 2U:
+        return check_integer_index_arg(args, 1U, error_message, full_name);
+      case 3U:
+        return check_integer_index_args(args, {1U, 2U}, error_message, full_name);
+      default:
+        return true;
+    }
+  }
   if (full_name == "Std.String.Find") {
-    return check_integer_index_arg(args, 2U, error_message, full_name);
+    if (args.size() == 3U) {
+      return check_integer_index_arg(args, 2U, error_message, full_name);
+    }
+    return true;
   }
   if (full_name == "Std.Array.GetAtND" || full_name == "Std.Array.SetAtND" || full_name == "Std.Array.ReshapeND") {
     return check_integer_tuple_arg(args, 1U, error_message, full_name);

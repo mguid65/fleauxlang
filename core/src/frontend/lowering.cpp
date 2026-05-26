@@ -427,10 +427,6 @@ auto make_use_before_declaration_error(const std::string& symbol, const std::opt
 auto lower_delimited_atom(const model::DelimitedExpressionBox& inner, const LoweringContext& context,
                           const std::optional<diag::SourceSpan>& expr_span)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  if (inner->items.size() == 1) {
-    return lower_expr(*inner->items[0], context);
-  }
-
   ir::IRTupleExpr tuple;
   tuple.span = inner->span;
   for (const auto& item : inner->items) {

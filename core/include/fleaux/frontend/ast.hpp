@@ -285,9 +285,16 @@ struct IRTupleExpr {
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
+enum class IRFlowCallShape : std::uint8_t {
+  kImplicit = 0,
+  kDirectValue,
+  kTupleExpanded,
+};
+
 struct IRFlowExpr {
   IRExprBox lhs{std::nullopt};
   IRCallTarget rhs{};
+  IRFlowCallShape call_shape{IRFlowCallShape::kImplicit};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 

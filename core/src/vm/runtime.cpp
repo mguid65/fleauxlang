@@ -331,7 +331,11 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
   return std::nullopt;
 }
 
-[[nodiscard]] auto builtin_call_arity(const Value& arg) -> std::size_t {
+[[nodiscard]] auto builtin_call_arity(const BuiltinCallShape shape, const Value& arg) -> std::size_t {
+  if (shape == BuiltinCallShape::kDirectValue) {
+    return 1U;
+  }
+
   if (!arg.HasArray()) {
     return 1U;
   }
@@ -342,16 +346,6 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
   switch (contract.kind) {
     case BuiltinArityKind::kExact:
       return std::to_string(contract.primary);
-    case BuiltinArityKind::kOneOf: {
-      std::string formatted;
-      for (std::size_t index = 0; index < contract.allowed_count; ++index) {
-        if (index > 0U) {
-          formatted += (index + 1U == contract.allowed_count) ? " or " : ", ";
-        }
-        formatted += std::to_string(contract.allowed[index]);
-      }
-      return formatted;
-    }
     case BuiltinArityKind::kVariadicMinimum:
       return std::to_string(contract.primary) + "+";
     case BuiltinArityKind::kUnchecked:
@@ -360,12 +354,75 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
   return "unknown";
 }
 
-auto validate_builtin_dispatch_arity(const BuiltinId builtin_id, const Value& arg) -> tl::expected<void, RuntimeError> {
+enum class BuiltinDispatchValueShape : std::uint8_t {
+  kUnchecked,
+  kTuple,
+  kPairTuple,
+  kResultTuple,
+};
+
+[[nodiscard]] constexpr auto builtin_dispatch_value_shape_contract(const BuiltinId builtin_id) -> BuiltinDispatchValueShape {
+  switch (builtin_id) {
+    case BuiltinId::Length:
+      return BuiltinDispatchValueShape::kTuple;
+    case BuiltinId::First:
+    case BuiltinId::Second:
+      return BuiltinDispatchValueShape::kPairTuple;
+    case BuiltinId::ResultTag:
+    case BuiltinId::ResultPayload:
+    case BuiltinId::ResultIsOk:
+    case BuiltinId::ResultIsErr:
+    case BuiltinId::ResultUnwrap:
+    case BuiltinId::ResultUnwrapErr:
+      return BuiltinDispatchValueShape::kResultTuple;
+    default:
+      return BuiltinDispatchValueShape::kUnchecked;
+  }
+}
+
+[[nodiscard]] auto builtin_value_shape_description(const BuiltinDispatchValueShape shape) -> std::string_view {
+  switch (shape) {
+    case BuiltinDispatchValueShape::kUnchecked:
+      return "value";
+    case BuiltinDispatchValueShape::kTuple:
+      return "a direct tuple value";
+    case BuiltinDispatchValueShape::kPairTuple:
+      return "a direct 2-tuple argument";
+    case BuiltinDispatchValueShape::kResultTuple:
+      return "a direct Result tuple (Bool, payload)";
+  }
+  return "value";
+}
+
+[[nodiscard]] auto value_satisfies_builtin_shape(const BuiltinDispatchValueShape shape, const Value& value) -> bool {
+  switch (shape) {
+    case BuiltinDispatchValueShape::kUnchecked:
+      return true;
+    case BuiltinDispatchValueShape::kTuple:
+      return value.HasArray();
+    case BuiltinDispatchValueShape::kPairTuple:
+      return value.HasArray() && runtime::as_array(value).Size() == 2U;
+    case BuiltinDispatchValueShape::kResultTuple:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
+        return false;
+      } else {
+        const Value& tag = *tuple.TryGet(0U);
+        return tag.HasBool();
+      }
+  }
+  return true;
+}
+
+auto validate_builtin_dispatch_arity(const BuiltinId builtin_id, const BuiltinCallShape shape, const Value& arg)
+    -> tl::expected<void, RuntimeError> {
   if (!builtin_has_arity_contract(builtin_id)) {
     return {};
   }
 
-  const std::size_t arity = builtin_call_arity(arg);
+  const std::size_t arity = builtin_call_arity(shape, arg);
   if (builtin_accepts_arity(builtin_id, arity)) {
     return {};
   }
@@ -378,11 +435,27 @@ auto validate_builtin_dispatch_arity(const BuiltinId builtin_id, const Value& ar
                                            suffix + " but got " + std::to_string(arity)));
 }
 
+auto validate_builtin_dispatch_value_shape(const BuiltinId builtin_id, const Value& arg)
+    -> tl::expected<void, RuntimeError> {
+  const BuiltinDispatchValueShape contract = builtin_dispatch_value_shape_contract(builtin_id);
+  if (contract == BuiltinDispatchValueShape::kUnchecked) {
+    return {};
+  }
+
+  if (value_satisfies_builtin_shape(contract, arg)) {
+    return {};
+  }
+
+  return tl::unexpected(make_runtime_error("builtin '" + std::string(builtin_name(builtin_id)) +
+                                           "' expected " +
+                                           std::string(builtin_value_shape_description(contract))));
+}
+
 // Forward declarations.
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
 
-auto dispatch_builtin(BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
+auto dispatch_builtin(BuiltinId builtin_id, BuiltinCallShape shape, Value arg) -> tl::expected<Value, RuntimeError>;
 
 [[nodiscard]] auto builtin_binary_specialization(const BuiltinId builtin_id) -> runtime::BinaryRuntimeCallable {
   using runtime::AddBinary;
@@ -850,12 +923,16 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
+        const auto builtin_shape = builtin_call_shape_from_operand(operand);
+        if (!builtin_shape.has_value()) {
+          return tl::unexpected(make_runtime_error("builtin operand shape is invalid"));
+        }
 
         auto arg = pop_stack(stack, "call_builtin");
         if (!arg)
           return tl::unexpected(arg.error());
 
-        auto result = dispatch_builtin(*builtin_id, std::move(*arg));
+        auto result = dispatch_builtin(*builtin_id, *builtin_shape, std::move(*arg));
         if (!result)
           return tl::unexpected(result.error());
         stack.push_back(std::move(*result));
@@ -963,9 +1040,13 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
+        const auto builtin_shape = builtin_call_shape_from_operand(operand);
+        if (!builtin_shape.has_value()) {
+          return tl::unexpected(make_runtime_error("builtin operand shape is invalid"));
+        }
         RegisteredCallable callable;
-        callable.unary = [builtin_id = *builtin_id](Value arg) -> Value {
-          auto result = dispatch_builtin(builtin_id, std::move(arg));
+        callable.unary = [builtin_id = *builtin_id, builtin_shape = *builtin_shape](Value arg) -> Value {
+          auto result = dispatch_builtin(builtin_id, builtin_shape, std::move(arg));
           if (!result) {
             throw std::runtime_error(result.error().message);
           }
@@ -1497,8 +1578,12 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(make_runtime_error("program terminated without halt"));
 }
 
-auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
-  if (auto validated = validate_builtin_dispatch_arity(builtin_id, arg); !validated) {
+auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape shape, Value arg)
+    -> tl::expected<Value, RuntimeError> {
+  if (auto validated = validate_builtin_dispatch_arity(builtin_id, shape, arg); !validated) {
+    return tl::unexpected(validated.error());
+  }
+  if (auto validated = validate_builtin_dispatch_value_shape(builtin_id, arg); !validated) {
     return tl::unexpected(validated.error());
   }
 
@@ -1694,8 +1779,12 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::TupleAny(std::move(arg));
       case BuiltinId::TupleAll:
         return runtime::TupleAll(std::move(arg));
-      case BuiltinId::TupleRange:
-        return runtime::TupleRange(std::move(arg));
+      case BuiltinId::TupleRangeInt64:
+        return runtime::TupleRangeInt64(std::move(arg));
+      case BuiltinId::TupleRangeInt64Int64:
+        return runtime::TupleRangeInt64Int64(std::move(arg));
+      case BuiltinId::TupleRangeInt64Int64Int64:
+        return runtime::TupleRangeInt64Int64Int64(std::move(arg));
       case BuiltinId::ArrayGetAt:
         return runtime::ArrayGetAt(std::move(arg));
       case BuiltinId::ArraySetAt:
@@ -1846,8 +1935,12 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::Take(std::move(arg));
       case BuiltinId::Drop:
         return runtime::Drop(std::move(arg));
-      case BuiltinId::Slice:
-        return runtime::Slice(std::move(arg));
+      case BuiltinId::SliceTupleUInt64:
+        return runtime::SliceTupleUInt64(std::move(arg));
+      case BuiltinId::SliceTupleUInt64UInt64:
+        return runtime::SliceTupleUInt64UInt64(std::move(arg));
+      case BuiltinId::SliceTupleUInt64UInt64UInt64:
+        return runtime::SliceTupleUInt64UInt64UInt64(std::move(arg));
       case BuiltinId::ToString:
         return runtime::ToString(std::move(arg));
       case BuiltinId::ToNum:
@@ -1884,10 +1977,14 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
         return runtime::StringLength(std::move(arg));
       case BuiltinId::StringCharAt:
         return runtime::StringCharAt(std::move(arg));
-      case BuiltinId::StringSlice:
-        return runtime::StringSlice(std::move(arg));
-      case BuiltinId::StringFind:
-        return runtime::StringFind(std::move(arg));
+      case BuiltinId::StringSliceStringUInt64:
+        return runtime::StringSliceStringUInt64(std::move(arg));
+      case BuiltinId::StringSliceStringUInt64UInt64:
+        return runtime::StringSliceStringUInt64UInt64(std::move(arg));
+      case BuiltinId::StringFindStringString:
+        return runtime::StringFindStringString(std::move(arg));
+      case BuiltinId::StringFindStringStringUInt64:
+        return runtime::StringFindStringStringUInt64(std::move(arg));
       case BuiltinId::StringFormat:
         return runtime::StringFormat(std::move(arg));
       case BuiltinId::StringRegexIsMatch:
@@ -2071,7 +2168,7 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_runtime_error("Unknown builtin alias symbol: '" + builtin_name + "'."));
     }
-    auto dispatched = dispatch_builtin(*builtin_id, std::move(arg));
+    auto dispatched = dispatch_builtin(*builtin_id, builtin_callable_call_shape(*builtin_id), std::move(arg));
     if (!dispatched) {
       return tl::unexpected(dispatched.error());
     }

@@ -46,8 +46,8 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     Value back = Unwrap(std::move(wrapped));
     REQUIRE(as_array(back).Size() == 3);
 
-    REQUIRE_THROWS_WITH(Unwrap(make_tuple(make_int(1), make_int(2))),
-                        Catch::Matchers::ContainsSubstring("Unwrap expects 1 arguments"));
+    REQUIRE_THROWS_AS(Unwrap(make_tuple(make_int(1), make_int(2))), std::logic_error);
+    REQUIRE_THROWS_WITH(Unwrap(make_int(1)), Catch::Matchers::ContainsSubstring("fleaux::runtime: expected Array"));
   }
 
   SECTION("First and Second") {
@@ -55,6 +55,10 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     REQUIRE(to_double(First(pair)) == 10.0);
     REQUIRE(as_string(Second(pair)) == "hello");
 
+    REQUIRE_THROWS_WITH(First(make_tuple(make_tuple(make_int(1), make_int(2)))),
+                        Catch::Matchers::ContainsSubstring("First: expected a 2-tuple"));
+    REQUIRE_THROWS_WITH(Second(make_tuple(make_tuple(make_int(1), make_int(2)))),
+                        Catch::Matchers::ContainsSubstring("Second: expected a 2-tuple"));
     REQUIRE_THROWS_WITH(First(make_tuple(make_int(1), make_int(2), make_int(3))),
                         Catch::Matchers::ContainsSubstring("First: expected a 2-tuple"));
     REQUIRE_THROWS_WITH(Second(make_tuple(make_int(1))),
@@ -105,24 +109,24 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     REQUIRE(as_array(dropped).Size() == 3);
     REQUIRE(to_double(array_at(dropped, 0)) == 3.0);
 
-    Value sliced = Slice(make_tuple(seq, make_int(1), make_int(4)));
+    Value sliced = SliceTupleUInt64UInt64(make_tuple(seq, make_int(1), make_int(4)));
     REQUIRE(as_array(sliced).Size() == 3);
     REQUIRE(to_double(array_at(sliced, 0)) == 2.0);
     REQUIRE(to_double(array_at(sliced, 2)) == 4.0);
 
-    Value stop_only = Slice(make_tuple(seq, make_int(3)));
+    Value stop_only = SliceTupleUInt64(make_tuple(seq, make_int(3)));
     REQUIRE(as_array(stop_only).Size() == 3);
     REQUIRE(to_double(array_at(stop_only, 0)) == 1.0);
     REQUIRE(to_double(array_at(stop_only, 2)) == 3.0);
 
-    Value stepped = Slice(make_tuple(seq, make_int(0), make_int(5), make_int(2)));
+    Value stepped = SliceTupleUInt64UInt64UInt64(make_tuple(seq, make_int(0), make_int(5), make_int(2)));
     REQUIRE(as_array(stepped).Size() == 3);
     REQUIRE(to_double(array_at(stepped, 0)) == 1.0);
     REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
     REQUIRE(to_double(array_at(stepped, 2)) == 5.0);
 
-    REQUIRE_THROWS_WITH(Slice(make_tuple(seq, make_int(0), make_int(5), make_int(1), make_int(9))),
-                        Catch::Matchers::ContainsSubstring("Slice: expected 2, 3, or 4 arguments"));
+    REQUIRE_THROWS_WITH(SliceTupleUInt64UInt64UInt64(make_tuple(seq, make_int(0), make_int(5), make_int(0))),
+                        Catch::Matchers::ContainsSubstring("Slice: step cannot be 0"));
   }
 }
 
@@ -318,6 +322,28 @@ TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
     REQUIRE_FALSE(as_bool(ResultIsOk(err)));
     REQUIRE_FALSE(as_bool(ResultTag(err)));
     REQUIRE(as_string(ResultPayload(err)) == "boom");
+  }
+
+  SECTION("Accessors require direct result tuples") {
+    const Value wrapped_ok = make_tuple(ResultOk(make_int(7)));
+    const Value wrapped_err = make_tuple(ResultErr(make_string("bad")));
+
+    REQUIRE_THROWS_WITH(ResultTag(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Tag: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultPayload(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Payload: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultIsOk(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.IsOk: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultIsErr(wrapped_err), Catch::Matchers::ContainsSubstring("Result.IsErr: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultUnwrap(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Unwrap: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultUnwrapErr(wrapped_err),
+                        Catch::Matchers::ContainsSubstring("Result.UnwrapErr: expected Result tuple"));
+  }
+
+  SECTION("Malformed Result encodings still fail structural validation") {
+    const Value wrong_width = make_tuple(make_bool(true));
+    const Value wrong_tag = make_tuple(make_int(1), make_string("boom"));
+
+    REQUIRE_THROWS_WITH(ResultTag(wrong_width), Catch::Matchers::ContainsSubstring("Result.Tag: expected Result tuple"));
+    REQUIRE_THROWS_WITH(ResultPayload(wrong_tag),
+                        Catch::Matchers::ContainsSubstring("Result.Payload: Result tag must be a Bool"));
   }
 
   SECTION("Unwrap and UnwrapErr") {
@@ -1191,15 +1217,15 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(reversed, 0)) == 2.0);
     REQUIRE(as_bool(TupleContains(make_tuple(values, make_int(2)))));
     REQUIRE(as_array(zipped).Size() == 2U);
-    REQUIRE(to_double(array_at(TupleRange(make_int(3)), 2)) == 2.0);
-    REQUIRE(to_double(array_at(TupleRange(make_tuple(make_int(3))), 2)) == 2.0);
+    REQUIRE(to_double(array_at(TupleRangeInt64(make_int(3)), 2)) == 2.0);
+    REQUIRE(to_double(array_at(TupleRangeInt64(make_tuple(make_int(3))), 2)) == 2.0);
 
-    const Value from_start = TupleRange(make_tuple(make_int(2), make_int(5)));
+    const Value from_start = TupleRangeInt64Int64(make_tuple(make_int(2), make_int(5)));
     REQUIRE(as_array(from_start).Size() == 3U);
     REQUIRE(to_double(array_at(from_start, 0)) == 2.0);
     REQUIRE(to_double(array_at(from_start, 2)) == 4.0);
 
-    const Value stepped = TupleRange(make_tuple(make_int(5), make_int(0), make_int(-2)));
+    const Value stepped = TupleRangeInt64Int64Int64(make_tuple(make_int(5), make_int(0), make_int(-2)));
     REQUIRE(as_array(stepped).Size() == 3U);
     REQUIRE(to_double(array_at(stepped, 0)) == 5.0);
     REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
@@ -1530,6 +1556,8 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
 TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
   SECTION("conversion helpers") {
     REQUIRE(as_string(ToString(make_int(42))) == "42");
+    REQUIRE(as_string(ToString(make_tuple(make_int(1)))) == "1");
+    REQUIRE(as_string(ToString(make_tuple(make_int(1), make_int(2)))) == "(1, 2)");
     REQUIRE(to_double(ToNum(make_tuple(make_string("42.5")))) == 42.5);
     REQUIRE(to_double(ToNum(make_tuple(make_string("\t +1.25e2")))) == 125.0);
     REQUIRE_THROWS_WITH(ToNum(make_tuple(make_string("42xyz"))), Catch::Matchers::ContainsSubstring("trailing characters"));
@@ -1580,11 +1608,11 @@ TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
     REQUIRE(to_double(StringLength(make_string("abcd"))) == 4.0);
     REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(1)))) == "b");
     REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(9)))) == "");
-    REQUIRE(as_string(StringSlice(make_tuple(make_string("abcdef"), make_int(3)))) == "abc");
-    REQUIRE(as_string(StringSlice(make_tuple(make_string("abcdef"), make_int(1), make_int(4)))) == "bcd");
-    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("bc")))) == 1.0);
-    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("bc"), make_int(2)))) == 4.0);
-    REQUIRE(to_double(StringFind(make_tuple(make_string("abcabc"), make_string("zz")))) == -1.0);
+    REQUIRE(as_string(StringSliceStringUInt64(make_tuple(make_string("abcdef"), make_int(3)))) == "abc");
+    REQUIRE(as_string(StringSliceStringUInt64UInt64(make_tuple(make_string("abcdef"), make_int(1), make_int(4)))) == "bcd");
+    REQUIRE(to_double(StringFindStringString(make_tuple(make_string("abcabc"), make_string("bc")))) == 1.0);
+    REQUIRE(to_double(StringFindStringStringUInt64(make_tuple(make_string("abcabc"), make_string("bc"), make_int(2)))) == 4.0);
+    REQUIRE(to_double(StringFindStringString(make_tuple(make_string("abcabc"), make_string("zz")))) == -1.0);
     REQUIRE(as_string(
                 StringFormat(make_tuple(make_string("{} + {} = {}"), make_int(2), make_int(3), make_int(5)))) ==
             "2 + 3 = 5");

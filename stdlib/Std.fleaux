@@ -623,12 +623,24 @@ let Std.String.Length(s: String) : Int64 :: __builtin__;
 // @return A value of type String.
 let Std.String.CharAt(s: String, index: UInt64) : String :: __builtin__;
 
+// @brief Return a string slice from zero up to stop.
+// @param s Input string. Type: String.
+// @param stop Exclusive ending index. Type: UInt64.
+// @return A value of type String.
+let Std.String.Slice(s: String, stop: UInt64) : String :: __builtin__;
+
 // @brief Return a string slice using start and stop indices.
 // @param s Input string. Type: String.
 // @param start Starting index. Type: UInt64.
 // @param stop Exclusive ending index. Type: UInt64.
 // @return A value of type String.
 let Std.String.Slice(s: String, start: UInt64, stop: UInt64) : String :: __builtin__;
+
+// @brief Return the index of the first matching substring.
+// @param s Input string. Type: String.
+// @param sub Substring to locate. Type: String.
+// @return A value of type Int64.
+let Std.String.Find(s: String, sub: String) : Int64 :: __builtin__;
 
 // @brief Return the index of the first matching substring at or after start.
 // @param s Input string. Type: String.
@@ -1001,12 +1013,29 @@ let Std.ElementAt<T>(tuple: Tuple(T...), count: UInt64) : T :: __builtin__;
 // @return A value of type Int64.
 let Std.Length<T>(tuple: Tuple(T...)) : Int64 :: __builtin__;
 
-// @brief Return a tuple slice.
+// @brief Return a tuple slice from zero up to stop.
 // @tparam T Generic value type.
 // @param tuple Input tuple value. Type: Tuple(T...).
 // @param stop Exclusive ending index. Type: UInt64.
 // @return A value of type Tuple(T...).
 let Std.Slice<T>(tuple: Tuple(T...), stop: UInt64) : Tuple(T...) :: __builtin__;
+
+// @brief Return a tuple slice using start and stop indices.
+// @tparam T Generic value type.
+// @param tuple Input tuple value. Type: Tuple(T...).
+// @param start Starting index. Type: UInt64.
+// @param stop Exclusive ending index. Type: UInt64.
+// @return A value of type Tuple(T...).
+let Std.Slice<T>(tuple: Tuple(T...), start: UInt64, stop: UInt64) : Tuple(T...) :: __builtin__;
+
+// @brief Return a tuple slice using start, stop, and step indices.
+// @tparam T Generic value type.
+// @param tuple Input tuple value. Type: Tuple(T...).
+// @param start Starting index. Type: UInt64.
+// @param stop Exclusive ending index. Type: UInt64.
+// @param step Step delta between successive values. Type: UInt64.
+// @return A value of type Tuple(T...).
+let Std.Slice<T>(tuple: Tuple(T...), start: UInt64, stop: UInt64, step: UInt64) : Tuple(T...) :: __builtin__;
 
 // @brief Parse a string into a Float64 value.
 // @param val Value for parameter val. Type: String.

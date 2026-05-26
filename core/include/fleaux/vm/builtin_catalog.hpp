@@ -107,7 +107,9 @@ enum class BuiltinId : std::uint16_t {
   TupleFindIndex,
   TupleAny,
   TupleAll,
-  TupleRange,
+  TupleRangeInt64,
+  TupleRangeInt64Int64,
+  TupleRangeInt64Int64Int64,
   ArrayGetAt,
   ArraySetAt,
   ArrayInsertAt,
@@ -183,7 +185,9 @@ enum class BuiltinId : std::uint16_t {
   Length,
   Take,
   Drop,
-  Slice,
+  SliceTupleUInt64,
+  SliceTupleUInt64UInt64,
+  SliceTupleUInt64UInt64UInt64,
   ToString,
   ToNum,
   StringParseInt64,
@@ -202,8 +206,10 @@ enum class BuiltinId : std::uint16_t {
   StringEndsWith,
   StringLength,
   StringCharAt,
-  StringSlice,
-  StringFind,
+  StringSliceStringUInt64,
+  StringSliceStringUInt64UInt64,
+  StringFindStringString,
+  StringFindStringStringUInt64,
   StringFormat,
   StringRegexIsMatch,
   StringRegexFind,
@@ -287,31 +293,21 @@ enum class BuiltinId : std::uint16_t {
 enum class BuiltinArityKind : std::uint8_t {
   kUnchecked,
   kExact,
-  kOneOf,
   kVariadicMinimum,
+};
+
+enum class BuiltinCallShape : std::uint8_t {
+  kTupleExpanded = 0,
+  kDirectValue = 1,
 };
 
 struct BuiltinArityContract {
   BuiltinArityKind kind{BuiltinArityKind::kUnchecked};
   std::uint8_t primary{0U};
-  std::array<std::uint8_t, 4> allowed{};
-  std::uint8_t allowed_count{0U};
 };
 
 [[nodiscard]] constexpr auto builtin_arity_exact(const std::uint8_t arity) -> BuiltinArityContract {
   return BuiltinArityContract{.kind = BuiltinArityKind::kExact, .primary = arity};
-}
-
-template <std::size_t N>
-[[nodiscard]] constexpr auto builtin_arity_one_of(const std::array<std::uint8_t, N>& arities) -> BuiltinArityContract {
-  static_assert(N > 0U);
-  static_assert(N <= 4U);
-
-  BuiltinArityContract contract{.kind = BuiltinArityKind::kOneOf, .allowed_count = static_cast<std::uint8_t>(N)};
-  for (std::size_t index = 0; index < N; ++index) {
-    contract.allowed[index] = arities[index];
-  }
-  return contract;
 }
 
 [[nodiscard]] constexpr auto builtin_arity_variadic_minimum(const std::uint8_t minimum_arity) -> BuiltinArityContract {
@@ -357,86 +353,95 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::And, .name = "Std.And", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Or, .name = "Std.Or", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Select, .name = "Std.Select", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::Match, .name = "Std.Match"},
+    BuiltinSpec{.id = BuiltinId::Match, .name = "Std.Match", .arity = builtin_arity_variadic_minimum(2U)},
     BuiltinSpec{.id = BuiltinId::Apply, .name = "Std.Apply", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Branch, .name = "Std.Branch", .arity = builtin_arity_exact(4U)},
     BuiltinSpec{.id = BuiltinId::Loop, .name = "Std.Loop", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::LoopN, .name = "Std.LoopN", .arity = builtin_arity_exact(4U)},
     BuiltinSpec{.id = BuiltinId::Printf, .name = "Std.Printf", .arity = builtin_arity_variadic_minimum(1U)},
-    BuiltinSpec{.id = BuiltinId::Println, .name = "Std.Println"},
+    BuiltinSpec{.id = BuiltinId::Println, .name = "Std.Println", .arity = builtin_arity_variadic_minimum(0U)},
     BuiltinSpec{.id = BuiltinId::GetArgs, .name = "Std.GetArgs", .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{.id = BuiltinId::Type, .name = "Std.Type"},
+    BuiltinSpec{.id = BuiltinId::Type, .name = "Std.Type", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{
         .id = BuiltinId::InputVoid, .name = "Std.Input", .symbol_key = "Std.Input#0", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::InputString,
                 .name = "Std.Input",
                 .symbol_key = "Std.Input#1",
                 .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::Help, .name = "Std.Help"},
+    BuiltinSpec{.id = BuiltinId::Help, .name = "Std.Help", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{
         .id = BuiltinId::ExitVoid, .name = "Std.Exit", .symbol_key = "Std.Exit#0", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{
         .id = BuiltinId::ExitInt64, .name = "Std.Exit", .symbol_key = "Std.Exit#1", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Cwd, .name = "Std.OS.Cwd", .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{.id = BuiltinId::OSEnv, .name = "Std.OS.Env"},
-    BuiltinSpec{.id = BuiltinId::OSHasEnv, .name = "Std.OS.HasEnv"},
+    BuiltinSpec{.id = BuiltinId::OSEnv, .name = "Std.OS.Env", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::OSHasEnv, .name = "Std.OS.HasEnv", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::OSSetEnv, .name = "Std.OS.SetEnv", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::OSUnsetEnv, .name = "Std.OS.UnsetEnv"},
+    BuiltinSpec{.id = BuiltinId::OSUnsetEnv, .name = "Std.OS.UnsetEnv", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::OSIsWindows, .name = "Std.OS.IsWindows", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSIsLinux, .name = "Std.OS.IsLinux", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSIsMacOS, .name = "Std.OS.IsMacOS", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSHome, .name = "Std.OS.Home", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSTempDir, .name = "Std.OS.TempDir", .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{.id = BuiltinId::OSExec, .name = "Std.OS.Exec"},
+    BuiltinSpec{.id = BuiltinId::OSExec, .name = "Std.OS.Exec", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::OSMakeTempFile, .name = "Std.OS.MakeTempFile", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSMakeTempDir, .name = "Std.OS.MakeTempDir", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::PathJoin, .name = "Std.Path.Join", .arity = builtin_arity_variadic_minimum(2U)},
-    BuiltinSpec{.id = BuiltinId::PathNormalize, .name = "Std.Path.Normalize"},
-    BuiltinSpec{.id = BuiltinId::PathBasename, .name = "Std.Path.Basename"},
-    BuiltinSpec{.id = BuiltinId::PathDirname, .name = "Std.Path.Dirname"},
-    BuiltinSpec{.id = BuiltinId::PathExists, .name = "Std.Path.Exists"},
-    BuiltinSpec{.id = BuiltinId::PathIsFile, .name = "Std.Path.IsFile"},
-    BuiltinSpec{.id = BuiltinId::PathIsDir, .name = "Std.Path.IsDir"},
-    BuiltinSpec{.id = BuiltinId::PathAbsolute, .name = "Std.Path.Absolute"},
-    BuiltinSpec{.id = BuiltinId::PathExtension, .name = "Std.Path.Extension"},
-    BuiltinSpec{.id = BuiltinId::PathStem, .name = "Std.Path.Stem"},
+    BuiltinSpec{.id = BuiltinId::PathNormalize, .name = "Std.Path.Normalize", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathBasename, .name = "Std.Path.Basename", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathDirname, .name = "Std.Path.Dirname", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathExists, .name = "Std.Path.Exists", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathIsFile, .name = "Std.Path.IsFile", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathIsDir, .name = "Std.Path.IsDir", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathAbsolute, .name = "Std.Path.Absolute", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathExtension, .name = "Std.Path.Extension", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::PathStem, .name = "Std.Path.Stem", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::PathWithExtension, .name = "Std.Path.WithExtension", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::PathWithBasename, .name = "Std.Path.WithBasename", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileReadText, .name = "Std.File.ReadText"},
+    BuiltinSpec{.id = BuiltinId::FileReadText, .name = "Std.File.ReadText", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::FileWriteText, .name = "Std.File.WriteText", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::FileAppendText, .name = "Std.File.AppendText", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileReadLines, .name = "Std.File.ReadLines"},
-    BuiltinSpec{.id = BuiltinId::FileDelete, .name = "Std.File.Delete"},
-    BuiltinSpec{.id = BuiltinId::FileSize, .name = "Std.File.Size"},
-    BuiltinSpec{.id = BuiltinId::FileOpen, .name = "Std.File.Open"},
-    BuiltinSpec{.id = BuiltinId::FileReadLine, .name = "Std.File.ReadLine"},
+    BuiltinSpec{.id = BuiltinId::FileReadLines, .name = "Std.File.ReadLines", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::FileDelete, .name = "Std.File.Delete", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::FileSize, .name = "Std.File.Size", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::FileOpen, .name = "Std.File.Open", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::FileReadLine, .name = "Std.File.ReadLine", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::FileReadChunk, .name = "Std.File.ReadChunk", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::FileWriteChunk, .name = "Std.File.WriteChunk", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileFlush, .name = "Std.File.Flush"},
-    BuiltinSpec{.id = BuiltinId::FileClose, .name = "Std.File.Close"},
+    BuiltinSpec{.id = BuiltinId::FileFlush, .name = "Std.File.Flush", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::FileClose, .name = "Std.File.Close", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::FileWithOpen, .name = "Std.File.WithOpen", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::DirCreate, .name = "Std.Dir.Create"},
-    BuiltinSpec{.id = BuiltinId::DirDelete, .name = "Std.Dir.Delete"},
-    BuiltinSpec{.id = BuiltinId::DirList, .name = "Std.Dir.List"},
-    BuiltinSpec{.id = BuiltinId::DirListFull, .name = "Std.Dir.ListFull"},
+    BuiltinSpec{.id = BuiltinId::DirCreate, .name = "Std.Dir.Create", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DirDelete, .name = "Std.Dir.Delete", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DirList, .name = "Std.Dir.List", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DirListFull, .name = "Std.Dir.ListFull", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleAppend, .name = "Std.Tuple.Append", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TuplePrepend, .name = "Std.Tuple.Prepend", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleReverse, .name = "Std.Tuple.Reverse"},
+    BuiltinSpec{.id = BuiltinId::TupleReverse, .name = "Std.Tuple.Reverse", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleContains, .name = "Std.Tuple.Contains", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleZip, .name = "Std.Tuple.Zip", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleMap, .name = "Std.Tuple.Map", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleFilter, .name = "Std.Tuple.Filter", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleSort, .name = "Std.Tuple.Sort"},
-    BuiltinSpec{.id = BuiltinId::TupleUnique, .name = "Std.Tuple.Unique"},
-    BuiltinSpec{.id = BuiltinId::TupleMin, .name = "Std.Tuple.Min"},
-    BuiltinSpec{.id = BuiltinId::TupleMax, .name = "Std.Tuple.Max"},
+    BuiltinSpec{.id = BuiltinId::TupleSort, .name = "Std.Tuple.Sort", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TupleUnique, .name = "Std.Tuple.Unique", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TupleMin, .name = "Std.Tuple.Min", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TupleMax, .name = "Std.Tuple.Max", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleReduce, .name = "Std.Tuple.Reduce", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::TupleFindIndex, .name = "Std.Tuple.FindIndex", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleAny, .name = "Std.Tuple.Any", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleAll, .name = "Std.Tuple.All", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleRange,
+    BuiltinSpec{.id = BuiltinId::TupleRangeInt64,
                 .name = "Std.Tuple.Range",
-                .arity = builtin_arity_one_of(std::to_array<std::uint8_t>({1U, 2U, 3U}))},
+                .symbol_key = "Std.Tuple.Range#0",
+                .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TupleRangeInt64Int64,
+                .name = "Std.Tuple.Range",
+                .symbol_key = "Std.Tuple.Range#1",
+                .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::TupleRangeInt64Int64Int64,
+                .name = "Std.Tuple.Range",
+                .symbol_key = "Std.Tuple.Range#2",
+                .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::ArrayGetAt, .name = "Std.Array.GetAt", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ArraySetAt, .name = "Std.Array.SetAt", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::ArrayInsertAt, .name = "Std.Array.InsertAt", .arity = builtin_arity_exact(3U)},
@@ -445,12 +450,12 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::ArrayConcat, .name = "Std.Array.Concat", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ArraySetAt2D, .name = "Std.Array.SetAt2D", .arity = builtin_arity_exact(4U)},
     BuiltinSpec{.id = BuiltinId::ArrayFill, .name = "Std.Array.Fill", .arity = builtin_arity_exact(4U)},
-    BuiltinSpec{.id = BuiltinId::ArrayTranspose2D, .name = "Std.Array.Transpose2D"},
+    BuiltinSpec{.id = BuiltinId::ArrayTranspose2D, .name = "Std.Array.Transpose2D", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ArraySlice2D, .name = "Std.Array.Slice2D", .arity = builtin_arity_exact(5U)},
     BuiltinSpec{.id = BuiltinId::ArrayReshape, .name = "Std.Array.Reshape", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::ArrayRank, .name = "Std.Array.Rank"},
-    BuiltinSpec{.id = BuiltinId::ArrayShape, .name = "Std.Array.Shape"},
-    BuiltinSpec{.id = BuiltinId::ArrayFlatten, .name = "Std.Array.Flatten"},
+    BuiltinSpec{.id = BuiltinId::ArrayRank, .name = "Std.Array.Rank", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ArrayShape, .name = "Std.Array.Shape", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ArrayFlatten, .name = "Std.Array.Flatten", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ArrayGetAtND, .name = "Std.Array.GetAtND", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ArraySetAtND, .name = "Std.Array.SetAtND", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::ArrayReshapeND, .name = "Std.Array.ReshapeND", .arity = builtin_arity_exact(2U)},
@@ -468,38 +473,38 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::DictContains, .name = "Std.Dict.Contains", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::DictDelete, .name = "Std.Dict.Delete", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::DictMerge, .name = "Std.Dict.Merge", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::DictKeys, .name = "Std.Dict.Keys"},
-    BuiltinSpec{.id = BuiltinId::DictValues, .name = "Std.Dict.Values"},
-    BuiltinSpec{.id = BuiltinId::DictEntries, .name = "Std.Dict.Entries"},
-    BuiltinSpec{.id = BuiltinId::DictClear, .name = "Std.Dict.Clear"},
-    BuiltinSpec{.id = BuiltinId::DictLength, .name = "Std.Dict.Length"},
-    BuiltinSpec{.id = BuiltinId::Cast, .name = "Std.Cast"},
+    BuiltinSpec{.id = BuiltinId::DictKeys, .name = "Std.Dict.Keys", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DictValues, .name = "Std.Dict.Values", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DictEntries, .name = "Std.Dict.Entries", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DictClear, .name = "Std.Dict.Clear", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::DictLength, .name = "Std.Dict.Length", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Cast, .name = "Std.Cast", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToInt64, .name = "Std.ToInt64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToUInt64, .name = "Std.ToUInt64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToFloat64, .name = "Std.ToFloat64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomCreate, .name = "Std.Random.Create"},
-    BuiltinSpec{.id = BuiltinId::RandomNextUInt64, .name = "Std.Random.NextUInt64"},
-    BuiltinSpec{.id = BuiltinId::RandomNextInt64, .name = "Std.Random.NextInt64"},
-    BuiltinSpec{.id = BuiltinId::RandomNextFloat64, .name = "Std.Random.NextFloat64"},
-    BuiltinSpec{.id = BuiltinId::RandomNextBool, .name = "Std.Random.NextBool"},
-    BuiltinSpec{.id = BuiltinId::RandomSplit, .name = "Std.Random.Split"},
-    BuiltinSpec{.id = BuiltinId::MathFloor, .name = "Std.Math.Floor"},
-    BuiltinSpec{.id = BuiltinId::MathCeil, .name = "Std.Math.Ceil"},
-    BuiltinSpec{.id = BuiltinId::MathAbs, .name = "Std.Math.Abs"},
-    BuiltinSpec{.id = BuiltinId::MathLog, .name = "Std.Math.Log"},
+    BuiltinSpec{.id = BuiltinId::RandomCreate, .name = "Std.Random.Create", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomNextUInt64, .name = "Std.Random.NextUInt64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomNextInt64, .name = "Std.Random.NextInt64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomNextFloat64, .name = "Std.Random.NextFloat64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomNextBool, .name = "Std.Random.NextBool", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomSplit, .name = "Std.Random.Split", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::MathFloor, .name = "Std.Math.Floor", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::MathCeil, .name = "Std.Math.Ceil", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::MathAbs, .name = "Std.Math.Abs", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::MathLog, .name = "Std.Math.Log", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::MathClamp, .name = "Std.Math.Clamp", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::Sqrt, .name = "Std.Math.Sqrt"},
-    BuiltinSpec{.id = BuiltinId::Sin, .name = "Std.Math.Sin"},
-    BuiltinSpec{.id = BuiltinId::Cos, .name = "Std.Math.Cos"},
-    BuiltinSpec{.id = BuiltinId::Tan, .name = "Std.Math.Tan"},
-    BuiltinSpec{.id = BuiltinId::ResultOk, .name = "Std.Result.Ok"},
-    BuiltinSpec{.id = BuiltinId::ResultErr, .name = "Std.Result.Err"},
-    BuiltinSpec{.id = BuiltinId::ResultTag, .name = "Std.Result.Tag"},
-    BuiltinSpec{.id = BuiltinId::ResultPayload, .name = "Std.Result.Payload"},
-    BuiltinSpec{.id = BuiltinId::ResultIsOk, .name = "Std.Result.IsOk"},
-    BuiltinSpec{.id = BuiltinId::ResultIsErr, .name = "Std.Result.IsErr"},
-    BuiltinSpec{.id = BuiltinId::ResultUnwrap, .name = "Std.Result.Unwrap"},
-    BuiltinSpec{.id = BuiltinId::ResultUnwrapErr, .name = "Std.Result.UnwrapErr"},
+    BuiltinSpec{.id = BuiltinId::Sqrt, .name = "Std.Math.Sqrt", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Sin, .name = "Std.Math.Sin", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Cos, .name = "Std.Math.Cos", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Tan, .name = "Std.Math.Tan", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultOk, .name = "Std.Result.Ok", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultErr, .name = "Std.Result.Err", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultTag, .name = "Std.Result.Tag", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultPayload, .name = "Std.Result.Payload", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultIsOk, .name = "Std.Result.IsOk", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultIsErr, .name = "Std.Result.IsErr", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultUnwrap, .name = "Std.Result.Unwrap", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ResultUnwrapErr, .name = "Std.Result.UnwrapErr", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Try, .name = "Std.Try", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ParallelMap, .name = "Std.Parallel.Map", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{
@@ -507,46 +512,67 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::ParallelForEach, .name = "Std.Parallel.ForEach", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ParallelReduce, .name = "Std.Parallel.Reduce", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::TaskSpawn, .name = "Std.Task.Spawn", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TaskAwait, .name = "Std.Task.Await"},
-    BuiltinSpec{.id = BuiltinId::TaskAwaitAll, .name = "Std.Task.AwaitAll"},
-    BuiltinSpec{.id = BuiltinId::TaskCancel, .name = "Std.Task.Cancel"},
+    BuiltinSpec{.id = BuiltinId::TaskAwait, .name = "Std.Task.Await", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TaskAwaitAll, .name = "Std.Task.AwaitAll", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::TaskCancel, .name = "Std.Task.Cancel", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TaskWithTimeout, .name = "Std.Task.WithTimeout", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::Wrap, .name = "Std.Wrap"},
-    BuiltinSpec{.id = BuiltinId::Unwrap, .name = "Std.Unwrap"},
-    BuiltinSpec{.id = BuiltinId::First, .name = "Std.First"},
-    BuiltinSpec{.id = BuiltinId::Second, .name = "Std.Second"},
+    BuiltinSpec{.id = BuiltinId::Wrap, .name = "Std.Wrap", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Unwrap, .name = "Std.Unwrap", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::First, .name = "Std.First", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::Second, .name = "Std.Second", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ElementAt, .name = "Std.ElementAt", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::Length, .name = "Std.Length"},
+    BuiltinSpec{.id = BuiltinId::Length, .name = "Std.Length", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Take, .name = "Std.Take", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Drop, .name = "Std.Drop", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::Slice, .name = "Std.Slice"},
-    BuiltinSpec{.id = BuiltinId::ToString, .name = "Std.ToString"},
+    BuiltinSpec{.id = BuiltinId::SliceTupleUInt64,
+                .name = "Std.Slice",
+                .symbol_key = "Std.Slice#0",
+                .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::SliceTupleUInt64UInt64,
+                .name = "Std.Slice",
+                .symbol_key = "Std.Slice#1",
+                .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{.id = BuiltinId::SliceTupleUInt64UInt64UInt64,
+                .name = "Std.Slice",
+                .symbol_key = "Std.Slice#2",
+                .arity = builtin_arity_exact(4U)},
+    BuiltinSpec{.id = BuiltinId::ToString, .name = "Std.ToString", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToNum, .name = "Std.ToNum", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::StringParseInt64, .name = "Std.String.ParseInt64"},
-    BuiltinSpec{.id = BuiltinId::StringParseUInt64, .name = "Std.String.ParseUInt64"},
-    BuiltinSpec{.id = BuiltinId::StringParseFloat64, .name = "Std.String.ParseFloat64"},
-    BuiltinSpec{.id = BuiltinId::StringUpper, .name = "Std.String.Upper"},
-    BuiltinSpec{.id = BuiltinId::StringLower, .name = "Std.String.Lower"},
-    BuiltinSpec{.id = BuiltinId::StringTrim, .name = "Std.String.Trim"},
-    BuiltinSpec{.id = BuiltinId::StringTrimStart, .name = "Std.String.TrimStart"},
-    BuiltinSpec{.id = BuiltinId::StringTrimEnd, .name = "Std.String.TrimEnd"},
+    BuiltinSpec{.id = BuiltinId::StringParseInt64, .name = "Std.String.ParseInt64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringParseUInt64, .name = "Std.String.ParseUInt64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{
+        .id = BuiltinId::StringParseFloat64, .name = "Std.String.ParseFloat64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringUpper, .name = "Std.String.Upper", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringLower, .name = "Std.String.Lower", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringTrim, .name = "Std.String.Trim", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringTrimStart, .name = "Std.String.TrimStart", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringTrimEnd, .name = "Std.String.TrimEnd", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringSplit, .name = "Std.String.Split", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringJoin, .name = "Std.String.Join", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringReplace, .name = "Std.String.Replace", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::StringContains, .name = "Std.String.Contains", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringStartsWith, .name = "Std.String.StartsWith", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringEndsWith, .name = "Std.String.EndsWith", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::StringLength, .name = "Std.String.Length"},
+    BuiltinSpec{.id = BuiltinId::StringLength, .name = "Std.String.Length", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringCharAt, .name = "Std.String.CharAt", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::StringSlice,
+    BuiltinSpec{.id = BuiltinId::StringSliceStringUInt64,
                 .name = "Std.String.Slice",
-                .arity = builtin_arity_one_of(std::to_array<std::uint8_t>({2U, 3U}))},
-    BuiltinSpec{.id = BuiltinId::StringFind,
+                .symbol_key = "Std.String.Slice#0",
+                .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::StringSliceStringUInt64UInt64,
+                .name = "Std.String.Slice",
+                .symbol_key = "Std.String.Slice#1",
+                .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{.id = BuiltinId::StringFindStringString,
                 .name = "Std.String.Find",
-                .arity = builtin_arity_one_of(std::to_array<std::uint8_t>({2U, 3U}))},
-    BuiltinSpec{.id = BuiltinId::StringFormat,
-                .name = "Std.String.Format",
-                .arity = builtin_arity_variadic_minimum(1U)},
+                .symbol_key = "Std.String.Find#0",
+                .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::StringFindStringStringUInt64,
+                .name = "Std.String.Find",
+                .symbol_key = "Std.String.Find#1",
+                .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{
+        .id = BuiltinId::StringFormat, .name = "Std.String.Format", .arity = builtin_arity_variadic_minimum(1U)},
     BuiltinSpec{
         .id = BuiltinId::StringRegexIsMatch, .name = "Std.String.Regex.IsMatch", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringRegexFind, .name = "Std.String.Regex.Find", .arity = builtin_arity_exact(2U)},
@@ -735,15 +761,37 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
   return static_cast<std::size_t>(BuiltinId::Half);
 }
 
-[[nodiscard]] constexpr auto builtin_operand(const BuiltinId id) -> std::int64_t {
-  return static_cast<std::int64_t>(id);
+inline constexpr std::uint64_t kBuiltinOperandIdMask = 0xFFFF'FFFFULL;
+inline constexpr std::uint64_t kBuiltinOperandDirectValueBit = 1ULL << 32U;
+
+[[nodiscard]] constexpr auto builtin_operand(const BuiltinId id,
+                                             const BuiltinCallShape shape = BuiltinCallShape::kTupleExpanded)
+    -> std::int64_t {
+  const auto raw_id = static_cast<std::uint64_t>(static_cast<std::uint32_t>(id));
+  const auto raw_shape = shape == BuiltinCallShape::kDirectValue ? kBuiltinOperandDirectValueBit : 0ULL;
+  return static_cast<std::int64_t>(raw_id | raw_shape);
 }
 
 [[nodiscard]] constexpr auto builtin_id_from_operand(const std::int64_t operand) -> std::optional<BuiltinId> {
-  if (operand < 0 || std::cmp_greater_equal(operand, builtin_count())) {
+  if (operand < 0) {
     return std::nullopt;
   }
-  return static_cast<BuiltinId>(operand);
+  const auto raw_operand = static_cast<std::uint64_t>(operand);
+  const auto raw_id = raw_operand & kBuiltinOperandIdMask;
+  if (std::cmp_greater_equal(raw_id, builtin_count())) {
+    return std::nullopt;
+  }
+  return static_cast<BuiltinId>(raw_id);
+}
+
+[[nodiscard]] constexpr auto builtin_call_shape_from_operand(const std::int64_t operand)
+    -> std::optional<BuiltinCallShape> {
+  if (!builtin_id_from_operand(operand).has_value()) {
+    return std::nullopt;
+  }
+  const auto raw_operand = static_cast<std::uint64_t>(operand);
+  return (raw_operand & kBuiltinOperandDirectValueBit) != 0ULL ? BuiltinCallShape::kDirectValue
+                                                               : BuiltinCallShape::kTupleExpanded;
 }
 
 [[nodiscard]] inline auto builtin_id_from_name(const std::string_view name) -> std::optional<BuiltinId> {
@@ -774,23 +822,23 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
   return kBuiltinSpecs[static_cast<std::size_t>(id)].arity;
 }
 
+[[nodiscard]] constexpr auto builtin_callable_call_shape(const BuiltinId id) -> BuiltinCallShape {
+  if (const auto [kind, primary] = builtin_arity_contract(id); kind == BuiltinArityKind::kExact && primary == 1U) {
+    return BuiltinCallShape::kDirectValue;
+  }
+  return BuiltinCallShape::kTupleExpanded;
+}
+
 [[nodiscard]] constexpr auto builtin_has_arity_contract(const BuiltinId id) -> bool {
   return builtin_arity_contract(id).kind != BuiltinArityKind::kUnchecked;
 }
 
 [[nodiscard]] constexpr auto builtin_accepts_arity(const BuiltinId id, const std::size_t arity) -> bool {
-  switch (const auto [kind, primary, allowed, allowed_count] = builtin_arity_contract(id); kind) {
+  switch (const auto [kind, primary] = builtin_arity_contract(id); kind) {
     case BuiltinArityKind::kUnchecked:
       return true;
     case BuiltinArityKind::kExact:
       return arity == primary;
-    case BuiltinArityKind::kOneOf:
-      for (std::size_t index = 0; index < allowed_count; ++index) {
-        if (arity == allowed[index]) {
-          return true;
-        }
-      }
-      return false;
     case BuiltinArityKind::kVariadicMinimum:
       return arity >= primary;
   }

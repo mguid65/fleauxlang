@@ -39,6 +39,10 @@ constexpr auto builtin(const fleaux::vm::BuiltinId builtin_id) -> std::int64_t {
   return fleaux::vm::builtin_operand(builtin_id);
 }
 
+constexpr auto builtin_direct(const fleaux::vm::BuiltinId builtin_id) -> std::int64_t {
+  return fleaux::vm::builtin_operand(builtin_id, fleaux::vm::BuiltinCallShape::kDirectValue);
+}
+
 }  // namespace
 
 TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
@@ -1618,6 +1622,123 @@ TEST_CASE("VM executes kMakeBuiltinFuncRef with native kBranchCall", "[vm]") {
   REQUIRE(output.str() == "-10\n");
 }
 
+TEST_CASE("VM executes exact-1 builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  constexpr auto kFirstBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::First);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kFirstBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Type builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kTypeBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::Type);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kTypeBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "Tuple\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.ToString builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c11 = push_i64_const(bytecode_module, 11);
+  constexpr auto kToStringBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ToString);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c11},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kToStringBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "(9, 11)\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Result builtin refs with direct-value result tuples", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  constexpr auto kResultOkBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultOk);
+  constexpr auto kResultTagBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ResultTag);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultTagBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) { INFO(result.error().message); }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "True\n");
+}
+
 TEST_CASE("VM builtin function refs drive TupleReduce through builtin reducers", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kAddBuiltin = builtin(fleaux::vm::BuiltinId::Add);
@@ -1651,6 +1772,85 @@ TEST_CASE("VM builtin function refs drive TupleReduce through builtin reducers",
   if (!result.has_value()) { INFO(result.error().message); }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
+}
+
+TEST_CASE("VM invoke_symbol dispatches builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "TakeFirst",
+      .link_name = "TakeFirst",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.First",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "TakeFirst",
+                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
+                                                                   fleaux::runtime::make_int(11)));
+
+  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_int(9));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Type builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "DescribeType",
+      .link_name = "DescribeType",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Type",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "DescribeType",
+                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
+                                                                   fleaux::runtime::make_int(11)));
+
+  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_string("Tuple"));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.ToString builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "DescribeValue",
+      .link_name = "DescribeValue",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.ToString",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "DescribeValue",
+                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
+                                                                   fleaux::runtime::make_int(11)));
+
+  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_string("(9, 11)"));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Result builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "InspectResultTag",
+      .link_name = "InspectResultTag",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Result.Tag",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "InspectResultTag",
+                                       fleaux::runtime::ResultOk(fleaux::runtime::make_int(9)));
+
+  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_bool(true));
 }
 
 TEST_CASE("VM nested callable refs preserve local state across reused invocation scratch", "[vm][closure]") {
@@ -2568,7 +2768,7 @@ TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
 TEST_CASE("VM kCallUserFunc binds variadic tail from owned tuple arguments", "[vm][variadic]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto kLengthBuiltin = builtin(fleaux::vm::BuiltinId::Length);
+  const auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c20 = push_i64_const(bytecode_module, 20);
   const auto c30 = push_i64_const(bytecode_module, 30);
@@ -3025,12 +3225,12 @@ TEST_CASE("VM kCallBuiltin executes Std.Result builtins through primary builtin 
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"boom"}});
   const auto cBoom = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  constexpr auto kResultOkBuiltin = builtin(fleaux::vm::BuiltinId::ResultOk);
-  constexpr auto kResultIsOkBuiltin = builtin(fleaux::vm::BuiltinId::ResultIsOk);
-  constexpr auto kResultUnwrapBuiltin = builtin(fleaux::vm::BuiltinId::ResultUnwrap);
-  constexpr auto kResultErrBuiltin = builtin(fleaux::vm::BuiltinId::ResultErr);
-  constexpr auto kResultIsErrBuiltin = builtin(fleaux::vm::BuiltinId::ResultIsErr);
-  constexpr auto kResultUnwrapErrBuiltin = builtin(fleaux::vm::BuiltinId::ResultUnwrapErr);
+  constexpr auto kResultOkBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultOk);
+  constexpr auto kResultIsOkBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultIsOk);
+  constexpr auto kResultUnwrapBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultUnwrap);
+  constexpr auto kResultErrBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultErr);
+  constexpr auto kResultIsErrBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultIsErr);
+  constexpr auto kResultUnwrapErrBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultUnwrapErr);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
   bytecode_module.instructions = {
@@ -3308,6 +3508,119 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.ToUInt64' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.Help rejects malformed nullary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Help)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Help' expected 1 argument but got 0");
+  }
+
+  SECTION("Std.Match rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Match)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Match' expected 2+ arguments but got 1");
+  }
+
+  SECTION("Std.Type accepts tuple-valued unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin_direct(fleaux::vm::BuiltinId::Type)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Println)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE(result.has_value());
+    REQUIRE(output.str() == "Tuple\n");
+  }
+
+  SECTION("Std.Type rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Type)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Type' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.Length rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin_direct(fleaux::vm::BuiltinId::Length)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Length' expected a direct tuple value");
+  }
+
+  SECTION("Std.Unwrap rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Unwrap)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Unwrap' expected 1 argument but got 2");
   }
 
   SECTION("Std.OS.Cwd rejects malformed unary bytecode shape") {
@@ -4257,7 +4570,8 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
         {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
-        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleRange)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64)},
         {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
     };
 
@@ -4266,7 +4580,7 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     const auto result = runtime.execute(bytecode_module, output);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected 1, 2 or 3 arguments but got 4");
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected 3 arguments but got 4");
   }
 
   SECTION("Std.Input nullary overload rejects malformed unary bytecode shape") {
@@ -4315,7 +4629,8 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     constexpr std::int64_t cText = 0;
     bytecode_module.instructions = {
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
-        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringSlice)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::StringSliceStringUInt64)},
         {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
     };
 
@@ -4324,7 +4639,7 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     const auto result = runtime.execute(bytecode_module, output);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "builtin 'Std.String.Slice' expected 2 or 3 arguments but got 1");
+    REQUIRE(result.error().message == "builtin 'Std.String.Slice' expected 2 arguments but got 1");
   }
 
   SECTION("Std.String.Find rejects malformed four-argument bytecode shape") {
@@ -4341,7 +4656,8 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
         {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
-        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringFind)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::StringFindStringStringUInt64)},
         {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
     };
 
@@ -4350,7 +4666,7 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     const auto result = runtime.execute(bytecode_module, output);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "builtin 'Std.String.Find' expected 2 or 3 arguments but got 4");
+    REQUIRE(result.error().message == "builtin 'Std.String.Find' expected 3 arguments but got 4");
   }
 }
 
@@ -4474,11 +4790,13 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{-7.5});
   const auto cFloatNegativeSevenPointFive = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
 
-  constexpr auto kLengthBuiltin = builtin(fleaux::vm::BuiltinId::Length);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
   constexpr auto kElementAtBuiltin = builtin(fleaux::vm::BuiltinId::ElementAt);
   constexpr auto kTakeBuiltin = builtin(fleaux::vm::BuiltinId::Take);
   constexpr auto kDropBuiltin = builtin(fleaux::vm::BuiltinId::Drop);
-  constexpr auto kSliceBuiltin = builtin(fleaux::vm::BuiltinId::Slice);
+  constexpr auto kSliceStopBuiltin = builtin(fleaux::vm::BuiltinId::SliceTupleUInt64);
+  constexpr auto kSliceStartStopBuiltin = builtin(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64);
+  constexpr auto kSliceStartStopStepBuiltin = builtin(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64);
   constexpr auto kSqrtBuiltin = builtin(fleaux::vm::BuiltinId::Sqrt);
   constexpr auto kSinBuiltin = builtin(fleaux::vm::BuiltinId::Sin);
   constexpr auto kCosBuiltin = builtin(fleaux::vm::BuiltinId::Cos);
@@ -4541,7 +4859,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceStartStopBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -4552,7 +4870,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceStopBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -4565,7 +4883,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSliceStartStopStepBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -4712,8 +5030,8 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
   constexpr auto kStringTrimStartBuiltin = builtin(fleaux::vm::BuiltinId::StringTrimStart);
   constexpr auto kStringTrimEndBuiltin = builtin(fleaux::vm::BuiltinId::StringTrimEnd);
   constexpr auto kStringCharAtBuiltin = builtin(fleaux::vm::BuiltinId::StringCharAt);
-  constexpr auto kStringSliceBuiltin = builtin(fleaux::vm::BuiltinId::StringSlice);
-  constexpr auto kStringFindBuiltin = builtin(fleaux::vm::BuiltinId::StringFind);
+  constexpr auto kStringSliceBuiltin = builtin(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64);
+  constexpr auto kStringFindBuiltin = builtin(fleaux::vm::BuiltinId::StringFindStringStringUInt64);
   constexpr auto kStringFormatBuiltin = builtin(fleaux::vm::BuiltinId::StringFormat);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
@@ -4900,7 +5218,7 @@ TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through primary bui
   constexpr auto kRegexFindBuiltin = builtin(fleaux::vm::BuiltinId::StringRegexFind);
   constexpr auto kRegexReplaceBuiltin = builtin(fleaux::vm::BuiltinId::StringRegexReplace);
   constexpr auto kRegexSplitBuiltin = builtin(fleaux::vm::BuiltinId::StringRegexSplit);
-  constexpr auto kLengthBuiltin = builtin(fleaux::vm::BuiltinId::Length);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
   bytecode_module.instructions = {
@@ -5379,7 +5697,7 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.Length") == fleaux::vm::BuiltinId::Length);
   REQUIRE(require_builtin("Std.Take") == fleaux::vm::BuiltinId::Take);
   REQUIRE(require_builtin("Std.Drop") == fleaux::vm::BuiltinId::Drop);
-  REQUIRE(require_builtin("Std.Slice") == fleaux::vm::BuiltinId::Slice);
+  REQUIRE(require_builtin("Std.Slice") == fleaux::vm::BuiltinId::SliceTupleUInt64);
   REQUIRE(require_builtin("Std.Cast") == fleaux::vm::BuiltinId::Cast);
   REQUIRE(require_builtin("Std.ToInt64") == fleaux::vm::BuiltinId::ToInt64);
   REQUIRE(require_builtin("Std.ToUInt64") == fleaux::vm::BuiltinId::ToUInt64);
@@ -5515,8 +5833,9 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
               fleaux::runtime::Drop(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1))), 0)) == 20.0);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
-              fleaux::runtime::Slice(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(0),
-                                                                 fleaux::runtime::make_int(3), fleaux::runtime::make_int(2))),
+              fleaux::runtime::SliceTupleUInt64UInt64UInt64(
+                  fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(0), fleaux::runtime::make_int(3),
+                                             fleaux::runtime::make_int(2))),
               1)) == 30.0);
 
   const auto as_int = fleaux::runtime::ToInt64(fleaux::runtime::make_float(3.0));

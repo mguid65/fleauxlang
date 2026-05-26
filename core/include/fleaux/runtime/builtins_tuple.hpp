@@ -250,33 +250,7 @@ template <typename Predicate>
   return make_bool(true);
 }
 
-// arg = [stop] | [start, stop] | [start, stop, step]
-[[nodiscard]] inline auto TupleRange(Value arg) -> Value {
-  Int start = 0;
-  Int stop = 0;
-  Int step = 1;
-
-  if (!arg.HasArray()) {
-    stop = as_int_value(arg);
-  } else {
-    switch (const auto& args = as_array(arg); args.Size()) {
-      case 1:
-        stop = as_int_value(array_at(arg, 0));
-        break;
-      case 2:
-        start = as_int_value(array_at(arg, 0));
-        stop = as_int_value(array_at(arg, 1));
-        break;
-      case 3:
-        start = as_int_value(array_at(arg, 0));
-        stop = as_int_value(array_at(arg, 1));
-        step = as_int_value(array_at(arg, 2));
-        break;
-      default:
-        throw std::logic_error{"internal error: TupleRange called with unexpected validated arity"};
-    }
-  }
-
+[[nodiscard]] inline auto tuple_range_impl(const Int start, const Int stop, const Int step) -> Value {
   if (step == 0) {
     throw std::invalid_argument{"TupleRange step cannot be 0"};
   }
@@ -292,6 +266,22 @@ template <typename Predicate>
     }
   }
   return Value{std::move(out)};
+}
+
+// arg = stop or [stop]
+[[nodiscard]] inline auto TupleRangeInt64(Value arg) -> Value {
+  const Int stop = arg.HasArray() ? as_int_value(array_at(arg, 0)) : as_int_value(arg);
+  return tuple_range_impl(0, stop, 1);
+}
+
+// arg = [start, stop]
+[[nodiscard]] inline auto TupleRangeInt64Int64(Value arg) -> Value {
+  return tuple_range_impl(as_int_value(array_at(arg, 0)), as_int_value(array_at(arg, 1)), 1);
+}
+
+// arg = [start, stop, step]
+[[nodiscard]] inline auto TupleRangeInt64Int64Int64(Value arg) -> Value {
+  return tuple_range_impl(as_int_value(array_at(arg, 0)), as_int_value(array_at(arg, 1)), as_int_value(array_at(arg, 2)));
 }
 
 }  // namespace fleaux::runtime
