@@ -56,12 +56,28 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
   return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
 }
 
-auto flow_args_from_lhs_type(const FunctionOverloadSet& overloads, const Type& lhs_type) -> std::vector<Type> {
-  if (overloads.size() == 1U && overloads.front().params.size() == 1U && !overloads.front().params[0].variadic) {
-    return {lhs_type};
+auto unwrap_outer_singleton_lhs_type_once(const ir::IRExpr& lhs_expr, const Type& lhs_type) -> Type {
+  const auto* tuple = std::get_if<ir::IRTupleExpr>(&lhs_expr.node);
+  if (tuple == nullptr || tuple->items.size() != 1U) {
+    return lhs_type;
   }
 
-  return args_from_lhs_type(lhs_type);
+  if (lhs_type.kind != TypeKind::kTuple || lhs_type.items.size() != 1U) {
+    return lhs_type;
+  }
+
+  return lhs_type.items.front();
+}
+
+auto flow_args_from_lhs(const FunctionOverloadSet& overloads, const ir::IRExpr& lhs_expr, const Type& lhs_type)
+    -> std::vector<Type> {
+  const Type adapted_lhs_type = unwrap_outer_singleton_lhs_type_once(lhs_expr, lhs_type);
+
+  if (overloads.size() == 1U && overloads.front().params.size() == 1U && !overloads.front().params[0].variadic) {
+    return {adapted_lhs_type};
+  }
+
+  return args_from_lhs_type(adapted_lhs_type);
 }
 
 auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& overloads, const Type& lhs_type,
@@ -69,7 +85,7 @@ auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& o
                               const std::unordered_set<std::string>& generic_params,
                               const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
-  const auto args = flow_args_from_lhs_type(overloads, lhs_type);
+  const auto args = flow_args_from_lhs(overloads, *flow.lhs, lhs_type);
   const auto full_name = target_name(flow.rhs).value_or("<operator>");
   auto checked =
       resolve_overload_invocation(full_name, flow.span, overloads, args, type_index, generic_params, explicit_type_args);
@@ -255,14 +271,24 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   if (!value_type) {
     return tl::unexpected(value_type.error());
   }
+  const Type adapted_value_type = unwrap_outer_singleton_lhs_type_once(*apply_args->items[0], *value_type);
 
   auto func_type = infer_expr(*apply_args->items[1], index, type_index, alias_index, locals, generic_params);
   if (!func_type) {
     return tl::unexpected(func_type.error());
   }
 
-  if (const bool value_is_empty_tuple = value_type->kind == TypeKind::kTuple && value_type->items.empty();
+  if (const bool value_is_empty_tuple = adapted_value_type.kind == TypeKind::kTuple && adapted_value_type.items.empty();
       !value_is_empty_tuple) {
+    if (is_deferred_callable_type(*func_type)) {
+      return make_type(TypeKind::kAny);
+    }
+
+    if (func_type->kind == TypeKind::kFunction && callable_has_fixed_arity(*func_type, 1U) &&
+        callable_accepts_arg(*func_type, 0U, adapted_value_type) && func_type->function_return.has_value()) {
+      return *func_type->function_return;
+    }
+
     return std::nullopt;
   }
 

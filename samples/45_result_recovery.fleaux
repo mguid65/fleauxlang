@@ -8,7 +8,7 @@ import Std;
 //         return default
 
 let TryParsePort(text: String): Result(Int64, String) =
-    ((text), Std.String.ParseInt64) -> Std.Try;
+    (text, Std.String.ParseInt64) -> Std.Try;
 
 let UseDefault(result: Result(Int64, String), fallback: Int64): Int64 =
     ((result) -> Std.Result.IsOk,

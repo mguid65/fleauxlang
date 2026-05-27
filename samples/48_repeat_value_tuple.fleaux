@@ -9,7 +9,7 @@ import Std;
 let Repeat<T>(value: T, count: Int64): Tuple(T...) =
     (count,
      (0, (): Tuple(T...) = ()),
-     (_, (): Tuple(T...) = (((value, ((count, 1) -> Std.Subtract)) -> Repeat), value) -> Std.Tuple.Prepend)
+     (_, (): Tuple(T...) = ((value, (count, 1) -> Std.Subtract) -> Repeat, value) -> Std.Tuple.Prepend)
     ) -> Std.Match;
 
 ("ha", 4) -> Repeat -> Std.Println;

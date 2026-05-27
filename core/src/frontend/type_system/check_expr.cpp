@@ -110,9 +110,6 @@ auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const 
                       const AliasIndex& alias_index, const LocalTypes& locals,
                       const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
-  if (tuple.items.size() == 1U) {
-    return infer_expr(*tuple.items[0], index, type_index, alias_index, locals, generic_params);
-  }
 
   Type out;
   out.kind = TypeKind::kTuple;

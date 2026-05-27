@@ -47,6 +47,7 @@ auto trim_copy(const std::string& text) -> std::string {
 auto buffer_has_complete_statement(const std::string& buffer) -> bool {
   int paren_depth = 0;
   bool in_string = false;
+  bool in_block = false;
   bool escaped = false;
   for (const char ch : buffer) {
     if (in_string) {
@@ -56,6 +57,17 @@ auto buffer_has_complete_statement(const std::string& buffer) -> bool {
         escaped = true;
       } else if (ch == '"') {
         in_string = false;
+      }
+      continue;
+    }
+
+    if (in_block) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '}') {
+        in_block = false;
       }
       continue;
     }
@@ -71,9 +83,12 @@ auto buffer_has_complete_statement(const std::string& buffer) -> bool {
     if (ch == ')') {
       --paren_depth;
     }
+    if (ch == '{') {
+      in_block = true;
+    }
   }
 
-  if (paren_depth != 0 || in_string) {
+  if (paren_depth != 0 || in_string || in_block) {
     return false;
   }
   return trim_copy(buffer).ends_with(';');

@@ -16,7 +16,7 @@ let UnsafeUnwrap(r: Result(Float64, String)): Float64 =
   (r) -> Std.Result.Unwrap;
 
 let TryUnsafeUnwrap(r: Result(Float64, String)): Result(Float64, String) =
-  ((r), UnsafeUnwrap) -> Std.Try;
+  (r, UnsafeUnwrap) -> Std.Try;
 
 (10.0, 2.0) -> SafeDiv -> PrintResult;
 (10.0, 0.0) -> SafeDiv -> PrintResult;

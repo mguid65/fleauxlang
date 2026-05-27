@@ -30,6 +30,33 @@ namespace fleaux::runtime {
   throw std::invalid_argument{"Dict key conversion failed"};
 }
 
+[[nodiscard]] inline auto dict_key_from_validated_value(const Value& key_val, const std::string_view builtin_name)
+    -> std::string {
+  switch (sort_tag_of(key_val)) {
+    case SortTag::kString:
+      return "s:" + as_string(key_val);
+    case SortTag::kNumber:
+      return "n:" + to_string(key_val);
+    case SortTag::kBool:
+      return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
+    case SortTag::kNull:
+      return "z:";
+    case SortTag::kArray:
+    case SortTag::kObject:
+    case SortTag::kGeneric:
+      throw std::logic_error(std::format("{} invariant violated: expected validated scalar Dict key", builtin_name));
+  }
+  throw std::logic_error(std::format("{} invariant violated: Dict key conversion failed", builtin_name));
+}
+
+[[nodiscard]] inline auto validated_dict_object(const Value& dict_val, const std::string_view builtin_name) -> const Object& {
+  const auto object = dict_val.TryGetObject();
+  if (!object) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated Dict value", builtin_name));
+  }
+  return *object;
+}
+
 // Returns the raw (prefixed) internal keys, sorted.
 [[nodiscard]] inline auto sorted_dict_keys(const Object& obj) -> std::vector<std::string> {
   std::vector<std::string> keys;
@@ -84,20 +111,20 @@ namespace fleaux::runtime {
 
 // arg = (dict,) or dict -> clone(dict)
 [[nodiscard]] inline auto DictCreate_Dict(Value arg) -> Value {
-  return Value{as_object(unwrap_singleton_arg(std::move(arg)))};
+  return Value{validated_dict_object(unwrap_singleton_arg(std::move(arg)), "Std.Dict.Create")};
 }
 
 // arg = (dict, key, value) -> new_dict
 [[nodiscard]] inline auto DictSet(Value arg) -> Value {
-  Object out = as_object(array_at(arg, 0));
-  out[dict_key_from_value(array_at(arg, 1))] = array_at(arg, 2);
+  Object out = validated_dict_object(array_at(arg, 0), "Std.Dict.Set");
+  out[dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Set")] = array_at(arg, 2);
   return Value{std::move(out)};
 }
 
 // arg = (dict, key) -> value
 [[nodiscard]] inline auto DictGet(Value arg) -> Value {
-  const auto& obj = as_object(array_at(arg, 0));
-  const auto key = dict_key_from_value(array_at(arg, 1));
+  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.Get");
+  const auto key = dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Get");
   const auto got = obj.TryGet(key);
   if (!got) {
     throw std::runtime_error{"DictGet: key not found"};
@@ -107,8 +134,8 @@ namespace fleaux::runtime {
 
 // arg = (dict, key, default) -> value_or_default
 [[nodiscard]] inline auto DictGetDefault(Value arg) -> Value {
-  const auto& obj = as_object(array_at(arg, 0));
-  const auto key = dict_key_from_value(array_at(arg, 1));
+  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.GetDefault");
+  const auto key = dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.GetDefault");
   const auto got = obj.TryGet(key);
   if (!got) {
     return array_at(arg, 2);
@@ -118,21 +145,21 @@ namespace fleaux::runtime {
 
 // arg = (dict, key) -> bool
 [[nodiscard]] inline auto DictContains(Value arg) -> Value {
-  const auto& obj = as_object(array_at(arg, 0));
-  return make_bool(obj.Contains(dict_key_from_value(array_at(arg, 1))));
+  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.Contains");
+  return make_bool(obj.Contains(dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Contains")));
 }
 
 // arg = (dict, key) -> new_dict
 [[nodiscard]] inline auto DictDelete(Value arg) -> Value {
-  Object out = as_object(array_at(arg, 0));
-  out.Erase(dict_key_from_value(array_at(arg, 1)));
+  Object out = validated_dict_object(array_at(arg, 0), "Std.Dict.Delete");
+  out.Erase(dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Delete"));
   return Value{std::move(out)};
 }
 
 // arg = (dict) or dict -> (k1, k2, ...), sorted by key
 [[nodiscard]] inline auto DictKeys(Value arg) -> Value {
   const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = as_object(dict_val);
+  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Keys");
   const auto keys = sorted_dict_keys(obj);
   Array out;
   out.Reserve(keys.size());
@@ -145,7 +172,7 @@ namespace fleaux::runtime {
 // arg = (dict) or dict -> values sorted by key
 [[nodiscard]] inline auto DictValues(Value arg) -> Value {
   const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = as_object(dict_val);
+  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Values");
   const auto keys = sorted_dict_keys(obj);
   Array out;
   out.Reserve(keys.size());
@@ -159,7 +186,7 @@ namespace fleaux::runtime {
 // arg = (dict) or dict -> ((k1,v1), (k2,v2), ...), sorted by key
 [[nodiscard]] inline auto DictEntries(Value arg) -> Value {
   const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = as_object(dict_val);
+  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Entries");
   const auto keys = sorted_dict_keys(obj);
   Array out;
   out.Reserve(keys.size());
@@ -173,20 +200,21 @@ namespace fleaux::runtime {
 // arg = (dict) or dict -> {}
 [[nodiscard]] inline auto DictClear(Value arg) -> Value {
   const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  (void)as_object(dict_val);
+  (void)validated_dict_object(dict_val, "Std.Dict.Clear");
   return Value{Object{}};
 }
 
 // arg = (dict_base, dict_overlay) -> new_dict
 // Keys in dict_overlay overwrite those in dict_base.
 [[nodiscard]] inline auto DictMerge(Value arg) -> Value {
-  return merge_dict_values(array_at(arg, 0), array_at(arg, 1));
+  Object base = validated_dict_object(array_at(arg, 0), "Std.Dict.Merge");
+  return Value{merge_dict_objects(std::move(base), validated_dict_object(array_at(arg, 1), "Std.Dict.Merge"))};
 }
 
 // arg = (dict) or dict -> Int64 (count of entries)
 [[nodiscard]] inline auto DictLength(Value arg) -> Value {
   const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  return make_int(static_cast<Int>(as_object(dict_val).Size()));
+  return make_int(static_cast<Int>(validated_dict_object(dict_val, "Std.Dict.Length").Size()));
 }
 
 }  // namespace fleaux::runtime

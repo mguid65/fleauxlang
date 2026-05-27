@@ -6,6 +6,57 @@
 
 namespace fleaux::runtime {
 
+[[nodiscard]] inline auto validated_tuple_value(const Value& value, const std::string_view builtin_name) -> const Array& {
+  const auto tuple = value.TryGetArray();
+  if (!tuple) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated tuple value", builtin_name));
+  }
+  return *tuple;
+}
+
+[[nodiscard]] inline auto validated_tuple_value(Value& value, const std::string_view builtin_name) -> Array& {
+  auto tuple = value.TryGetArray();
+  if (!tuple) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated tuple value", builtin_name));
+  }
+  return *tuple;
+}
+
+[[nodiscard]] inline auto validated_callable_ref(const Value& value, const std::string_view builtin_name) -> RuntimeCallable {
+  if (!callable_id_from_value(value).has_value()) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated callable reference", builtin_name));
+  }
+  return resolve_callable_ref(value);
+}
+
+[[nodiscard]] inline auto validated_registered_callable_ref(const Value& value, const std::string_view builtin_name)
+    -> RegisteredCallable {
+  if (!callable_id_from_value(value).has_value()) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated callable reference", builtin_name));
+  }
+  return resolve_registered_callable_ref(value);
+}
+
+[[nodiscard]] inline auto validated_integer_value(const Value& value, const char* name, const std::string_view builtin_name)
+    -> Int {
+  const auto number = value.TryGetNumber();
+  if (!number) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated integer value", builtin_name));
+  }
+
+  return number->Visit(
+      [](const Int signed_value) -> Int { return signed_value; },
+      [&](const UInt unsigned_value) -> Int {
+        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
+          throw std::out_of_range(std::format("{} out of Int64 range", name));
+        }
+        return static_cast<Int>(unsigned_value);
+      },
+      [&](const Float) -> Int {
+        throw std::logic_error(std::format("{} invariant violated: expected validated integer value", builtin_name));
+      });
+}
+
 template <typename Visitor>
 void for_each_tuple_value(const Array& src, Visitor&& visitor) {
   for (std::size_t index = 0; index < src.Size(); ++index) {
@@ -66,7 +117,7 @@ template <typename Predicate>
 
 // arg = sequence
 [[nodiscard]] inline auto TupleReverse(Value arg) -> Value {
-  const auto& src = as_array(arg);
+  const auto& src = validated_tuple_value(arg, "Std.Tuple.Reverse");
   Array out;
   out.Reserve(src.Size());
   for (std::size_t reverse_index = src.Size(); reverse_index > 0; --reverse_index) {
@@ -97,9 +148,8 @@ template <typename Predicate>
 
 // arg = [sequence, func_ref]
 [[nodiscard]] inline auto TupleMap(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
-  const Value& function_ref = array_at(arg, 1);
-  const RuntimeCallable function = resolve_callable_ref(function_ref);
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Map");
+  const RuntimeCallable function = validated_callable_ref(array_at(arg, 1), "Std.Tuple.Map");
 
   Array out;
   out.Reserve(src.Size());
@@ -111,9 +161,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFilter(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
-  const Value& pred = array_at(arg, 1);
-  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Filter");
+  const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.Filter");
 
   Array out;
   out.Reserve(src.Size());
@@ -128,7 +177,7 @@ template <typename Predicate>
 
 // arg = sequence
 [[nodiscard]] inline auto TupleSort(Value arg) -> Value {
-  const auto& src = as_array(arg);
+  const auto& src = validated_tuple_value(arg, "Std.Tuple.Sort");
   std::vector<Value> items;
   items.reserve(src.Size());
   for_each_tuple_value(src, [&](const Value& item) { items.push_back(item); });
@@ -146,7 +195,7 @@ template <typename Predicate>
 
 // arg = sequence
 [[nodiscard]] inline auto TupleUnique(Value arg) -> Value {
-  const auto& src = as_array(arg);
+  const auto& src = validated_tuple_value(arg, "Std.Tuple.Unique");
   Array out;
   out.Reserve(src.Size());
   for (std::size_t index = 0; index < src.Size(); ++index) {
@@ -167,7 +216,7 @@ template <typename Predicate>
 
 // arg = sequence
 [[nodiscard]] inline auto TupleMin(Value arg) -> Value {
-  const auto& src = as_array(arg);
+  const auto& src = validated_tuple_value(arg, "Std.Tuple.Min");
   if (src.Size() == 0) {
     throw std::invalid_argument{"TupleMin expects non-empty tuple"};
   }
@@ -184,7 +233,7 @@ template <typename Predicate>
 
 // arg = sequence
 [[nodiscard]] inline auto TupleMax(Value arg) -> Value {
-  const auto& src = as_array(arg);
+  const auto& src = validated_tuple_value(arg, "Std.Tuple.Max");
   if (src.Size() == 0) {
     throw std::invalid_argument{"TupleMax expects non-empty tuple"};
   }
@@ -201,10 +250,9 @@ template <typename Predicate>
 
 // arg = [sequence, initial, func_ref]
 [[nodiscard]] inline auto TupleReduce(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Reduce");
   Value accumulator = std::move(array_at(arg, 1));
-  const Value& reducer = array_at(arg, 2);
-  const RegisteredCallable reducer_callable = resolve_registered_callable_ref(reducer);
+  const RegisteredCallable reducer_callable = validated_registered_callable_ref(array_at(arg, 2), "Std.Tuple.Reduce");
   for (std::size_t index = 0; index < src.Size(); ++index) {
     accumulator = invoke_binary_callable(reducer_callable, std::move(accumulator), std::move(src[index]));
   }
@@ -213,9 +261,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleFindIndex(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
-  const Value& pred = array_at(arg, 1);
-  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.FindIndex");
+  const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.FindIndex");
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (as_bool(predicate(std::move(src[index])))) {
       return make_int(static_cast<Int>(index));
@@ -226,9 +273,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAny(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
-  const Value& pred = array_at(arg, 1);
-  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Any");
+  const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.Any");
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (as_bool(predicate(std::move(src[index])))) {
       return make_bool(true);
@@ -239,9 +285,8 @@ template <typename Predicate>
 
 // arg = [sequence, pred_ref]
 [[nodiscard]] inline auto TupleAll(Value arg) -> Value {
-  auto& src = as_array(array_at(arg, 0));
-  const Value& pred = array_at(arg, 1);
-  const RuntimeCallable predicate = resolve_callable_ref(pred);
+  auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.All");
+  const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.All");
   for (std::size_t index = 0; index < src.Size(); ++index) {
     if (!as_bool(predicate(std::move(src[index])))) {
       return make_bool(false);
@@ -270,18 +315,21 @@ template <typename Predicate>
 
 // arg = stop or [stop]
 [[nodiscard]] inline auto TupleRangeInt64(Value arg) -> Value {
-  const Int stop = arg.HasArray() ? as_int_value(array_at(arg, 0)) : as_int_value(arg);
+  const Int stop = validated_integer_value(arg, "TupleRange stop", "Std.Tuple.Range");
   return tuple_range_impl(0, stop, 1);
 }
 
 // arg = [start, stop]
 [[nodiscard]] inline auto TupleRangeInt64Int64(Value arg) -> Value {
-  return tuple_range_impl(as_int_value(array_at(arg, 0)), as_int_value(array_at(arg, 1)), 1);
+  return tuple_range_impl(validated_integer_value(array_at(arg, 0), "TupleRange start", "Std.Tuple.Range"),
+                          validated_integer_value(array_at(arg, 1), "TupleRange stop", "Std.Tuple.Range"), 1);
 }
 
 // arg = [start, stop, step]
 [[nodiscard]] inline auto TupleRangeInt64Int64Int64(Value arg) -> Value {
-  return tuple_range_impl(as_int_value(array_at(arg, 0)), as_int_value(array_at(arg, 1)), as_int_value(array_at(arg, 2)));
+  return tuple_range_impl(validated_integer_value(array_at(arg, 0), "TupleRange start", "Std.Tuple.Range"),
+                          validated_integer_value(array_at(arg, 1), "TupleRange stop", "Std.Tuple.Range"),
+                          validated_integer_value(array_at(arg, 2), "TupleRange step", "Std.Tuple.Range"));
 }
 
 }  // namespace fleaux::runtime

@@ -15,7 +15,7 @@ import Std;
 //     return n * factorial_match(n - 1)
 
 let IsEven(n: Int64): Bool =
-    (((n, 2) -> Std.Mod), 0) -> Std.Equal;
+    ((n, 2) -> Std.Mod, 0) -> Std.Equal;
 
 let ChooseParityLabel(n: Int64): String =
     ((n) -> IsEven, "even", "odd") -> Std.Select;
@@ -23,7 +23,7 @@ let ChooseParityLabel(n: Int64): String =
 let ReturnOne(_: Int64): Int64 = 1;
 
 let MultiplyByRecursiveBranchStep(n: Int64): Int64 =
-    (n, ((n, 1) -> Std.Subtract) -> FactorialWithBranch) -> Std.Multiply;
+    (n, (n, 1) -> Std.Subtract -> FactorialWithBranch) -> Std.Multiply;
 
 let FactorialWithBranch(n: Int64): Int64 =
     ((n, 0) -> Std.Equal, n, ReturnOne, MultiplyByRecursiveBranchStep) -> Std.Branch;
@@ -31,7 +31,7 @@ let FactorialWithBranch(n: Int64): Int64 =
 let FactorialWithMatch(n: Int64): Int64 =
     (n,
      (0, (): Int64 = 1),
-     (_, (): Int64 = (n, ((n, 1) -> Std.Subtract) -> FactorialWithMatch) -> Std.Multiply)
+     (_, (): Int64 = (n, (n, 1) -> Std.Subtract -> FactorialWithMatch) -> Std.Multiply)
     ) -> Std.Match;
 
 // Std.Select is eager over values. This commented form is intentionally not runnable:

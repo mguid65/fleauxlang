@@ -65,10 +65,14 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
                         Catch::Matchers::ContainsSubstring("Second: expected a 2-tuple"));
   }
 
-  SECTION("Cast returns the original runtime value") {
+  SECTION("Cast returns the original runtime value after one unary convenience unwrap") {
     const Value int_value = Cast(make_tuple(make_int(42)));
     REQUIRE(to_double(int_value) == 42.0);
     REQUIRE(as_string(Type(make_tuple(int_value))) == "Int64");
+
+    const Value singleton_tuple_value = Cast(make_tuple(make_tuple(make_int(7))));
+    REQUIRE(as_array(singleton_tuple_value).Size() == 1);
+    REQUIRE(to_double(array_at(singleton_tuple_value, 0)) == 7.0);
 
     const Value tuple_value = Cast(make_tuple(make_tuple(make_string("user"), make_int(7))));
     REQUIRE(as_array(tuple_value).Size() == 2);
@@ -241,10 +245,14 @@ TEST_CASE("Runtime builtins: deterministic random generators", "[runtime][random
   REQUIRE(as_string(ToString(First(left_step))) == "1278849761381179246");
   REQUIRE(as_string(ToString(First(right_step))) == "15883818742529415426");
 
-  REQUIRE_THROWS_WITH(RandomCreate(make_tuple(make_int(-1))),
-                      Catch::Matchers::ContainsSubstring("seed must be non-negative"));
-  REQUIRE_THROWS_WITH(RandomNextUInt64(make_string("bad")),
-                      Catch::Matchers::ContainsSubstring("expected RandomGenerator"));
+
+  const Value invalid_version_generator =
+      make_tuple(make_string("__fleaux_rng__"), make_int(-1), make_uint(123456789ULL));
+  REQUIRE_THROWS_WITH(RandomNextUInt64(invalid_version_generator),
+                      Catch::Matchers::ContainsSubstring("invalid version"));
+
+  const Value invalid_state_generator = make_tuple(make_string("__fleaux_rng__"), make_uint(1ULL), make_int(-1));
+  REQUIRE_THROWS_WITH(RandomSplit(invalid_state_generator), Catch::Matchers::ContainsSubstring("invalid state"));
 }
 
 TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
@@ -344,6 +352,10 @@ TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
     REQUIRE_THROWS_WITH(ResultTag(wrong_width), Catch::Matchers::ContainsSubstring("Result.Tag: expected Result tuple"));
     REQUIRE_THROWS_WITH(ResultPayload(wrong_tag),
                         Catch::Matchers::ContainsSubstring("Result.Payload: Result tag must be a Bool"));
+    REQUIRE_THROWS_WITH(ResultUnwrap(wrong_tag),
+                        Catch::Matchers::ContainsSubstring("Result.Unwrap: Result tag must be a Bool"));
+    REQUIRE_THROWS_WITH(ResultUnwrapErr(wrong_width),
+                        Catch::Matchers::ContainsSubstring("Result.UnwrapErr: expected Result tuple"));
   }
 
   SECTION("Unwrap and UnwrapErr") {
@@ -561,14 +573,24 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
     REQUIRE(as_string(array_at(err, 1)) == "boom-two");
   }
 
-  SECTION("Task.AwaitAll returns Err(index, message) for non-tuple input") {
-    const Value all = TaskAwaitAll(make_tuple(make_int(7)));
+  SECTION("Task.AwaitAll returns Err(index, message) for invalid task handles") {
+    Value retired_task = make_null();
+    {
+      TaskRegistryScope retired_scope;
+      const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
+      retired_task = TaskSpawn(make_tuple(identity, make_int(7)));
+      const Value awaited = TaskAwait(make_tuple(retired_task));
+      REQUIRE(as_bool(ResultIsOk(awaited)));
+      REQUIRE(to_double(ResultUnwrap(awaited)) == 7.0);
+    }
+
+    const Value all = TaskAwaitAll(make_tuple(make_tuple(retired_task)));
 
     REQUIRE(as_bool(ResultIsErr(all)));
     const Value err = ResultUnwrapErr(all);
     REQUIRE(as_array(err).Size() == 2);
     REQUIRE(to_double(array_at(err, 0)) == 0.0);
-    REQUIRE(as_string(array_at(err, 1)) == "Task.AwaitAll: tasks must be a Tuple");
+    REQUIRE(as_string(array_at(err, 1)) == "Task.AwaitAll: invalid task handle");
   }
 
   SECTION("Task.Cancel can cancel a queued task before execution") {
@@ -1218,7 +1240,8 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(as_bool(TupleContains(make_tuple(values, make_int(2)))));
     REQUIRE(as_array(zipped).Size() == 2U);
     REQUIRE(to_double(array_at(TupleRangeInt64(make_int(3)), 2)) == 2.0);
-    REQUIRE(to_double(array_at(TupleRangeInt64(make_tuple(make_int(3))), 2)) == 2.0);
+    REQUIRE_THROWS_WITH(TupleRangeInt64(make_tuple(make_int(3))),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
 
     const Value from_start = TupleRangeInt64Int64(make_tuple(make_int(2), make_int(5)));
     REQUIRE(as_array(from_start).Size() == 3U);
@@ -1230,6 +1253,20 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(stepped, 0)) == 5.0);
     REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
     REQUIRE(to_double(array_at(stepped, 2)) == 1.0);
+
+    REQUIRE_THROWS_WITH(TupleRangeInt64(make_float(1.5)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
+    REQUIRE_THROWS_WITH(TupleRangeInt64Int64(make_tuple(make_int(0), make_float(3.5))),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
+    REQUIRE_THROWS_WITH(TupleRangeInt64Int64Int64(make_tuple(make_int(0), make_int(5), make_int(0))),
+                        Catch::Matchers::ContainsSubstring("TupleRange step cannot be 0"));
+
+    REQUIRE_THROWS_WITH(TupleReverse(make_int(9)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Reverse invariant violated: expected validated tuple value"));
+    REQUIRE_THROWS_WITH(TupleSort(make_int(9)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Sort invariant violated: expected validated tuple value"));
+    REQUIRE_THROWS_WITH(TupleUnique(make_int(9)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Unique invariant violated: expected validated tuple value"));
   }
 
   SECTION("Tuple higher-order helpers preserve tuple traversal semantics") {
@@ -1268,6 +1305,17 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(unique, 0)) == 1.0);
     REQUIRE(to_double(array_at(unique, 1)) == 2.0);
     REQUIRE(to_double(array_at(unique, 2)) == 3.0);
+
+    REQUIRE_THROWS_WITH(TupleMap(make_tuple(make_int(9), add_one)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Map invariant violated: expected validated tuple value"));
+    REQUIRE_THROWS_WITH(TupleFilter(make_tuple(values, make_int(9))),
+                        Catch::Matchers::ContainsSubstring(
+                            "Std.Tuple.Filter invariant violated: expected validated callable reference"));
+    REQUIRE_THROWS_WITH(TupleReduce(make_tuple(values, make_int(0), make_int(9))),
+                        Catch::Matchers::ContainsSubstring(
+                            "Std.Tuple.Reduce invariant violated: expected validated callable reference"));
+    REQUIRE_THROWS_WITH(TupleAny(make_tuple(make_int(9), is_even)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Any invariant violated: expected validated tuple value"));
   }
 
   SECTION("TupleReduce preserves binary callable specializations") {
@@ -1299,6 +1347,10 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
   SECTION("TupleMin and TupleMax handle singleton tuples") {
     REQUIRE(to_double(TupleMin(make_tuple(make_int(7)))) == 7.0);
     REQUIRE(to_double(TupleMax(make_tuple(make_int(7)))) == 7.0);
+    REQUIRE_THROWS_WITH(TupleMin(make_int(7)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Min invariant violated: expected validated tuple value"));
+    REQUIRE_THROWS_WITH(TupleMax(make_int(7)),
+                        Catch::Matchers::ContainsSubstring("Std.Tuple.Max invariant violated: expected validated tuple value"));
   }
 
   SECTION("TupleMin and TupleMax choose boundaries across numeric range") {
@@ -1357,6 +1409,11 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     REQUIRE(as_array(array_at(out, 0)).Size() == 2);
     REQUIRE(to_double(array_at(array_at(out, 0), 1)) == 4.0);
     REQUIRE(to_double(array_at(array_at(out, 2), 0)) == 3.0);
+
+    REQUIRE_THROWS_WITH(ArrayTranspose2D(make_tuple(make_int(1), make_int(2))),
+                        Catch::Matchers::ContainsSubstring("invariant violated: expected validated tuple row"));
+    REQUIRE_THROWS_WITH(ArrayTranspose2D(make_tuple(make_tuple(make_int(1), make_int(2)), make_tuple(make_int(3)))),
+                        Catch::Matchers::ContainsSubstring("ragged grid detected"));
   }
 
   SECTION("Slice2D extracts a rectangular region") {
@@ -1435,9 +1492,9 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     REQUIRE(to_double(ArrayGetAtND(make_tuple(reshaped_nd, make_tuple(make_int(1), make_int(1), make_int(1))))) == 8.0);
 
     REQUIRE_THROWS_WITH(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(1), make_float(0.5), make_int(1)))),
-                        Catch::Matchers::ContainsSubstring("expects an integer value"));
+                        Catch::Matchers::ContainsSubstring("invariant violated: expected validated integer index"));
     REQUIRE_THROWS_WITH(ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_float(2.5), make_int(2)))),
-                        Catch::Matchers::ContainsSubstring("expects an integer value"));
+                        Catch::Matchers::ContainsSubstring("invariant violated: expected validated integer index"));
 
     const Value whole = ArrayGetAtND(make_tuple(cube, make_tuple()));
     REQUIRE(as_array(whole).Size() == 2);

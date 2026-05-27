@@ -23,25 +23,21 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
 
 [[nodiscard]] inline auto random_seed_from_arg(Value arg, const std::string_view builtin_name) -> UInt {
   const Value seed = unwrap_singleton_arg(std::move(arg));
-  return as_number(seed).Visit(
+  const auto number = seed.TryGetNumber();
+  if (!number) {
+    throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
+  }
+
+  return number->Visit(
       [&](const Int signed_value) -> UInt {
         if (signed_value < 0) {
-          throw std::invalid_argument(std::format("{}: seed must be non-negative", builtin_name));
+          throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
         }
         return static_cast<UInt>(signed_value);
       },
       [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-      [&](const Float float_value) -> UInt {
-        if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
-          throw std::invalid_argument(std::format("{}: seed expects an integer value", builtin_name));
-        }
-        if (float_value < 0.0) {
-          throw std::invalid_argument(std::format("{}: seed must be non-negative", builtin_name));
-        }
-        if (float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
-          throw std::out_of_range(std::format("{}: seed out of UInt64 range", builtin_name));
-        }
-        return static_cast<UInt>(float_value);
+      [&](const Float) -> UInt {
+        throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
       });
 }
 

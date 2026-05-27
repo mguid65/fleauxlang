@@ -721,6 +721,19 @@ auto emit_tuple_items(const IRTupleExpr& tuple_expr, std::vector<Instruction>& o
   return {};
 }
 
+auto adapted_user_flow_lhs_expr(const IRFlowExpr& flow) -> const IRExpr& {
+  const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node);
+  if (tuple == nullptr || tuple->items.size() != 1U) {
+    return *flow.lhs;
+  }
+
+  if (flow.call_shape == IRFlowCallShape::kDirectValue || flow.call_shape == IRFlowCallShape::kTupleExpanded) {
+    return *tuple->items[0];
+  }
+
+  return *flow.lhs;
+}
+
 auto try_emit_user_binary_call_fast_path(const IRFlowExpr& flow, std::vector<Instruction>& out,
                                          const LocalSlots& locals, CompileState& state, Module& bytecode_module)
     -> tl::expected<bool, CompileError> {
@@ -734,7 +747,8 @@ auto try_emit_user_binary_call_fast_path(const IRFlowExpr& flow, std::vector<Ins
     return false;
   }
 
-  const auto* tuple_expr = std::get_if<IRTupleExpr>(&flow.lhs->node);
+  const IRExpr& adapted_lhs = adapted_user_flow_lhs_expr(flow);
+  const auto* tuple_expr = std::get_if<IRTupleExpr>(&adapted_lhs.node);
   if (tuple_expr == nullptr || tuple_expr->items.size() != 2U) {
     return false;
   }
@@ -785,6 +799,59 @@ auto format_builtin_arity_expectation(const vm::BuiltinArityContract contract) -
   return "unknown";
 }
 
+auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const fleaux::vm::BuiltinId builtin_id) -> bool {
+  switch (builtin_id) {
+    case fleaux::vm::BuiltinId::Length:
+    case fleaux::vm::BuiltinId::TupleReverse:
+    case fleaux::vm::BuiltinId::TupleSort:
+    case fleaux::vm::BuiltinId::TupleUnique:
+    case fleaux::vm::BuiltinId::TupleMin:
+    case fleaux::vm::BuiltinId::TupleMax:
+    case fleaux::vm::BuiltinId::TaskAwaitAll:
+    case fleaux::vm::BuiltinId::DictCreateDict:
+    case fleaux::vm::BuiltinId::DictKeys:
+    case fleaux::vm::BuiltinId::DictValues:
+    case fleaux::vm::BuiltinId::DictEntries:
+    case fleaux::vm::BuiltinId::DictClear:
+    case fleaux::vm::BuiltinId::DictLength:
+    case fleaux::vm::BuiltinId::First:
+    case fleaux::vm::BuiltinId::Second:
+    case fleaux::vm::BuiltinId::ResultTag:
+    case fleaux::vm::BuiltinId::ResultPayload:
+    case fleaux::vm::BuiltinId::ResultIsOk:
+    case fleaux::vm::BuiltinId::ResultIsErr:
+    case fleaux::vm::BuiltinId::ResultUnwrap:
+    case fleaux::vm::BuiltinId::ResultUnwrapErr:
+    case fleaux::vm::BuiltinId::TupleRangeInt64:
+    case fleaux::vm::BuiltinId::RandomCreate:
+    case fleaux::vm::BuiltinId::RandomNextUInt64:
+    case fleaux::vm::BuiltinId::RandomNextInt64:
+    case fleaux::vm::BuiltinId::RandomNextFloat64:
+    case fleaux::vm::BuiltinId::RandomNextBool:
+    case fleaux::vm::BuiltinId::RandomSplit:
+      return true;
+    default:
+      return false;
+  }
+}
+
+auto adapted_builtin_flow_lhs_expr(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> const IRExpr& {
+  const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node);
+  if (tuple == nullptr || tuple->items.size() != 1U) {
+    return *flow.lhs;
+  }
+
+  if (flow.call_shape == IRFlowCallShape::kTupleExpanded) {
+    return *tuple->items[0];
+  }
+
+  if (flow.call_shape == IRFlowCallShape::kDirectValue && builtin_dispatch_contract_requires_direct_lhs_unwrap(builtin_id)) {
+    return *tuple->items[0];
+  }
+
+  return *flow.lhs;
+}
+
 auto validate_builtin_known_arity(const vm::BuiltinId builtin_id, const std::size_t arity) -> EmitResult {
   if (!fleaux::vm::builtin_has_arity_contract(builtin_id) || fleaux::vm::builtin_accepts_arity(builtin_id, arity)) {
     return {};
@@ -800,13 +867,13 @@ auto validate_builtin_known_arity(const vm::BuiltinId builtin_id, const std::siz
 }
 
 auto known_builtin_call_arity(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> std::optional<std::size_t> {
-  (void)builtin_id;
+  const IRExpr& adapted_lhs = adapted_builtin_flow_lhs_expr(builtin_id, flow);
   if (flow.call_shape == IRFlowCallShape::kDirectValue) {
     return 1U;
   }
 
   if (flow.call_shape == IRFlowCallShape::kTupleExpanded) {
-    if (const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node); tuple != nullptr && tuple->items.size() != 1U) {
+    if (const auto* tuple = std::get_if<IRTupleExpr>(&adapted_lhs.node); tuple != nullptr) {
       return tuple->items.size();
     }
     return std::nullopt;
@@ -847,13 +914,14 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
   if (!builtin_id.has_value()) {
     return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
   }
+  const IRExpr& adapted_lhs = adapted_builtin_flow_lhs_expr(*builtin_id, flow);
   if (const auto arity = known_builtin_call_arity(*builtin_id, flow); arity.has_value()) {
     if (auto validated = validate_builtin_known_arity(*builtin_id, *arity); !validated) {
       return validated;
     }
   }
 
-  if (const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node); tuple != nullptr) {
+  if (const auto* tuple = std::get_if<IRTupleExpr>(&adapted_lhs.node); tuple != nullptr) {
     if (tuple->items.size() == 2) {
       if (const auto opcode = binary_intrinsic_builtin_to_opcode(symbol_key)) {
         if (auto emit_result = emit_tuple_items(*tuple, out, locals, state, bytecode_module); !emit_result) {
@@ -874,14 +942,14 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
       }
     }
   } else if (const auto opcode = unary_intrinsic_builtin_to_opcode(symbol_key)) {
-    if (auto emit_result = emit_expr(*flow.lhs, out, locals, state, bytecode_module); !emit_result) {
+    if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
       return emit_result;
     }
     out.push_back(Instruction{.opcode = *opcode, .operand = 0});
     return {};
   }
 
-  if (auto emit_result = emit_expr(*flow.lhs, out, locals, state, bytecode_module); !emit_result) {
+  if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
     return emit_result;
   }
   out.push_back(Instruction{.opcode = Opcode::kCallBuiltin,
@@ -1354,9 +1422,11 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
   }
 
   bool emitted_lhs = false;
+  const IRExpr& adapted_user_lhs = adapted_user_flow_lhs_expr(flow);
   if (const auto user_fn_idx = user_function_index_from_target(flow.rhs, state); user_fn_idx.has_value()) {
     if (auto wrapped_emit =
-            emit_lhs_for_user_call_with_auto_value_ref(*flow.lhs, *user_fn_idx, out, locals, state, bytecode_module);
+            emit_lhs_for_user_call_with_auto_value_ref(adapted_user_lhs, *user_fn_idx, out, locals, state,
+                                                       bytecode_module);
         !wrapped_emit) {
       return tl::unexpected(wrapped_emit.error());
     } else {
@@ -1365,7 +1435,10 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
   }
 
   if (!emitted_lhs) {
-    if (auto emit_result = emit_expr(*flow.lhs, out, locals, state, bytecode_module); !emit_result) {
+    if (auto emit_result = emit_expr(user_function_index_from_target(flow.rhs, state).has_value() ? adapted_user_lhs
+                                                                                                   : *flow.lhs,
+                                     out, locals, state, bytecode_module);
+        !emit_result) {
       return emit_result;
     }
   }
@@ -1391,9 +1464,6 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
             return emit_block_expr(*block_ptr, out, locals, state, bytecode_module);
           },
           [&](const IRTupleExpr& tuple_expr) -> EmitResult {
-            if (tuple_expr.items.size() == 1) {
-              return emit_expr(*tuple_expr.items[0], out, locals, state, bytecode_module);
-            }
             if (auto emit_result = emit_tuple_items(tuple_expr, out, locals, state, bytecode_module); !emit_result) {
               return emit_result;
             }

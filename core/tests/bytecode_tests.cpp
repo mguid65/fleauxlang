@@ -678,6 +678,27 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     REQUIRE(result.has_value());
   }
 
+  SECTION("Nested singleton tuple wrappers are preserved for exact-1 Std.Type calls") {
+    fleaux::frontend::ir::IRProgram ir_program;
+    ir_program.expressions = {
+        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
+            fleaux::frontend::ir::IRFlowExpr{.lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
+                                                       make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
+                                                           make_int_constant_box(1)}})}}),
+                                         .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
+    };
+
+    const fleaux::bytecode::BytecodeCompiler compiler;
+    const auto result = compiler.compile(ir_program);
+
+    REQUIRE(result.has_value());
+    const auto build_tuple_count = std::count_if(result->instructions.begin(), result->instructions.end(),
+                                                 [](const fleaux::bytecode::Instruction& ins) {
+                                                   return ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 1;
+                                                 });
+    REQUIRE(build_tuple_count == 2);
+  }
+
   SECTION("Tuple literal with wrong arity is rejected for Std.Match") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {

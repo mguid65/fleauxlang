@@ -471,9 +471,6 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 
 [[nodiscard]] inline auto TaskAwaitAll(Value arg) -> Value {
   const Value tasks_arg = unwrap_singleton_arg(std::move(arg));
-  if (!tasks_arg.HasArray()) {
-    return ResultErr(make_tuple(make_int(static_cast<Int>(0)), make_string("Task.AwaitAll: tasks must be a Tuple")));
-  }
   const auto& tasks = as_array(tasks_arg);
 
   Array out;

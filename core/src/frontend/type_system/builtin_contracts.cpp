@@ -314,7 +314,7 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
            check_dict_key_channel_arg(args, 1U, type_index, error_message, full_name);
   }
   if (full_name == "Std.Dict.Keys" || full_name == "Std.Dict.Values" || full_name == "Std.Dict.Entries" ||
-      full_name == "Std.Dict.Clear") {
+      full_name == "Std.Dict.Clear" || full_name == "Std.Dict.Length") {
     return check_dict_key_channel_arg(args, 0U, type_index, error_message, full_name);
   }
   if (full_name == "Std.Parallel.WithOptions") {

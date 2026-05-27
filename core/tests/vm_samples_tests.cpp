@@ -1115,6 +1115,33 @@ TEST_CASE("Std.Type executes in the VM", "[vm][samples]") {
   REQUIRE(runtime_result.has_value());
 }
 
+TEST_CASE("Std.Type and Std.Length preserve nested singleton tuple wrappers in the VM", "[vm][samples]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_nested_singleton_tuple";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "nested_singleton_tuple_ok.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "import Std;\n"
+           "((1)) -> Std.Type -> Std.Println;\n"
+           "((1)) -> Std.Length -> Std.Println;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE(analyzed.has_value());
+
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "Tuple\n1\n");
+}
+
 TEST_CASE("Std.TypeOf is unresolved after alias removal", "[vm][samples][types]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_typeof_removed";
   std::filesystem::remove_all(temp_dir);

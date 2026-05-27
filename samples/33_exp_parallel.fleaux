@@ -5,7 +5,7 @@ let ReturnSelf(x: Any): Any = x;
 let Fail(_x: Any): Any = ("boom-two") -> Std.Result.Err -> Std.Result.Unwrap;
 
 let MaybeFail(x: Float64): Any =
-  (((x, 2.0) -> Std.Equal), x, Fail, ReturnSelf) -> Std.Branch;
+  ((x, 2.0) -> Std.Equal, x, Fail, ReturnSelf) -> Std.Branch;
 
 ((1.0, 3.0, 4.0), Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;
 ((1.0, 2.0, 3.0), MaybeFail) -> Std.Parallel.Map -> Std.Result.IsErr -> Std.Println;

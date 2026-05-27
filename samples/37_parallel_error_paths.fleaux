@@ -5,11 +5,11 @@ let FailMap(_x: Float64): Float64 = ("map-boom") -> Std.Result.Err -> Std.Result
 let FailForEach(_x: Float64): Float64 = ("foreach-boom") -> Std.Result.Err -> Std.Result.Unwrap;
 
 let MaybeFailMap(x: Float64): Float64 =
-  (((x, 2.0) -> Std.Equal), x, FailMap, ReturnSelf) -> Std.Branch
+  ((x, 2.0) -> Std.Equal, x, FailMap, ReturnSelf) -> Std.Branch
 ;
 
 let MaybeFailForEach(x: Float64): Float64 =
-  (((x, 3.0) -> Std.Equal), x, FailForEach, ReturnSelf) -> Std.Branch
+  ((x, 3.0) -> Std.Equal, x, FailForEach, ReturnSelf) -> Std.Branch
 ;
 
 let AddOrFail(acc: Float64, x: Float64): Float64 =

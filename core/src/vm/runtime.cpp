@@ -356,15 +356,150 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
 
 enum class BuiltinDispatchValueShape : std::uint8_t {
   kUnchecked,
+  kInteger,
   kTuple,
+  kTupleOfTuples,
+  kTupleCallable,
+  kTupleValueCallable,
+  kIntegerInteger,
+  kIntegerIntegerInteger,
+  kDictObject,
+  kDictObjectScalarKey,
+  kDictObjectPair,
+  kTupleInteger,
+  kTupleIntegerInteger,
+  kTupleIntegerIntegerValue,
+  kValueIntegerTuple,
+  kValueIntegerTupleValue,
+  kTupleIntegerTuple,
+  kTupleOfTuplesIntegerIntegerValue,
+  kTupleOfTuplesIntegerIntegerIntegerInteger,
+  kTupleTuplePair,
   kPairTuple,
   kResultTuple,
+  kNonNegativeInteger,
+  kRandomGenerator,
 };
+
+[[nodiscard]] auto is_scalar_dict_key_value(const Value& value) -> bool {
+  switch (runtime::sort_tag_of(value)) {
+    case runtime::SortTag::kNull:
+    case runtime::SortTag::kBool:
+    case runtime::SortTag::kNumber:
+    case runtime::SortTag::kString:
+      return true;
+    case runtime::SortTag::kArray:
+    case runtime::SortTag::kObject:
+    case runtime::SortTag::kGeneric:
+      return false;
+  }
+  return false;
+}
+
+[[nodiscard]] auto is_integral_dispatch_number_value(const Value& value) -> bool {
+  if (const auto number = value.TryGetNumber(); !number) {
+    return false;
+  } else {
+    return number->Visit([](const runtime::Int) -> bool { return true; },
+                         [](const runtime::UInt) -> bool { return true; },
+                         [](const runtime::Float) -> bool { return false; });
+  }
+}
+
+[[nodiscard]] auto is_tuple_of_tuple_values(const Value& value) -> bool {
+  if (!value.HasArray()) {
+    return false;
+  }
+  const auto& tuple = runtime::as_array(value);
+  for (std::size_t element_index = 0; element_index < tuple.Size(); ++element_index) {
+    if (!tuple.TryGet(element_index)->HasArray()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] auto is_integral_dispatch_tuple_value(const Value& value) -> bool {
+  if (!value.HasArray()) {
+    return false;
+  }
+  const auto& tuple = runtime::as_array(value);
+  for (std::size_t element_index = 0; element_index < tuple.Size(); ++element_index) {
+    if (!is_integral_dispatch_number_value(*tuple.TryGet(element_index))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] auto is_dispatch_callable_value(const Value& value) -> bool {
+  return runtime::callable_id_from_value(value).has_value();
+}
 
 [[nodiscard]] constexpr auto builtin_dispatch_value_shape_contract(const BuiltinId builtin_id) -> BuiltinDispatchValueShape {
   switch (builtin_id) {
+    case BuiltinId::TupleRangeInt64:
+      return BuiltinDispatchValueShape::kInteger;
     case BuiltinId::Length:
+    case BuiltinId::TupleReverse:
+    case BuiltinId::TupleSort:
+    case BuiltinId::TupleUnique:
+    case BuiltinId::TupleMin:
+    case BuiltinId::TupleMax:
+    case BuiltinId::TaskAwaitAll:
       return BuiltinDispatchValueShape::kTuple;
+    case BuiltinId::TupleMap:
+    case BuiltinId::TupleFilter:
+    case BuiltinId::TupleFindIndex:
+    case BuiltinId::TupleAny:
+    case BuiltinId::TupleAll:
+      return BuiltinDispatchValueShape::kTupleCallable;
+    case BuiltinId::TupleReduce:
+      return BuiltinDispatchValueShape::kTupleValueCallable;
+    case BuiltinId::TupleRangeInt64Int64:
+      return BuiltinDispatchValueShape::kIntegerInteger;
+    case BuiltinId::TupleRangeInt64Int64Int64:
+      return BuiltinDispatchValueShape::kIntegerIntegerInteger;
+    case BuiltinId::ArrayTranspose2D:
+      return BuiltinDispatchValueShape::kTupleOfTuples;
+    case BuiltinId::DictCreateDict:
+    case BuiltinId::DictKeys:
+    case BuiltinId::DictValues:
+    case BuiltinId::DictEntries:
+    case BuiltinId::DictClear:
+    case BuiltinId::DictLength:
+      return BuiltinDispatchValueShape::kDictObject;
+    case BuiltinId::DictSet:
+    case BuiltinId::DictGet:
+    case BuiltinId::DictGetDefault:
+    case BuiltinId::DictContains:
+    case BuiltinId::DictDelete:
+      return BuiltinDispatchValueShape::kDictObjectScalarKey;
+    case BuiltinId::DictMerge:
+      return BuiltinDispatchValueShape::kDictObjectPair;
+    case BuiltinId::ArrayGetAt:
+    case BuiltinId::ArrayRemoveAt:
+      return BuiltinDispatchValueShape::kTupleInteger;
+    case BuiltinId::ArraySetAt:
+    case BuiltinId::ArrayInsertAt:
+      return BuiltinDispatchValueShape::kTupleInteger;
+    case BuiltinId::ArraySlice:
+    case BuiltinId::ArrayReshape:
+      return BuiltinDispatchValueShape::kTupleIntegerInteger;
+    case BuiltinId::ArrayFill:
+      return BuiltinDispatchValueShape::kTupleIntegerIntegerValue;
+    case BuiltinId::ArraySetAt2D:
+      return BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue;
+    case BuiltinId::ArraySlice2D:
+      return BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger;
+    case BuiltinId::ArrayGetAtND:
+      return BuiltinDispatchValueShape::kValueIntegerTuple;
+    case BuiltinId::ArraySetAtND:
+      return BuiltinDispatchValueShape::kValueIntegerTupleValue;
+    case BuiltinId::ArrayConcat:
+      return BuiltinDispatchValueShape::kTupleTuplePair;
+    case BuiltinId::ArrayReshapeND:
+      return BuiltinDispatchValueShape::kTupleIntegerTuple;
     case BuiltinId::First:
     case BuiltinId::Second:
       return BuiltinDispatchValueShape::kPairTuple;
@@ -375,6 +510,14 @@ enum class BuiltinDispatchValueShape : std::uint8_t {
     case BuiltinId::ResultUnwrap:
     case BuiltinId::ResultUnwrapErr:
       return BuiltinDispatchValueShape::kResultTuple;
+    case BuiltinId::RandomCreate:
+      return BuiltinDispatchValueShape::kNonNegativeInteger;
+    case BuiltinId::RandomNextUInt64:
+    case BuiltinId::RandomNextInt64:
+    case BuiltinId::RandomNextFloat64:
+    case BuiltinId::RandomNextBool:
+    case BuiltinId::RandomSplit:
+      return BuiltinDispatchValueShape::kRandomGenerator;
     default:
       return BuiltinDispatchValueShape::kUnchecked;
   }
@@ -384,12 +527,52 @@ enum class BuiltinDispatchValueShape : std::uint8_t {
   switch (shape) {
     case BuiltinDispatchValueShape::kUnchecked:
       return "value";
+    case BuiltinDispatchValueShape::kInteger:
+      return "a direct Int64 or UInt64 value";
     case BuiltinDispatchValueShape::kTuple:
       return "a direct tuple value";
+    case BuiltinDispatchValueShape::kTupleOfTuples:
+      return "a direct tuple of tuple values";
+    case BuiltinDispatchValueShape::kTupleCallable:
+      return "a tuple value followed by a callable reference";
+    case BuiltinDispatchValueShape::kTupleValueCallable:
+      return "a tuple value followed by a value and a callable reference";
+    case BuiltinDispatchValueShape::kIntegerInteger:
+      return "two Int64 or UInt64 values";
+    case BuiltinDispatchValueShape::kIntegerIntegerInteger:
+      return "three Int64 or UInt64 values";
+    case BuiltinDispatchValueShape::kDictObject:
+      return "a direct Dict value";
+    case BuiltinDispatchValueShape::kDictObjectScalarKey:
+      return "a Dict argument followed by a scalar key value";
+    case BuiltinDispatchValueShape::kDictObjectPair:
+      return "two Dict arguments";
+    case BuiltinDispatchValueShape::kTupleInteger:
+      return "a tuple value followed by an Int64 or UInt64 index";
+    case BuiltinDispatchValueShape::kTupleIntegerInteger:
+      return "a tuple value followed by Int64 or UInt64 indices";
+    case BuiltinDispatchValueShape::kTupleIntegerIntegerValue:
+      return "a tuple value followed by two Int64 or UInt64 indices and a trailing value";
+    case BuiltinDispatchValueShape::kValueIntegerTuple:
+      return "a direct value followed by a tuple of Int64 or UInt64 values";
+    case BuiltinDispatchValueShape::kValueIntegerTupleValue:
+      return "a direct value followed by a tuple of Int64 or UInt64 values and a trailing value";
+    case BuiltinDispatchValueShape::kTupleIntegerTuple:
+      return "a tuple value followed by a tuple of Int64 or UInt64 values";
+    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue:
+      return "a tuple of tuple values followed by Int64 or UInt64 row and column indices and a trailing value";
+    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger:
+      return "a tuple of tuple values followed by Int64 or UInt64 row and column bounds";
+    case BuiltinDispatchValueShape::kTupleTuplePair:
+      return "two tuple values";
     case BuiltinDispatchValueShape::kPairTuple:
       return "a direct 2-tuple argument";
     case BuiltinDispatchValueShape::kResultTuple:
       return "a direct Result tuple (Bool, payload)";
+    case BuiltinDispatchValueShape::kNonNegativeInteger:
+      return "a direct non-negative Int64 or UInt64 value";
+    case BuiltinDispatchValueShape::kRandomGenerator:
+      return "a direct RandomGenerator value";
   }
   return "value";
 }
@@ -398,8 +581,158 @@ enum class BuiltinDispatchValueShape : std::uint8_t {
   switch (shape) {
     case BuiltinDispatchValueShape::kUnchecked:
       return true;
+    case BuiltinDispatchValueShape::kInteger:
+      return is_integral_dispatch_number_value(value);
     case BuiltinDispatchValueShape::kTuple:
       return value.HasArray();
+    case BuiltinDispatchValueShape::kTupleOfTuples:
+      return is_tuple_of_tuple_values(value);
+    case BuiltinDispatchValueShape::kTupleCallable:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_dispatch_callable_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kTupleValueCallable:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_dispatch_callable_value(*tuple.TryGet(2U));
+      }
+    case BuiltinDispatchValueShape::kIntegerInteger:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return is_integral_dispatch_number_value(*tuple.TryGet(0U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kIntegerIntegerInteger:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
+        return false;
+      } else {
+        return is_integral_dispatch_number_value(*tuple.TryGet(0U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(2U));
+      }
+    case BuiltinDispatchValueShape::kDictObject:
+      return static_cast<bool>(value.TryGetObject());
+    case BuiltinDispatchValueShape::kDictObjectScalarKey:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->TryGetObject() && is_scalar_dict_key_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kDictObjectPair:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->TryGetObject() && tuple.TryGet(1U)->TryGetObject();
+      }
+    case BuiltinDispatchValueShape::kTupleInteger:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kTupleIntegerInteger:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(2U));
+      }
+    case BuiltinDispatchValueShape::kTupleIntegerIntegerValue:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 4U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(2U));
+      }
+    case BuiltinDispatchValueShape::kValueIntegerTuple:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kValueIntegerTupleValue:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
+        return false;
+      } else {
+        return is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kTupleIntegerTuple:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
+      }
+    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 4U) {
+        return false;
+      } else {
+        return is_tuple_of_tuple_values(*tuple.TryGet(0U)) && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(2U));
+      }
+    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 5U) {
+        return false;
+      } else {
+        return is_tuple_of_tuple_values(*tuple.TryGet(0U)) && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(2U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(3U)) &&
+               is_integral_dispatch_number_value(*tuple.TryGet(4U));
+      }
+    case BuiltinDispatchValueShape::kTupleTuplePair:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
+        return false;
+      } else {
+        return tuple.TryGet(0U)->HasArray() && tuple.TryGet(1U)->HasArray();
+      }
     case BuiltinDispatchValueShape::kPairTuple:
       return value.HasArray() && runtime::as_array(value).Size() == 2U;
     case BuiltinDispatchValueShape::kResultTuple:
@@ -411,6 +744,24 @@ enum class BuiltinDispatchValueShape : std::uint8_t {
       } else {
         const Value& tag = *tuple.TryGet(0U);
         return tag.HasBool();
+      }
+    case BuiltinDispatchValueShape::kNonNegativeInteger:
+      if (const auto number = value.TryGetNumber(); !number) {
+        return false;
+      } else {
+        return number->Visit([](const runtime::Int signed_value) -> bool { return signed_value >= 0; },
+                             [](const runtime::UInt) -> bool { return true; },
+                             [](const runtime::Float) -> bool { return false; });
+      }
+    case BuiltinDispatchValueShape::kRandomGenerator:
+      if (!value.HasArray()) {
+        return false;
+      }
+      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 3U) {
+        return false;
+      } else {
+        const auto& tag = tuple.TryGet(0U)->TryGetString();
+        return tag && *tag == runtime::detail::k_random_generator_tag;
       }
   }
   return true;
@@ -545,6 +896,8 @@ auto bind_user_function_locals(CallFrame& frame, const std::string& fn_name, con
       return {};
     }
 
+    arg = runtime::unwrap_singleton_arg(std::move(arg));
+
     if (!arg.HasArray()) {
       return argument_unpack_error("fleaux::runtime: expected Array");
     }
@@ -568,6 +921,8 @@ auto bind_user_function_locals(CallFrame& frame, const std::string& fn_name, con
   }
 
   // Variadic: final parameter captures remaining args as a tuple.
+  arg = runtime::unwrap_singleton_arg(std::move(arg));
+
   if (arity == 1U) {
     if (arg.HasArray()) {
       activate_inline_locals(frame, 1U);
@@ -634,6 +989,11 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
       return runtime::unwrap_singleton_arg(std::move(arg));
     }
 
+    arg = runtime::unwrap_singleton_arg(std::move(arg));
+    if (!arg.HasArray()) {
+      return inline_closure_too_few_args_error();
+    }
+
     try {
       auto& arr = runtime::as_array(arg);
       if (arr.Size() < declared_arity) {
@@ -652,6 +1012,8 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
       return inline_closure_unpack_error(ex);
     }
   }
+
+  arg = runtime::unwrap_singleton_arg(std::move(arg));
 
   if (declared_arity == 1U) {
     return arg.HasArray() ? std::move(arg) : runtime::make_tuple(std::move(arg));

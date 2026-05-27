@@ -67,7 +67,9 @@ TEST_CASE("VM executes arithmetic bytecode and prints result", "[vm]") {
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    FAIL(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
 }
@@ -85,7 +87,8 @@ TEST_CASE("VM invocation options route output through the configured stream", "[
 
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, fleaux::vm::RuntimeInvocationOptions{.output = std::ref(output)});
+  const auto result =
+      runtime.execute(bytecode_module, fleaux::vm::RuntimeInvocationOptions{.output = std::ref(output)});
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "7\n");
@@ -127,7 +130,9 @@ TEST_CASE("VM Std.Printf does not append trailing newline", "[vm][printf]") {
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    FAIL(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 + 2 = 3");
 }
@@ -158,7 +163,9 @@ TEST_CASE("VM kBuildTuple preserves stack order for builtin indexing", "[vm][tup
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "22\n");
 }
@@ -189,7 +196,9 @@ TEST_CASE("VM kBuildTuple preserves the first element when collapsing stack tail
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "11\n");
 }
@@ -204,7 +213,9 @@ TEST_CASE("RuntimeSession preserves typed lets across snippets", "[vm][repl][typ
   REQUIRE(define_result.has_value());
 
   const auto use_result = session.run_snippet("import Std;\n2.0 -> AddOne -> Std.Println;\n", output);
-  if (!use_result.has_value()) { INFO("vm repl typed let lookup error: " << use_result.error().message); }
+  if (!use_result.has_value()) {
+    INFO("vm repl typed let lookup error: " << use_result.error().message);
+  }
   REQUIRE(use_result.has_value());
   REQUIRE(output.str() == "3\n");
 }
@@ -252,7 +263,8 @@ TEST_CASE("RuntimeSession supports the prompt overload of Std.Input", "[vm][repl
   std::ostringstream output;
   std::istringstream provided_input{"Ada\n"};
 
-  const auto result = session.run_snippet("import Std;\n\"name> \" -> Std.Input -> Std.Println;\n", output, provided_input);
+  const auto result =
+      session.run_snippet("import Std;\n\"name> \" -> Std.Input -> Std.Println;\n", output, provided_input);
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "name> Ada\n");
@@ -288,11 +300,15 @@ TEST_CASE("RuntimeSession preserves strong type declarations across snippets", "
   std::ostringstream output;
 
   const auto define_result = session.run_snippet("type UserId = Int64;\nlet Echo(x: UserId): UserId = x;\n", output);
-  if (!define_result.has_value()) { INFO("vm repl strong type definition error: " << define_result.error().message); }
+  if (!define_result.has_value()) {
+    INFO("vm repl strong type definition error: " << define_result.error().message);
+  }
   REQUIRE(define_result.has_value());
 
   const auto use_type_result = session.run_snippet("let Wrap(x: UserId): UserId = x;\n", output);
-  if (!use_type_result.has_value()) { INFO("vm repl strong type reuse error: " << use_type_result.error().message); }
+  if (!use_type_result.has_value()) {
+    INFO("vm repl strong type reuse error: " << use_type_result.error().message);
+  }
   REQUIRE(use_type_result.has_value());
 
   const auto mismatch_result = session.run_snippet("(1) -> Wrap;\n", output);
@@ -309,12 +325,16 @@ TEST_CASE("RuntimeSession preserves transparent aliases across snippets", "[vm][
 
   const auto define_result =
       session.run_snippet("import Std;\nalias Name = String;\nlet Echo(x: Name): Name = x;\n", output);
-  if (!define_result.has_value()) { INFO("vm repl alias definition error: " << define_result.error().message); }
+  if (!define_result.has_value()) {
+    INFO("vm repl alias definition error: " << define_result.error().message);
+  }
   REQUIRE(define_result.has_value());
 
   const auto use_alias_result = session.run_snippet(
       "import Std;\nlet NeedsName(x: Name): Name = x;\n(\"fleaux\") -> Echo -> NeedsName -> Std.Println;\n", output);
-  if (!use_alias_result.has_value()) { INFO("vm repl alias reuse error: " << use_alias_result.error().message); }
+  if (!use_alias_result.has_value()) {
+    INFO("vm repl alias reuse error: " << use_alias_result.error().message);
+  }
   REQUIRE(use_alias_result.has_value());
   REQUIRE(output.str() == "fleaux\n");
 }
@@ -333,7 +353,9 @@ TEST_CASE("RuntimeSession replaces transparent aliases by name across snippets",
 
   const auto replace_alias =
       session.run_snippet("import Std;\nalias Value = Int64;\nlet NeedsValue(value: Value): Value = value;\n", output);
-  if (!replace_alias.has_value()) { INFO("vm repl alias replacement error: " << replace_alias.error().message); }
+  if (!replace_alias.has_value()) {
+    INFO("vm repl alias replacement error: " << replace_alias.error().message);
+  }
   REQUIRE(replace_alias.has_value());
 
   const auto use_replaced_alias = session.run_snippet("import Std;\n(1) -> NeedsValue -> Std.Println;\n", output);
@@ -357,11 +379,15 @@ TEST_CASE("RuntimeSession requires Std import before Std symbols are available",
            (*missing_import_result.error().hint).find("Std.Println") != std::string::npos));
 
   const auto import_result = session.run_snippet("import Std;\n", output);
-  if (!import_result.has_value()) { INFO(import_result.error().message); }
+  if (!import_result.has_value()) {
+    INFO(import_result.error().message);
+  }
   REQUIRE(import_result.has_value());
 
   const auto use_result = session.run_snippet("(1, 2) -> Std.Add -> Std.Println;\n", output);
-  if (!use_result.has_value()) { INFO(use_result.error().message); }
+  if (!use_result.has_value()) {
+    INFO(use_result.error().message);
+  }
   REQUIRE(use_result.has_value());
   REQUIRE(output.str() == "3\n");
 }
@@ -388,7 +414,9 @@ TEST_CASE("RuntimeSession executes zero-arg inline closure pipeline sugar", "[vm
   std::ostringstream output;
 
   const auto result = session.run_snippet("import Std;\n() -> (): Any = (\"Empty Closure\") -> Std.Println;\n", output);
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "Empty Closure\n");
 }
@@ -406,24 +434,31 @@ TEST_CASE("RuntimeSession preserves overloads across snippets", "[vm][repl][type
 
   std::ostringstream nullary_output;
   const auto nullary_result = session.run_snippet("import Std;\n() -> FuncA;\n", nullary_output);
-  if (!nullary_result.has_value()) { INFO(nullary_result.error().message); }
+  if (!nullary_result.has_value()) {
+    INFO(nullary_result.error().message);
+  }
   REQUIRE(nullary_result.has_value());
   REQUIRE(nullary_output.str() == "FuncA\n");
 
   std::ostringstream int_output;
   const auto int_result = session.run_snippet("import Std;\n(1) -> FuncA;\n", int_output);
-  if (!int_result.has_value()) { INFO(int_result.error().message); }
+  if (!int_result.has_value()) {
+    INFO(int_result.error().message);
+  }
   REQUIRE(int_result.has_value());
   REQUIRE(int_output.str() == "FuncA: x: Int64\n");
 
   std::ostringstream string_output;
   const auto string_result = session.run_snippet("import Std;\n(\"hello\") -> FuncA;\n", string_output);
-  if (!string_result.has_value()) { INFO(string_result.error().message); }
+  if (!string_result.has_value()) {
+    INFO(string_result.error().message);
+  }
   REQUIRE(string_result.has_value());
   REQUIRE(string_output.str() == "FuncA: x: String\n");
 }
 
-TEST_CASE("RuntimeSession exact overload redefinition replaces only the matching overload", "[vm][repl][type][overload]") {
+TEST_CASE("RuntimeSession exact overload redefinition replaces only the matching overload",
+          "[vm][repl][type][overload]") {
   const fleaux::vm::Runtime runtime;
   const auto session = runtime.create_session({});
   std::ostringstream sink;
@@ -434,9 +469,10 @@ TEST_CASE("RuntimeSession exact overload redefinition replaces only the matching
   REQUIRE(session.run_snippet("import Std;\nlet FuncA(x: String): Any = (\"FuncA: x: String\") -> Std.Println;\n", sink)
               .has_value());
 
-  REQUIRE(session.run_snippet(
-              "import Std;\nlet FuncA(x: Int64): Any = (\"FuncA: x: Int64 updated\") -> Std.Println;\n", sink)
-              .has_value());
+  REQUIRE(
+      session
+          .run_snippet("import Std;\nlet FuncA(x: Int64): Any = (\"FuncA: x: Int64 updated\") -> Std.Println;\n", sink)
+          .has_value());
 
   std::ostringstream nullary_output;
   const auto nullary_result = session.run_snippet("import Std;\n() -> FuncA;\n", nullary_output);
@@ -461,7 +497,9 @@ TEST_CASE("RuntimeSession executes top-level immutable value declarations", "[vm
 
   const auto result = session.run_snippet("import Std;\nlet Meaning: Int64 = 42;\nMeaning -> Std.Println;\n", output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -484,7 +522,9 @@ TEST_CASE("RuntimeSession executes block-scoped locals and nested shadowing", "[
       "() -> Compute -> Std.Println;\n",
       output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "4\n");
 }
@@ -515,7 +555,9 @@ TEST_CASE("RuntimeSession resolves Std.String parse builtins from canonical stdl
       "(\"6.25e1\") -> Std.String.ParseFloat64 -> Std.Println;\n",
       output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "-42\n42\n62.5\n");
 }
@@ -534,7 +576,9 @@ TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][hel
   std::ostringstream output;
 
   const auto help_result = session.run_snippet("import Std;\n(\"Std.Add\") -> Std.Help -> Std.Println;\n", output);
-  if (!help_result.has_value()) { INFO("repl help error: " << help_result.error().message); }
+  if (!help_result.has_value()) {
+    INFO("repl help error: " << help_result.error().message);
+  }
   REQUIRE(help_result.has_value());
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Add two numeric values of the same numeric kind."));
@@ -889,7 +933,8 @@ TEST_CASE("Tagged token helpers preserve callable, value-ref, and handle ids", "
     legacy_callable_token.EmplaceBack(fleaux::runtime::String{fleaux::runtime::k_callable_tag});
     legacy_callable_token.EmplaceBack(callable_id->slot);
 
-    const auto legacy_callable_id = fleaux::runtime::callable_id_from_value(fleaux::runtime::Value{std::move(legacy_callable_token)});
+    const auto legacy_callable_id =
+        fleaux::runtime::callable_id_from_value(fleaux::runtime::Value{std::move(legacy_callable_token)});
     REQUIRE(legacy_callable_id.has_value());
     REQUIRE(legacy_callable_id->slot == callable_id->slot);
     REQUIRE(legacy_callable_id->generation == 0U);
@@ -960,7 +1005,8 @@ TEST_CASE("PinnedValueRef RAII releases on destruction", "[vm][lifetime][value_r
                       Catch::Matchers::ContainsSubstring("stale or unknown"));
 }
 
-TEST_CASE("Nested ValueRegistryScope keeps outer transient value alive until outer teardown", "[vm][lifetime][value_ref]") {
+TEST_CASE("Nested ValueRegistryScope keeps outer transient value alive until outer teardown",
+          "[vm][lifetime][value_ref]") {
   fleaux::runtime::reset_value_registry_for_tests();
 
   fleaux::runtime::Value outer_token;
@@ -1015,9 +1061,10 @@ TEST_CASE("ActiveRuntimeExecutionStateScope isolates callable and value registri
   fleaux::runtime::reset_callable_registry();
   fleaux::runtime::reset_value_registry_for_tests();
 
-  auto default_callable = fleaux::runtime::make_pinned_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 100);
-  });
+  auto default_callable =
+      fleaux::runtime::make_pinned_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 100);
+      });
   REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
 
   fleaux::runtime::Value isolated_callable;
@@ -1037,8 +1084,8 @@ TEST_CASE("ActiveRuntimeExecutionStateScope isolates callable and value registri
     isolated_value_ref = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(77));
 
     REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::invoke_callable_ref(isolated_callable,
-                                                                               fleaux::runtime::make_int(4))) == 20);
+    REQUIRE(fleaux::runtime::as_int_value(
+                fleaux::runtime::invoke_callable_ref(isolated_callable, fleaux::runtime::make_int(4))) == 20);
     REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(isolated_value_ref)) == 77);
   }
 
@@ -1230,8 +1277,8 @@ TEST_CASE("ActiveRuntimeExecutionStateScope isolates handle registry from the de
           "[vm][lifetime][handle][execution_state]") {
   fleaux::runtime::reset_handle_registry_for_tests();
 
-  const auto temp_dir = std::filesystem::temp_directory_path() /
-                        ("fleaux_handle_state_" + fleaux::runtime::random_suffix());
+  const auto temp_dir =
+      std::filesystem::temp_directory_path() / ("fleaux_handle_state_" + fleaux::runtime::random_suffix());
   std::filesystem::create_directories(temp_dir);
   const auto outer_file = temp_dir / "outer.txt";
   const auto inner_file = temp_dir / "inner.txt";
@@ -1646,7 +1693,9 @@ TEST_CASE("VM executes exact-1 builtin refs with direct-value tuple arguments", 
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1\n");
 }
@@ -1677,9 +1726,42 @@ TEST_CASE("VM executes exact-1 Std.Type builtin refs with direct-value tuple arg
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "Tuple\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Cast builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c11 = push_i64_const(bytecode_module, 11);
+  constexpr auto kCastBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::Cast);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c11},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kCastBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "9 11\n");
 }
 
 TEST_CASE("VM executes exact-1 Std.ToString builtin refs with direct-value tuple arguments", "[vm]") {
@@ -1706,9 +1788,44 @@ TEST_CASE("VM executes exact-1 Std.ToString builtin refs with direct-value tuple
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "(9, 11)\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Tuple.Sort builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kTupleSortBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::TupleSort);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kTupleSortBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1 2 3\n");
 }
 
 TEST_CASE("VM executes exact-1 Std.Result builtin refs with direct-value result tuples", "[vm]") {
@@ -1734,9 +1851,512 @@ TEST_CASE("VM executes exact-1 Std.Result builtin refs with direct-value result 
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "True\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Result.Payload builtin refs with direct-value result tuples", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"boom"}});
+  const auto cBoom = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  constexpr auto kResultErrBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultErr);
+  constexpr auto kResultPayloadBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ResultPayload);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cBoom},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultPayloadBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "boom\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Random.NextUInt64 builtin refs with direct-value generator handles", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto cSeed = push_i64_const(bytecode_module, 123456789);
+  constexpr auto kRandomCreateBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomCreate);
+  constexpr auto kRandomNextUInt64BuiltinRef = builtin_direct(fleaux::vm::BuiltinId::RandomNextUInt64);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kFirstBuiltin = builtin_direct(fleaux::vm::BuiltinId::First);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cSeed},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kRandomCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kRandomNextUInt64BuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kFirstBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2466975172287755897\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Random.Create builtin refs with direct-value integer seeds", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto cSeed = push_u64_const(bytecode_module, 123456789ULL);
+  constexpr auto kRandomCreateBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::RandomCreate);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kRandomNextUInt64Builtin = builtin_direct(fleaux::vm::BuiltinId::RandomNextUInt64);
+  constexpr auto kFirstBuiltin = builtin_direct(fleaux::vm::BuiltinId::First);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cSeed},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kRandomCreateBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kRandomNextUInt64Builtin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kFirstBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2466975172287755897\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Dict.Length builtin refs with direct dict values", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"answer"}});
+  const auto cAnswer = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
+  constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
+  constexpr auto kDictLengthBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::DictLength);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cAnswer},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c42},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictSetBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kDictLengthBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Dict.Create clone builtin refs with direct dict values", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c42 = push_i64_const(bytecode_module, 42);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"answer"}});
+  const auto cAnswer = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
+  constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
+  constexpr auto kDictCloneBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::DictCreateDict);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kDictLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictLength);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cAnswer},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c42},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictSetBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kDictCloneBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1\n");
+}
+
+TEST_CASE("VM executes Std.Array.GetAt builtin refs through Apply", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kArrayGetAtBuiltinRef = builtin(fleaux::vm::BuiltinId::ArrayGetAt);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kArrayGetAtBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2\n");
+}
+
+TEST_CASE("VM executes Std.Array.Fill builtin refs through Apply", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  constexpr auto kArrayFillBuiltinRef = builtin(fleaux::vm::BuiltinId::ArrayFill);
+  constexpr auto kArrayGetAtBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAt);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kArrayFillBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "7\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Array.Transpose2D builtin refs with direct-value grid arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  constexpr auto kArrayTranspose2DBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ArrayTranspose2D);
+  constexpr auto kArrayGetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAtND);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kArrayTranspose2DBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2\n");
+}
+
+TEST_CASE("VM executes Std.Array.ReshapeND builtin refs through Apply", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  constexpr auto kArrayReshapeNDBuiltinRef = builtin(fleaux::vm::BuiltinId::ArrayReshapeND);
+  constexpr auto kArrayGetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAtND);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kArrayReshapeNDBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "4\n");
+}
+
+TEST_CASE("VM executes Std.Tuple.Map builtin refs through Apply", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kTupleMapBuiltinRef = builtin(fleaux::vm::BuiltinId::TupleMap);
+  constexpr auto kToStringBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ToString);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kToStringBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kTupleMapBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1 2 3\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Tuple.Range builtin refs with direct-value integer arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  constexpr auto kTupleRangeBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::TupleRangeInt64);
+  constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kTupleRangeBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kApplyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "0 1 2 3\n");
+}
+
+TEST_CASE("VM executes exact-1 Std.Task.Await builtin refs with direct-value task handles", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "AwaitViaApply",
+      .link_name = "AwaitViaApply",
+      .kind = fleaux::bytecode::ExportKind::kFunction,
+      .index = 0,
+  });
+
+  fleaux::bytecode::FunctionDef await_via_apply;
+  await_via_apply.name = "AwaitViaApply";
+  await_via_apply.arity = 1;
+  await_via_apply.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::TaskAwait)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Apply)},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(await_via_apply));
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "AwaitViaApply", fleaux::runtime::make_int(7));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
+                          fleaux::runtime::make_string("Task.Await: invalid task handle"))));
+}
+
+TEST_CASE("VM executes exact-1 Std.Task.AwaitAll builtin refs with direct-value tuple arguments", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "AwaitAllViaApply",
+      .link_name = "AwaitAllViaApply",
+      .kind = fleaux::bytecode::ExportKind::kFunction,
+      .index = 0,
+  });
+
+  fleaux::bytecode::FunctionDef add_one;
+  add_one.name = "AddOne";
+  add_one.arity = 1;
+  add_one.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+
+  fleaux::bytecode::FunctionDef await_all_via_apply;
+  await_all_via_apply.name = "AwaitAllViaApply";
+  await_all_via_apply.arity = 0;
+  await_all_via_apply.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskSpawn)},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskSpawn)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::TaskAwaitAll)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Apply)},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::ResultUnwrap)},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Println)},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+
+  bytecode_module.functions.push_back(std::move(await_all_via_apply));
+  bytecode_module.functions.push_back(std::move(add_one));
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto invoked =
+      runtime.invoke_symbol(bytecode_module, "AwaitAllViaApply", fleaux::runtime::make_tuple(), output);
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_int(3));
+  REQUIRE(output.str() == "2 3\n");
 }
 
 TEST_CASE("VM builtin function refs drive TupleReduce through builtin reducers", "[vm]") {
@@ -1769,7 +2389,9 @@ TEST_CASE("VM builtin function refs drive TupleReduce through builtin reducers",
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "10\n");
 }
@@ -1785,11 +2407,13 @@ TEST_CASE("VM invoke_symbol dispatches builtin aliases with exact-1 direct-value
   });
 
   const fleaux::vm::Runtime runtime;
-  auto invoked = runtime.invoke_symbol(bytecode_module, "TakeFirst",
-                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
-                                                                   fleaux::runtime::make_int(11)));
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "TakeFirst",
+                            fleaux::runtime::make_tuple(fleaux::runtime::make_int(9), fleaux::runtime::make_int(11)));
 
-  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
   REQUIRE(invoked.has_value());
   REQUIRE(*invoked == fleaux::runtime::make_int(9));
 }
@@ -1805,13 +2429,37 @@ TEST_CASE("VM invoke_symbol dispatches Std.Type builtin aliases with exact-1 dir
   });
 
   const fleaux::vm::Runtime runtime;
-  auto invoked = runtime.invoke_symbol(bytecode_module, "DescribeType",
-                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
-                                                                   fleaux::runtime::make_int(11)));
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "DescribeType",
+                            fleaux::runtime::make_tuple(fleaux::runtime::make_int(9), fleaux::runtime::make_int(11)));
 
-  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
   REQUIRE(invoked.has_value());
   REQUIRE(*invoked == fleaux::runtime::make_string("Tuple"));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Cast builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "KeepValue",
+      .link_name = "KeepValue",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Cast",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "KeepValue",
+                            fleaux::runtime::make_tuple(fleaux::runtime::make_int(9), fleaux::runtime::make_int(11)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_tuple(fleaux::runtime::make_int(9), fleaux::runtime::make_int(11)));
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.ToString builtin aliases with exact-1 direct-value shape", "[vm]") {
@@ -1825,13 +2473,62 @@ TEST_CASE("VM invoke_symbol dispatches Std.ToString builtin aliases with exact-1
   });
 
   const fleaux::vm::Runtime runtime;
-  auto invoked = runtime.invoke_symbol(bytecode_module, "DescribeValue",
-                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(9),
-                                                                   fleaux::runtime::make_int(11)));
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "DescribeValue",
+                            fleaux::runtime::make_tuple(fleaux::runtime::make_int(9), fleaux::runtime::make_int(11)));
 
-  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
   REQUIRE(invoked.has_value());
   REQUIRE(*invoked == fleaux::runtime::make_string("(9, 11)"));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Tuple.Reverse builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "ReverseTuple",
+      .link_name = "ReverseTuple",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Tuple.Reverse",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "ReverseTuple",
+      fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2), fleaux::runtime::make_int(3)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 3U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 0)) == 3.0);
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Tuple.Range builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "RangeByStep",
+      .link_name = "RangeByStep",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Tuple.Range#2",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "RangeByStep",
+                                       fleaux::runtime::make_tuple(fleaux::runtime::make_int(5),
+                                                                   fleaux::runtime::make_int(0),
+                                                                   fleaux::runtime::make_int(-2)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 3U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 2)) == 1.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Result builtin aliases with exact-1 direct-value shape", "[vm]") {
@@ -1848,9 +2545,319 @@ TEST_CASE("VM invoke_symbol dispatches Std.Result builtin aliases with exact-1 d
   auto invoked = runtime.invoke_symbol(bytecode_module, "InspectResultTag",
                                        fleaux::runtime::ResultOk(fleaux::runtime::make_int(9)));
 
-  if (!invoked.has_value()) { INFO(invoked.error().message); }
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
   REQUIRE(invoked.has_value());
   REQUIRE(*invoked == fleaux::runtime::make_bool(true));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Result.UnwrapErr builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "ExtractResultErr",
+      .link_name = "ExtractResultErr",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Result.UnwrapErr",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "ExtractResultErr",
+                                       fleaux::runtime::ResultErr(fleaux::runtime::make_string("boom")));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_string("boom"));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Random.NextBool builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "StepRandomBool",
+      .link_name = "StepRandomBool",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Random.NextBool",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "StepRandomBool",
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL))));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::First(*invoked)));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Random.Create builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "MakeRandom",
+      .link_name = "MakeRandom",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Random.Create",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "MakeRandom", fleaux::runtime::make_uint(123456789ULL));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  const auto stepped = fleaux::runtime::RandomNextUInt64(*invoked);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(stepped))) ==
+          "2466975172287755897");
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Random.Split builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "SplitRandom",
+      .link_name = "SplitRandom",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Random.Split",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "SplitRandom",
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL))));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  const auto left_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::First(*invoked));
+  const auto right_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::Second(*invoked));
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(left_step))) ==
+          "1278849761381179246");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(right_step))) ==
+          "15883818742529415426");
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Dict.Keys builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "InspectDictKeys",
+      .link_name = "InspectDictKeys",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Dict.Keys",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "InspectDictKeys",
+                                       fleaux::runtime::DictSet(fleaux::runtime::make_tuple(
+                                           fleaux::runtime::DictCreate_Void(fleaux::runtime::make_tuple()),
+                                           fleaux::runtime::make_string("answer"), fleaux::runtime::make_int(42))));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 1U);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::array_at(*invoked, 0)) == "answer");
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Dict.Contains builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "HasAnswer",
+      .link_name = "HasAnswer",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Dict.Contains",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "HasAnswer",
+      fleaux::runtime::make_tuple(fleaux::runtime::DictSet(fleaux::runtime::make_tuple(
+                                      fleaux::runtime::DictCreate_Void(fleaux::runtime::make_tuple()),
+                                      fleaux::runtime::make_string("answer"), fleaux::runtime::make_int(42))),
+                                  fleaux::runtime::make_string("answer")));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_bool(true));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Array.Slice builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "SliceArray",
+      .link_name = "SliceArray",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Array.Slice",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "SliceArray",
+                            fleaux::runtime::make_tuple(
+                                fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2),
+                                                            fleaux::runtime::make_int(3), fleaux::runtime::make_int(4)),
+                                fleaux::runtime::make_int(1), fleaux::runtime::make_int(3)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 0)) == 2.0);
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Array.Reshape builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "Gridify",
+      .link_name = "Gridify",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Array.Reshape",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "Gridify",
+      fleaux::runtime::make_tuple(
+          fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2),
+                                      fleaux::runtime::make_int(3), fleaux::runtime::make_int(4)),
+          fleaux::runtime::make_int(2), fleaux::runtime::make_int(2)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::array_at(*invoked, 1), 1)) == 4.0);
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Array.Transpose2D builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "TransposeGrid",
+      .link_name = "TransposeGrid",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Array.Transpose2D",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "TransposeGrid",
+      fleaux::runtime::make_tuple(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2)),
+                                  fleaux::runtime::make_tuple(fleaux::runtime::make_int(3), fleaux::runtime::make_int(4))));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::array_at(*invoked, 1), 0)) == 2.0);
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Array.GetAtND builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "PickND",
+      .link_name = "PickND",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Array.GetAtND",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(
+      bytecode_module, "PickND",
+      fleaux::runtime::make_tuple(
+          fleaux::runtime::make_tuple(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1),
+                                                                  fleaux::runtime::make_int(2)),
+                                      fleaux::runtime::make_tuple(fleaux::runtime::make_int(3),
+                                                                  fleaux::runtime::make_int(4))),
+          fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(0))));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_int(3));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Task.Await builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "AwaitTask",
+      .link_name = "AwaitTask",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Task.Await",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "AwaitTask", fleaux::runtime::make_int(7));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
+                          fleaux::runtime::make_string("Task.Await: invalid task handle"))));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Task.Cancel builtin aliases with exact-1 direct-value shape", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "CancelTask",
+      .link_name = "CancelTask",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Task.Cancel",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked = runtime.invoke_symbol(bytecode_module, "CancelTask", fleaux::runtime::make_int(7));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::make_bool(false));
+}
+
+TEST_CASE("VM invoke_symbol dispatches Std.Task.WithTimeout builtin aliases", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "AwaitTaskWithTimeout",
+      .link_name = "AwaitTaskWithTimeout",
+      .kind = fleaux::bytecode::ExportKind::kBuiltinAlias,
+      .index = 0,
+      .builtin_name = "Std.Task.WithTimeout",
+  });
+
+  const fleaux::vm::Runtime runtime;
+  auto invoked =
+      runtime.invoke_symbol(bytecode_module, "AwaitTaskWithTimeout",
+                            fleaux::runtime::make_tuple(fleaux::runtime::make_int(7), fleaux::runtime::make_int(1)));
+
+  if (!invoked.has_value()) {
+    INFO(invoked.error().message);
+  }
+  REQUIRE(invoked.has_value());
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
+                          fleaux::runtime::make_string("Task.WithTimeout: invalid task handle"))));
 }
 
 TEST_CASE("VM nested callable refs preserve local state across reused invocation scratch", "[vm][closure]") {
@@ -1900,7 +2907,9 @@ TEST_CASE("VM nested callable refs preserve local state across reused invocation
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "41\n");
 }
@@ -2689,7 +3698,9 @@ TEST_CASE("VM kCallUserFunc unwraps singleton tuple arguments for unary function
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -2725,7 +3736,9 @@ TEST_CASE("VM kCallUserFunc binds fixed-arity tuple arguments", "[vm]") {
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -2760,7 +3773,9 @@ TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -2799,7 +3814,9 @@ TEST_CASE("VM kCallUserFunc binds variadic tail from owned tuple arguments", "[v
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "2\n");
 }
@@ -2888,7 +3905,9 @@ TEST_CASE("VM kCallBuiltin executes captured-only inline closures without tuple-
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -2938,12 +3957,15 @@ TEST_CASE("VM kCallBuiltin preserves capture-prefix order for inline closures", 
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
 
-TEST_CASE("VM kCallBuiltin preserves captured prefix and variadic tail for inline closures", "[vm][closure][variadic]") {
+TEST_CASE("VM kCallBuiltin preserves captured prefix and variadic tail for inline closures",
+          "[vm][closure][variadic]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c5 = push_i64_const(bytecode_module, 5);
   const auto c7 = push_i64_const(bytecode_module, 7);
@@ -2995,7 +4017,9 @@ TEST_CASE("VM kCallBuiltin preserves captured prefix and variadic tail for inlin
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "23\n");
 }
@@ -3042,7 +4066,9 @@ TEST_CASE("VM kCallBuiltin executes Std.Apply for two-argument inline closure ca
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
 }
@@ -3267,6 +4293,728 @@ TEST_CASE("VM kCallBuiltin executes Std.Result builtins through primary builtin 
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "True\n42\nTrue\nboom\n");
+}
+
+TEST_CASE(
+    "VM kCallBuiltin executes Std.Random builtins through primary builtin dispatch with exact-1 direct-value shape",
+    "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto cSeed = push_i64_const(bytecode_module, 123456789);
+  constexpr auto kRandomCreateBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomCreate);
+  constexpr auto kRandomSplitBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomSplit);
+  constexpr auto kFirstBuiltin = builtin_direct(fleaux::vm::BuiltinId::First);
+  constexpr auto kRandomNextUInt64Builtin = builtin_direct(fleaux::vm::BuiltinId::RandomNextUInt64);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cSeed},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kRandomCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kRandomSplitBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kFirstBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kRandomNextUInt64Builtin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kFirstBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1278849761381179246\n");
+}
+
+TEST_CASE(
+    "VM kCallBuiltin executes unary Std.Dict builtins through primary builtin dispatch with exact-1 direct-value shape",
+    "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"k"}});
+  const auto cKey = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
+  constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
+  constexpr auto kDictLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictLength);
+  constexpr auto kDictKeysBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictKeys);
+  constexpr auto kDictClearBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictClear);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cKey},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictSetBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictKeysBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictClearBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1\n1\n0\n");
+}
+
+TEST_CASE(
+    "VM kCallBuiltin executes unary Std.Tuple builtins through primary builtin dispatch with exact-1 direct-value shape",
+    "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kTupleReverseBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleReverse);
+  constexpr auto kTupleSortBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleSort);
+  constexpr auto kTupleUniqueBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleUnique);
+  constexpr auto kTupleMinBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleMin);
+  constexpr auto kTupleMaxBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleMax);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleReverseBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleSortBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleUniqueBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleMinBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleMaxBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "3 2 1\n1 2 3\n3 1 2\n1\n3\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes higher-order Std.Tuple builtins through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  constexpr auto kTupleMapBuiltin = builtin(fleaux::vm::BuiltinId::TupleMap);
+  constexpr auto kTupleFilterBuiltin = builtin(fleaux::vm::BuiltinId::TupleFilter);
+  constexpr auto kTupleReduceBuiltin = builtin(fleaux::vm::BuiltinId::TupleReduce);
+  constexpr auto kTupleFindIndexBuiltin = builtin(fleaux::vm::BuiltinId::TupleFindIndex);
+  constexpr auto kTupleAnyBuiltin = builtin(fleaux::vm::BuiltinId::TupleAny);
+  constexpr auto kTupleAllBuiltin = builtin(fleaux::vm::BuiltinId::TupleAll);
+  constexpr auto kToStringBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ToString);
+  constexpr auto kResultIsOkBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ResultIsOk);
+  constexpr auto kResultOkBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultOk);
+  constexpr auto kResultErrBuiltin = builtin_direct(fleaux::vm::BuiltinId::ResultErr);
+  constexpr auto kAddBuiltinRef = builtin(fleaux::vm::BuiltinId::Add);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kToStringBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleMapBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultIsOkBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleFilterBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultIsOkBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleFindIndexBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultErrBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultIsOkBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleAnyBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kResultOkBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kResultIsOkBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleAllBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kAddBuiltinRef},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleReduceBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "1 2 3\n2\n1\nTrue\nTrue\n6\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes Std.Tuple.Range overloads through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto cNeg2 = push_i64_const(bytecode_module, -2);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  constexpr auto kTupleRangeUnaryBuiltin = builtin_direct(fleaux::vm::BuiltinId::TupleRangeInt64);
+  constexpr auto kTupleRangeBinaryBuiltin = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64);
+  constexpr auto kTupleRangeTernaryBuiltin = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
+  constexpr auto kElementAtBuiltin = builtin(fleaux::vm::BuiltinId::ElementAt);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleRangeUnaryBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleRangeBinaryBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kElementAtBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cNeg2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTupleRangeTernaryBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kElementAtBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "4\n2\n1\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes multi-argument Std.Dict builtins through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"a"}});
+  const auto cA = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"b"}});
+  const auto cB = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"missing"}});
+  const auto cMissing = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+
+  constexpr auto kDictCreateBuiltin = builtin(fleaux::vm::BuiltinId::DictCreateVoid);
+  constexpr auto kDictCloneBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictCreateDict);
+  constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
+  constexpr auto kDictContainsBuiltin = builtin(fleaux::vm::BuiltinId::DictContains);
+  constexpr auto kDictGetDefaultBuiltin = builtin(fleaux::vm::BuiltinId::DictGetDefault);
+  constexpr auto kDictMergeBuiltin = builtin(fleaux::vm::BuiltinId::DictMerge);
+  constexpr auto kDictDeleteBuiltin = builtin(fleaux::vm::BuiltinId::DictDelete);
+  constexpr auto kDictLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictLength);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cA},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictSetBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCloneBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cA},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictContainsBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cMissing},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictGetDefaultBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictCreateBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cB},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictSetBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictMergeBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cA},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictDeleteBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "True\n9\n2\n1\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes 1-D Std.Array builtins through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  constexpr auto kArraySetAtBuiltin = builtin(fleaux::vm::BuiltinId::ArraySetAt);
+  constexpr auto kArrayGetAtBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAt);
+  constexpr auto kArraySliceBuiltin = builtin(fleaux::vm::BuiltinId::ArraySlice);
+  constexpr auto kArrayConcatBuiltin = builtin(fleaux::vm::BuiltinId::ArrayConcat);
+  constexpr auto kLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::Length);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArraySetAtBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArraySliceBuiltin},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayConcatBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kLengthBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "9\n3\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes structural Std.Array builtins through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  constexpr auto kArraySetAt2DBuiltin = builtin(fleaux::vm::BuiltinId::ArraySetAt2D);
+  constexpr auto kArrayFillBuiltin = builtin(fleaux::vm::BuiltinId::ArrayFill);
+  constexpr auto kArraySlice2DBuiltin = builtin(fleaux::vm::BuiltinId::ArraySlice2D);
+  constexpr auto kArrayReshapeBuiltin = builtin(fleaux::vm::BuiltinId::ArrayReshape);
+  constexpr auto kArrayGetAtBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAt);
+  constexpr auto kArrayGetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAtND);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArraySetAt2DBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayFillBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 5},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArraySlice2DBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayReshapeBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "9\n7\n4\n4\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes Std.Array.Transpose2D through primary builtin dispatch with exact-1 direct-value shape",
+          "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  constexpr auto kArrayTranspose2DBuiltin = builtin_direct(fleaux::vm::BuiltinId::ArrayTranspose2D);
+  constexpr auto kArrayGetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAtND);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayTranspose2DBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes n-D Std.Array builtins through primary builtin dispatch", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+  const auto c4 = push_i64_const(bytecode_module, 4);
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  const auto c6 = push_i64_const(bytecode_module, 6);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+  const auto c8 = push_i64_const(bytecode_module, 8);
+  const auto c70 = push_i64_const(bytecode_module, 70);
+  constexpr auto kArrayGetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayGetAtND);
+  constexpr auto kArraySetAtNDBuiltin = builtin(fleaux::vm::BuiltinId::ArraySetAtND);
+  constexpr auto kArrayReshapeNDBuiltin = builtin(fleaux::vm::BuiltinId::ArrayReshapeND);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c6},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c8},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c6},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c8},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c70},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArraySetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c6},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c8},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 8},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayReshapeNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kArrayGetAtNDBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "6\n70\n8\n");
 }
 
 TEST_CASE("VM kCallBuiltin executes more arithmetic/logical builtins through primary builtin dispatch", "[vm]") {
@@ -3603,6 +5351,343 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Length' expected a direct tuple value");
   }
 
+  SECTION("Std.Tuple.Reverse rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleReverse)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Reverse' expected a direct tuple value");
+  }
+
+  SECTION("Std.Tuple.Sort rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleSort)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Sort' expected a direct tuple value");
+  }
+
+  SECTION("Std.Tuple.Unique rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleUnique)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Unique' expected a direct tuple value");
+  }
+
+  SECTION("Std.Tuple.Min rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleMin)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Min' expected a direct tuple value");
+  }
+
+  SECTION("Std.Tuple.Max rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleMax)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Max' expected a direct tuple value");
+  }
+
+  SECTION("Std.Tuple.Min preserves empty-tuple runtime failures after boundary validation") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleMin)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Min' threw: TupleMin expects non-empty tuple");
+  }
+
+  SECTION("Std.Result.Tag rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin_direct(fleaux::vm::BuiltinId::ResultTag)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Result.Tag' expected a direct Result tuple (Bool, payload)");
+  }
+
+  SECTION("Std.Result.Unwrap rejects malformed non-bool-tag direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"boom"}});
+    const auto cBoom = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cBoom},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::ResultUnwrap)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Result.Unwrap' expected a direct Result tuple (Bool, payload)");
+  }
+
+  SECTION("Std.Random.NextUInt64 rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::RandomNextUInt64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Random.NextUInt64' expected a direct RandomGenerator value");
+  }
+
+  SECTION("Std.Random.Create rejects malformed negative direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto cNeg = push_i64_const(bytecode_module, -1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cNeg},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::RandomCreate)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Random.Create' expected a direct non-negative Int64 or UInt64 value");
+  }
+
+  SECTION("Std.Random.Create rejects malformed fractional direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.emplace_back(1.5);
+    constexpr std::int64_t cFractionalSeed = 0;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractionalSeed},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::RandomCreate)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Random.Create' expected a direct non-negative Int64 or UInt64 value");
+  }
+
+  SECTION("Std.Random.Split rejects malformed non-token direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"bad"}});
+    const auto cBad = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cBad},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::RandomSplit)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Random.Split' expected a direct RandomGenerator value");
+  }
+
+  SECTION("Std.Dict.Keys rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin_direct(fleaux::vm::BuiltinId::DictKeys)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Keys' expected a direct Dict value");
+  }
+
+  SECTION("Std.Dict.Length rejects malformed tuple direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::DictLength)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Length' expected a direct Dict value");
+  }
+
+  SECTION("Std.Dict.Set rejects malformed non-dict first-argument bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"answer"}});
+    const auto cAnswer = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cAnswer},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictSet)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Set' expected a Dict argument followed by a scalar key value");
+  }
+
+  SECTION("Std.Dict.Get rejects malformed non-scalar key bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"answer"}});
+    const auto cAnswer = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictCreateVoid)},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cAnswer},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictSet)},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictGet)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Get' expected a Dict argument followed by a scalar key value");
+  }
+
+  SECTION("Std.Dict.Merge rejects malformed non-dict overlay bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictCreateVoid)},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::DictMerge)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Merge' expected two Dict arguments");
+  }
+
   SECTION("Std.Unwrap rejects malformed binary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     const auto c1 = push_i64_const(bytecode_module, 1);
@@ -3798,6 +5883,49 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Tuple.Map' expected 2 arguments but got 1");
   }
 
+  SECTION("Std.Tuple.Map rejects malformed non-callable mapper bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleMap)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Map' expected a tuple value followed by a callable reference");
+  }
+
+  SECTION("Std.Tuple.Filter rejects malformed scalar tuple channel bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    constexpr auto kToStringBuiltinRef = builtin_direct(fleaux::vm::BuiltinId::ToString);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = kToStringBuiltinRef},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleFilter)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Filter' expected a tuple value followed by a callable reference");
+  }
+
   SECTION("Std.Tuple.Any rejects malformed ternary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     const auto c1 = push_i64_const(bytecode_module, 1);
@@ -3820,6 +5948,29 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Tuple.Any' expected 2 arguments but got 3");
   }
 
+  SECTION("Std.Tuple.Any rejects malformed non-callable predicate bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleAny)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Any' expected a tuple value followed by a callable reference");
+  }
+
   SECTION("Std.Tuple.Reduce rejects malformed binary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     const auto c1 = push_i64_const(bytecode_module, 1);
@@ -3838,6 +5989,32 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.Tuple.Reduce' expected 3 arguments but got 2");
+  }
+
+  SECTION("Std.Tuple.Reduce rejects malformed non-callable reducer bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TupleReduce)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Tuple.Reduce' expected a tuple value followed by a value and a callable reference");
   }
 
   SECTION("Std.Printf rejects malformed empty tuple bytecode shape") {
@@ -3943,7 +6120,8 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     constexpr std::int64_t cText = 0;
     bytecode_module.instructions = {
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
-        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringRegexIsMatch)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::StringRegexIsMatch)},
         {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
     };
 
@@ -3965,7 +6143,8 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cText},
         {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cPattern},
         {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::StringRegexReplace)},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::StringRegexReplace)},
         {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
     };
 
@@ -3992,6 +6171,45 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.Task.Spawn' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Task.WithTimeout rejects malformed unary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskWithTimeout)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Task.WithTimeout' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Task.WithTimeout rejects malformed ternary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskWithTimeout)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Task.WithTimeout' expected 2 arguments but got 3");
   }
 
   SECTION("Std.Parallel.Reduce rejects malformed binary bytecode shape") {
@@ -4068,6 +6286,44 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.ElementAt' expected 2 arguments but got 1");
+  }
+
+  SECTION("Std.Cast rejects malformed binary bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Cast)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Cast' expected 1 argument but got 2");
+  }
+
+  SECTION("Std.Task.AwaitAll rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TaskAwaitAll)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Task.AwaitAll' expected a direct tuple value");
   }
 
   SECTION("Std.Take rejects malformed unary bytecode shape") {
@@ -4307,6 +6563,78 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Array.Slice' expected 3 arguments but got 2");
   }
 
+  SECTION("Std.Array.GetAt rejects malformed scalar first-argument bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayGetAt)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.GetAt' expected a tuple value followed by an Int64 or UInt64 index");
+  }
+
+  SECTION("Std.Array.Slice rejects malformed fractional index bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.constants.emplace_back(1.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySlice)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.Slice' expected a tuple value followed by Int64 or UInt64 indices");
+  }
+
+  SECTION("Std.Array.Concat rejects malformed scalar rhs bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayConcat)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Concat' expected two tuple values");
+  }
+
   SECTION("Std.Array.Concat rejects malformed unary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     const auto c1 = push_i64_const(bytecode_module, 1);
@@ -4412,6 +6740,188 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Array.Reshape' expected 3 arguments but got 2");
   }
 
+  SECTION("Std.Array.Transpose2D rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::ArrayTranspose2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Transpose2D' expected a direct tuple of tuple values");
+  }
+
+  SECTION("Std.Array.Transpose2D rejects malformed scalar-row direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::ArrayTranspose2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Array.Transpose2D' expected a direct tuple of tuple values");
+  }
+
+  SECTION("Std.Array.Transpose2D preserves ragged-grid runtime failures after boundary validation") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::ArrayTranspose2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.Transpose2D' threw: ArrayTranspose2D: ragged grid detected at row 1");
+  }
+
+  SECTION("Std.Array.SetAt2D rejects malformed scalar grid bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySetAt2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.SetAt2D' expected a tuple of tuple values followed by Int64 or UInt64 row and "
+            "column indices and a trailing value");
+  }
+
+  SECTION("Std.Array.Fill rejects malformed fractional length bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.constants.emplace_back(1.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayFill)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.Fill' expected a tuple value followed by two Int64 or UInt64 indices and a trailing "
+            "value");
+  }
+
+  SECTION("Std.Array.Slice2D rejects malformed scalar-row grid bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 5},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySlice2D)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.Slice2D' expected a tuple of tuple values followed by Int64 or UInt64 row and "
+            "column bounds");
+  }
+
+  SECTION("Std.Array.Reshape rejects malformed fractional dimension bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    const auto c4 = push_i64_const(bytecode_module, 4);
+    bytecode_module.constants.emplace_back(2.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayReshape)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.Reshape' expected a tuple value followed by Int64 or UInt64 indices");
+  }
+
   SECTION("Std.Array.GetAtND rejects malformed unary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     const auto c1 = push_i64_const(bytecode_module, 1);
@@ -4469,6 +6979,87 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.Array.ReshapeND' expected 2 arguments but got 3");
+  }
+
+  SECTION("Std.Array.GetAtND rejects malformed scalar indices bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayGetAtND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.GetAtND' expected a direct value followed by a tuple of Int64 or UInt64 values");
+  }
+
+  SECTION("Std.Array.SetAtND rejects malformed fractional index tuple bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c9 = push_i64_const(bytecode_module, 9);
+    bytecode_module.constants.emplace_back(1.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArraySetAtND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.SetAtND' expected a direct value followed by a tuple of Int64 or UInt64 values and "
+            "a trailing value");
+  }
+
+  SECTION("Std.Array.ReshapeND rejects malformed scalar shape bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    const auto c2 = push_i64_const(bytecode_module, 2);
+    const auto c3 = push_i64_const(bytecode_module, 3);
+    const auto c4 = push_i64_const(bytecode_module, 4);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c4},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 4},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ArrayReshapeND)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message ==
+            "builtin 'Std.Array.ReshapeND' expected a tuple value followed by a tuple of Int64 or UInt64 values");
   }
 
   SECTION("Std.Math.Clamp rejects malformed binary bytecode shape") {
@@ -4542,6 +7133,24 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
     REQUIRE(result.error().message == "builtin 'Std.Dict.Create' expected 1 argument but got 0");
   }
 
+  SECTION("Std.Dict.Create unary overload rejects malformed scalar direct-value bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::DictCreateDict)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Dict.Create' expected a direct Dict value");
+  }
+
   SECTION("Std.Exit unary overload rejects malformed nullary bytecode shape") {
     fleaux::bytecode::Module bytecode_module;
     bytecode_module.instructions = {
@@ -4581,6 +7190,93 @@ TEST_CASE("VM kCallBuiltin validates covered builtin arity metadata before built
 
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected 3 arguments but got 4");
+  }
+
+  SECTION("Std.Tuple.Range rejects malformed fractional unary stop bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.emplace_back(1.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin_direct(fleaux::vm::BuiltinId::TupleRangeInt64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected a direct Int64 or UInt64 value");
+  }
+
+  SECTION("Std.Tuple.Range rejects malformed fractional binary stop bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c1 = push_i64_const(bytecode_module, 1);
+    bytecode_module.constants.emplace_back(3.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected two Int64 or UInt64 values");
+  }
+
+  SECTION("Std.Tuple.Range rejects malformed fractional ternary step bytecode shape") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c5 = push_i64_const(bytecode_module, 5);
+    bytecode_module.constants.emplace_back(1.5);
+    const auto cFractional = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFractional},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' expected three Int64 or UInt64 values");
+  }
+
+  SECTION("Std.Tuple.Range preserves step-zero runtime failures after boundary validation") {
+    fleaux::bytecode::Module bytecode_module;
+    const auto c0 = push_i64_const(bytecode_module, 0);
+    const auto c5 = push_i64_const(bytecode_module, 5);
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
+        {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+         .operand = builtin(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64)},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message == "builtin 'Std.Tuple.Range' threw: TupleRange step cannot be 0");
   }
 
   SECTION("Std.Input nullary overload rejects malformed unary bytecode shape") {
@@ -4727,6 +7423,86 @@ TEST_CASE("VM kCallBuiltin executes apply, wrap, unwrap, cast, and to_num throug
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n7\n42\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes Std.Cast through primary builtin dispatch with exact-1 direct-value shape",
+          "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c9 = push_i64_const(bytecode_module, 9);
+  const auto c11 = push_i64_const(bytecode_module, 11);
+  constexpr auto kCastBuiltin = builtin_direct(fleaux::vm::BuiltinId::Cast);
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c11},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kCastBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "9 11\n");
+}
+
+TEST_CASE("VM kCallBuiltin executes Std.Task.AwaitAll through primary builtin dispatch with exact-1 direct-value shape",
+          "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c2 = push_i64_const(bytecode_module, 2);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+
+  fleaux::bytecode::FunctionDef add_one;
+  add_one.name = "AddOne";
+  add_one.arity = 1;
+  add_one.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(add_one));
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskSpawn)},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c2},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::TaskSpawn)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::TaskAwaitAll)},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::ResultUnwrap)},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Println)},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Println)},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "2 3\n3\n");
 }
 
 TEST_CASE("VM kCallBuiltin executes numeric cast helpers through primary builtin dispatch", "[vm]") {
@@ -4964,8 +7740,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
   REQUIRE(output.str() == "3\n20\n10 20\n30\n20 30\n10 20\n10 30\n3\n0\n1\n0\n2\n3\n7.5\n0\n5\n");
 }
 
-TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through primary builtin dispatch",
-          "[vm]") {
+TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c42 = push_i64_const(bytecode_module, 42);
   const auto c1 = push_i64_const(bytecode_module, 1);
@@ -5196,7 +7971,8 @@ TEST_CASE("VM kCallBuiltin executes Std.ToString and Std.String helpers through 
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() ==
-          "42\n42\n42\n62.5\nHELLO\nmixed\ntrim me\na b c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\nb\nbcd\n4\n2 + 3 = 5\n");
+          "42\n42\n42\n62.5\nHELLO\nmixed\ntrim me\na b "
+          "c\nabc,b,bc\na_b_c\nTrue\nTrue\nTrue\n4\nleft\nright\nb\nbcd\n4\n2 + 3 = 5\n");
 }
 
 TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through primary builtin dispatch", "[vm]") {
@@ -5262,7 +8038,9 @@ TEST_CASE("VM kCallBuiltin executes Std.String.Regex helpers through primary bui
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "True\n4\none|two|three\n3\n");
 }
@@ -5437,11 +8215,11 @@ TEST_CASE("VM executes Std.OS, Std.Tuple, and Std.Dict builtins through primary 
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
 #ifdef _WIN32
-      {.opcode  = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsWindowsBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsWindowsBuiltin},
 #elif defined(__linux__)
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsLinuxBuiltin},
 #else
-      {.opcode  = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsMacOSBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kOSIsMacOSBuiltin},
 #endif
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
@@ -5656,7 +8434,9 @@ TEST_CASE("VM executes Std.Dict.Merge with shared overwrite semantics", "[vm]") 
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
-  if (!result.has_value()) { INFO(result.error().message); }
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "2\n10\n20\n");
 }
@@ -5725,12 +8505,12 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.String.Upper") == fleaux::vm::BuiltinId::StringUpper);
   REQUIRE(require_builtin("Std.String.Regex.Find") == fleaux::vm::BuiltinId::StringRegexFind);
 
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::UnaryPlus(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_int(7)))) == 7.0);
+  REQUIRE(fleaux::runtime::to_double(
+              fleaux::runtime::UnaryPlus(fleaux::runtime::make_tuple(fleaux::runtime::make_int(7)))) == 7.0);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::UnaryMinus(fleaux::runtime::make_int(7))) == -7.0);
 
-  const auto sum = fleaux::runtime::Add(
-      fleaux::runtime::make_tuple(fleaux::runtime::make_uint(40), fleaux::runtime::make_uint(2)));
+  const auto sum =
+      fleaux::runtime::Add(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(40), fleaux::runtime::make_uint(2)));
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(sum)) == "UInt64");
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::BitAnd(
               fleaux::runtime::make_tuple(fleaux::runtime::make_int(6), fleaux::runtime::make_int(3)))) == 2.0);
@@ -5740,26 +8520,28 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
       fleaux::runtime::make_tuple(fleaux::runtime::make_uint(2), fleaux::runtime::make_int(-1)))));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::Not(fleaux::runtime::make_bool(false))));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Select(fleaux::runtime::make_tuple(
-              fleaux::runtime::make_bool(false), fleaux::runtime::make_int(10), fleaux::runtime::make_int(20)))) == 20.0);
+              fleaux::runtime::make_bool(false), fleaux::runtime::make_int(10), fleaux::runtime::make_int(20)))) ==
+          20.0);
 
-  const auto add_one = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) + 1);
-  });
-  const auto sub_one = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
-  });
-  const auto even_handler = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value&) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_string("even");
-  });
-  const auto odd_handler = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value&) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_string("odd");
-  });
-  const auto is_even = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) % 2 == 0);
-  });
+  const auto add_one =
+      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) + 1);
+      });
+  const auto sub_one =
+      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
+      });
+  const auto even_handler = fleaux::runtime::make_callable_ref(
+      [](const fleaux::runtime::Value&) -> fleaux::runtime::Value { return fleaux::runtime::make_string("even"); });
+  const auto odd_handler = fleaux::runtime::make_callable_ref(
+      [](const fleaux::runtime::Value&) -> fleaux::runtime::Value { return fleaux::runtime::make_string("odd"); });
+  const auto is_even =
+      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) % 2 == 0);
+      });
 
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Apply(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_int(41), add_one))) == 42.0);
+  REQUIRE(fleaux::runtime::to_double(
+              fleaux::runtime::Apply(fleaux::runtime::make_tuple(fleaux::runtime::make_int(41), add_one))) == 42.0);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Branch(fleaux::runtime::make_tuple(
               fleaux::runtime::make_bool(true), fleaux::runtime::make_int(10), add_one, sub_one))) == 11.0);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Match(fleaux::runtime::make_tuple(
@@ -5794,17 +8576,16 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultIsOk(try_result)));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::ResultUnwrap(try_result)) == 42.0);
 
-  REQUIRE(fleaux::runtime::as_int_value(
-              fleaux::runtime::StringParseInt64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("-42")))) ==
-          -42);
+  REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::StringParseInt64(
+              fleaux::runtime::make_tuple(fleaux::runtime::make_string("-42")))) == -42);
   REQUIRE(fleaux::runtime::is_uint_number(
       fleaux::runtime::StringParseUInt64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("42")))));
-  REQUIRE(fleaux::runtime::to_double(
-              fleaux::runtime::StringParseFloat64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("6.25e1")))) ==
-          62.5);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::StringParseFloat64(
+              fleaux::runtime::make_tuple(fleaux::runtime::make_string("6.25e1")))) == 62.5);
 
   const auto mapped = fleaux::runtime::ParallelMap(fleaux::runtime::make_tuple(
-      fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2), fleaux::runtime::make_int(3)),
+      fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2),
+                                  fleaux::runtime::make_int(3)),
       add_one));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultIsOk(mapped)));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::ResultUnwrap(mapped), 2)) == 4.0);
@@ -5823,19 +8604,19 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::First(pair)) == 7.0);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Second(pair)) == "rng");
 
-  const auto seq = fleaux::runtime::make_tuple(
-      fleaux::runtime::make_int(10), fleaux::runtime::make_int(20), fleaux::runtime::make_int(30));
+  const auto seq = fleaux::runtime::make_tuple(fleaux::runtime::make_int(10), fleaux::runtime::make_int(20),
+                                               fleaux::runtime::make_int(30));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Length(seq)) == 3.0);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::ElementAt(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1)))) ==
-          20.0);
-  REQUIRE(fleaux::runtime::as_array(fleaux::runtime::Take(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(2)))).Size() ==
-          2);
+  REQUIRE(fleaux::runtime::to_double(
+              fleaux::runtime::ElementAt(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1)))) == 20.0);
+  REQUIRE(
+      fleaux::runtime::as_array(fleaux::runtime::Take(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(2))))
+          .Size() == 2);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
               fleaux::runtime::Drop(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1))), 0)) == 20.0);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
-              fleaux::runtime::SliceTupleUInt64UInt64UInt64(
-                  fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(0), fleaux::runtime::make_int(3),
-                                             fleaux::runtime::make_int(2))),
+              fleaux::runtime::SliceTupleUInt64UInt64UInt64(fleaux::runtime::make_tuple(
+                  seq, fleaux::runtime::make_int(0), fleaux::runtime::make_int(3), fleaux::runtime::make_int(2))),
               1)) == 30.0);
 
   const auto as_int = fleaux::runtime::ToInt64(fleaux::runtime::make_float(3.0));
@@ -5849,15 +8630,18 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::is_float_number(as_float));
   REQUIRE(fleaux::runtime::to_double(as_float) == 7.0);
 
-  const auto generator = fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL)));
+  const auto generator =
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL)));
   const auto random_uint = fleaux::runtime::RandomNextUInt64(generator);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_uint))) == "UInt64");
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_uint))) == "2466975172287755897");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_uint))) ==
+          "2466975172287755897");
 
   const auto random_int = fleaux::runtime::RandomNextInt64(
       fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(0ULL))));
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_int))) == "Int64");
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_int))) == "-2152535657050944081");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_int))) ==
+          "-2152535657050944081");
 
   const auto random_float = fleaux::runtime::RandomNextFloat64(fleaux::runtime::Second(random_uint));
   REQUIRE(fleaux::runtime::is_float_number(fleaux::runtime::First(random_float)));
@@ -5870,16 +8654,22 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto split = fleaux::runtime::RandomSplit(generator);
   const auto left_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::First(split));
   const auto right_step = fleaux::runtime::RandomNextUInt64(fleaux::runtime::Second(split));
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(left_step))) == "1278849761381179246");
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(right_step))) == "15883818742529415426");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(left_step))) ==
+          "1278849761381179246");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(right_step))) ==
+          "15883818742529415426");
 
-  REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::Sqrt(fleaux::runtime::make_tuple(fleaux::runtime::make_int(9)))) -
+  REQUIRE(std::abs(fleaux::runtime::to_double(
+                       fleaux::runtime::Sqrt(fleaux::runtime::make_tuple(fleaux::runtime::make_int(9)))) -
                    3.0) < 1e-12);
-  REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::Sin(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+  REQUIRE(std::abs(fleaux::runtime::to_double(
+                       fleaux::runtime::Sin(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
                    0.0) < 1e-12);
-  REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::Cos(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+  REQUIRE(std::abs(fleaux::runtime::to_double(
+                       fleaux::runtime::Cos(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
                    1.0) < 1e-12);
-  REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::Tan(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+  REQUIRE(std::abs(fleaux::runtime::to_double(
+                       fleaux::runtime::Tan(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
                    0.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
                        fleaux::runtime::MathFloor(fleaux::runtime::make_tuple(fleaux::runtime::make_float(2.9)))) -
@@ -5890,7 +8680,8 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(std::abs(fleaux::runtime::to_double(
                        fleaux::runtime::MathAbs(fleaux::runtime::make_tuple(fleaux::runtime::make_float(-7.5)))) -
                    7.5) < 1e-12);
-  REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::MathLog(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1)))) -
+  REQUIRE(std::abs(fleaux::runtime::to_double(
+                       fleaux::runtime::MathLog(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1)))) -
                    0.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::MathClamp(fleaux::runtime::make_tuple(
                        fleaux::runtime::make_int(9), fleaux::runtime::make_int(0), fleaux::runtime::make_int(5)))) -
@@ -5905,12 +8696,14 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto uppercased = fleaux::runtime::StringUpper(fleaux::runtime::make_string("hElLo"));
   REQUIRE(fleaux::runtime::as_string(uppercased) == "HELLO");
 
-  const auto regex_match_offset = fleaux::runtime::StringRegexFind(fleaux::runtime::make_tuple(
-      fleaux::runtime::make_string("abc-123 xyz"), fleaux::runtime::make_string("[0-9]+")));
+  const auto regex_match_offset = fleaux::runtime::StringRegexFind(
+      fleaux::runtime::make_tuple(fleaux::runtime::make_string("abc-123 xyz"), fleaux::runtime::make_string("[0-9]+")));
   REQUIRE(fleaux::runtime::to_double(regex_match_offset) == 4.0);
 }
 
-TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names and direct runtime functions execute them", "[vm]") {
+TEST_CASE(
+    "VM builtin catalog resolves loop, io, help, and exit builtin names and direct runtime functions execute them",
+    "[vm]") {
   const auto require_builtin = [](const std::string_view name) {
     const auto builtin_id = fleaux::vm::builtin_id_from_name(name);
     REQUIRE(builtin_id.has_value());
@@ -5939,7 +8732,9 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
     std::vector<std::string> args_storage = args;
     std::vector<char*> argv_ptrs;
     argv_ptrs.reserve(args_storage.size());
-    for (auto& arg : args_storage) { argv_ptrs.push_back(arg.data()); }
+    for (auto& arg : args_storage) {
+      argv_ptrs.push_back(arg.data());
+    }
     fleaux::runtime::set_process_args(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
   };
 
@@ -5954,9 +8749,8 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
 
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Println(fleaux::runtime::make_int(8))) == 8.0);
 
-  const auto printf_result = fleaux::runtime::Printf(
-      fleaux::runtime::make_tuple(fleaux::runtime::make_string("{} + {}"), fleaux::runtime::make_int(1),
-                                  fleaux::runtime::make_int(2)));
+  const auto printf_result = fleaux::runtime::Printf(fleaux::runtime::make_tuple(
+      fleaux::runtime::make_string("{} + {}"), fleaux::runtime::make_int(1), fleaux::runtime::make_int(2)));
   REQUIRE(fleaux::runtime::as_array(printf_result).Size() == 3U);
   const auto printf_literal = fleaux::runtime::Printf(fleaux::runtime::make_string("hello"));
   REQUIRE(fleaux::runtime::as_array(printf_literal).Size() == 1U);
@@ -5972,24 +8766,25 @@ TEST_CASE("VM builtin catalog resolves loop, io, help, and exit builtin names an
   const auto input_value = fleaux::runtime::Input_String(fleaux::runtime::make_string("name> "));
   REQUIRE(fleaux::runtime::as_string(input_value) == "Ada");
 
-  const auto continue_func = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) > 0);
-  });
-  const auto step_func = fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
-  });
+  const auto continue_func =
+      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) > 0);
+      });
+  const auto step_func =
+      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
+      });
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Loop(
               fleaux::runtime::make_tuple(fleaux::runtime::make_int(3), continue_func, step_func))) == 0.0);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::LoopN(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_int(3), continue_func, step_func,
-                                          fleaux::runtime::make_int(3)))) == 0.0);
-
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::LoopN(fleaux::runtime::make_tuple(
+              fleaux::runtime::make_int(3), continue_func, step_func, fleaux::runtime::make_int(3)))) == 0.0);
 
   REQUIRE(output.str() == "8\n1 + 2helloname> ");
   fleaux::runtime::clear_help_metadata_registry();
 }
 
-TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct runtime functions execute them", "[vm]") {
+TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct runtime functions execute them",
+          "[vm]") {
   const auto require_builtin = [](const std::string_view name) {
     const auto builtin_id = fleaux::vm::builtin_id_from_name(name);
     REQUIRE(builtin_id.has_value());
@@ -6018,9 +8813,9 @@ TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct
   const auto joined = fleaux::runtime::PathJoin(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("file.txt")));
   REQUIRE(fleaux::runtime::as_string(joined) == (std::filesystem::path("/tmp") / "file.txt").string());
-  const auto joined_nested = fleaux::runtime::PathJoin(fleaux::runtime::make_tuple(
-      fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("nested"),
-      fleaux::runtime::make_string("file.txt")));
+  const auto joined_nested = fleaux::runtime::PathJoin(
+      fleaux::runtime::make_tuple(fleaux::runtime::make_string("/tmp"), fleaux::runtime::make_string("nested"),
+                                  fleaux::runtime::make_string("file.txt")));
   REQUIRE(fleaux::runtime::as_string(joined_nested) ==
           (std::filesystem::path("/tmp") / "nested" / "file.txt").string());
   const auto with_ext = fleaux::runtime::PathWithExtension(
@@ -6036,13 +8831,13 @@ TEST_CASE("VM builtin catalog resolves OS/path/file/dir builtin names and direct
   const auto written_path = fleaux::runtime::FileWriteText(
       fleaux::runtime::make_tuple(fleaux::runtime::make_string(file_path), fleaux::runtime::make_string("hello")));
   REQUIRE(fleaux::runtime::as_string(written_path) == file_path);
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::FileReadText(fleaux::runtime::make_string(file_path))) == "hello");
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::FileReadText(fleaux::runtime::make_string(file_path))) ==
+          "hello");
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::FileDelete(fleaux::runtime::make_string(file_path))));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::DirDelete(fleaux::runtime::make_string(dir_path))));
 
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::OSSetEnv(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_string(env_key), fleaux::runtime::make_string(env_value)))) ==
-          env_value);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::OSSetEnv(fleaux::runtime::make_tuple(
+              fleaux::runtime::make_string(env_key), fleaux::runtime::make_string(env_value)))) == env_value);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::OSEnv(fleaux::runtime::make_string(env_key))) == env_value);
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::OSUnsetEnv(fleaux::runtime::make_string(env_key))));
 
@@ -6093,9 +8888,9 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
   constexpr auto kDictSetBuiltin = builtin(fleaux::vm::BuiltinId::DictSet);
   constexpr auto kDictGetBuiltin = builtin(fleaux::vm::BuiltinId::DictGet);
   constexpr auto kDictGetDefaultBuiltin = builtin(fleaux::vm::BuiltinId::DictGetDefault);
-  constexpr auto kDictLengthBuiltin = builtin(fleaux::vm::BuiltinId::DictLength);
-  constexpr auto kDictKeysBuiltin = builtin(fleaux::vm::BuiltinId::DictKeys);
-  constexpr auto kDictValuesBuiltin = builtin(fleaux::vm::BuiltinId::DictValues);
+  constexpr auto kDictLengthBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictLength);
+  constexpr auto kDictKeysBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictKeys);
+  constexpr auto kDictValuesBuiltin = builtin_direct(fleaux::vm::BuiltinId::DictValues);
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
   bytecode_module.instructions = {
@@ -6157,21 +8952,18 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictLengthBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictKeysBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kDup, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kDictValuesBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
@@ -6192,6 +8984,9 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
   const fleaux::vm::Runtime runtime;
   const auto result = runtime.execute(bytecode_module, output);
 
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 2 3\n0 1 2\nTrue\n(1, 3) (2, 4)\n9\n1\nk\n9\n42\n");
 }

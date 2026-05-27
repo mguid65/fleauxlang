@@ -2,7 +2,7 @@ import Std;
 
 let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;
 let MakeBiasedReducer(n: Float64): (Float64, Float64) => Float64 =
-  (acc: Float64, x: Float64): Float64 = (((acc, x) -> Std.Add), n) -> Std.Add
+  (acc: Float64, x: Float64): Float64 = ((acc, x) -> Std.Add, n) -> Std.Add
 ;
 
 let BuildOptions(): Dict(String, Any) =

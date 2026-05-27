@@ -17,7 +17,7 @@ import Std;
 //     return total, even_count, odd_count
 
 let IsEven(x: Int64): Bool =
-    (((x, 2) -> Std.Mod), 0) -> Std.Equal;
+    ((x, 2) -> Std.Mod, 0) -> Std.Equal;
 
 let CurrentItem(items: Tuple(Int64...), state: Tuple(Int64, Int64, Int64, Int64)): Int64 =
     (items, (state, 0u64) -> Std.ElementAt -> Std.ToUInt64) -> Std.ElementAt;
