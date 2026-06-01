@@ -199,9 +199,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   if (args.Size() < 2U) {
     throw std::logic_error{"internal error: PathJoin called with unexpected validated arity"};
   }
-  std::filesystem::path result = to_string(array_at(arg, 0));
+  std::filesystem::path result = as_string(array_at(arg, 0));
   for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
-    result /= to_string(array_at(arg, segment_index));
+    result /= as_string(array_at(arg, segment_index));
   }
   return make_string(result.string());
 }
@@ -253,8 +253,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto PathWithExtension(Value arg) -> Value {
-  std::filesystem::path path = to_string(array_at(arg, 0));
-  std::string extension = to_string(array_at(arg, 1));
+  std::filesystem::path path = as_string(array_at(arg, 0));
+  std::string extension = as_string(array_at(arg, 1));
   if (!extension.empty() && extension[0] != '.') {
     extension.insert(extension.begin(), '.');
   }
@@ -263,8 +263,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto PathWithBasename(Value arg) -> Value {
-  std::filesystem::path path = to_string(array_at(arg, 0));
-  path.replace_filename(to_string(array_at(arg, 1)));
+  std::filesystem::path path = as_string(array_at(arg, 0));
+  path.replace_filename(as_string(array_at(arg, 1)));
   return make_string(path.string());
 }
 
@@ -281,23 +281,23 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 
 [[nodiscard]] inline auto FileWriteText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(to_string(array_at(arg, 0)));
+  const auto path = detail::resolve_runtime_path(as_string(array_at(arg, 0)));
   std::ofstream out(path, std::ios::trunc);
   if (!out) {
     throw std::runtime_error{"FileWriteText failed"};
   }
-  out << to_string(array_at(arg, 1));
+  out << as_string(array_at(arg, 1));
   return make_string(path.string());
 }
 
 [[nodiscard]] inline auto FileAppendText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(to_string(array_at(arg, 0)));
+  const auto path = detail::resolve_runtime_path(as_string(array_at(arg, 0)));
   std::ofstream out(path, std::ios::app);
   if (!out) {
     throw std::runtime_error{"FileAppendText failed"};
   }
-  out << to_string(array_at(arg, 1));
+  out << as_string(array_at(arg, 1));
   return make_string(path.string());
 }
 
@@ -410,8 +410,8 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSSetEnv(Value arg) -> Value {
-  const std::string key = to_string(array_at(arg, 0));
-  const std::string value = to_string(array_at(arg, 1));
+  const std::string key = as_string(array_at(arg, 0));
+  const std::string value = as_string(array_at(arg, 1));
 #if defined(__EMSCRIPTEN__)
   detail::set_web_env_value(key, value);
   return make_string(value);

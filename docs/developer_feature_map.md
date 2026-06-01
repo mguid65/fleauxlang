@@ -59,6 +59,13 @@ Touch:
 - `core/include/fleaux/frontend/ast.hpp` (if IR fields change)
 - `core/src/frontend/type_system/check_pipeline.cpp` (if typing rules change)
 
+Pipeline invariant:
+- The singleton unwrap rule is per pipeline expression, not a general tuple simplification rule.
+- For each lhs -> target boundary, only the outermost lhs layer may be unwrapped once when adapting arguments.
+- Nested pipeline expressions each get their own one-level lhs adaptation.
+- Do not flatten singleton tuple types or globally unwrap runtime tuple values.
+- Keep valid parenthesized singleton lhs forms working in nested pipelines.
+
 Tests:
 - `core/tests/lowering_tests.cpp`
 - `core/tests/typecheck_tests.cpp`

@@ -9,6 +9,7 @@
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/bytecode/verifier.hpp"
 #include "fleaux/common/symbol_name.hpp"
 #include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/source_loader.hpp"
@@ -205,7 +206,13 @@ auto merge_module_into(Module& target, const Module& source,
                                 .instructions = {},
                                 .generic_params = function.generic_params,
                                 .param_type_names = function.param_type_names,
-                                .return_type_name = function.return_type_name};
+                                .return_type_name = function.return_type_name,
+                                .return_type_is_dict_string_any = function.return_type_is_dict_string_any,
+                                .return_type_is_exact_uint64 = function.return_type_is_exact_uint64,
+                                .return_type_is_exact_int64 = function.return_type_is_exact_int64,
+                                .return_type_is_task_handle = function.return_type_is_task_handle,
+                                .return_type_is_random_generator = function.return_type_is_random_generator,
+                                .return_type_is_file_handle = function.return_type_is_file_handle};
     target.functions.push_back(std::move(merged_function));
   }
 
@@ -232,6 +239,31 @@ auto merge_module_into(Module& target, const Module& source,
   const auto jump_base = static_cast<std::int64_t>(target.instructions.size());
   const auto rebased_top_level = rebase_instruction_stream(source.instructions, maps, jump_base, !keep_terminal_halt);
   target.instructions.insert(target.instructions.end(), rebased_top_level.begin(), rebased_top_level.end());
+
+  for (const auto& callsite : source.builtin_callsites) {
+    BuiltinCallsiteRecord remapped = callsite;
+    if (remapped.owner_kind == BuiltinCallsiteOwnerKind::kFunction) {
+      remapped.owner_index = maps.functions[remapped.owner_index];
+    } else {
+      remapped.instruction_index += static_cast<std::uint32_t>(jump_base);
+    }
+
+    for (auto& callable_slot : remapped.callable_slots) {
+      if (callable_slot.kind == BuiltinCallableSlotKind::kFunction) {
+        callable_slot.target_index = maps.functions[callable_slot.target_index];
+      } else if (callable_slot.kind == BuiltinCallableSlotKind::kClosure) {
+        callable_slot.target_index = maps.closures[callable_slot.target_index];
+      }
+    }
+
+    for (auto& value_slot : remapped.value_slots) {
+      if (value_slot.source_kind == BuiltinValueSlotSourceKind::kFunctionReturn) {
+        value_slot.source_index = maps.functions[value_slot.source_index];
+      }
+    }
+
+    target.builtin_callsites.push_back(std::move(remapped));
+  }
 
   if (keep_exports) {
     for (const auto& exported_symbol : source.exports) {
@@ -270,6 +302,13 @@ auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOp
   if (!deserialized) {
     if (!paths.source.has_value()) {
       return tl::unexpected(make_error(deserialized.error().message));
+    }
+    return std::optional<Module>{};
+  }
+
+  if (const auto verified = verify_module_builtin_callsites(*deserialized); !verified) {
+    if (!paths.source.has_value()) {
+      return tl::unexpected(make_error(verified.error().message));
     }
     return std::optional<Module>{};
   }
@@ -329,8 +368,8 @@ void seed_imported_symbol_names(const Module& imported_module, ImportSeeds& seed
   }
 }
 
-auto make_generic_typed_import_stub(const ExportedSymbol& exported,
-                                    const std::unordered_map<std::string, const FunctionDef*>& fn_by_link_name)
+auto make_typed_import_stub(const ExportedSymbol& exported,
+                            const std::unordered_map<std::string, const FunctionDef*>& fn_by_link_name)
     -> std::optional<frontend::ir::IRLet> {
   if (exported.kind != ExportKind::kFunction) {
     return std::nullopt;
@@ -341,11 +380,7 @@ auto make_generic_typed_import_stub(const ExportedSymbol& exported,
   if (fn_it == fn_by_link_name.end()) {
     return std::nullopt;
   }
-
   const FunctionDef& fn = *fn_it->second;
-  if (fn.generic_params.empty()) {
-    return std::nullopt;
-  }
 
   frontend::ir::IRLet stub;
   const auto& full_name = exported.name;
@@ -382,7 +417,7 @@ void seed_imports_from_bytecode_module(const Module& imported_module,
       continue;
     }
 
-    if (auto stub = make_generic_typed_import_stub(exported, fn_by_link_name); stub.has_value()) {
+    if (auto stub = make_typed_import_stub(exported, fn_by_link_name); stub.has_value()) {
       seeds.typed_lets.push_back(std::move(*stub));
     }
   }
@@ -674,6 +709,7 @@ auto load_linked_module(const std::filesystem::path& entry_path, const ModuleLoa
 
   context.linked_module.header = entry_unlinked->header;
   context.linked_module.dependencies = entry_unlinked->dependencies;
+  rebuild_module_builtin_callsites(context.linked_module);
   context.linked_module.header.payload_checksum = 0;
   return context.linked_module;
 }

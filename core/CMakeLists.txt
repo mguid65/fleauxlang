@@ -330,6 +330,7 @@ set(FLEAUX_BYTECODE_SOURCES
         src/bytecode/escape_analyzer.cpp
         src/bytecode/optimizer.cpp
         src/bytecode/serialization.cpp
+        src/bytecode/verifier.cpp
         src/bytecode/module_loader.cpp
 )
 

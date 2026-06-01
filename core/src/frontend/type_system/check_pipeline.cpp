@@ -56,6 +56,10 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
   return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
 }
 
+// Pipeline call adaptation rule:
+// each lhs -> target boundary may unwrap only its own outermost singleton lhs layer once.
+// This is not general tuple flattening. Nested tuple structure stays meaningful, and nested
+// pipeline expressions apply the same rule independently at their own boundaries.
 auto unwrap_outer_singleton_lhs_type_once(const ir::IRExpr& lhs_expr, const Type& lhs_type) -> Type {
   const auto* tuple = std::get_if<ir::IRTupleExpr>(&lhs_expr.node);
   if (tuple == nullptr || tuple->items.size() != 1U) {
@@ -271,6 +275,8 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   if (!value_type) {
     return tl::unexpected(value_type.error());
   }
+  // Std.Apply forwards a pipeline value channel into another call boundary, so it must honor the
+  // same once-only outer lhs adaptation rule as ordinary pipeline calls.
   const Type adapted_value_type = unwrap_outer_singleton_lhs_type_once(*apply_args->items[0], *value_type);
 
   auto func_type = infer_expr(*apply_args->items[1], index, type_index, alias_index, locals, generic_params);

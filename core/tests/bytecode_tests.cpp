@@ -18,6 +18,7 @@
 #include "fleaux/bytecode/opcode.hpp"
 #include "fleaux/bytecode/optimizer.hpp"
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/bytecode/verifier.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/source_loader.hpp"
@@ -49,9 +50,9 @@ auto lower_source_to_ir(const std::string& source_text, const std::string& sourc
   const auto lowered = lowerer.lower_only(parsed.value());
   REQUIRE(lowered.has_value());
 
-  auto make_error = [](const std::string& message, const std::optional<std::string>& hint,
-                       const std::optional<fleaux::frontend::diag::SourceSpan>& span)
-      -> fleaux::frontend::type_check::AnalysisError {
+  auto make_error =
+      [](const std::string& message, const std::optional<std::string>& hint,
+         const std::optional<fleaux::frontend::diag::SourceSpan>& span) -> fleaux::frontend::type_check::AnalysisError {
     return fleaux::frontend::type_check::AnalysisError{
         .message = message,
         .hint = hint,
@@ -63,14 +64,13 @@ auto lower_source_to_ir(const std::string& source_text, const std::string& sourc
   std::vector<fleaux::frontend::ir::IRLet> imported_typed_lets;
   std::vector<fleaux::frontend::ir::IRTypeDecl> imported_type_decls;
   std::vector<fleaux::frontend::ir::IRAliasDecl> imported_alias_decls;
-  const auto seeded = fleaux::frontend::source_loader::seed_symbolic_imports_for_program<
-      fleaux::frontend::type_check::AnalysisError>(*lowered, make_error, imported_symbols, imported_typed_lets,
-                                                   imported_type_decls, imported_alias_decls);
+  const auto seeded =
+      fleaux::frontend::source_loader::seed_symbolic_imports_for_program<fleaux::frontend::type_check::AnalysisError>(
+          *lowered, make_error, imported_symbols, imported_typed_lets, imported_type_decls, imported_alias_decls);
   REQUIRE(seeded.has_value());
 
-  const auto analyzed =
-      fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
-                                                    imported_type_decls, imported_alias_decls);
+  const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols, imported_typed_lets,
+                                                                      imported_type_decls, imported_alias_decls);
   REQUIRE(analyzed.has_value());
   return analyzed.value();
 }
@@ -87,18 +87,20 @@ auto make_test_span(const std::string& source_name) -> std::optional<fleaux::fro
 }
 
 auto make_ir_expr(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
-                              fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
+                               fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
                                fleaux::frontend::ir::IRClosureExprBox, fleaux::frontend::ir::IRBlockExprBox>
-                     node,
-                 std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExpr {
+                      node,
+                  std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt)
+    -> fleaux::frontend::ir::IRExpr {
   return fleaux::frontend::ir::IRExpr{.node = std::move(node), .span = std::move(span)};
 }
 
 auto make_ir_box(std::variant<fleaux::frontend::ir::IRFlowExpr, fleaux::frontend::ir::IRTupleExpr,
-                             fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
+                              fleaux::frontend::ir::IRConstant, fleaux::frontend::ir::IRNameRef,
                               fleaux::frontend::ir::IRClosureExprBox, fleaux::frontend::ir::IRBlockExprBox>
-                    node,
-                std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
+                     node,
+                 std::optional<fleaux::frontend::diag::SourceSpan> span = std::nullopt)
+    -> fleaux::frontend::ir::IRExprBox {
   return fleaux::frontend::ir::IRExprBox(make_ir_expr(std::move(node), std::move(span)));
 }
 
@@ -119,7 +121,8 @@ auto make_null_constant_box() -> fleaux::frontend::ir::IRExprBox {
 }
 
 auto make_name_ref_box(std::optional<std::string> qualifier, std::string name,
-                       std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRExprBox {
+                       std::optional<std::string> resolved_symbol_key = std::nullopt)
+    -> fleaux::frontend::ir::IRExprBox {
   fleaux::frontend::ir::IRNameRef name_ref{};
   name_ref.qualifier = std::move(qualifier);
   name_ref.name = std::move(name);
@@ -141,7 +144,8 @@ auto make_variadic_simple_type(std::string name) -> fleaux::frontend::ir::IRSimp
 }
 
 auto make_ir_name_ref(std::optional<std::string> qualifier, std::string name,
-                      std::optional<std::string> resolved_symbol_key = std::nullopt) -> fleaux::frontend::ir::IRNameRef {
+                      std::optional<std::string> resolved_symbol_key = std::nullopt)
+    -> fleaux::frontend::ir::IRNameRef {
   fleaux::frontend::ir::IRNameRef name_ref{};
   name_ref.qualifier = std::move(qualifier);
   name_ref.name = std::move(name);
@@ -213,7 +217,8 @@ auto make_int_tuple_literal(const std::vector<int>& values) -> std::string {
   std::ostringstream out;
   out << "(";
   for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i > 0) out << ", ";
+    if (i > 0)
+      out << ", ";
     out << values[i];
   }
   out << ")";
@@ -224,7 +229,8 @@ auto make_task_spawn_tuple_literal(const std::vector<int>& values) -> std::strin
   std::ostringstream out;
   out << "(";
   for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i > 0) out << ", ";
+    if (i > 0)
+      out << ", ";
     out << "(Inc, " << values[i] << ") -> Std.Task.Spawn";
   }
   out << ")";
@@ -242,7 +248,9 @@ auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string>
   std::string decl;
   while (std::getline(in, line)) {
     if (decl.empty()) {
-      if (line.find("let Std.") == std::string::npos) { continue; }
+      if (line.find("let Std.") == std::string::npos) {
+        continue;
+      }
       decl = line;
     } else {
       decl += ' ';
@@ -250,7 +258,9 @@ auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string>
     }
 
     // Wait until the statement terminator is present.
-    if (decl.find(';') == std::string::npos) { continue; }
+    if (decl.find(';') == std::string::npos) {
+      continue;
+    }
 
     const auto let_pos = decl.find("let Std.");
 
@@ -272,13 +282,17 @@ auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string>
 
 auto vm_catalog_builtin_names() -> std::set<std::string> {
   std::set<std::string> names;
-  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) { names.insert(std::string{spec.name}); }
+  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
+    names.insert(std::string{spec.name});
+  }
   return names;
 }
 
 auto vm_catalog_constant_names() -> std::set<std::string> {
   std::set<std::string> names;
-  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) { names.insert(std::string{spec.name}); }
+  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
+    names.insert(std::string{spec.name});
+  }
   return names;
 }
 
@@ -298,14 +312,18 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Input#1") == fleaux::vm::BuiltinId::InputString);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#0") == fleaux::vm::BuiltinId::TupleRangeInt64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRangeInt64Int64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") == fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") ==
+          fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#0") == fleaux::vm::BuiltinId::SliceTupleUInt64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#1") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#2") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#0") == fleaux::vm::BuiltinId::StringSliceStringUInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#1") == fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#0") ==
+          fleaux::vm::BuiltinId::StringSliceStringUInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#1") ==
+          fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#0") == fleaux::vm::BuiltinId::StringFindStringString);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#1") == fleaux::vm::BuiltinId::StringFindStringStringUInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#1") ==
+          fleaux::vm::BuiltinId::StringFindStringStringUInt64);
 }
 
 TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded builtin arity contracts",
@@ -388,6 +406,13 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictSet));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 2U));
+
+  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
+    INFO(spec.name);
+    REQUIRE(fleaux::vm::builtin_has_arity_contract(spec.id));
+    REQUIRE(fleaux::vm::builtin_accepts_arity(spec.id, 0U));
+    REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(spec.id, 1U));
+  }
 
   REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictGet));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 2U));
@@ -626,12 +651,13 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Println, 3U));
 }
 
-TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadata families", "[bytecode][builtins][arity]") {
+TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadata families",
+          "[bytecode][builtins][arity]") {
   SECTION("Tuple literal with wrong arity is rejected for Std.Add") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Add", std::string{"Std.Add"}),
             })},
@@ -641,14 +667,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Add' expects 2 arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Add' expects 2 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.Help") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Help", std::string{"Std.Help"}),
             })},
@@ -658,18 +685,19 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Help' expects 1 argument but got 0.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Help' expects 1 argument but got 0.");
   }
 
   SECTION("Tuple-valued unary call is accepted for Std.Type") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{.lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
-                                                       make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
-                                                           make_int_constant_box(1), make_int_constant_box(2),
-                                                           make_int_constant_box(3)}})}}),
-                                         .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                        .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}})}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
     };
 
     const fleaux::bytecode::BytecodeCompiler compiler;
@@ -681,29 +709,29 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Nested singleton tuple wrappers are preserved for exact-1 Std.Type calls") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{.lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
-                                                       make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {
-                                                           make_int_constant_box(1)}})}}),
-                                         .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}})}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Type", std::string{"Std.Type"})})},
     };
 
     const fleaux::bytecode::BytecodeCompiler compiler;
     const auto result = compiler.compile(ir_program);
 
     REQUIRE(result.has_value());
-    const auto build_tuple_count = std::count_if(result->instructions.begin(), result->instructions.end(),
-                                                 [](const fleaux::bytecode::Instruction& ins) {
-                                                   return ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 1;
-                                                 });
+    const auto build_tuple_count = std::count_if(
+        result->instructions.begin(), result->instructions.end(), [](const fleaux::bytecode::Instruction& ins) {
+          return ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 1;
+        });
     REQUIRE(build_tuple_count == 2);
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.Match") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Match", std::string{"Std.Match"}),
             })},
@@ -713,14 +741,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Match' expects 2+ arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Match' expects 2+ arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.Subtract") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Subtract", std::string{"Std.Subtract"}),
             })},
@@ -753,10 +782,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Not") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_bool_constant_box(true),
-                                                                              make_bool_constant_box(false)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_bool_constant_box(true), make_bool_constant_box(false)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Not", std::string{"Std.Not"}),
             })},
     };
@@ -765,7 +794,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Not' expects 1 argument but got 2.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Not' expects 1 argument but got 2.");
   }
 
   SECTION("Materialized zero-arg builtin value is rejected for unary Std.ToUInt64") {
@@ -787,8 +817,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.OS.Cwd") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.OS"}, "Cwd", std::string{"Std.OS.Cwd"}),
             })},
@@ -798,14 +828,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.OS.Cwd' expects 0 arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.OS.Cwd' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for binary Std.OS.SetEnv") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("NAME")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.OS"}, "SetEnv", std::string{"Std.OS.SetEnv"}),
             })},
@@ -822,8 +853,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.File.ReadChunk") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.File"}, "ReadChunk", std::string{"Std.File.ReadChunk"}),
@@ -841,8 +872,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.File.WithOpen") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_string_constant_box("file.txt"), make_string_constant_box("r")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.File"}, "WithOpen", std::string{"Std.File.WithOpen"}),
@@ -860,8 +891,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Dict.Set") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_string_constant_box("dict"), make_string_constant_box("key")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Set", std::string{"Std.Dict.Set"}),
@@ -879,8 +910,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Dict.Get") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("dict")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Get", std::string{"Std.Dict.Get"}),
             })},
@@ -897,8 +928,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Append") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Append", std::string{"Std.Tuple.Append"}),
             })},
@@ -915,8 +946,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Zip") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Zip", std::string{"Std.Tuple.Zip"}),
@@ -934,8 +965,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Map") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Map", std::string{"Std.Tuple.Map"}),
             })},
@@ -952,8 +983,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Any") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Any", std::string{"Std.Tuple.Any"}),
@@ -971,10 +1002,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Tuple.Reduce") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Tuple"}, "Reduce", std::string{"Std.Tuple.Reduce"}),
             })},
     };
@@ -990,8 +1021,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Split") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("a,b,c")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Split", std::string{"Std.String.Split"}),
             })},
@@ -1008,10 +1039,11 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Join") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_string_constant_box(","), make_string_constant_box("abc"), make_string_constant_box("def")}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box(","),
+                                                                               make_string_constant_box("abc"),
+                                                                               make_string_constant_box("def")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Join", std::string{"Std.String.Join"}),
             })},
     };
@@ -1027,8 +1059,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.String.Replace") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_string_constant_box("a,b,c"), make_string_constant_box(",")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Replace", std::string{"Std.String.Replace"}),
@@ -1046,10 +1078,11 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.String.Regex.IsMatch") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abc")}}),
-                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "IsMatch", std::string{"Std.String.Regex.IsMatch"}),
+                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "IsMatch",
+                                        std::string{"Std.String.Regex.IsMatch"}),
             })},
     };
 
@@ -1064,11 +1097,12 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.String.Regex.Replace") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_string_constant_box("abc-123"), make_string_constant_box("[0-9]+")}}),
-                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "Replace", std::string{"Std.String.Regex.Replace"}),
+                .rhs = make_ir_name_ref(std::string{"Std.String.Regex"}, "Replace",
+                                        std::string{"Std.String.Regex.Replace"}),
             })},
     };
 
@@ -1083,8 +1117,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Task.Spawn") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Task"}, "Spawn", std::string{"Std.Task.Spawn"}),
             })},
@@ -1101,10 +1135,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Parallel.Reduce") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Parallel"}, "Reduce", std::string{"Std.Parallel.Reduce"}),
             })},
     };
@@ -1120,10 +1154,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Select") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(
-                    fleaux::frontend::ir::IRTupleExpr{.items = {make_bool_constant_box(true), make_int_constant_box(10)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_bool_constant_box(true), make_int_constant_box(10)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Select", std::string{"Std.Select"}),
             })},
     };
@@ -1139,8 +1173,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.GetArgs") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("ignored")}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "GetArgs", std::string{"Std.GetArgs"}),
             })},
@@ -1157,8 +1191,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.ElementAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "ElementAt", std::string{"Std.ElementAt"}),
             })},
@@ -1175,8 +1209,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Take") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Take", std::string{"Std.Take"}),
             })},
@@ -1193,8 +1227,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Drop") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Drop", std::string{"Std.Drop"}),
@@ -1212,8 +1246,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Try") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Try", std::string{"Std.Try"}),
             })},
@@ -1230,8 +1264,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Apply") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Apply", std::string{"Std.Apply"}),
             })},
@@ -1248,8 +1282,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Branch") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_bool_constant_box(true), make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Branch", std::string{"Std.Branch"}),
@@ -1267,8 +1301,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Loop") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(
                     fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(0), make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Loop", std::string{"Std.Loop"}),
@@ -1286,8 +1320,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for quaternary Std.LoopN") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(0), make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "LoopN", std::string{"Std.LoopN"}),
@@ -1305,8 +1339,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.GetAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAt", std::string{"Std.Array.GetAt"}),
             })},
@@ -1323,10 +1357,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.SetAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt", std::string{"Std.Array.SetAt"}),
             })},
     };
@@ -1342,10 +1376,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.InsertAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "InsertAt", std::string{"Std.Array.InsertAt"}),
             })},
     };
@@ -1361,8 +1395,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.RemoveAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "RemoveAt", std::string{"Std.Array.RemoveAt"}),
@@ -1380,10 +1414,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.Slice") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Slice", std::string{"Std.Array.Slice"}),
             })},
     };
@@ -1399,8 +1433,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.Concat") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Concat", std::string{"Std.Array.Concat"}),
             })},
@@ -1417,8 +1451,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Array.SetAt2D") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt2D", std::string{"Std.Array.SetAt2D"}),
@@ -1436,8 +1470,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Array.Fill") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Fill", std::string{"Std.Array.Fill"}),
@@ -1455,11 +1489,11 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for quinary Std.Array.Slice2D") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3),
-                              make_int_constant_box(4)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2),
+                                                                make_int_constant_box(3), make_int_constant_box(4)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Slice2D", std::string{"Std.Array.Slice2D"}),
             })},
     };
@@ -1475,10 +1509,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.Reshape") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Reshape", std::string{"Std.Array.Reshape"}),
             })},
     };
@@ -1494,8 +1528,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.GetAtND") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAtND", std::string{"Std.Array.GetAtND"}),
             })},
@@ -1512,10 +1546,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.SetAtND") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAtND", std::string{"Std.Array.SetAtND"}),
             })},
     };
@@ -1531,8 +1565,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.ReshapeND") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Array"}, "ReshapeND", std::string{"Std.Array.ReshapeND"}),
@@ -1550,10 +1584,10 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for ternary Std.Math.Clamp") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(9), make_int_constant_box(0)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(9), make_int_constant_box(0)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Math"}, "Clamp", std::string{"Std.Math.Clamp"}),
             })},
     };
@@ -1569,8 +1603,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.Exit overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Exit", std::string{"Std.Exit#0"}),
             })},
@@ -1580,14 +1614,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 0 arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Exit overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Exit", std::string{"Std.Exit#1"}),
             })},
@@ -1597,14 +1632,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 1 argument but got 0.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Exit' expects 1 argument but got 0.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.Dict.Create overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("seed")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Create", std::string{"Std.Dict.Create#0"}),
             })},
@@ -1621,8 +1657,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Dict.Create overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
                 .rhs = make_ir_name_ref(std::string{"Std.Dict"}, "Create", std::string{"Std.Dict.Create#1"}),
             })},
@@ -1639,8 +1675,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for nullary Std.Input overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("name> ")}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Input", std::string{"Std.Input#0"}),
             })},
@@ -1650,14 +1686,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 0 arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 0 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for prompt Std.Input overload") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_string_constant_box("name> "), make_string_constant_box("extra")}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Input", std::string{"Std.Input#1"}),
@@ -1668,14 +1705,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 1 argument but got 2.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Input' expects 1 argument but got 2.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for variadic Std.Printf") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Printf", std::string{"Std.Printf"}),
             })},
@@ -1692,8 +1730,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for variadic Std.Path.Join") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("tmp")}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Path.Join", std::string{"Std.Path.Join"}),
             })},
@@ -1710,8 +1748,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for variadic Std.String.Format") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Format", std::string{"Std.String.Format"}),
             })},
@@ -1728,8 +1766,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for unary Std.Unwrap") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(
                     fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Unwrap", std::string{"Std.Unwrap"}),
@@ -1747,11 +1785,11 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
   SECTION("Tuple literal with wrong arity is rejected for Std.Tuple.Range") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                    .items = {make_int_constant_box(0), make_int_constant_box(1), make_int_constant_box(2),
-                              make_int_constant_box(3)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(
+                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(0), make_int_constant_box(1),
+                                                                make_int_constant_box(2), make_int_constant_box(3)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Tuple.Range", std::string{"Std.Tuple.Range#2"}),
             })},
     };
@@ -1760,14 +1798,15 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Range' expects 3 arguments but got 4.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Range' expects 3 arguments but got 4.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.String.Slice") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abcdef")}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Slice", std::string{"Std.String.Slice#0"}),
             })},
@@ -1777,18 +1816,18 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.String.Slice' expects 2 arguments but got 1.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Slice' expects 2 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.String.Find") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_string_constant_box("abcabc"),
-                                                                              make_string_constant_box("bc"),
-                                                                              make_int_constant_box(2),
-                                                                              make_int_constant_box(4)}}),
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
+                    .items = {make_string_constant_box("abcabc"), make_string_constant_box("bc"),
+                              make_int_constant_box(2), make_int_constant_box(4)}}),
                 .rhs = make_ir_name_ref(std::string{"Std.String"}, "Find", std::string{"Std.String.Find#1"}),
             })},
     };
@@ -1797,21 +1836,20 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.String.Find' expects 3 arguments but got 4.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.String.Find' expects 3 arguments but got 4.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for Std.Slice") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
-        fleaux::frontend::ir::IRExprStatement{.expr = make_ir_expr(
-            fleaux::frontend::ir::IRFlowExpr{
+        fleaux::frontend::ir::IRExprStatement{
+            .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(10),
                                                                                       make_int_constant_box(20),
                                                                                       make_int_constant_box(30)}}),
-                              make_int_constant_box(0),
-                              make_int_constant_box(3),
-                              make_int_constant_box(1),
+                              make_int_constant_box(0), make_int_constant_box(3), make_int_constant_box(1),
                               make_int_constant_box(9)}}),
                 .rhs = make_ir_name_ref(std::string{"Std"}, "Slice", std::string{"Std.Slice#2"}),
             })},
@@ -1821,7 +1859,8 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Slice' expects 4 arguments but got 5.");
+    REQUIRE(result.error().message ==
+            "Builtin arity mismatch in bytecode compiler: 'Std.Slice' expects 4 arguments but got 5.");
   }
 }
 
@@ -1861,6 +1900,218 @@ TEST_CASE("Bytecode compiler emits pipeline with native Std.Add lowering", "[byt
   REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
+TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and function streams",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let ShowHelp(name: String): Any = (name) -> Std.Help;\n"
+      "(\"Std.Add\") -> ShowHelp -> Std.Println;\n",
+      "bytecode_builtin_callsite_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  REQUIRE(module.builtin_callsites.size() == 2U);
+
+  const auto& function_callsite = module.builtin_callsites[0];
+  REQUIRE(function_callsite.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kFunction);
+  REQUIRE(function_callsite.owner_index < module.functions.size());
+  REQUIRE(function_callsite.instruction_index < module.functions[function_callsite.owner_index].instructions.size());
+  REQUIRE(function_callsite.builtin_id == fleaux::vm::BuiltinId::Help);
+  REQUIRE(function_callsite.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(function_callsite.static_argument_count == 1U);
+  REQUIRE(module.functions[function_callsite.owner_index].instructions[function_callsite.instruction_index].opcode ==
+          fleaux::bytecode::Opcode::kCallBuiltin);
+
+  const auto& module_callsite = module.builtin_callsites[1];
+  REQUIRE(module_callsite.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule);
+  REQUIRE(module_callsite.owner_index == 0U);
+  REQUIRE(module_callsite.instruction_index < module.instructions.size());
+  REQUIRE(module_callsite.builtin_id == fleaux::vm::BuiltinId::Println);
+  REQUIRE(module_callsite.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(module_callsite.static_argument_count == 1U);
+  REQUIRE(module.instructions[module_callsite.instruction_index].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode compiler emits callable-slot metadata for higher-order builtin callsites",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
+      "(5.0, Inc) -> Std.Apply -> Std.Println;\n"
+      "(5.0, (x: Float64): Float64 = (x, 2.0) -> Std.Add) -> Std.Apply -> Std.Println;\n"
+      "(5.0, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
+      "bytecode_builtin_callable_slot_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  std::vector<fleaux::bytecode::BuiltinCallsiteRecord> apply_callsites;
+  for (const auto& callsite : module.builtin_callsites) {
+    if (callsite.builtin_id == fleaux::vm::BuiltinId::Apply) {
+      apply_callsites.push_back(callsite);
+    }
+  }
+
+  REQUIRE(apply_callsites.size() == 3U);
+  REQUIRE(apply_callsites[0].callable_slots.size() == 1U);
+  REQUIRE(apply_callsites[0].callable_slots[0].slot_index == 1U);
+  REQUIRE(apply_callsites[0].callable_slots[0].kind == fleaux::bytecode::BuiltinCallableSlotKind::kFunction);
+  REQUIRE(apply_callsites[0].callable_slots[0].declared_arity == 1U);
+  REQUIRE_FALSE(apply_callsites[0].callable_slots[0].has_variadic_tail);
+
+  REQUIRE(apply_callsites[1].callable_slots.size() == 1U);
+  REQUIRE(apply_callsites[1].callable_slots[0].slot_index == 1U);
+  REQUIRE(apply_callsites[1].callable_slots[0].kind == fleaux::bytecode::BuiltinCallableSlotKind::kClosure);
+  REQUIRE(apply_callsites[1].callable_slots[0].declared_arity == 1U);
+  REQUIRE_FALSE(apply_callsites[1].callable_slots[0].has_variadic_tail);
+
+  REQUIRE(apply_callsites[2].callable_slots.size() == 1U);
+  REQUIRE(apply_callsites[2].callable_slots[0].slot_index == 1U);
+  REQUIRE(apply_callsites[2].callable_slots[0].kind == fleaux::bytecode::BuiltinCallableSlotKind::kBuiltin);
+  REQUIRE(apply_callsites[2].callable_slots[0].target_index ==
+          static_cast<std::uint32_t>(fleaux::vm::BuiltinId::UnaryMinus));
+  REQUIRE(apply_callsites[2].callable_slots[0].declared_arity == 1U);
+  REQUIRE_FALSE(apply_callsites[2].callable_slots[0].has_variadic_tail);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  if (!verified.has_value()) {
+    FAIL(verified.error().message);
+  }
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode compiler emits Dict(String, Any) options metadata for Parallel.WithOptions",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
+      "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+      "((1, 2, 3), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.IsOk -> Std.Println;\n",
+      "bytecode_parallel_with_options_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  const auto callsite_it = std::find_if(module.builtin_callsites.begin(), module.builtin_callsites.end(),
+                                        [](const fleaux::bytecode::BuiltinCallsiteRecord& record) {
+                                          return record.builtin_id == fleaux::vm::BuiltinId::ParallelWithOptions;
+                                        });
+  REQUIRE(callsite_it != module.builtin_callsites.end());
+  REQUIRE(callsite_it->value_slots.size() == 1U);
+  REQUIRE(callsite_it->value_slots[0].slot_index == 2U);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny);
+  REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
+  REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_dict_string_any);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode compiler emits exact UInt64 metadata for selected builtin value slots",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let BuildIndex(): UInt64 = 1u64;\n"
+      "(\"abc\", () -> BuildIndex) -> Std.String.CharAt -> Std.Println;\n",
+      "bytecode_exact_uint64_value_slot_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  const auto callsite_it = std::find_if(module.builtin_callsites.begin(), module.builtin_callsites.end(),
+                                        [](const fleaux::bytecode::BuiltinCallsiteRecord& record) {
+                                          return record.builtin_id == fleaux::vm::BuiltinId::StringCharAt;
+                                        });
+  REQUIRE(callsite_it != module.builtin_callsites.end());
+  REQUIRE(callsite_it->call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
+  REQUIRE(callsite_it->static_argument_count == 2U);
+  REQUIRE(callsite_it->value_slots.size() == 1U);
+  REQUIRE(callsite_it->value_slots[0].slot_index == 1U);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64);
+  REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
+  REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_exact_uint64);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode compiler emits exact Int64 metadata for selected builtin value slots",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let BuildStop(): Int64 = 5;\n"
+      "(() -> BuildStop) -> Std.Tuple.Range -> Std.Println;\n",
+      "bytecode_exact_int64_value_slot_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  const auto callsite_it = std::find_if(module.builtin_callsites.begin(), module.builtin_callsites.end(),
+                                        [](const fleaux::bytecode::BuiltinCallsiteRecord& record) {
+                                          return record.builtin_id == fleaux::vm::BuiltinId::TupleRangeInt64;
+                                        });
+  REQUIRE(callsite_it != module.builtin_callsites.end());
+  REQUIRE(callsite_it->call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(callsite_it->static_argument_count == 1U);
+  REQUIRE(callsite_it->value_slots.size() == 1U);
+  REQUIRE(callsite_it->value_slots[0].slot_index == 0U);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64);
+  REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
+  REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_exact_int64);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode compiler emits opaque handle metadata for selected builtin value slots",
+          "[bytecode][verification][builtins]") {
+  const auto ir_program = lower_source_to_ir(
+      "import Std;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
+      "let BuildTask(): TaskHandle = (Inc, 1) -> Std.Task.Spawn;\n"
+      "(() -> BuildTask) -> Std.Task.Await -> Std.Result.IsOk -> Std.Println;\n",
+      "bytecode_opaque_handle_value_slot_metadata.fleaux");
+
+  const fleaux::bytecode::BytecodeCompiler compiler;
+  const auto result = compiler.compile(ir_program);
+  REQUIRE(result.has_value());
+
+  const auto& module = *result;
+  const auto callsite_it = std::find_if(module.builtin_callsites.begin(), module.builtin_callsites.end(),
+                                        [](const fleaux::bytecode::BuiltinCallsiteRecord& record) {
+                                          return record.builtin_id == fleaux::vm::BuiltinId::TaskAwait;
+                                        });
+  REQUIRE(callsite_it != module.builtin_callsites.end());
+  REQUIRE(callsite_it->call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(callsite_it->static_argument_count == 1U);
+  REQUIRE(callsite_it->value_slots.size() == 1U);
+  REQUIRE(callsite_it->value_slots[0].slot_index == 0U);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle);
+  REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
+  REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_task_handle);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE(verified.has_value());
+}
+
 TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overload", "[bytecode][overload]") {
   const auto ir_program = lower_source_to_ir(
       "let Echo(x: Int64): Int64 = x;\n"
@@ -1888,7 +2139,8 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overlo
   REQUIRE(called_user_indices[1] == 1);
 }
 
-TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib builtin overload", "[bytecode][builtins][overload]") {
+TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib builtin overload",
+          "[bytecode][builtins][overload]") {
   const auto ir_program = lower_source_to_ir(
       "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
       "let Std.Dict.Create<K, V>(dict: Dict(K, V)): Dict(K, V) :: __builtin__;\n"
@@ -1905,7 +2157,9 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib buil
   std::vector<fleaux::vm::BuiltinId> called_builtin_ids;
   const auto collect_builtins = [&](const auto& instructions) {
     for (const auto& instruction : instructions) {
-      if (instruction.opcode != fleaux::bytecode::Opcode::kCallBuiltin) { continue; }
+      if (instruction.opcode != fleaux::bytecode::Opcode::kCallBuiltin) {
+        continue;
+      }
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(instruction.operand);
       REQUIRE(builtin_id.has_value());
       called_builtin_ids.push_back(*builtin_id);
@@ -1913,7 +2167,9 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib buil
   };
 
   collect_builtins(result->instructions);
-  for (const auto& function : result->functions) { collect_builtins(function.instructions); }
+  for (const auto& function : result->functions) {
+    collect_builtins(function.instructions);
+  }
 
   REQUIRE(std::ranges::find(called_builtin_ids, fleaux::vm::BuiltinId::DictCreateVoid) != called_builtin_ids.end());
   REQUIRE(std::ranges::find(called_builtin_ids, fleaux::vm::BuiltinId::DictCreateDict) != called_builtin_ids.end());
@@ -2003,8 +2259,12 @@ TEST_CASE("Bytecode compiler auto-emits value-ref ops for large safe user-functi
   bool saw_make_value_ref = false;
   bool saw_call_user_func = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) { saw_make_value_ref = true; }
-    if (ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc) { saw_call_user_func = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeValueRef) {
+      saw_make_value_ref = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc) {
+      saw_call_user_func = true;
+    }
   }
   REQUIRE(saw_make_value_ref);
   REQUIRE(saw_call_user_func);
@@ -2140,14 +2400,17 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
           .name = "Process",
           .symbol_key = "Process#0",
           .generic_params = {},
-          .params = {
-              fleaux::frontend::ir::IRParam{.name = "head", .type = make_simple_type("String"), .span = std::nullopt},
-              fleaux::frontend::ir::IRParam{.name = "tail", .type = make_simple_type("String"), .span = std::nullopt},
-              fleaux::frontend::ir::IRParam{.name = "anything", .type = make_simple_type("Any"), .span = std::nullopt},
-              fleaux::frontend::ir::IRParam{.name = "rest",
-                                            .type = make_variadic_simple_type("String"),
-                                            .span = std::nullopt},
-          },
+          .params =
+              {
+                  fleaux::frontend::ir::IRParam{
+                      .name = "head", .type = make_simple_type("String"), .span = std::nullopt},
+                  fleaux::frontend::ir::IRParam{
+                      .name = "tail", .type = make_simple_type("String"), .span = std::nullopt},
+                  fleaux::frontend::ir::IRParam{
+                      .name = "anything", .type = make_simple_type("Any"), .span = std::nullopt},
+                  fleaux::frontend::ir::IRParam{
+                      .name = "rest", .type = make_variadic_simple_type("String"), .span = std::nullopt},
+              },
           .return_type = make_simple_type("String"),
           .doc_comments = {},
           .body = make_ir_box(make_ir_name_ref(std::nullopt, "head")),
@@ -2159,8 +2422,7 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                  .items = {make_string_constant_box(std::string(80, 'a')),
-                            make_string_constant_box("tiny"),
+                  .items = {make_string_constant_box(std::string(80, 'a')), make_string_constant_box("tiny"),
                             make_string_constant_box(std::string(80, 'b')),
                             make_string_constant_box(std::string(80, 'c'))},
                   .span = std::nullopt,
@@ -2188,75 +2450,83 @@ TEST_CASE("Auto by-ref analyzer marks only safe large fixed parameters and resol
 TEST_CASE("Auto by-ref analyzer rejects ambiguous names and unsafe callsite argument shapes",
           "[bytecode][value_ref][analyzer]") {
   fleaux::frontend::ir::IRProgram ir_program;
-  ir_program.lets = {
-      fleaux::frontend::ir::IRLet{
-          .qualifier = std::nullopt,
-          .name = "Dup",
-          .symbol_key = "Dup#0",
-          .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
-          .return_type = make_simple_type("String"),
-          .doc_comments = {},
-          .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
-          .is_builtin = false,
-          .span = std::nullopt,
-      },
-      fleaux::frontend::ir::IRLet{
-          .qualifier = std::nullopt,
-          .name = "Dup",
-          .symbol_key = "Dup#1",
-          .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
-          .return_type = make_simple_type("String"),
-          .doc_comments = {},
-          .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
-          .is_builtin = false,
-          .span = std::nullopt,
-      },
-      fleaux::frontend::ir::IRLet{
-          .qualifier = std::nullopt,
-          .name = "NeedPair",
-          .symbol_key = "NeedPair#0",
-          .generic_params = {},
-          .params = {
-              fleaux::frontend::ir::IRParam{.name = "lhs", .type = make_simple_type("String"), .span = std::nullopt},
-              fleaux::frontend::ir::IRParam{.name = "rhs", .type = make_simple_type("String"), .span = std::nullopt},
-          },
-          .return_type = make_simple_type("String"),
-          .doc_comments = {},
-          .body = make_ir_box(make_ir_name_ref(std::nullopt, "lhs")),
-          .is_builtin = false,
-          .span = std::nullopt,
-      },
-      fleaux::frontend::ir::IRLet{
-          .qualifier = std::nullopt,
-          .name = "NeedSized",
-          .symbol_key = "NeedSized#0",
-          .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "value", .type = make_simple_type("String"), .span = std::nullopt}},
-          .return_type = make_simple_type("String"),
-          .doc_comments = {},
-          .body = make_ir_box(make_ir_name_ref(std::nullopt, "value")),
-          .is_builtin = false,
-          .span = std::nullopt,
-      },
-      fleaux::frontend::ir::IRLet{
-          .qualifier = std::nullopt,
-          .name = "Caller",
-          .symbol_key = "Caller#0",
-          .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "payload", .type = make_simple_type("String"), .span = std::nullopt}},
-          .return_type = make_simple_type("String"),
-          .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRFlowExpr{
-              .lhs = make_name_ref_box(std::nullopt, "payload"),
-              .rhs = make_ir_name_ref(std::nullopt, "NeedSized"),
+  ir_program.lets =
+      {
+          fleaux::frontend::ir::IRLet{
+              .qualifier = std::nullopt,
+              .name = "Dup",
+              .symbol_key = "Dup#0",
+              .generic_params = {},
+              .params = {fleaux::frontend::ir::IRParam{
+                  .name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
+              .return_type = make_simple_type("String"),
+              .doc_comments = {},
+              .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
+              .is_builtin = false,
               .span = std::nullopt,
-          }),
-          .is_builtin = false,
-          .span = std::nullopt,
-      },
-  };
+          },
+          fleaux::frontend::ir::IRLet{
+              .qualifier = std::nullopt,
+              .name = "Dup",
+              .symbol_key = "Dup#1",
+              .generic_params = {},
+              .params = {fleaux::frontend::ir::IRParam{
+                  .name = "x", .type = make_simple_type("String"), .span = std::nullopt}},
+              .return_type = make_simple_type("String"),
+              .doc_comments = {},
+              .body = make_ir_box(make_ir_name_ref(std::nullopt, "x")),
+              .is_builtin = false,
+              .span = std::nullopt,
+          },
+          fleaux::frontend::ir::IRLet{
+              .qualifier = std::nullopt,
+              .name = "NeedPair",
+              .symbol_key = "NeedPair#0",
+              .generic_params = {},
+              .params =
+                  {
+                      fleaux::frontend::ir::IRParam{
+                          .name = "lhs", .type = make_simple_type("String"), .span = std::nullopt},
+                      fleaux::frontend::ir::IRParam{
+                          .name = "rhs", .type = make_simple_type("String"), .span = std::nullopt},
+                  },
+              .return_type = make_simple_type("String"),
+              .doc_comments = {},
+              .body = make_ir_box(make_ir_name_ref(std::nullopt, "lhs")),
+              .is_builtin = false,
+              .span = std::nullopt,
+          },
+          fleaux::frontend::ir::IRLet{
+              .qualifier = std::nullopt,
+              .name = "NeedSized",
+              .symbol_key = "NeedSized#0",
+              .generic_params = {},
+              .params = {fleaux::frontend::ir::IRParam{
+                  .name = "value", .type = make_simple_type("String"), .span = std::nullopt}},
+              .return_type = make_simple_type("String"),
+              .doc_comments = {},
+              .body = make_ir_box(make_ir_name_ref(std::nullopt, "value")),
+              .is_builtin = false,
+              .span = std::nullopt,
+          },
+          fleaux::frontend::ir::IRLet{
+              .qualifier = std::nullopt,
+              .name = "Caller",
+              .symbol_key = "Caller#0",
+              .generic_params = {},
+              .params = {fleaux::frontend::ir::IRParam{
+                  .name = "payload", .type = make_simple_type("String"), .span = std::nullopt}},
+              .return_type = make_simple_type("String"),
+              .doc_comments = {},
+              .body = make_ir_box(fleaux::frontend::ir::IRFlowExpr{
+                  .lhs = make_name_ref_box(std::nullopt, "payload"),
+                  .rhs = make_ir_name_ref(std::nullopt, "NeedSized"),
+                  .span = std::nullopt,
+              }),
+              .is_builtin = false,
+              .span = std::nullopt,
+          },
+      };
   ir_program.expressions = {
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
@@ -2345,7 +2615,8 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
           .name = "Captured",
           .symbol_key = "Captured#0",
           .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
+          .params = {fleaux::frontend::ir::IRParam{
+              .name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
           .body = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
@@ -2360,7 +2631,8 @@ TEST_CASE("Auto by-ref analyzer skips nested closure captures and escape builtin
           .name = "Escaped",
           .symbol_key = "Escaped#0",
           .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
+          .params = {fleaux::frontend::ir::IRParam{
+              .name = "v", .type = make_simple_type("String"), .span = std::nullopt}},
           .return_type = make_simple_type("Any"),
           .doc_comments = {},
           .body = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
@@ -2433,7 +2705,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Map") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) -> "
+        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) "
+        "-> "
         "Std.Parallel.Map;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelMap -> Std.Result.Unwrap -> Std.Println;\n",
@@ -2444,7 +2717,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
         "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
-        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo, "
+        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> "
+        "Std.Wrap, Echo, "
         "() -> BuildOptions) -> Std.Parallel.WithOptions;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelWithOptions -> Std.Result.Unwrap -> Std.Println;\n",
@@ -2464,7 +2738,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Reduce") {
     assert_no_value_ref_opcodes(
         "let Merge(acc: String, x: String): String = (\"\", (acc, x)) -> Std.String.Join;\n"
-        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v) -> Std.Wrap, \"\", Merge) -> "
+        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v) -> Std.Wrap, \"\", Merge) "
+        "-> "
         "Std.Parallel.Reduce;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelReduce -> Std.Result.Unwrap -> Std.Println;\n",
@@ -2575,7 +2850,9 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
     const int n = size_dist(rng);
     std::vector<int> values;
     values.reserve(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) { values.push_back(value_dist(rng)); }
+    for (int i = 0; i < n; ++i) {
+      values.push_back(value_dist(rng));
+    }
 
     const std::string tuple_literal = make_int_tuple_literal(values);
     const std::string tasks_literal = make_task_spawn_tuple_literal(values);
@@ -2738,12 +3015,18 @@ TEST_CASE("Bytecode compiler falls back to builtin dispatch when operator shorth
   bool found_build_tuple = false;
   bool found_builtin_add = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kAdd) { found_native_add = true; }
-    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) { found_build_tuple = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kAdd) {
+      found_native_add = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) {
+      found_build_tuple = true;
+    }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Add") { found_builtin_add = true; }
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Add") {
+        found_builtin_add = true;
+      }
     }
   }
 
@@ -2811,9 +3094,12 @@ TEST_CASE("Bytecode compiler keeps reducible builtin call chains intact by defau
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim") found_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart") found_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd") found_builtin_trim_end = true;
+      if (builtin_name == "Std.String.Trim")
+        found_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart")
+        found_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd")
+        found_builtin_trim_end = true;
     }
   }
 
@@ -2835,8 +3121,8 @@ TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to eq
       "builtin_reductions.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt,
-                                                                        std::nullopt, {}, true));
+  const auto result = compiler.compile(
+      ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt, std::nullopt, {}, true));
 
   REQUIRE(result.has_value());
 
@@ -2858,19 +3144,32 @@ TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to eq
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim") found_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart") found_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd") found_builtin_trim_end = true;
-      if (builtin_name == "Std.Result.IsErr") found_builtin_result_is_err = true;
-      if (builtin_name == "Std.Result.Tag") found_builtin_result_tag = true;
-      if (builtin_name == "Std.Result.IsOk") found_builtin_result_is_ok = true;
-      if (builtin_name == "Std.Array.Rank") found_builtin_array_rank = true;
-      if (builtin_name == "Std.Array.Shape") found_builtin_array_shape = true;
-      if (builtin_name == "Std.Length") found_builtin_length = true;
-      if (builtin_name == "Std.String.Contains") found_builtin_string_contains = true;
-      if (builtin_name == "Std.String.Find") found_builtin_string_find = true;
-      if (builtin_name == "Std.String.Regex.IsMatch") found_builtin_regex_is_match = true;
-      if (builtin_name == "Std.String.Regex.Find") found_builtin_regex_find = true;
+      if (builtin_name == "Std.String.Trim")
+        found_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart")
+        found_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd")
+        found_builtin_trim_end = true;
+      if (builtin_name == "Std.Result.IsErr")
+        found_builtin_result_is_err = true;
+      if (builtin_name == "Std.Result.Tag")
+        found_builtin_result_tag = true;
+      if (builtin_name == "Std.Result.IsOk")
+        found_builtin_result_is_ok = true;
+      if (builtin_name == "Std.Array.Rank")
+        found_builtin_array_rank = true;
+      if (builtin_name == "Std.Array.Shape")
+        found_builtin_array_shape = true;
+      if (builtin_name == "Std.Length")
+        found_builtin_length = true;
+      if (builtin_name == "Std.String.Contains")
+        found_builtin_string_contains = true;
+      if (builtin_name == "Std.String.Find")
+        found_builtin_string_find = true;
+      if (builtin_name == "Std.String.Regex.IsMatch")
+        found_builtin_regex_is_match = true;
+      if (builtin_name == "Std.String.Regex.Find")
+        found_builtin_regex_find = true;
     }
   }
 
@@ -2892,30 +3191,37 @@ TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to eq
 TEST_CASE("Bytecode compiler can experimentally reduce Std.OS.Env null comparison to Std.OS.HasEnv",
           "[bytecode][experimental][optimizer]") {
   fleaux::frontend::ir::IRProgram ir_program;
-  ir_program.expressions = {
-      fleaux::frontend::ir::IRExprStatement{
-          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
-              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                  .items = {
-                      make_ir_box(fleaux::frontend::ir::IRFlowExpr{
-                          .lhs = make_string_constant_box("PATH"),
-                          .rhs = make_ir_name_ref("Std.OS", "Env"),
-                          .span = std::nullopt,
-                      }),
-                      make_null_constant_box(),
-                  },
-                  .span = std::nullopt,
-              }),
-              .rhs = make_ir_name_ref("Std", "NotEqual"),
+  ir_program.expressions =
+      {
+          fleaux::frontend::ir::IRExprStatement{
+              .expr = make_ir_expr(fleaux::frontend::ir::
+                                       IRFlowExpr{
+                                           .lhs = make_ir_box(fleaux::frontend::ir::
+                                                                  IRTupleExpr{
+                                                                      .items =
+                                                                          {
+                                                                              make_ir_box(
+                                                                                  fleaux::frontend::ir::IRFlowExpr{
+                                                                                      .lhs = make_string_constant_box(
+                                                                                          "PATH"),
+                                                                                      .rhs = make_ir_name_ref("Std.OS",
+                                                                                                              "Env"),
+                                                                                      .span = std::nullopt,
+                                                                                  }),
+                                                                              make_null_constant_box(),
+                                                                          },
+                                                                      .span = std::nullopt,
+                                                                  }),
+                                           .rhs = make_ir_name_ref("Std", "NotEqual"),
+                                           .span = std::nullopt,
+                                       }),
               .span = std::nullopt,
-          }),
-          .span = std::nullopt,
-      },
-  };
+          },
+      };
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt,
-                                                                        std::nullopt, {}, true));
+  const auto result = compiler.compile(
+      ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt, std::nullopt, {}, true));
 
   REQUIRE(result.has_value());
 
@@ -2926,8 +3232,10 @@ TEST_CASE("Bytecode compiler can experimentally reduce Std.OS.Env null compariso
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.OS.HasEnv") found_builtin_os_has_env = true;
-      if (builtin_name == "Std.OS.Env") found_builtin_os_env = true;
+      if (builtin_name == "Std.OS.HasEnv")
+        found_builtin_os_has_env = true;
+      if (builtin_name == "Std.OS.Env")
+        found_builtin_os_env = true;
     }
   }
 
@@ -2968,8 +3276,7 @@ TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecod
   const auto result = compiler.compile(ir_program);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message ==
-          "Name 'MissingValue' used as a value is not supported in the bytecode compiler.");
+  REQUIRE(result.error().message == "Name 'MissingValue' used as a value is not supported in the bytecode compiler.");
 }
 
 TEST_CASE("Bytecode compiler rejects closure captures that are unavailable in the enclosing locals", "[bytecode]") {
@@ -2994,8 +3301,7 @@ TEST_CASE("Bytecode compiler rejects closure captures that are unavailable in th
   const auto result = compiler.compile(ir_program);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message ==
-          "Unsupported closure capture in bytecode compiler: 'missing_capture'.");
+  REQUIRE(result.error().message == "Unsupported closure capture in bytecode compiler: 'missing_capture'.");
 }
 
 TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
@@ -3010,7 +3316,9 @@ TEST_CASE("Bytecode compiler emits kSelect for Std.Select", "[bytecode]") {
   const auto& instr = result->instructions;
   bool found_select = false;
   for (const auto& ins : instr) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) { found_select = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) {
+      found_select = true;
+    }
   }
   REQUIRE(found_select);
 }
@@ -3023,7 +3331,8 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
           .name = "Inc",
           .symbol_key = "Inc#0",
           .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
+          .params = {fleaux::frontend::ir::IRParam{
+              .name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
           .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{1}, .span = std::nullopt}),
@@ -3035,7 +3344,8 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
           .name = "Dec",
           .symbol_key = "Dec#0",
           .generic_params = {},
-          .params = {fleaux::frontend::ir::IRParam{.name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
+          .params = {fleaux::frontend::ir::IRParam{
+              .name = "x", .type = make_simple_type("Int64"), .span = std::nullopt}},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
           .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{0}, .span = std::nullopt}),
@@ -3047,8 +3357,7 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
       fleaux::frontend::ir::IRExprStatement{
           .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
               .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                  .items = {make_bool_constant_box(true),
-                            make_name_ref_box(std::nullopt, "Inc", "Inc#0"),
+                  .items = {make_bool_constant_box(true), make_name_ref_box(std::nullopt, "Inc", "Inc#0"),
                             make_name_ref_box(std::nullopt, "Dec", "Dec#0")},
                   .span = std::nullopt,
               }),
@@ -3068,12 +3377,18 @@ TEST_CASE("Bytecode compiler keeps Std.Select as builtin when tuple arms are use
   bool found_builtin_select = false;
   bool found_user_function_ref = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) { found_native_select = true; }
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef) { found_user_function_ref = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kSelect) {
+      found_native_select = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef) {
+      found_user_function_ref = true;
+    }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Select") { found_builtin_select = true; }
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Select") {
+        found_builtin_select = true;
+      }
     }
   }
 
@@ -3097,7 +3412,9 @@ let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
 
   bool found_loop_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoopCall) { found_loop_call = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoopCall) {
+      found_loop_call = true;
+    }
   }
   REQUIRE(found_loop_call);
 }
@@ -3117,7 +3434,9 @@ let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
 
   bool found_loop_n_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoopNCall) { found_loop_n_call = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoopNCall) {
+      found_loop_n_call = true;
+    }
   }
   REQUIRE(found_loop_n_call);
 }
@@ -3138,12 +3457,16 @@ let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
   bool found_branch_call = false;
   bool found_builtin_branch = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
+      found_branch_call = true;
+    }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto name = fleaux::vm::builtin_name(*builtin_id);
-      if (name == "Std.Branch") { found_builtin_branch = true; }
+      if (name == "Std.Branch") {
+        found_builtin_branch = true;
+      }
     }
   }
 
@@ -3188,7 +3511,9 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
   bool found_branch_call = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
+      found_branch_call = true;
+    }
   }
   REQUIRE(found_branch_call);
 }
@@ -3206,7 +3531,9 @@ TEST_CASE("Bytecode compiler emits closure materialization for inline closure li
 
   bool found_make_closure = false;
   for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) { found_make_closure = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
+      found_make_closure = true;
+    }
   }
   REQUIRE(found_make_closure);
 }
@@ -3232,9 +3559,15 @@ TEST_CASE("Bytecode compiler wires captured closure factory function", "[bytecod
   bool found_capture_tuple = false;
   bool found_make_closure = false;
   for (const auto& ins : make_adder_fn.instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoadLocal) { found_capture_load = true; }
-    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) { found_capture_tuple = true; }
-    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) { found_make_closure = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kLoadLocal) {
+      found_capture_load = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) {
+      found_capture_tuple = true;
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kMakeClosureRef) {
+      found_make_closure = true;
+    }
   }
 
   REQUIRE(found_capture_load);
@@ -3274,7 +3607,9 @@ TEST_CASE("Bytecode compiler emits builtin call for Std.Match", "[bytecode]") {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto name = fleaux::vm::builtin_name(*builtin_id);
-      if (name == "Std.Match") { found_match_call = true; }
+      if (name == "Std.Match") {
+        found_match_call = true;
+      }
     }
   }
   REQUIRE(found_match_call);
@@ -3295,19 +3630,24 @@ let ChooseApply(x: Float64, tf: (Float64) => Float64, ff: (Float64) => Float64):
 
   REQUIRE(result.has_value());
 
-  const auto choose_it = std::find_if(result->functions.begin(), result->functions.end(),
-                                      [](const fleaux::bytecode::FunctionDef& fn) { return fn.name == "ChooseApply#0"; });
+  const auto choose_it =
+      std::find_if(result->functions.begin(), result->functions.end(),
+                   [](const fleaux::bytecode::FunctionDef& fn) { return fn.name == "ChooseApply#0"; });
   REQUIRE(choose_it != result->functions.end());
 
   bool found_branch_call = false;
   bool found_builtin_branch = false;
   for (const auto& ins : choose_it->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) { found_branch_call = true; }
+    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
+      found_branch_call = true;
+    }
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto name = fleaux::vm::builtin_name(*builtin_id);
-      if (name == "Std.Branch") { found_builtin_branch = true; }
+      if (name == "Std.Branch") {
+        found_builtin_branch = true;
+      }
     }
   }
 
@@ -3401,15 +3741,13 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
   };
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program,
-                                       make_compile_options(false, false, 256, std::nullopt, std::nullopt,
-                                                            std::nullopt, {imported_module}));
+  const auto result = compiler.compile(
+      ir_program, make_compile_options(false, false, 256, std::nullopt, std::nullopt, std::nullopt, {imported_module}));
 
   REQUIRE(result.has_value());
-  const auto identity_it = std::find_if(result->functions.begin(), result->functions.end(),
-                                        [](const fleaux::bytecode::FunctionDef& fn) -> bool {
-                                          return fn.name == "Identity";
-                                        });
+  const auto identity_it =
+      std::find_if(result->functions.begin(), result->functions.end(),
+                   [](const fleaux::bytecode::FunctionDef& fn) -> bool { return fn.name == "Identity"; });
   REQUIRE(identity_it != result->functions.end());
   REQUIRE(identity_it->arity == 1);
   REQUIRE(identity_it->is_import_placeholder);
@@ -3435,12 +3773,16 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
     if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") { found_builtin_alias_call = true; }
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") {
+        found_builtin_alias_call = true;
+      }
     }
     if (ins.opcode == fleaux::bytecode::Opcode::kMakeBuiltinFuncRef) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") { found_builtin_alias_ref = true; }
+      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") {
+        found_builtin_alias_ref = true;
+      }
     }
   }
 
@@ -3500,7 +3842,8 @@ TEST_CASE("Bytecode compiler exports only lets from the current source module", 
           .params = {},
           .return_type = make_simple_type("Int64"),
           .doc_comments = {},
-          .body = make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{9}, .span = foreign_span}, foreign_span),
+          .body =
+              make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::int64_t{9}, .span = foreign_span}, foreign_span),
           .is_builtin = false,
           .span = foreign_span,
       },
@@ -3580,7 +3923,9 @@ TEST_CASE("Bytecode compiler supports Std.ToString via kCallBuiltin", "[bytecode
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto name = fleaux::vm::builtin_name(*builtin_id);
-      if (name == "Std.ToString") { found_to_string = true; }
+      if (name == "Std.ToString") {
+        found_to_string = true;
+      }
     }
   }
   REQUIRE(found_to_string);
@@ -3662,8 +4007,7 @@ let AddPair(a: Int64, b: Int64): Int64 = (a, b) -> Std.Add;
   for (const auto& ins : result->instructions) {
     found_binary_call = found_binary_call || ins.opcode == fleaux::bytecode::Opcode::kCallUserFuncBinary;
     found_generic_call = found_generic_call || ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc;
-    found_pair_build = found_pair_build ||
-                       (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 2);
+    found_pair_build = found_pair_build || (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 2);
   }
 
   REQUIRE(found_binary_call);
@@ -3722,8 +4066,7 @@ Meaning -> Std.Println;
   for (const auto& ins : result->instructions) {
     found_call_user_func = found_call_user_func || ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc;
     found_make_user_func_ref = found_make_user_func_ref || ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef;
-    found_empty_tuple = found_empty_tuple ||
-                        (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 0);
+    found_empty_tuple = found_empty_tuple || (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 0);
   }
 
   REQUIRE(found_call_user_func);
@@ -4092,6 +4435,479 @@ TEST_CASE("Bytecode serialization handles functions", "[bytecode][serialization]
   REQUIRE(restored.functions[0].instructions.size() == 4);
 }
 
+TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[bytecode][serialization][verification]") {
+  fleaux::bytecode::Module original;
+  original.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 1},
+      {fleaux::bytecode::Opcode::kBuildTuple, 3},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions,
+                                   fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 2},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 3},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 4},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  original.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+  };
+  original.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 5,
+          .builtin_id = fleaux::vm::BuiltinId::ParallelWithOptions,
+          .call_shape = fleaux::vm::BuiltinCallShape::kTupleExpanded,
+          .static_argument_count = 3,
+          .callable_slots = {fleaux::bytecode::BuiltinCallableSlotRecord{
+              .slot_index = 1,
+              .kind = fleaux::bytecode::BuiltinCallableSlotKind::kFunction,
+              .target_index = 0,
+              .declared_arity = 1,
+              .has_variadic_tail = false,
+          }},
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 2,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 1,
+          }},
+      },
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 8,
+          .builtin_id = fleaux::vm::BuiltinId::RandomCreate,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 2,
+          }},
+      },
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 11,
+          .builtin_id = fleaux::vm::BuiltinId::ExitInt64,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 3,
+          }},
+      },
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 14,
+          .builtin_id = fleaux::vm::BuiltinId::TaskAwait,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 4,
+          }},
+      },
+  };
+  original.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "Inc",
+          .arity = 1,
+          .has_variadic_tail = false,
+      },
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildOptions",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "Dict",
+          .return_type_is_dict_string_any = true,
+      },
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildSeed",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "UInt64",
+          .return_type_is_exact_uint64 = true,
+      },
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildExitCode",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "Int64",
+          .return_type_is_exact_int64 = true,
+      },
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildTask",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "TaskHandle",
+          .return_type_is_task_handle = true,
+      },
+  };
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->builtin_callsites.size() == 4U);
+
+  const auto& restored_parallel = deserialized->builtin_callsites[0];
+  REQUIRE(restored_parallel.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule);
+  REQUIRE(restored_parallel.owner_index == 0U);
+  REQUIRE(restored_parallel.instruction_index == 5U);
+  REQUIRE(restored_parallel.builtin_id == fleaux::vm::BuiltinId::ParallelWithOptions);
+  REQUIRE(restored_parallel.call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
+  REQUIRE(restored_parallel.static_argument_count == 3U);
+  REQUIRE(restored_parallel.callable_slots.size() == 1U);
+  REQUIRE(restored_parallel.callable_slots[0].kind == fleaux::bytecode::BuiltinCallableSlotKind::kFunction);
+  REQUIRE(restored_parallel.callable_slots[0].target_index == 0U);
+  REQUIRE(restored_parallel.value_slots.size() == 1U);
+  REQUIRE(restored_parallel.value_slots[0].slot_index == 2U);
+  REQUIRE(restored_parallel.value_slots[0].summary_kind ==
+          fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny);
+  REQUIRE(restored_parallel.value_slots[0].source_index == 1U);
+
+  const auto& restored_random_create = deserialized->builtin_callsites[1];
+  REQUIRE(restored_random_create.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule);
+  REQUIRE(restored_random_create.owner_index == 0U);
+  REQUIRE(restored_random_create.instruction_index == 8U);
+  REQUIRE(restored_random_create.builtin_id == fleaux::vm::BuiltinId::RandomCreate);
+  REQUIRE(restored_random_create.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(restored_random_create.static_argument_count == 1U);
+  REQUIRE(restored_random_create.callable_slots.empty());
+  REQUIRE(restored_random_create.value_slots.size() == 1U);
+  REQUIRE(restored_random_create.value_slots[0].slot_index == 0U);
+  REQUIRE(restored_random_create.value_slots[0].summary_kind ==
+          fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64);
+  REQUIRE(restored_random_create.value_slots[0].source_index == 2U);
+
+  const auto& restored_exit = deserialized->builtin_callsites[2];
+  REQUIRE(restored_exit.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule);
+  REQUIRE(restored_exit.owner_index == 0U);
+  REQUIRE(restored_exit.instruction_index == 11U);
+  REQUIRE(restored_exit.builtin_id == fleaux::vm::BuiltinId::ExitInt64);
+  REQUIRE(restored_exit.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(restored_exit.static_argument_count == 1U);
+  REQUIRE(restored_exit.callable_slots.empty());
+  REQUIRE(restored_exit.value_slots.size() == 1U);
+  REQUIRE(restored_exit.value_slots[0].slot_index == 0U);
+  REQUIRE(restored_exit.value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64);
+  REQUIRE(restored_exit.value_slots[0].source_index == 3U);
+
+  const auto& restored_task = deserialized->builtin_callsites[3];
+  REQUIRE(restored_task.owner_kind == fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule);
+  REQUIRE(restored_task.owner_index == 0U);
+  REQUIRE(restored_task.instruction_index == 14U);
+  REQUIRE(restored_task.builtin_id == fleaux::vm::BuiltinId::TaskAwait);
+  REQUIRE(restored_task.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(restored_task.static_argument_count == 1U);
+  REQUIRE(restored_task.callable_slots.empty());
+  REQUIRE(restored_task.value_slots.size() == 1U);
+  REQUIRE(restored_task.value_slots[0].slot_index == 0U);
+  REQUIRE(restored_task.value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle);
+  REQUIRE(restored_task.value_slots[0].source_index == 4U);
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(*deserialized);
+  REQUIRE(verified.has_value());
+}
+
+TEST_CASE("Bytecode verifier rejects builtin callsite metadata drift", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::string{"Std.Help"}},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 1,
+          .builtin_id = fleaux::vm::BuiltinId::Println,
+          .call_shape = fleaux::vm::BuiltinCallShape::kTupleExpanded,
+          .static_argument_count = 2,
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("Builtin callsite mismatch") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects builtin callsite arity drift", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 1},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::string{"Std.Help"}},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 2,
+          .builtin_id = fleaux::vm::BuiltinId::Help,
+          .call_shape = fleaux::vm::BuiltinCallShape::kTupleExpanded,
+          .static_argument_count = 2,
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("arity mismatch") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects stale callable slot metadata", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "NeedsTwo",
+          .arity = 2,
+          .has_variadic_tail = false,
+      },
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 2},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Apply, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 3,
+          .builtin_id = fleaux::vm::BuiltinId::Apply,
+          .call_shape = fleaux::vm::BuiltinCallShape::kTupleExpanded,
+          .static_argument_count = 2,
+          .callable_slots = {fleaux::bytecode::BuiltinCallableSlotRecord{
+              .slot_index = 1,
+              .kind = fleaux::bytecode::BuiltinCallableSlotKind::kFunction,
+              .target_index = 0,
+              .declared_arity = 1,
+              .has_variadic_tail = false,
+          }},
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("stale function callable metadata") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects stale Dict(String, Any) options metadata", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "Inc",
+          .arity = 1,
+          .has_variadic_tail = false,
+      },
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildOptions",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "Dict",
+          .return_type_is_dict_string_any = false,
+      },
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 1},
+      {fleaux::bytecode::Opcode::kBuildTuple, 3},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions,
+                                   fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.constants = {
+      fleaux::bytecode::ConstValue{std::int64_t{1}},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 5,
+          .builtin_id = fleaux::vm::BuiltinId::ParallelWithOptions,
+          .call_shape = fleaux::vm::BuiltinCallShape::kTupleExpanded,
+          .static_argument_count = 3,
+          .callable_slots = {fleaux::bytecode::BuiltinCallableSlotRecord{
+              .slot_index = 1,
+              .kind = fleaux::bytecode::BuiltinCallableSlotKind::kFunction,
+              .target_index = 0,
+              .declared_arity = 1,
+              .has_variadic_tail = false,
+          }},
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 2,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 1,
+          }},
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("stale Dict(String, Any) value metadata") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects stale exact UInt64 value metadata", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildSeed",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "UInt64",
+          .return_type_is_exact_uint64 = false,
+      },
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 2,
+          .builtin_id = fleaux::vm::BuiltinId::RandomCreate,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 0,
+          }},
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("stale exact UInt64 value metadata") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects stale exact Int64 value metadata", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildExitCode",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "Int64",
+          .return_type_is_exact_int64 = false,
+      },
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 2,
+          .builtin_id = fleaux::vm::BuiltinId::ExitInt64,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 0,
+          }},
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("stale exact Int64 value metadata") != std::string::npos);
+}
+
+TEST_CASE("Bytecode verifier rejects stale opaque handle value metadata", "[bytecode][verification][builtins]") {
+  fleaux::bytecode::Module module;
+  module.functions = {
+      fleaux::bytecode::FunctionDef{
+          .name = "BuildTask",
+          .arity = 0,
+          .has_variadic_tail = false,
+          .return_type_name = "TaskHandle",
+          .return_type_is_task_handle = false,
+      },
+  };
+  module.instructions = {
+      {fleaux::bytecode::Opcode::kBuildTuple, 0},
+      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
+      {fleaux::bytecode::Opcode::kCallBuiltin,
+       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  module.builtin_callsites = {
+      fleaux::bytecode::BuiltinCallsiteRecord{
+          .owner_kind = fleaux::bytecode::BuiltinCallsiteOwnerKind::kModule,
+          .owner_index = 0,
+          .instruction_index = 2,
+          .builtin_id = fleaux::vm::BuiltinId::TaskAwait,
+          .call_shape = fleaux::vm::BuiltinCallShape::kDirectValue,
+          .static_argument_count = 1,
+          .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
+              .slot_index = 0,
+              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle,
+              .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
+              .source_index = 0,
+          }},
+      },
+  };
+
+  const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
+  REQUIRE_FALSE(verified.has_value());
+  REQUIRE(verified.error().message.find("stale TaskHandle value metadata") != std::string::npos);
+}
+
 TEST_CASE("Bytecode deserialization rejects invalid magic", "[bytecode][serialization]") {
   std::vector<std::uint8_t> bad_buffer;
   bad_buffer.push_back(0xFF);
@@ -4220,10 +5036,9 @@ TEST_CASE("Bytecode round-trip: compile -> serialize -> deserialize -> verify", 
   const auto ir_program = lower_source_to_ir(source_text, "bytecode_roundtrip.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto compiled =
-      compiler.compile(ir_program,
-                       make_compile_options(false, false, 256, std::filesystem::path("bytecode_roundtrip.fleaux"),
-                                            std::string{source_text}, std::string{"bytecode_roundtrip"}));
+  const auto compiled = compiler.compile(
+      ir_program, make_compile_options(false, false, 256, std::filesystem::path("bytecode_roundtrip.fleaux"),
+                                       std::string{source_text}, std::string{"bytecode_roundtrip"}));
   REQUIRE(compiled.has_value());
 
   const auto& original = compiled.value();
@@ -4388,7 +5203,9 @@ TEST_CASE("Bytecode module loader falls back to source when dependency bytecode 
   const fleaux::vm::Runtime runtime;
   std::ostringstream output;
   const auto runtime_result = runtime.execute(*fallback_load, output);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str().find('5') != std::string::npos);
 }
@@ -4425,11 +5242,14 @@ TEST_CASE("Bytecode module loader imports serialized dependency modules", "[byte
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(cached_load.value());
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
-TEST_CASE("Bytecode module loader preserves exported user overload link names", "[bytecode][serialization][imports][overload]") {
+TEST_CASE("Bytecode module loader preserves exported user overload link names",
+          "[bytecode][serialization][imports][overload]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_overloaded_imports";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -4469,7 +5289,9 @@ TEST_CASE("Bytecode module loader preserves exported user overload link names", 
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(*loaded);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -4525,13 +5347,17 @@ TEST_CASE("Bytecode module loader propagates imported transparent aliases into e
   }
 
   const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
-  if (!loaded.has_value()) { INFO("bytecode imported alias load error: " << loaded.error().message); }
+  if (!loaded.has_value()) {
+    INFO("bytecode imported alias load error: " << loaded.error().message);
+  }
   REQUIRE(loaded.has_value());
 
   const fleaux::vm::Runtime runtime;
   std::ostringstream output;
   const auto runtime_result = runtime.execute(*loaded, output);
-  if (!runtime_result.has_value()) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result.has_value()) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str() == "1\n");
 }
@@ -4706,7 +5532,9 @@ TEST_CASE("Bytecode module loader accepts qualified imported exports when typed 
   const fleaux::vm::Runtime runtime;
   std::ostringstream output;
   const auto runtime_result = runtime.execute(loaded.value(), output);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
   REQUIRE(output.str().find('5') != std::string::npos);
 }
@@ -4749,8 +5577,59 @@ TEST_CASE("Bytecode module loader reconstructs generic typed import seeds from c
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(*cached_dependency_load);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
+}
+
+TEST_CASE("Bytecode module loader reconstructs nongeneric typed import seeds from cached bytecode",
+          "[bytecode][serialization][imports][stage4g]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_nongeneric_seed";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "nongeneric_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "nongeneric_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "nongeneric_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "nongeneric_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;\n";
+  }
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import nongeneric_dep;\n"
+           "(1.0) -> Add4 -> Std.Println;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  std::filesystem::remove(dependency_path);
+  REQUIRE_FALSE(std::filesystem::exists(dependency_path));
+
+  {
+    std::ofstream out(entry_path, std::ios::trunc);
+    out << "import Std;\n"
+           "import nongeneric_dep;\n"
+           "(\"oops\") -> Add4 -> Std.Println;\n";
+  }
+
+  std::filesystem::remove(entry_bytecode_path);
+  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
+
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  REQUIRE(loaded.error().hint.has_value());
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader can start from a serialized entry module", "[bytecode][serialization][imports]") {
@@ -4790,7 +5669,9 @@ TEST_CASE("Bytecode module loader can start from a serialized entry module", "[b
 
   const fleaux::vm::Runtime runtime;
   const auto runtime_result = runtime.execute(bytecode_only_load.value());
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 }
 
@@ -4842,6 +5723,51 @@ TEST_CASE("Bytecode module loader reports bytecode-only entry corruption when so
   REQUIRE(bytecode_only_load.error().message.find("checksum") != std::string::npos);
 }
 
+TEST_CASE("Bytecode module loader rejects bytecode-only entry when builtin callsite metadata is missing",
+          "[bytecode][serialization][verification][contract]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_builtin_callsite_metadata_missing";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto entry_path = temp_dir / "entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "entry.fleaux.bc";
+
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "(\"Std.Add\") -> Std.Help;\n";
+  }
+
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(entry_bytecode_path));
+
+  auto cached = read_binary_file_bytes(entry_bytecode_path);
+  const auto deserialized = fleaux::bytecode::deserialize_module(cached);
+  REQUIRE(deserialized.has_value());
+
+  auto corrupted = *deserialized;
+  corrupted.builtin_callsites.clear();
+
+  const auto corrupted_bytes = fleaux::bytecode::serialize_module(corrupted);
+  REQUIRE(corrupted_bytes.has_value());
+
+  {
+    std::ofstream out(entry_bytecode_path, std::ios::binary | std::ios::trunc);
+    REQUIRE(out.good());
+    out.write(reinterpret_cast<const char*>(corrupted_bytes->data()),
+              static_cast<std::streamsize>(corrupted_bytes->size()));
+    REQUIRE(out.good());
+  }
+
+  std::filesystem::remove(entry_path);
+  REQUIRE_FALSE(std::filesystem::exists(entry_path));
+
+  const auto bytecode_only_load = fleaux::bytecode::load_linked_module(entry_bytecode_path);
+  REQUIRE_FALSE(bytecode_only_load.has_value());
+  REQUIRE(bytecode_only_load.error().message.find("Builtin callsite metadata count mismatch") != std::string::npos);
+}
+
 TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch without rewriting cache",
           "[bytecode][serialization][imports][options]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_cache_mode_mismatch";
@@ -4869,12 +5795,11 @@ TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch withou
   REQUIRE(baseline_deserialized->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
 
-  const auto extended_load = fleaux::bytecode::load_linked_module(
-      entry_path,
-      fleaux::bytecode::ModuleLoadOptions{
-          .mode = fleaux::bytecode::OptimizationMode::kExtended,
-          .write_bytecode_cache = false,
-      });
+  const auto extended_load =
+      fleaux::bytecode::load_linked_module(entry_path, fleaux::bytecode::ModuleLoadOptions{
+                                                           .mode = fleaux::bytecode::OptimizationMode::kExtended,
+                                                           .write_bytecode_cache = false,
+                                                       });
   REQUIRE(extended_load.has_value());
   REQUIRE(extended_load->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kExtended));
@@ -4900,17 +5825,16 @@ TEST_CASE("Bytecode module loader threads auto value-ref options into compilatio
     REQUIRE(out.good());
     out << "import Std;\n"
            "let Echo(x: String): String = x;\n"
-           "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
+           "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+           "\")"
            " -> Echo -> Std.Println;\n";
   }
 
-  const auto loaded = fleaux::bytecode::load_linked_module(
-      entry_path,
-      fleaux::bytecode::ModuleLoadOptions{
-          .enable_value_ref_gate = true,
-          .enable_auto_value_ref = true,
-          .value_ref_byte_cutoff = 32,
-      });
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path, fleaux::bytecode::ModuleLoadOptions{
+                                                                           .enable_value_ref_gate = true,
+                                                                           .enable_auto_value_ref = true,
+                                                                           .value_ref_byte_cutoff = 32,
+                                                                       });
   REQUIRE(loaded.has_value());
 
   bool saw_make_value_ref = false;
@@ -4937,14 +5861,13 @@ TEST_CASE("Bytecode module loader threads experimental builtin reductions into c
     std::ofstream out(entry_path);
     REQUIRE(out.good());
     out << "import Std;\n"
-            "\"  hi  \" -> Std.String.TrimStart -> Std.String.TrimEnd -> Std.Println;\n";
+           "\"  hi  \" -> Std.String.TrimStart -> Std.String.TrimEnd -> Std.Println;\n";
   }
 
-  const auto loaded = fleaux::bytecode::load_linked_module(
-      entry_path,
-      fleaux::bytecode::ModuleLoadOptions{
-          .enable_experimental_builtin_reductions = true,
-      });
+  const auto loaded =
+      fleaux::bytecode::load_linked_module(entry_path, fleaux::bytecode::ModuleLoadOptions{
+                                                           .enable_experimental_builtin_reductions = true,
+                                                       });
   REQUIRE(loaded.has_value());
 
   bool saw_builtin_trim = false;
@@ -4955,9 +5878,12 @@ TEST_CASE("Bytecode module loader threads experimental builtin reductions into c
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
       const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim") saw_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart") saw_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd") saw_builtin_trim_end = true;
+      if (builtin_name == "Std.String.Trim")
+        saw_builtin_trim = true;
+      if (builtin_name == "Std.String.TrimStart")
+        saw_builtin_trim_start = true;
+      if (builtin_name == "Std.String.TrimEnd")
+        saw_builtin_trim_end = true;
     }
   }
 
@@ -5021,7 +5947,9 @@ TEST_CASE("Bytecode module loader handles diamond dependencies with serialized f
   const fleaux::vm::Runtime runtime;
   std::ostringstream output;
   const auto runtime_result = runtime.execute(cached_load.value(), output);
-  if (!runtime_result) { INFO("vm runtime error: " << runtime_result.error().message); }
+  if (!runtime_result) {
+    INFO("vm runtime error: " << runtime_result.error().message);
+  }
   REQUIRE(runtime_result.has_value());
 
   const std::string text = output.str();

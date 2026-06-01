@@ -267,6 +267,23 @@ TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
   REQUIRE(as_string(array_at(result, 1)) == "fleaux_exec_ok");
 }
 
+TEST_CASE("Runtime builtins: path and filesystem helpers require String slots", "[runtime]") {
+  REQUIRE_THROWS_WITH(PathJoin(make_tuple(make_string("root"), make_int(1))),
+                      Catch::Matchers::ContainsSubstring("expected String"));
+
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_runtime_path_string_slots";
+  std::filesystem::create_directories(temp_dir);
+  const auto file_path = (temp_dir / "string_slots.txt").string();
+
+  REQUIRE_THROWS_WITH(FileWriteText(make_tuple(make_string(file_path), make_int(1))),
+                      Catch::Matchers::ContainsSubstring("expected String"));
+  REQUIRE_THROWS_WITH(OSSetEnv(make_tuple(make_string("FLEAUX_RUNTIME_STRING_SLOT_TEST"), make_int(1))),
+                      Catch::Matchers::ContainsSubstring("expected String"));
+
+  std::error_code ec;
+  std::filesystem::remove_all(temp_dir, ec);
+}
+
 TEST_CASE("Runtime builtins: FileReadChunk rejects fractional nbytes", "[runtime]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_runtime_builtins_tests";
   std::filesystem::create_directories(temp_dir);
@@ -1652,7 +1669,7 @@ TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
 
     REQUIRE(as_string(StringJoin(make_tuple(make_string(","), make_tuple(make_string("abc"), make_string("b"),
                                                                make_string("bc"))))) == "abc,b,bc");
-    REQUIRE(as_string(StringJoin(make_tuple(make_string("-"), make_string("abc")))) == "a-b-c");
+    REQUIRE_THROWS_WITH(StringJoin(make_tuple(make_string("-"), make_string("abc"))), "fleaux::runtime: expected Array");
     REQUIRE(as_string(StringReplace(make_tuple(make_string("a,b,c"), make_string(","), make_string("_")))) ==
             "a_b_c");
     REQUIRE(as_bool(StringContains(make_tuple(make_string("abc"), make_string("b")))));
@@ -1695,6 +1712,14 @@ TEST_CASE("Runtime builtins: string regex", "[runtime]") {
     REQUIRE(as_string(array_at(parts, 0)) == "one");
     REQUIRE(as_string(array_at(parts, 1)) == "two");
     REQUIRE(as_string(array_at(parts, 2)) == "three");
+  }
+
+  SECTION("Invalid regex pattern content remains runtime-owned") {
+    const Value text = make_string("abc-123 xyz");
+    REQUIRE_THROWS_WITH(StringRegexIsMatch(make_tuple(text, make_string("("))),
+                        Catch::Matchers::ContainsSubstring("Regex compile failed"));
+    REQUIRE_THROWS_WITH(StringRegexSplit(make_tuple(text, make_string("("))),
+                        Catch::Matchers::ContainsSubstring("Regex compile failed"));
   }
 }
 

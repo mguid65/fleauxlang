@@ -157,6 +157,206 @@ auto make_err(const std::string& msg) -> CompileError { return CompileError{.mes
 using EmitResult = tl::expected<void, CompileError>;
 using LocalSlots = std::unordered_map<std::string, std::uint32_t>;
 
+void record_builtin_callsite(Module& bytecode_module, const CompileState& state, const std::vector<Instruction>& out,
+                             const vm::BuiltinId builtin_id, const vm::BuiltinCallShape call_shape,
+                             const std::uint32_t static_argument_count = kUnknownBuiltinStaticArgumentCount,
+                             std::vector<BuiltinCallableSlotRecord> callable_slots = {},
+                             std::vector<BuiltinValueSlotRecord> value_slots = {}) {
+  bytecode_module.builtin_callsites.push_back(BuiltinCallsiteRecord{
+      .owner_kind = state.current_function_idx.has_value() ? BuiltinCallsiteOwnerKind::kFunction
+                                                           : BuiltinCallsiteOwnerKind::kModule,
+      .owner_index = state.current_function_idx.value_or(0U),
+      .instruction_index = static_cast<std::uint32_t>(out.size()),
+      .builtin_id = builtin_id,
+      .call_shape = call_shape,
+      .static_argument_count = static_argument_count,
+      .callable_slots = std::move(callable_slots),
+      .value_slots = std::move(value_slots),
+  });
+}
+
+auto builtin_callable_slot_indices(const vm::BuiltinId builtin_id) -> std::vector<std::uint32_t> {
+  switch (builtin_id) {
+    case vm::BuiltinId::Apply:
+    case vm::BuiltinId::Try:
+    case vm::BuiltinId::TupleMap:
+    case vm::BuiltinId::TupleFilter:
+    case vm::BuiltinId::TupleFindIndex:
+    case vm::BuiltinId::TupleAny:
+    case vm::BuiltinId::TupleAll:
+    case vm::BuiltinId::ParallelMap:
+    case vm::BuiltinId::ParallelForEach:
+    case vm::BuiltinId::ParallelWithOptions:
+      return {1U};
+    case vm::BuiltinId::TaskSpawn:
+      return {0U};
+    case vm::BuiltinId::TupleReduce:
+    case vm::BuiltinId::ParallelReduce:
+    case vm::BuiltinId::FileWithOpen:
+      return {2U};
+    case vm::BuiltinId::Branch:
+      return {2U, 3U};
+    case vm::BuiltinId::Loop:
+    case vm::BuiltinId::LoopN:
+      return {1U, 2U};
+    default:
+      return {};
+  }
+}
+
+auto builtin_value_slot_indices(const vm::BuiltinId builtin_id) -> std::vector<std::uint32_t> {
+  switch (builtin_id) {
+    case vm::BuiltinId::ParallelWithOptions:
+      return {2U};
+    case vm::BuiltinId::TaskAwait:
+    case vm::BuiltinId::TaskCancel:
+    case vm::BuiltinId::RandomNextUInt64:
+    case vm::BuiltinId::RandomNextInt64:
+    case vm::BuiltinId::RandomNextFloat64:
+    case vm::BuiltinId::RandomNextBool:
+    case vm::BuiltinId::RandomSplit:
+    case vm::BuiltinId::FileReadLine:
+    case vm::BuiltinId::FileWriteChunk:
+    case vm::BuiltinId::FileFlush:
+    case vm::BuiltinId::FileClose:
+      return {0U};
+    case vm::BuiltinId::ExitInt64:
+      return {0U};
+    case vm::BuiltinId::RandomCreate:
+      return {0U};
+    case vm::BuiltinId::TupleRangeInt64:
+      return {0U};
+    case vm::BuiltinId::TupleRangeInt64Int64:
+      return {0U, 1U};
+    case vm::BuiltinId::TupleRangeInt64Int64Int64:
+      return {0U, 1U, 2U};
+    case vm::BuiltinId::TaskWithTimeout:
+      return {1U};
+    case vm::BuiltinId::LoopN:
+      return {3U};
+    case vm::BuiltinId::FileReadChunk:
+      return {0U, 1U};
+    case vm::BuiltinId::ElementAt:
+    case vm::BuiltinId::Take:
+    case vm::BuiltinId::Drop:
+    case vm::BuiltinId::SliceTupleUInt64:
+    case vm::BuiltinId::StringCharAt:
+    case vm::BuiltinId::StringSliceStringUInt64:
+    case vm::BuiltinId::BitShiftLeft:
+    case vm::BuiltinId::BitShiftRight:
+    case vm::BuiltinId::ArrayGetAt:
+    case vm::BuiltinId::ArraySetAt:
+    case vm::BuiltinId::ArrayInsertAt:
+    case vm::BuiltinId::ArrayRemoveAt:
+      return {1U};
+    case vm::BuiltinId::SliceTupleUInt64UInt64:
+    case vm::BuiltinId::StringSliceStringUInt64UInt64:
+    case vm::BuiltinId::ArraySlice:
+    case vm::BuiltinId::ArrayReshape:
+      return {1U, 2U};
+    case vm::BuiltinId::SliceTupleUInt64UInt64UInt64:
+      return {1U, 2U, 3U};
+    case vm::BuiltinId::StringFindStringStringUInt64:
+      return {2U};
+    case vm::BuiltinId::ArraySetAt2D:
+    case vm::BuiltinId::ArrayFill:
+      return {1U, 2U};
+    case vm::BuiltinId::ArraySlice2D:
+      return {1U, 2U, 3U, 4U};
+    default:
+      return {};
+  }
+}
+
+auto is_dict_string_any_ir_type(const frontend::ir::IRSimpleType& type) -> bool {
+  return type.name == "Dict" && type.type_args.size() == 2U && type.type_args[0].name == "String" &&
+         type.type_args[1].name == "Any";
+}
+
+auto is_exact_uint64_ir_type(const frontend::ir::IRSimpleType& type) -> bool {
+  return type.name == "UInt64" && !type.variadic && type.alternatives.empty() && type.alternative_types.empty() &&
+         type.tuple_items.empty() && type.type_args.empty() && !type.function_sig.has_value();
+}
+
+auto is_exact_int64_ir_type(const frontend::ir::IRSimpleType& type) -> bool {
+  return type.name == "Int64" && !type.variadic && type.alternatives.empty() && type.alternative_types.empty() &&
+         type.tuple_items.empty() && type.type_args.empty() && !type.function_sig.has_value();
+}
+
+auto is_nominal_ir_type(const frontend::ir::IRSimpleType& type, const std::string_view name) -> bool {
+  const bool scalar_shape = !type.variadic && type.alternatives.empty() && type.alternative_types.empty() &&
+                            type.tuple_items.empty() && type.type_args.empty() && !type.function_sig.has_value();
+  if (!scalar_shape) {
+    return false;
+  }
+  if (type.name == name) {
+    return true;
+  }
+  return type.bridge_type_node.has_value() && type.bridge_type_node->kind == frontend::types::TypeNodeKind::kNamed &&
+         type.bridge_type_node->name == name;
+}
+
+auto builtin_value_slot_summary_kind(const vm::BuiltinId builtin_id, const std::uint32_t slot_index)
+    -> std::optional<BuiltinValueSlotSummaryKind> {
+  if (builtin_id == vm::BuiltinId::ParallelWithOptions && slot_index == 2U) {
+    return BuiltinValueSlotSummaryKind::kDictStringAny;
+  }
+
+  if ((builtin_id == vm::BuiltinId::TaskAwait || builtin_id == vm::BuiltinId::TaskCancel ||
+       builtin_id == vm::BuiltinId::TaskWithTimeout) &&
+      slot_index == 0U) {
+    return BuiltinValueSlotSummaryKind::kTaskHandle;
+  }
+
+  if ((builtin_id == vm::BuiltinId::RandomNextUInt64 || builtin_id == vm::BuiltinId::RandomNextInt64 ||
+       builtin_id == vm::BuiltinId::RandomNextFloat64 || builtin_id == vm::BuiltinId::RandomNextBool ||
+       builtin_id == vm::BuiltinId::RandomSplit) &&
+      slot_index == 0U) {
+    return BuiltinValueSlotSummaryKind::kRandomGenerator;
+  }
+
+  if ((builtin_id == vm::BuiltinId::FileReadLine || builtin_id == vm::BuiltinId::FileReadChunk ||
+       builtin_id == vm::BuiltinId::FileWriteChunk || builtin_id == vm::BuiltinId::FileFlush ||
+       builtin_id == vm::BuiltinId::FileClose) &&
+      slot_index == 0U) {
+    return BuiltinValueSlotSummaryKind::kFileHandle;
+  }
+
+  const auto exact_uint64_slots = builtin_value_slot_indices(builtin_id);
+  if ((builtin_id == vm::BuiltinId::ExitInt64 || builtin_id == vm::BuiltinId::TupleRangeInt64 ||
+       builtin_id == vm::BuiltinId::TupleRangeInt64Int64 || builtin_id == vm::BuiltinId::TupleRangeInt64Int64Int64) &&
+      std::ranges::find(exact_uint64_slots, slot_index) != exact_uint64_slots.end()) {
+    return BuiltinValueSlotSummaryKind::kExactInt64;
+  }
+
+  if (std::ranges::find(exact_uint64_slots, slot_index) != exact_uint64_slots.end() &&
+      builtin_id != vm::BuiltinId::ParallelWithOptions && builtin_id != vm::BuiltinId::ExitInt64 &&
+      builtin_id != vm::BuiltinId::TupleRangeInt64 && builtin_id != vm::BuiltinId::TupleRangeInt64Int64 &&
+      builtin_id != vm::BuiltinId::TupleRangeInt64Int64Int64) {
+    return BuiltinValueSlotSummaryKind::kExactUInt64;
+  }
+
+  return std::nullopt;
+}
+
+auto function_matches_value_slot_summary(const FunctionDef& function, const BuiltinValueSlotSummaryKind summary_kind) -> bool {
+  switch (summary_kind) {
+    case BuiltinValueSlotSummaryKind::kDictStringAny:
+      return function.return_type_is_dict_string_any;
+    case BuiltinValueSlotSummaryKind::kExactUInt64:
+      return function.return_type_is_exact_uint64;
+    case BuiltinValueSlotSummaryKind::kExactInt64:
+      return function.return_type_is_exact_int64;
+    case BuiltinValueSlotSummaryKind::kTaskHandle:
+      return function.return_type_is_task_handle;
+    case BuiltinValueSlotSummaryKind::kRandomGenerator:
+      return function.return_type_is_random_generator;
+    case BuiltinValueSlotSummaryKind::kFileHandle:
+      return function.return_type_is_file_handle;
+  }
+  return false;
+}
+
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
@@ -201,6 +401,46 @@ auto target_symbol_name(const IRNameRef& name_ref) -> std::string {
   return common::full_symbol_name(name_ref.qualifier, name_ref.name);
 }
 
+struct AuditedHandleReturnSummary {
+  bool is_task_handle{false};
+  bool is_random_generator{false};
+  bool is_file_handle{false};
+};
+
+auto infer_audited_handle_return_summary(const IRExprBox& body) -> AuditedHandleReturnSummary {
+  if (!body.has_value()) {
+    return {};
+  }
+
+  const auto* flow = std::get_if<IRFlowExpr>(&body->node);
+  if (flow == nullptr) {
+    return {};
+  }
+
+  const auto* target = std::get_if<IRNameRef>(&flow->rhs);
+  if (target == nullptr) {
+    return {};
+  }
+
+  const auto builtin_id = vm::builtin_id_from_symbol_key(target_symbol_name(*target));
+  if (!builtin_id.has_value()) {
+    return {};
+  }
+
+  switch (*builtin_id) {
+    case vm::BuiltinId::TaskSpawn:
+      return {.is_task_handle = true};
+    case vm::BuiltinId::RandomCreate:
+      return {.is_random_generator = true};
+    case vm::BuiltinId::FileOpen:
+    case vm::BuiltinId::FileWriteChunk:
+    case vm::BuiltinId::FileFlush:
+      return {.is_file_handle = true};
+    default:
+      return {};
+  }
+}
+
 auto is_symbolic_import(const std::string& module_name) -> bool { return module_name == "Std"; }
 
 auto let_belongs_to_module(const IRLet& let, const CompileOptions& options) -> bool {
@@ -240,6 +480,19 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
   fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
   fn_def.generic_params = let.generic_params;
   fn_def.return_type_name = let.return_type.name;
+  fn_def.return_type_is_dict_string_any = is_dict_string_any_ir_type(let.return_type);
+  fn_def.return_type_is_exact_uint64 = is_exact_uint64_ir_type(let.return_type);
+  fn_def.return_type_is_exact_int64 = is_exact_int64_ir_type(let.return_type);
+  fn_def.return_type_is_task_handle = is_nominal_ir_type(let.return_type, "TaskHandle");
+  fn_def.return_type_is_random_generator = is_nominal_ir_type(let.return_type, "RandomGenerator");
+  fn_def.return_type_is_file_handle = is_nominal_ir_type(let.return_type, "FileHandle");
+  if (!fn_def.return_type_is_task_handle || !fn_def.return_type_is_random_generator || !fn_def.return_type_is_file_handle) {
+    const auto body_summary = infer_audited_handle_return_summary(let.body);
+    fn_def.return_type_is_task_handle = fn_def.return_type_is_task_handle || body_summary.is_task_handle;
+    fn_def.return_type_is_random_generator =
+        fn_def.return_type_is_random_generator || body_summary.is_random_generator;
+    fn_def.return_type_is_file_handle = fn_def.return_type_is_file_handle || body_summary.is_file_handle;
+  }
   fn_def.param_type_names.reserve(let.params.size());
   for (const auto& param : let.params) {
     fn_def.param_type_names.push_back(param.type.name);
@@ -299,6 +552,12 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
       imported_placeholder.generic_params = imported_fn.generic_params;
       imported_placeholder.param_type_names = imported_fn.param_type_names;
       imported_placeholder.return_type_name = imported_fn.return_type_name;
+      imported_placeholder.return_type_is_dict_string_any = imported_fn.return_type_is_dict_string_any;
+      imported_placeholder.return_type_is_exact_uint64 = imported_fn.return_type_is_exact_uint64;
+      imported_placeholder.return_type_is_exact_int64 = imported_fn.return_type_is_exact_int64;
+      imported_placeholder.return_type_is_task_handle = imported_fn.return_type_is_task_handle;
+      imported_placeholder.return_type_is_random_generator = imported_fn.return_type_is_random_generator;
+      imported_placeholder.return_type_is_file_handle = imported_fn.return_type_is_file_handle;
       bytecode_module.functions.push_back(std::move(imported_placeholder));
       state.function_idx[link_name] = fn_idx;
       state.register_public_function_name(name, fn_idx);
@@ -511,6 +770,7 @@ auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + it->second + "'."));
     }
+    record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded);
     out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
     return {};
   };
@@ -607,7 +867,9 @@ auto can_emit_native_branch_call(const std::string& full_name, const IRTupleExpr
 // Call-target emission
 
 auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out, const LocalSlots& locals,
-                      CompileState& state, Module&) -> EmitResult {
+                      CompileState& state, Module& bytecode_module,
+                      const std::uint32_t builtin_static_argument_count = kUnknownBuiltinStaticArgumentCount,
+                      const std::vector<BuiltinCallableSlotRecord>& builtin_callable_slots = {}) -> EmitResult {
   (void)locals;
   // Helper: emit kCallBuiltin with a resolved BuiltinId.
   auto emit_builtin = [&](const std::string& symbol_key) -> EmitResult {
@@ -615,6 +877,8 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
     }
+    record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
+                            builtin_static_argument_count, builtin_callable_slots);
     out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
     return {};
   };
@@ -747,8 +1011,8 @@ auto try_emit_user_binary_call_fast_path(const IRFlowExpr& flow, std::vector<Ins
     return false;
   }
 
-  const IRExpr& adapted_lhs = adapted_user_flow_lhs_expr(flow);
-  const auto* tuple_expr = std::get_if<IRTupleExpr>(&adapted_lhs.node);
+  const auto& [node, span] = adapted_user_flow_lhs_expr(flow);
+  const auto* tuple_expr = std::get_if<IRTupleExpr>(&node);
   if (tuple_expr == nullptr || tuple_expr->items.size() != 2U) {
     return false;
   }
@@ -799,42 +1063,83 @@ auto format_builtin_arity_expectation(const vm::BuiltinArityContract contract) -
   return "unknown";
 }
 
-auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const fleaux::vm::BuiltinId builtin_id) -> bool {
+auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const vm::BuiltinId builtin_id) -> bool {
   switch (builtin_id) {
-    case fleaux::vm::BuiltinId::Length:
-    case fleaux::vm::BuiltinId::TupleReverse:
-    case fleaux::vm::BuiltinId::TupleSort:
-    case fleaux::vm::BuiltinId::TupleUnique:
-    case fleaux::vm::BuiltinId::TupleMin:
-    case fleaux::vm::BuiltinId::TupleMax:
-    case fleaux::vm::BuiltinId::TaskAwaitAll:
-    case fleaux::vm::BuiltinId::DictCreateDict:
-    case fleaux::vm::BuiltinId::DictKeys:
-    case fleaux::vm::BuiltinId::DictValues:
-    case fleaux::vm::BuiltinId::DictEntries:
-    case fleaux::vm::BuiltinId::DictClear:
-    case fleaux::vm::BuiltinId::DictLength:
-    case fleaux::vm::BuiltinId::First:
-    case fleaux::vm::BuiltinId::Second:
-    case fleaux::vm::BuiltinId::ResultTag:
-    case fleaux::vm::BuiltinId::ResultPayload:
-    case fleaux::vm::BuiltinId::ResultIsOk:
-    case fleaux::vm::BuiltinId::ResultIsErr:
-    case fleaux::vm::BuiltinId::ResultUnwrap:
-    case fleaux::vm::BuiltinId::ResultUnwrapErr:
-    case fleaux::vm::BuiltinId::TupleRangeInt64:
-    case fleaux::vm::BuiltinId::RandomCreate:
-    case fleaux::vm::BuiltinId::RandomNextUInt64:
-    case fleaux::vm::BuiltinId::RandomNextInt64:
-    case fleaux::vm::BuiltinId::RandomNextFloat64:
-    case fleaux::vm::BuiltinId::RandomNextBool:
-    case fleaux::vm::BuiltinId::RandomSplit:
+    case vm::BuiltinId::Length:
+    case vm::BuiltinId::ToNum:
+    case vm::BuiltinId::TupleReverse:
+    case vm::BuiltinId::TupleSort:
+    case vm::BuiltinId::TupleUnique:
+    case vm::BuiltinId::TupleMin:
+    case vm::BuiltinId::TupleMax:
+    case vm::BuiltinId::TaskAwait:
+    case vm::BuiltinId::TaskCancel:
+    case vm::BuiltinId::TaskAwaitAll:
+    case vm::BuiltinId::DictCreateDict:
+    case vm::BuiltinId::DictKeys:
+    case vm::BuiltinId::DictValues:
+    case vm::BuiltinId::DictEntries:
+    case vm::BuiltinId::DictClear:
+    case vm::BuiltinId::DictLength:
+    case vm::BuiltinId::First:
+    case vm::BuiltinId::Second:
+    case vm::BuiltinId::ResultTag:
+    case vm::BuiltinId::ResultPayload:
+    case vm::BuiltinId::ResultIsOk:
+    case vm::BuiltinId::ResultIsErr:
+    case vm::BuiltinId::ResultUnwrap:
+    case vm::BuiltinId::ResultUnwrapErr:
+    case vm::BuiltinId::TupleRangeInt64:
+    case vm::BuiltinId::RandomCreate:
+    case vm::BuiltinId::RandomNextUInt64:
+    case vm::BuiltinId::RandomNextInt64:
+    case vm::BuiltinId::RandomNextFloat64:
+    case vm::BuiltinId::RandomNextBool:
+    case vm::BuiltinId::RandomSplit:
+    case vm::BuiltinId::StringParseInt64:
+    case vm::BuiltinId::StringParseUInt64:
+    case vm::BuiltinId::StringParseFloat64:
+    case vm::BuiltinId::StringUpper:
+    case vm::BuiltinId::StringLower:
+    case vm::BuiltinId::StringTrim:
+    case vm::BuiltinId::StringTrimStart:
+    case vm::BuiltinId::StringTrimEnd:
+    case vm::BuiltinId::StringLength:
+    case vm::BuiltinId::StringFormat:
+    case vm::BuiltinId::OSEnv:
+    case vm::BuiltinId::OSHasEnv:
+    case vm::BuiltinId::OSUnsetEnv:
+    case vm::BuiltinId::OSExec:
+    case vm::BuiltinId::PathNormalize:
+    case vm::BuiltinId::PathBasename:
+    case vm::BuiltinId::PathDirname:
+    case vm::BuiltinId::PathExists:
+    case vm::BuiltinId::PathIsFile:
+    case vm::BuiltinId::PathIsDir:
+    case vm::BuiltinId::PathAbsolute:
+    case vm::BuiltinId::PathExtension:
+    case vm::BuiltinId::PathStem:
+    case vm::BuiltinId::FileReadText:
+    case vm::BuiltinId::FileReadLines:
+    case vm::BuiltinId::FileDelete:
+    case vm::BuiltinId::FileSize:
+    case vm::BuiltinId::DirCreate:
+    case vm::BuiltinId::DirDelete:
+    case vm::BuiltinId::DirList:
+    case vm::BuiltinId::DirListFull:
+    case vm::BuiltinId::FileReadLine:
+    case vm::BuiltinId::FileFlush:
+    case vm::BuiltinId::FileClose:
       return true;
     default:
       return false;
   }
 }
 
+// Builtin pipeline adaptation must stay syntax-aware: each pipeline expression may unwrap only
+// its own outermost singleton lhs layer once. Do not replace this with generic runtime probing or
+// recursive singleton flattening, because genuine singleton tuple results from earlier stages are
+// real values and must remain intact.
 auto adapted_builtin_flow_lhs_expr(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> const IRExpr& {
   const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node);
   if (tuple == nullptr || tuple->items.size() != 1U) {
@@ -866,14 +1171,14 @@ auto validate_builtin_known_arity(const vm::BuiltinId builtin_id, const std::siz
                                  suffix + " but got " + std::to_string(arity) + "."));
 }
 
-auto known_builtin_call_arity(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> std::optional<std::size_t> {
-  const IRExpr& adapted_lhs = adapted_builtin_flow_lhs_expr(builtin_id, flow);
+auto known_builtin_call_arity(const vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> std::optional<std::size_t> {
+  const auto& [node, span] = adapted_builtin_flow_lhs_expr(builtin_id, flow);
   if (flow.call_shape == IRFlowCallShape::kDirectValue) {
     return 1U;
   }
 
   if (flow.call_shape == IRFlowCallShape::kTupleExpanded) {
-    if (const auto* tuple = std::get_if<IRTupleExpr>(&adapted_lhs.node); tuple != nullptr) {
+    if (const auto* tuple = std::get_if<IRTupleExpr>(&node); tuple != nullptr) {
       return tuple->items.size();
     }
     return std::nullopt;
@@ -887,6 +1192,85 @@ auto known_builtin_call_arity(const fleaux::vm::BuiltinId builtin_id, const IRFl
                          [](const IRFlowExpr&) -> std::optional<std::size_t> { return std::nullopt; },
                          [](const IRBlockExprBox&) -> std::optional<std::size_t> { return std::nullopt; }},
       flow.lhs->node);
+}
+
+auto recorded_builtin_static_argument_count(const std::optional<std::size_t> known_arity) -> std::uint32_t {
+  if (!known_arity.has_value()) {
+    return kUnknownBuiltinStaticArgumentCount;
+  }
+  return static_cast<std::uint32_t>(*known_arity);
+}
+
+auto builtin_call_shape_for_flow(const IRFlowExpr& flow) -> vm::BuiltinCallShape;
+
+auto callable_slot_record_from_emitted_fragment(const std::uint32_t slot_index, const std::size_t fragment_begin,
+                                                const std::vector<Instruction>& out, const Module& bytecode_module)
+    -> std::optional<BuiltinCallableSlotRecord> {
+  if (fragment_begin >= out.size()) {
+    return std::nullopt;
+  }
+
+  const auto& tail = out.back();
+  switch (tail.opcode) {
+    case Opcode::kMakeUserFuncRef: {
+      if (tail.operand < 0 || static_cast<std::size_t>(tail.operand) >= bytecode_module.functions.size()) {
+        return std::nullopt;
+      }
+      const auto function_index = static_cast<std::uint32_t>(tail.operand);
+      const auto& function = bytecode_module.functions[function_index];
+      return BuiltinCallableSlotRecord{
+          .slot_index = slot_index,
+          .kind = BuiltinCallableSlotKind::kFunction,
+          .target_index = function_index,
+          .declared_arity = function.arity,
+          .has_variadic_tail = function.has_variadic_tail,
+      };
+    }
+    case Opcode::kMakeClosureRef: {
+      if (tail.operand < 0 || static_cast<std::size_t>(tail.operand) >= bytecode_module.closures.size()) {
+        return std::nullopt;
+      }
+      const auto closure_index = static_cast<std::uint32_t>(tail.operand);
+      const auto& closure = bytecode_module.closures[closure_index];
+      return BuiltinCallableSlotRecord{
+          .slot_index = slot_index,
+          .kind = BuiltinCallableSlotKind::kClosure,
+          .target_index = closure_index,
+          .declared_arity = closure.declared_arity,
+          .has_variadic_tail = closure.declared_has_variadic_tail,
+      };
+    }
+    case Opcode::kMakeBuiltinFuncRef: {
+      const auto builtin_id = vm::builtin_id_from_operand(tail.operand);
+      if (!builtin_id.has_value()) {
+        return std::nullopt;
+      }
+      const auto contract = vm::builtin_arity_contract(*builtin_id);
+      return BuiltinCallableSlotRecord{
+          .slot_index = slot_index,
+          .kind = BuiltinCallableSlotKind::kBuiltin,
+          .target_index = static_cast<std::uint32_t>(*builtin_id),
+          .declared_arity = contract.primary,
+          .has_variadic_tail = contract.kind == vm::BuiltinArityKind::kVariadicMinimum,
+      };
+    }
+    default:
+      return std::nullopt;
+  }
+}
+
+auto emit_expr_for_builtin_callable_slot(const IRExpr& expr, const std::uint32_t slot_index, std::vector<Instruction>& out,
+                                         const LocalSlots& locals, CompileState& state, Module& bytecode_module,
+                                         std::vector<BuiltinCallableSlotRecord>& callable_slots) -> EmitResult {
+  const auto fragment_begin = out.size();
+  if (auto emit_result = emit_expr(expr, out, locals, state, bytecode_module); !emit_result) {
+    return emit_result;
+  }
+  if (auto record = callable_slot_record_from_emitted_fragment(slot_index, fragment_begin, out, bytecode_module);
+      record.has_value()) {
+    callable_slots.push_back(std::move(*record));
+  }
+  return {};
 }
 
 auto builtin_call_shape_for_expr(const IRExpr& expr) -> vm::BuiltinCallShape {
@@ -915,15 +1299,108 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
     return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
   }
   const IRExpr& adapted_lhs = adapted_builtin_flow_lhs_expr(*builtin_id, flow);
-  if (const auto arity = known_builtin_call_arity(*builtin_id, flow); arity.has_value()) {
-    if (auto validated = validate_builtin_known_arity(*builtin_id, *arity); !validated) {
+  const auto known_arity = known_builtin_call_arity(*builtin_id, flow);
+  if (known_arity.has_value()) {
+    if (auto validated = validate_builtin_known_arity(*builtin_id, *known_arity); !validated) {
       return validated;
     }
   }
 
-  if (const auto* tuple = std::get_if<IRTupleExpr>(&adapted_lhs.node); tuple != nullptr) {
+  std::vector<BuiltinCallableSlotRecord> callable_slots;
+  std::vector<BuiltinValueSlotRecord> value_slots;
+  const auto callable_slot_indices = builtin_callable_slot_indices(*builtin_id);
+  const auto value_slot_indices = builtin_value_slot_indices(*builtin_id);
+  const auto call_shape = builtin_call_shape_for_flow(flow);
+  const auto* tuple = std::get_if<IRTupleExpr>(&adapted_lhs.node);
+  const auto try_record_value_slot = [&](const IRExpr& slot_expr, const std::uint32_t slot_index) {
+    const auto summary_kind = builtin_value_slot_summary_kind(*builtin_id, slot_index);
+    if (!summary_kind.has_value()) {
+      return;
+    }
+
+    const auto* slot_flow = std::get_if<IRFlowExpr>(&slot_expr.node);
+    if (slot_flow == nullptr) {
+      return;
+    }
+    const auto* slot_target = std::get_if<IRNameRef>(&slot_flow->rhs);
+    if (slot_target == nullptr) {
+      return;
+    }
+
+    const auto target_name = target_symbol_name(*slot_target);
+    const auto fn_it = state.function_idx.find(target_name);
+    if (fn_it == state.function_idx.end() || fn_it->second >= bytecode_module.functions.size()) {
+      return;
+    }
+
+    const auto function_index = fn_it->second;
+    if (!function_matches_value_slot_summary(bytecode_module.functions[function_index], *summary_kind)) {
+      return;
+    }
+
+    value_slots.push_back(BuiltinValueSlotRecord{
+        .slot_index = slot_index,
+        .summary_kind = *summary_kind,
+        .source_kind = BuiltinValueSlotSourceKind::kFunctionReturn,
+        .source_index = function_index,
+    });
+  };
+
+  if (!value_slot_indices.empty()) {
+    if (call_shape == vm::BuiltinCallShape::kDirectValue) {
+      if (std::ranges::find(value_slot_indices, 0U) != value_slot_indices.end()) {
+        try_record_value_slot(adapted_lhs, 0U);
+      }
+    } else if (tuple != nullptr) {
+      for (const auto value_slot_index : value_slot_indices) {
+        if (value_slot_index >= tuple->items.size()) {
+          continue;
+        }
+        try_record_value_slot(*tuple->items[value_slot_index], value_slot_index);
+      }
+    }
+  }
+  if (!callable_slot_indices.empty()) {
+    if (call_shape == vm::BuiltinCallShape::kDirectValue) {
+      if (std::ranges::find(callable_slot_indices, 0U) != callable_slot_indices.end()) {
+        if (auto emit_result = emit_expr_for_builtin_callable_slot(adapted_lhs, 0U, out, locals, state, bytecode_module,
+                                                                   callable_slots);
+            !emit_result) {
+          return emit_result;
+        }
+      } else {
+        if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
+          return emit_result;
+        }
+      }
+    } else if (tuple != nullptr) {
+      for (std::uint32_t item_index = 0; item_index < static_cast<std::uint32_t>(tuple->items.size()); ++item_index) {
+        if (std::ranges::find(callable_slot_indices, item_index) != callable_slot_indices.end()) {
+          if (auto emit_result = emit_expr_for_builtin_callable_slot(*tuple->items[item_index], item_index, out, locals,
+                                                                     state, bytecode_module, callable_slots);
+              !emit_result) {
+            return emit_result;
+          }
+        } else {
+          if (auto emit_result = emit_expr(*tuple->items[item_index], out, locals, state, bytecode_module); !emit_result) {
+            return emit_result;
+          }
+        }
+      }
+    }
+
+    if (call_shape == vm::BuiltinCallShape::kTupleExpanded && tuple != nullptr) {
+      out.push_back(Instruction{.opcode = Opcode::kBuildTuple,
+                                .operand = static_cast<std::int64_t>(tuple->items.size())});
+    }
+  }
+
+  if (tuple != nullptr) {
     if (tuple->items.size() == 2) {
       if (const auto opcode = binary_intrinsic_builtin_to_opcode(symbol_key)) {
+        if (!callable_slot_indices.empty()) {
+          return tl::unexpected(make_err("Callable-slot metadata path unexpectedly reached intrinsic binary lowering."));
+        }
         if (auto emit_result = emit_tuple_items(*tuple, out, locals, state, bytecode_module); !emit_result) {
           return emit_result;
         }
@@ -934,6 +1411,9 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
 
     if (tuple->items.size() == 1) {
       if (const auto opcode = unary_intrinsic_builtin_to_opcode(symbol_key)) {
+        if (!callable_slot_indices.empty()) {
+          return tl::unexpected(make_err("Callable-slot metadata path unexpectedly reached intrinsic unary lowering."));
+        }
         if (auto emit_result = emit_expr(*tuple->items[0], out, locals, state, bytecode_module); !emit_result) {
           return emit_result;
         }
@@ -942,6 +1422,9 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
       }
     }
   } else if (const auto opcode = unary_intrinsic_builtin_to_opcode(symbol_key)) {
+    if (!callable_slot_indices.empty()) {
+      return tl::unexpected(make_err("Callable-slot metadata path unexpectedly reached direct intrinsic unary lowering."));
+    }
     if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
       return emit_result;
     }
@@ -949,11 +1432,15 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
     return {};
   }
 
-  if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
-    return emit_result;
+  if (callable_slot_indices.empty()) {
+    if (auto emit_result = emit_expr(adapted_lhs, out, locals, state, bytecode_module); !emit_result) {
+      return emit_result;
+    }
   }
+  record_builtin_callsite(bytecode_module, state, out, *builtin_id, call_shape,
+                          recorded_builtin_static_argument_count(known_arity), callable_slots, value_slots);
   out.push_back(Instruction{.opcode = Opcode::kCallBuiltin,
-                            .operand = fleaux::vm::builtin_operand(*builtin_id, builtin_call_shape_for_flow(flow))});
+                            .operand = fleaux::vm::builtin_operand(*builtin_id, call_shape)});
   return {};
 }
 
@@ -1011,11 +1498,13 @@ auto emit_builtin_symbol_flow_for_tuple_prefix(
     }
   }
 
-  const auto builtin_id = fleaux::vm::builtin_id_from_symbol_key(symbol_key);
+  const auto builtin_id = vm::builtin_id_from_symbol_key(symbol_key);
   if (!builtin_id.has_value()) {
     return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
   }
   out.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(item_count)});
+  record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
+                          static_cast<std::uint32_t>(item_count));
   out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
   return {};
 }
@@ -1139,7 +1628,7 @@ auto try_emit_experimental_builtin_reduction(const IRFlowExpr& flow, const std::
 }
 
 auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out, const LocalSlots& locals,
-                        const CompileState& state) -> EmitResult {
+                        const CompileState& state, Module& bytecode_module) -> EmitResult {
   const std::string full_name = common::full_symbol_name(name_ref.qualifier, name_ref.name);
   const std::string target_name = target_symbol_name(name_ref);
 
@@ -1172,6 +1661,7 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
       if (auto validated = validate_builtin_known_arity(*builtin_id, 0U); !validated) {
         return validated;
       }
+      record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
       out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
       return {};
     }
@@ -1184,6 +1674,7 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
       if (auto validated = validate_builtin_known_arity(*builtin_id, 0U); !validated) {
         return validated;
       }
+      record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
       out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
       return {};
     }
@@ -1239,6 +1730,20 @@ auto emit_closure_expr(const IRClosureExpr& closure, std::vector<Instruction>& o
   fn_def.name = "__closure_" + std::to_string(fn_idx);
   fn_def.arity = static_cast<std::uint32_t>(closure.captures.size() + closure.params.size());
   fn_def.has_variadic_tail = !closure.params.empty() && closure.params.back().type.variadic;
+  fn_def.return_type_name = closure.return_type.name;
+  fn_def.return_type_is_dict_string_any = is_dict_string_any_ir_type(closure.return_type);
+  fn_def.return_type_is_exact_uint64 = is_exact_uint64_ir_type(closure.return_type);
+  fn_def.return_type_is_exact_int64 = is_exact_int64_ir_type(closure.return_type);
+  fn_def.return_type_is_task_handle = is_nominal_ir_type(closure.return_type, "TaskHandle");
+  fn_def.return_type_is_random_generator = is_nominal_ir_type(closure.return_type, "RandomGenerator");
+  fn_def.return_type_is_file_handle = is_nominal_ir_type(closure.return_type, "FileHandle");
+  if (!fn_def.return_type_is_task_handle || !fn_def.return_type_is_random_generator || !fn_def.return_type_is_file_handle) {
+    const auto body_summary = infer_audited_handle_return_summary(closure.body);
+    fn_def.return_type_is_task_handle = fn_def.return_type_is_task_handle || body_summary.is_task_handle;
+    fn_def.return_type_is_random_generator =
+        fn_def.return_type_is_random_generator || body_summary.is_random_generator;
+    fn_def.return_type_is_file_handle = fn_def.return_type_is_file_handle || body_summary.is_file_handle;
+  }
 
   const LocalSlots closure_locals = make_closure_local_slots(closure);
 
@@ -1442,7 +1947,16 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
       return emit_result;
     }
   }
-  return emit_call_target(flow.rhs, out, locals, state, bytecode_module);
+  std::uint32_t builtin_static_argument_count = kUnknownBuiltinStaticArgumentCount;
+  std::vector<BuiltinCallableSlotRecord> builtin_callable_slots;
+  if (const auto builtin_symbol_key = builtin_symbol_key_from_call_target(flow.rhs, state); builtin_symbol_key.has_value()) {
+    if (const auto builtin_id = vm::builtin_id_from_symbol_key(*builtin_symbol_key); builtin_id.has_value()) {
+      builtin_static_argument_count = recorded_builtin_static_argument_count(known_builtin_call_arity(*builtin_id, flow));
+    }
+  }
+
+  return emit_call_target(flow.rhs, out, locals, state, bytecode_module, builtin_static_argument_count,
+                          builtin_callable_slots);
 }
 
 // Expression emission
@@ -1456,7 +1970,9 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
             out.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(idx)});
             return {};
           },
-          [&](const IRNameRef& name_ref) -> EmitResult { return emit_name_ref_expr(name_ref, out, locals, state); },
+          [&](const IRNameRef& name_ref) -> EmitResult {
+            return emit_name_ref_expr(name_ref, out, locals, state, bytecode_module);
+          },
           [&](const IRClosureExprBox& closure_ptr) -> EmitResult {
             return emit_closure_expr(*closure_ptr, out, locals, state, bytecode_module);
           },

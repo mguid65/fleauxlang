@@ -1,11 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <variant>
 #include <vector>
 
 #include "fleaux/bytecode/opcode.hpp"
+#include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::bytecode {
 
@@ -68,6 +70,14 @@ struct FunctionDef {
 
   // Declared return type name.  Same encoding as `param_type_names`.
   std::string return_type_name{};
+
+  // Narrow verifier-facing summary bit for the selected domain slice.
+  bool return_type_is_dict_string_any{false};
+  bool return_type_is_exact_uint64{false};
+  bool return_type_is_exact_int64{false};
+  bool return_type_is_task_handle{false};
+  bool return_type_is_random_generator{false};
+  bool return_type_is_file_handle{false};
 };
 
 struct ClosureDef {
@@ -75,6 +85,59 @@ struct ClosureDef {
   std::uint32_t capture_count{0};
   std::uint32_t declared_arity{0};
   bool declared_has_variadic_tail{false};
+};
+
+enum class BuiltinCallsiteOwnerKind : std::uint8_t {
+  kModule = 0,
+  kFunction = 1,
+};
+
+inline constexpr std::uint32_t kUnknownBuiltinStaticArgumentCount = std::numeric_limits<std::uint32_t>::max();
+inline constexpr std::uint32_t kUnknownCallableTargetIndex = std::numeric_limits<std::uint32_t>::max();
+
+enum class BuiltinCallableSlotKind : std::uint8_t {
+  kFunction = 0,
+  kClosure = 1,
+  kBuiltin = 2,
+};
+
+struct BuiltinCallableSlotRecord {
+  std::uint32_t slot_index{0};
+  BuiltinCallableSlotKind kind{BuiltinCallableSlotKind::kFunction};
+  std::uint32_t target_index{kUnknownCallableTargetIndex};
+  std::uint32_t declared_arity{0};
+  bool has_variadic_tail{false};
+};
+
+enum class BuiltinValueSlotSummaryKind : std::uint8_t {
+  kDictStringAny = 0,
+  kExactUInt64 = 1,
+  kExactInt64 = 2,
+  kTaskHandle = 3,
+  kRandomGenerator = 4,
+  kFileHandle = 5,
+};
+
+enum class BuiltinValueSlotSourceKind : std::uint8_t {
+  kFunctionReturn = 0,
+};
+
+struct BuiltinValueSlotRecord {
+  std::uint32_t slot_index{0};
+  BuiltinValueSlotSummaryKind summary_kind{BuiltinValueSlotSummaryKind::kDictStringAny};
+  BuiltinValueSlotSourceKind source_kind{BuiltinValueSlotSourceKind::kFunctionReturn};
+  std::uint32_t source_index{kUnknownCallableTargetIndex};
+};
+
+struct BuiltinCallsiteRecord {
+  BuiltinCallsiteOwnerKind owner_kind{BuiltinCallsiteOwnerKind::kModule};
+  std::uint32_t owner_index{0};
+  std::uint32_t instruction_index{0};
+  vm::BuiltinId builtin_id{vm::BuiltinId::UnaryPlus};
+  vm::BuiltinCallShape call_shape{vm::BuiltinCallShape::kTupleExpanded};
+  std::uint32_t static_argument_count{kUnknownBuiltinStaticArgumentCount};
+  std::vector<BuiltinCallableSlotRecord> callable_slots{};
+  std::vector<BuiltinValueSlotRecord> value_slots{};
 };
 
 struct Module {
@@ -97,6 +160,11 @@ struct Module {
 
   // Inline closure templates: indexed by kMakeClosureRef operand.
   std::vector<ClosureDef> closures{};
+
+  // One record per emitted kCallBuiltin instruction. This metadata is used by
+  // loader-side verification and is intentionally kept parallel to the runtime
+  // instruction streams rather than embedded into each instruction.
+  std::vector<BuiltinCallsiteRecord> builtin_callsites{};
 };
 
 }  // namespace fleaux::bytecode

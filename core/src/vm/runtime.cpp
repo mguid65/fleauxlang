@@ -63,22 +63,22 @@ auto make_runtime_error(const std::string& message, const std::optional<std::str
   return scoped_args;
 }
 
-[[nodiscard]] auto resolve_runtime_input_stream(
-    const std::optional<std::reference_wrapper<std::istream>>& input) -> std::istream& {
+[[nodiscard]] auto resolve_runtime_input_stream(const std::optional<std::reference_wrapper<std::istream>>& input)
+    -> std::istream& {
   return input.has_value() ? input->get() : std::cin;
 }
 
-[[nodiscard]] auto resolve_runtime_output_stream(
-    const std::optional<std::reference_wrapper<std::ostream>>& output) -> std::ostream& {
+[[nodiscard]] auto resolve_runtime_output_stream(const std::optional<std::reference_wrapper<std::ostream>>& output)
+    -> std::ostream& {
   return output.has_value() ? output->get() : std::cout;
 }
 
 [[nodiscard]] auto find_exported_symbol(const bytecode::Module& bytecode_module,
-                                        const std::string_view qualified_symbol)
-    -> const bytecode::ExportedSymbol* {
-  const auto it = std::ranges::find_if(bytecode_module.exports, [qualified_symbol](const bytecode::ExportedSymbol& sym) {
-    return sym.name == qualified_symbol || sym.link_name == qualified_symbol;
-  });
+                                        const std::string_view qualified_symbol) -> const bytecode::ExportedSymbol* {
+  const auto it =
+      std::ranges::find_if(bytecode_module.exports, [qualified_symbol](const bytecode::ExportedSymbol& sym) {
+        return sym.name == qualified_symbol || sym.link_name == qualified_symbol;
+      });
   if (it == bytecode_module.exports.end()) {
     return nullptr;
   }
@@ -331,482 +331,11 @@ auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double>
   return std::nullopt;
 }
 
-[[nodiscard]] auto builtin_call_arity(const BuiltinCallShape shape, const Value& arg) -> std::size_t {
-  if (shape == BuiltinCallShape::kDirectValue) {
-    return 1U;
-  }
-
-  if (!arg.HasArray()) {
-    return 1U;
-  }
-  return runtime::as_array(arg).Size();
-}
-
-[[nodiscard]] auto format_builtin_arity_expectation(const BuiltinArityContract contract) -> std::string {
-  switch (contract.kind) {
-    case BuiltinArityKind::kExact:
-      return std::to_string(contract.primary);
-    case BuiltinArityKind::kVariadicMinimum:
-      return std::to_string(contract.primary) + "+";
-    case BuiltinArityKind::kUnchecked:
-      return "unknown";
-  }
-  return "unknown";
-}
-
-enum class BuiltinDispatchValueShape : std::uint8_t {
-  kUnchecked,
-  kInteger,
-  kTuple,
-  kTupleOfTuples,
-  kTupleCallable,
-  kTupleValueCallable,
-  kIntegerInteger,
-  kIntegerIntegerInteger,
-  kDictObject,
-  kDictObjectScalarKey,
-  kDictObjectPair,
-  kTupleInteger,
-  kTupleIntegerInteger,
-  kTupleIntegerIntegerValue,
-  kValueIntegerTuple,
-  kValueIntegerTupleValue,
-  kTupleIntegerTuple,
-  kTupleOfTuplesIntegerIntegerValue,
-  kTupleOfTuplesIntegerIntegerIntegerInteger,
-  kTupleTuplePair,
-  kPairTuple,
-  kResultTuple,
-  kNonNegativeInteger,
-  kRandomGenerator,
-};
-
-[[nodiscard]] auto is_scalar_dict_key_value(const Value& value) -> bool {
-  switch (runtime::sort_tag_of(value)) {
-    case runtime::SortTag::kNull:
-    case runtime::SortTag::kBool:
-    case runtime::SortTag::kNumber:
-    case runtime::SortTag::kString:
-      return true;
-    case runtime::SortTag::kArray:
-    case runtime::SortTag::kObject:
-    case runtime::SortTag::kGeneric:
-      return false;
-  }
-  return false;
-}
-
-[[nodiscard]] auto is_integral_dispatch_number_value(const Value& value) -> bool {
-  if (const auto number = value.TryGetNumber(); !number) {
-    return false;
-  } else {
-    return number->Visit([](const runtime::Int) -> bool { return true; },
-                         [](const runtime::UInt) -> bool { return true; },
-                         [](const runtime::Float) -> bool { return false; });
-  }
-}
-
-[[nodiscard]] auto is_tuple_of_tuple_values(const Value& value) -> bool {
-  if (!value.HasArray()) {
-    return false;
-  }
-  const auto& tuple = runtime::as_array(value);
-  for (std::size_t element_index = 0; element_index < tuple.Size(); ++element_index) {
-    if (!tuple.TryGet(element_index)->HasArray()) {
-      return false;
-    }
-  }
-  return true;
-}
-
-[[nodiscard]] auto is_integral_dispatch_tuple_value(const Value& value) -> bool {
-  if (!value.HasArray()) {
-    return false;
-  }
-  const auto& tuple = runtime::as_array(value);
-  for (std::size_t element_index = 0; element_index < tuple.Size(); ++element_index) {
-    if (!is_integral_dispatch_number_value(*tuple.TryGet(element_index))) {
-      return false;
-    }
-  }
-  return true;
-}
-
-[[nodiscard]] auto is_dispatch_callable_value(const Value& value) -> bool {
-  return runtime::callable_id_from_value(value).has_value();
-}
-
-[[nodiscard]] constexpr auto builtin_dispatch_value_shape_contract(const BuiltinId builtin_id) -> BuiltinDispatchValueShape {
-  switch (builtin_id) {
-    case BuiltinId::TupleRangeInt64:
-      return BuiltinDispatchValueShape::kInteger;
-    case BuiltinId::Length:
-    case BuiltinId::TupleReverse:
-    case BuiltinId::TupleSort:
-    case BuiltinId::TupleUnique:
-    case BuiltinId::TupleMin:
-    case BuiltinId::TupleMax:
-    case BuiltinId::TaskAwaitAll:
-      return BuiltinDispatchValueShape::kTuple;
-    case BuiltinId::TupleMap:
-    case BuiltinId::TupleFilter:
-    case BuiltinId::TupleFindIndex:
-    case BuiltinId::TupleAny:
-    case BuiltinId::TupleAll:
-      return BuiltinDispatchValueShape::kTupleCallable;
-    case BuiltinId::TupleReduce:
-      return BuiltinDispatchValueShape::kTupleValueCallable;
-    case BuiltinId::TupleRangeInt64Int64:
-      return BuiltinDispatchValueShape::kIntegerInteger;
-    case BuiltinId::TupleRangeInt64Int64Int64:
-      return BuiltinDispatchValueShape::kIntegerIntegerInteger;
-    case BuiltinId::ArrayTranspose2D:
-      return BuiltinDispatchValueShape::kTupleOfTuples;
-    case BuiltinId::DictCreateDict:
-    case BuiltinId::DictKeys:
-    case BuiltinId::DictValues:
-    case BuiltinId::DictEntries:
-    case BuiltinId::DictClear:
-    case BuiltinId::DictLength:
-      return BuiltinDispatchValueShape::kDictObject;
-    case BuiltinId::DictSet:
-    case BuiltinId::DictGet:
-    case BuiltinId::DictGetDefault:
-    case BuiltinId::DictContains:
-    case BuiltinId::DictDelete:
-      return BuiltinDispatchValueShape::kDictObjectScalarKey;
-    case BuiltinId::DictMerge:
-      return BuiltinDispatchValueShape::kDictObjectPair;
-    case BuiltinId::ArrayGetAt:
-    case BuiltinId::ArrayRemoveAt:
-      return BuiltinDispatchValueShape::kTupleInteger;
-    case BuiltinId::ArraySetAt:
-    case BuiltinId::ArrayInsertAt:
-      return BuiltinDispatchValueShape::kTupleInteger;
-    case BuiltinId::ArraySlice:
-    case BuiltinId::ArrayReshape:
-      return BuiltinDispatchValueShape::kTupleIntegerInteger;
-    case BuiltinId::ArrayFill:
-      return BuiltinDispatchValueShape::kTupleIntegerIntegerValue;
-    case BuiltinId::ArraySetAt2D:
-      return BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue;
-    case BuiltinId::ArraySlice2D:
-      return BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger;
-    case BuiltinId::ArrayGetAtND:
-      return BuiltinDispatchValueShape::kValueIntegerTuple;
-    case BuiltinId::ArraySetAtND:
-      return BuiltinDispatchValueShape::kValueIntegerTupleValue;
-    case BuiltinId::ArrayConcat:
-      return BuiltinDispatchValueShape::kTupleTuplePair;
-    case BuiltinId::ArrayReshapeND:
-      return BuiltinDispatchValueShape::kTupleIntegerTuple;
-    case BuiltinId::First:
-    case BuiltinId::Second:
-      return BuiltinDispatchValueShape::kPairTuple;
-    case BuiltinId::ResultTag:
-    case BuiltinId::ResultPayload:
-    case BuiltinId::ResultIsOk:
-    case BuiltinId::ResultIsErr:
-    case BuiltinId::ResultUnwrap:
-    case BuiltinId::ResultUnwrapErr:
-      return BuiltinDispatchValueShape::kResultTuple;
-    case BuiltinId::RandomCreate:
-      return BuiltinDispatchValueShape::kNonNegativeInteger;
-    case BuiltinId::RandomNextUInt64:
-    case BuiltinId::RandomNextInt64:
-    case BuiltinId::RandomNextFloat64:
-    case BuiltinId::RandomNextBool:
-    case BuiltinId::RandomSplit:
-      return BuiltinDispatchValueShape::kRandomGenerator;
-    default:
-      return BuiltinDispatchValueShape::kUnchecked;
-  }
-}
-
-[[nodiscard]] auto builtin_value_shape_description(const BuiltinDispatchValueShape shape) -> std::string_view {
-  switch (shape) {
-    case BuiltinDispatchValueShape::kUnchecked:
-      return "value";
-    case BuiltinDispatchValueShape::kInteger:
-      return "a direct Int64 or UInt64 value";
-    case BuiltinDispatchValueShape::kTuple:
-      return "a direct tuple value";
-    case BuiltinDispatchValueShape::kTupleOfTuples:
-      return "a direct tuple of tuple values";
-    case BuiltinDispatchValueShape::kTupleCallable:
-      return "a tuple value followed by a callable reference";
-    case BuiltinDispatchValueShape::kTupleValueCallable:
-      return "a tuple value followed by a value and a callable reference";
-    case BuiltinDispatchValueShape::kIntegerInteger:
-      return "two Int64 or UInt64 values";
-    case BuiltinDispatchValueShape::kIntegerIntegerInteger:
-      return "three Int64 or UInt64 values";
-    case BuiltinDispatchValueShape::kDictObject:
-      return "a direct Dict value";
-    case BuiltinDispatchValueShape::kDictObjectScalarKey:
-      return "a Dict argument followed by a scalar key value";
-    case BuiltinDispatchValueShape::kDictObjectPair:
-      return "two Dict arguments";
-    case BuiltinDispatchValueShape::kTupleInteger:
-      return "a tuple value followed by an Int64 or UInt64 index";
-    case BuiltinDispatchValueShape::kTupleIntegerInteger:
-      return "a tuple value followed by Int64 or UInt64 indices";
-    case BuiltinDispatchValueShape::kTupleIntegerIntegerValue:
-      return "a tuple value followed by two Int64 or UInt64 indices and a trailing value";
-    case BuiltinDispatchValueShape::kValueIntegerTuple:
-      return "a direct value followed by a tuple of Int64 or UInt64 values";
-    case BuiltinDispatchValueShape::kValueIntegerTupleValue:
-      return "a direct value followed by a tuple of Int64 or UInt64 values and a trailing value";
-    case BuiltinDispatchValueShape::kTupleIntegerTuple:
-      return "a tuple value followed by a tuple of Int64 or UInt64 values";
-    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue:
-      return "a tuple of tuple values followed by Int64 or UInt64 row and column indices and a trailing value";
-    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger:
-      return "a tuple of tuple values followed by Int64 or UInt64 row and column bounds";
-    case BuiltinDispatchValueShape::kTupleTuplePair:
-      return "two tuple values";
-    case BuiltinDispatchValueShape::kPairTuple:
-      return "a direct 2-tuple argument";
-    case BuiltinDispatchValueShape::kResultTuple:
-      return "a direct Result tuple (Bool, payload)";
-    case BuiltinDispatchValueShape::kNonNegativeInteger:
-      return "a direct non-negative Int64 or UInt64 value";
-    case BuiltinDispatchValueShape::kRandomGenerator:
-      return "a direct RandomGenerator value";
-  }
-  return "value";
-}
-
-[[nodiscard]] auto value_satisfies_builtin_shape(const BuiltinDispatchValueShape shape, const Value& value) -> bool {
-  switch (shape) {
-    case BuiltinDispatchValueShape::kUnchecked:
-      return true;
-    case BuiltinDispatchValueShape::kInteger:
-      return is_integral_dispatch_number_value(value);
-    case BuiltinDispatchValueShape::kTuple:
-      return value.HasArray();
-    case BuiltinDispatchValueShape::kTupleOfTuples:
-      return is_tuple_of_tuple_values(value);
-    case BuiltinDispatchValueShape::kTupleCallable:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_dispatch_callable_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kTupleValueCallable:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_dispatch_callable_value(*tuple.TryGet(2U));
-      }
-    case BuiltinDispatchValueShape::kIntegerInteger:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return is_integral_dispatch_number_value(*tuple.TryGet(0U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kIntegerIntegerInteger:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
-        return false;
-      } else {
-        return is_integral_dispatch_number_value(*tuple.TryGet(0U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(2U));
-      }
-    case BuiltinDispatchValueShape::kDictObject:
-      return static_cast<bool>(value.TryGetObject());
-    case BuiltinDispatchValueShape::kDictObjectScalarKey:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->TryGetObject() && is_scalar_dict_key_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kDictObjectPair:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->TryGetObject() && tuple.TryGet(1U)->TryGetObject();
-      }
-    case BuiltinDispatchValueShape::kTupleInteger:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kTupleIntegerInteger:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(2U));
-      }
-    case BuiltinDispatchValueShape::kTupleIntegerIntegerValue:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 4U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(2U));
-      }
-    case BuiltinDispatchValueShape::kValueIntegerTuple:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kValueIntegerTupleValue:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 3U) {
-        return false;
-      } else {
-        return is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kTupleIntegerTuple:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && is_integral_dispatch_tuple_value(*tuple.TryGet(1U));
-      }
-    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerValue:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 4U) {
-        return false;
-      } else {
-        return is_tuple_of_tuple_values(*tuple.TryGet(0U)) && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(2U));
-      }
-    case BuiltinDispatchValueShape::kTupleOfTuplesIntegerIntegerIntegerInteger:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() < 5U) {
-        return false;
-      } else {
-        return is_tuple_of_tuple_values(*tuple.TryGet(0U)) && is_integral_dispatch_number_value(*tuple.TryGet(1U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(2U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(3U)) &&
-               is_integral_dispatch_number_value(*tuple.TryGet(4U));
-      }
-    case BuiltinDispatchValueShape::kTupleTuplePair:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
-        return false;
-      } else {
-        return tuple.TryGet(0U)->HasArray() && tuple.TryGet(1U)->HasArray();
-      }
-    case BuiltinDispatchValueShape::kPairTuple:
-      return value.HasArray() && runtime::as_array(value).Size() == 2U;
-    case BuiltinDispatchValueShape::kResultTuple:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 2U) {
-        return false;
-      } else {
-        const Value& tag = *tuple.TryGet(0U);
-        return tag.HasBool();
-      }
-    case BuiltinDispatchValueShape::kNonNegativeInteger:
-      if (const auto number = value.TryGetNumber(); !number) {
-        return false;
-      } else {
-        return number->Visit([](const runtime::Int signed_value) -> bool { return signed_value >= 0; },
-                             [](const runtime::UInt) -> bool { return true; },
-                             [](const runtime::Float) -> bool { return false; });
-      }
-    case BuiltinDispatchValueShape::kRandomGenerator:
-      if (!value.HasArray()) {
-        return false;
-      }
-      if (const auto& tuple = runtime::as_array(value); tuple.Size() != 3U) {
-        return false;
-      } else {
-        const auto& tag = tuple.TryGet(0U)->TryGetString();
-        return tag && *tag == runtime::detail::k_random_generator_tag;
-      }
-  }
-  return true;
-}
-
-auto validate_builtin_dispatch_arity(const BuiltinId builtin_id, const BuiltinCallShape shape, const Value& arg)
-    -> tl::expected<void, RuntimeError> {
-  if (!builtin_has_arity_contract(builtin_id)) {
-    return {};
-  }
-
-  const std::size_t arity = builtin_call_arity(shape, arg);
-  if (builtin_accepts_arity(builtin_id, arity)) {
-    return {};
-  }
-
-  const BuiltinArityContract contract = builtin_arity_contract(builtin_id);
-  const std::string expectation = format_builtin_arity_expectation(contract);
-  const bool plural_expected = contract.kind != BuiltinArityKind::kExact || contract.primary != 1U;
-  const std::string suffix = plural_expected ? " arguments" : " argument";
-  return tl::unexpected(make_runtime_error("builtin '" + std::string(builtin_name(builtin_id)) + "' expected " + expectation +
-                                           suffix + " but got " + std::to_string(arity)));
-}
-
-auto validate_builtin_dispatch_value_shape(const BuiltinId builtin_id, const Value& arg)
-    -> tl::expected<void, RuntimeError> {
-  const BuiltinDispatchValueShape contract = builtin_dispatch_value_shape_contract(builtin_id);
-  if (contract == BuiltinDispatchValueShape::kUnchecked) {
-    return {};
-  }
-
-  if (value_satisfies_builtin_shape(contract, arg)) {
-    return {};
-  }
-
-  return tl::unexpected(make_runtime_error("builtin '" + std::string(builtin_name(builtin_id)) +
-                                           "' expected " +
-                                           std::string(builtin_value_shape_description(contract))));
-}
-
 // Forward declarations.
 auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
 
-auto dispatch_builtin(BuiltinId builtin_id, BuiltinCallShape shape, Value arg) -> tl::expected<Value, RuntimeError>;
+auto dispatch_builtin(BuiltinId builtin_id, BuiltinCallShape /*shape*/, Value arg) -> tl::expected<Value, RuntimeError>;
 
 [[nodiscard]] auto builtin_binary_specialization(const BuiltinId builtin_id) -> runtime::BinaryRuntimeCallable {
   using runtime::AddBinary;
@@ -881,8 +410,8 @@ auto bind_user_function_locals(CallFrame& frame, const std::string& fn_name, con
   }
 
   const auto argument_unpack_error = [&fn_name](const std::string_view detail) -> tl::unexpected<RuntimeError> {
-    return tl::unexpected(make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " +
-                                             std::string(detail)));
+    return tl::unexpected(
+        make_runtime_error(std::string("argument unpacking for '") + fn_name + "': " + std::string(detail)));
   };
 
   if (arity == 0U) {
@@ -892,11 +421,11 @@ auto bind_user_function_locals(CallFrame& frame, const std::string& fn_name, con
   if (!has_variadic_tail) {
     if (arity == 1U) {
       activate_inline_locals(frame, 1U);
-      frame.inline_locals[0] = runtime::unwrap_singleton_arg(std::move(arg));
+      // Pipeline/user-call lhs adaptation is syntax-aware and already happens before runtime binding.
+      // Do not unwrap again here, because real singleton tuple values are meaningful arguments.
+      frame.inline_locals[0] = std::move(arg);
       return {};
     }
-
-    arg = runtime::unwrap_singleton_arg(std::move(arg));
 
     if (!arg.HasArray()) {
       return argument_unpack_error("fleaux::runtime: expected Array");
@@ -921,7 +450,6 @@ auto bind_user_function_locals(CallFrame& frame, const std::string& fn_name, con
   }
 
   // Variadic: final parameter captures remaining args as a tuple.
-  arg = runtime::unwrap_singleton_arg(std::move(arg));
 
   if (arity == 1U) {
     if (arg.HasArray()) {
@@ -956,9 +484,8 @@ auto bind_user_function_binary_locals(CallFrame& frame, const std::string& fn_na
     -> tl::expected<void, RuntimeError> {
   reset_frame_locals(frame);
   if (has_variadic_tail || arity != 2U) {
-    return tl::unexpected(
-        make_runtime_error("internal error: direct binary bind requires non-variadic arity-2 function '" + fn_name +
-                           "'"));
+    return tl::unexpected(make_runtime_error(
+        "internal error: direct binary bind requires non-variadic arity-2 function '" + fn_name + "'"));
   }
 
   activate_inline_locals(frame, 2U);
@@ -986,10 +513,9 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
 
   if (!declared_has_variadic_tail) {
     if (declared_arity == 1U) {
-      return runtime::unwrap_singleton_arg(std::move(arg));
+      return arg;
     }
 
-    arg = runtime::unwrap_singleton_arg(std::move(arg));
     if (!arg.HasArray()) {
       return inline_closure_too_few_args_error();
     }
@@ -1012,8 +538,6 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
       return inline_closure_unpack_error(ex);
     }
   }
-
-  arg = runtime::unwrap_singleton_arg(std::move(arg));
 
   if (declared_arity == 1U) {
     return arg.HasArray() ? std::move(arg) : runtime::make_tuple(std::move(arg));
@@ -1059,7 +583,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
       if (declared_arity == 1U) {
         out_array.Reserve(prefix.Size() + 1U);
         append_array_copy(out_array, prefix);
-        out_array.EmplaceBack(runtime::unwrap_singleton_arg(std::move(arg)));
+        out_array.EmplaceBack(std::move(arg));
         return out;
       }
 
@@ -1110,9 +634,8 @@ auto run_user_function_cached(const bytecode::Module& bytecode_module, const byt
                               Value arg, std::ostream& output) -> tl::expected<Value, RuntimeError>;
 
 auto run_user_function_cached_binary(const bytecode::Module& bytecode_module, const bytecode::FunctionDef& function,
-                                     const std::size_t operand_stack_capacity,
-                                     const std::size_t frame_stack_capacity, Value lhs, Value rhs,
-                                     std::ostream& output) -> tl::expected<Value, RuntimeError>;
+                                     const std::size_t operand_stack_capacity, const std::size_t frame_stack_capacity,
+                                     Value lhs, Value rhs, std::ostream& output) -> tl::expected<Value, RuntimeError>;
 
 auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& step_func,
                         const std::optional<std::size_t> max_iters) -> tl::expected<Value, RuntimeError> {
@@ -1166,9 +689,8 @@ auto run_user_function_cached(const bytecode::Module& bytecode_module, const byt
 }
 
 auto run_user_function_cached_binary(const bytecode::Module& bytecode_module, const bytecode::FunctionDef& function,
-                                     const std::size_t operand_stack_capacity,
-                                     const std::size_t frame_stack_capacity, Value lhs, Value rhs,
-                                     std::ostream& output) -> tl::expected<Value, RuntimeError> {
+                                     const std::size_t operand_stack_capacity, const std::size_t frame_stack_capacity,
+                                     Value lhs, Value rhs, std::ostream& output) -> tl::expected<Value, RuntimeError> {
   const auto& name = function.name;
   const auto arity = function.arity;
   const auto has_variadic_tail = function.has_variadic_tail;
@@ -1203,10 +725,9 @@ auto run_user_function(const bytecode::Module& bytecode_module, const std::size_
     return tl::unexpected(make_runtime_error("function index out of range"));
   }
   const auto& function = bytecode_module.functions[fn_idx];
-  return run_user_function_cached(bytecode_module, function,
-                                  suggested_operand_stack_capacity(function.instructions.size()),
-                                  suggested_frame_stack_capacity(bytecode_module.functions.size()), std::move(arg),
-                                  output);
+  return run_user_function_cached(
+      bytecode_module, function, suggested_operand_stack_capacity(function.instructions.size()),
+      suggested_frame_stack_capacity(bytecode_module.functions.size()), std::move(arg), output);
 }
 
 // run_loop
@@ -1316,8 +837,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         const auto has_variadic_tail = function.has_variadic_tail;
         const auto& instructions = function.instructions;
         auto& new_frame = frames.push(&instructions);
-        auto bound_locals = bind_user_function_locals(new_frame, name, arity, has_variadic_tail, std::move(*arg));
-        if (!bound_locals) {
+        if (auto bound_locals = bind_user_function_locals(new_frame, name, arity, has_variadic_tail, std::move(*arg));
+            !bound_locals) {
           frames.pop();
           return tl::unexpected(bound_locals.error());
         }
@@ -1348,8 +869,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         }
         const auto& instructions = function.instructions;
         auto& new_frame = frames.push(&instructions);
-        auto bound_locals =
-            bind_user_function_binary_locals(new_frame, name, arity, has_variadic_tail, std::move(*lhs), std::move(*rhs));
+        auto bound_locals = bind_user_function_binary_locals(new_frame, name, arity, has_variadic_tail, std::move(*lhs),
+                                                             std::move(*rhs));
         if (!bound_locals) {
           frames.pop();
           return tl::unexpected(bound_locals.error());
@@ -1382,11 +903,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return std::move(*run_result);
         };
         if (!function.has_variadic_tail && function.arity == 2U) {
-          callable.binary = [&bytecode_module, &function, operand_stack_capacity, frame_stack_capacity,
-                             &output](Value lhs, Value rhs) -> Value {
-            auto run_result = run_user_function_cached_binary(bytecode_module, function, operand_stack_capacity,
-                                                              frame_stack_capacity, std::move(lhs), std::move(rhs),
-                                                              output);
+          callable.binary = [&bytecode_module, &function, operand_stack_capacity, frame_stack_capacity, &output](
+                                Value lhs, Value rhs) -> Value {
+            auto run_result =
+                run_user_function_cached_binary(bytecode_module, function, operand_stack_capacity, frame_stack_capacity,
+                                                std::move(lhs), std::move(rhs), output);
             if (!run_result) {
               throw std::runtime_error(run_result.error().message);
             }
@@ -1451,8 +972,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         closure_callable.unary = [&bytecode_module, &function, declared_arity, declared_has_variadic_tail,
                                   operand_stack_capacity, frame_stack_capacity, captured_args_ptr,
                                   &output](Value call_arg) -> Value {
-          auto packed_args =
-              pack_prefixed_call_args(*captured_args_ptr, std::move(call_arg), declared_arity, declared_has_variadic_tail);
+          auto packed_args = pack_prefixed_call_args(*captured_args_ptr, std::move(call_arg), declared_arity,
+                                                     declared_has_variadic_tail);
           if (!packed_args) {
             throw std::runtime_error(packed_args.error().message);
           }
@@ -1467,12 +988,11 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
 
         if (!declared_has_variadic_tail && declared_arity == 2U) {
           closure_callable.binary = [&bytecode_module, &function, operand_stack_capacity, frame_stack_capacity,
-                                     captured_args_ptr, captured_prefix_size,
-                                     &output](Value lhs, Value rhs) -> Value {
+                                     captured_args_ptr, captured_prefix_size, &output](Value lhs, Value rhs) -> Value {
             if (captured_prefix_size == 0U) {
-              auto result = run_user_function_cached_binary(bytecode_module, function, operand_stack_capacity,
-                                                            frame_stack_capacity, std::move(lhs), std::move(rhs),
-                                                            output);
+              auto result =
+                  run_user_function_cached_binary(bytecode_module, function, operand_stack_capacity,
+                                                  frame_stack_capacity, std::move(lhs), std::move(rhs), output);
               if (!result) {
                 throw std::runtime_error(result.error().message);
               }
@@ -1940,14 +1460,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
   return tl::unexpected(make_runtime_error("program terminated without halt"));
 }
 
-auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape shape, Value arg)
+auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape /*shape*/, Value arg)
     -> tl::expected<Value, RuntimeError> {
-  if (auto validated = validate_builtin_dispatch_arity(builtin_id, shape, arg); !validated) {
-    return tl::unexpected(validated.error());
-  }
-  if (auto validated = validate_builtin_dispatch_value_shape(builtin_id, arg); !validated) {
-    return tl::unexpected(validated.error());
-  }
 
   try {
     switch (builtin_id) {
@@ -2374,10 +1888,8 @@ auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape shape, 
 struct RuntimeSession::Impl {
   explicit Impl(const std::vector<std::string>& initial_process_args,
                 const RuntimeCompileOptions& session_compile_options)
-      : compile_options(session_compile_options),
-        process_args(initial_process_args),
-        source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {
-  }
+      : compile_options(session_compile_options), process_args(initial_process_args),
+        source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {}
 
   RuntimeCompileOptions compile_options;
   std::vector<std::string> process_args;
@@ -2424,19 +1936,19 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   program_to_execute.alias_decls = merged_alias_decls;
 
   constexpr bytecode::BytecodeCompiler compiler;
-  auto compiled =
-      compiler.compile(program_to_execute, bytecode::CompileOptions{
-                                               .source_path = impl_->source_path,
-                                               .source_text = snippet_text,
-                                               .module_name = std::string{"repl"},
-                                               .imported_modules = {},
-                                               .enable_experimental_builtin_reductions =
-                                                   impl_->compile_options.enable_experimental_builtin_reductions,
-                                               .enable_value_ref_gate = impl_->compile_options.enable_value_ref_gate ||
-                                                                        impl_->compile_options.enable_auto_value_ref,
-                                               .enable_auto_value_ref = impl_->compile_options.enable_auto_value_ref,
-                                               .value_ref_byte_cutoff = impl_->compile_options.value_ref_byte_cutoff,
-                                           });
+  auto compiled = compiler.compile(
+      program_to_execute,
+      bytecode::CompileOptions{
+          .source_path = impl_->source_path,
+          .source_text = snippet_text,
+          .module_name = std::string{"repl"},
+          .imported_modules = {},
+          .enable_experimental_builtin_reductions = impl_->compile_options.enable_experimental_builtin_reductions,
+          .enable_value_ref_gate =
+              impl_->compile_options.enable_value_ref_gate || impl_->compile_options.enable_auto_value_ref,
+          .enable_auto_value_ref = impl_->compile_options.enable_auto_value_ref,
+          .value_ref_byte_cutoff = impl_->compile_options.value_ref_byte_cutoff,
+      });
   if (!compiled) {
     return tl::unexpected(
         make_runtime_error(compiled.error().message, "This REPL snippet is not yet supported by the VM compiler."));
@@ -2447,8 +1959,8 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
   impl_->alias_decls = std::move(merged_alias_decls);
 
   const Runtime runtime{impl_->process_args};
-  return runtime.execute(
-      *compiled, RuntimeInvocationOptions{.entry_label = "<repl>", .input = std::ref(input), .output = std::ref(output)});
+  return runtime.execute(*compiled, RuntimeInvocationOptions{
+                                        .entry_label = "<repl>", .input = std::ref(input), .output = std::ref(output)});
 }
 
 // Runtime::execute
@@ -2516,8 +2028,8 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
   detail::StdHelpMetadataScope help_scope;
   runtime::RuntimeOutputStreamScope output_scope(output);
   runtime::RuntimeInputStreamScope input_scope(resolve_runtime_input_stream(options.input));
-  runtime::RuntimeProcessArgsScope process_args_scope(
-      make_process_args_for_invocation(process_args_, options.entry_label.empty() ? qualified_symbol : options.entry_label));
+  runtime::RuntimeProcessArgsScope process_args_scope(make_process_args_for_invocation(
+      process_args_, options.entry_label.empty() ? qualified_symbol : options.entry_label));
 
   const auto* exported_symbol = find_exported_symbol(bytecode_module, qualified_symbol);
   if (exported_symbol == nullptr) {
@@ -2525,7 +2037,8 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
   }
 
   if (exported_symbol->kind == bytecode::ExportKind::kBuiltinAlias) {
-    const auto builtin_name = exported_symbol->builtin_name.empty() ? exported_symbol->name : exported_symbol->builtin_name;
+    const auto builtin_name =
+        exported_symbol->builtin_name.empty() ? exported_symbol->name : exported_symbol->builtin_name;
     const auto builtin_id = builtin_id_from_symbol_key(builtin_name);
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_runtime_error("Unknown builtin alias symbol: '" + builtin_name + "'."));
@@ -2547,13 +2060,14 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
 
 auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
                             runtime::Value arg, std::ostream& output) const -> RuntimeValueResult {
-  return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg),
-                       RuntimeInvocationOptions{.entry_label = std::string{qualified_symbol}, .output = std::ref(output)});
+  return invoke_symbol(
+      bytecode_module, qualified_symbol, std::move(arg),
+      RuntimeInvocationOptions{.entry_label = std::string{qualified_symbol}, .output = std::ref(output)});
 }
 
 auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
-                            runtime::Value arg, std::ostream& output,
-                            const RuntimeInvocationOptions& options) const -> RuntimeValueResult {
+                            runtime::Value arg, std::ostream& output, const RuntimeInvocationOptions& options) const
+    -> RuntimeValueResult {
   auto merged_options = options;
   merged_options.output = std::ref(output);
   return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg), merged_options);
@@ -2564,7 +2078,7 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& out
 }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module, std::ostream& output,
-                     const RuntimeInvocationOptions& options) const -> RuntimeResult {
+                      const RuntimeInvocationOptions& options) const -> RuntimeResult {
   auto merged_options = options;
   merged_options.output = std::ref(output);
   return execute(bytecode_module, merged_options);

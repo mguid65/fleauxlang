@@ -885,6 +885,406 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
   REQUIRE_FALSE(analyzed.has_value());
 }
 
+TEST_CASE("VM numeric cast-sensitive builtins reject implicit Float64 promotion during analysis",
+          "[vm][samples][numeric][casts]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_numeric_cast_sensitive_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "numeric_cast_sensitive_contracts_reject_implicit_promotion.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
+           "let Std.LessThan(lhs: Any, rhs: Any): Bool :: __builtin__;\n"
+           "(1.0, 2) -> Std.Add;\n"
+           "(1.0, 2u64) -> Std.LessThan;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+  REQUIRE(analyzed.error().find("Std.ToFloat64") != std::string::npos);
+}
+
+TEST_CASE("VM widened opaque handle params reject non-handle arguments during analysis",
+          "[vm][samples][handles][task][random][io]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_opaque_handle_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto run_case = [&](const std::string& file_name, const std::string& source, const std::string& expected_hint) {
+    const auto source_path = temp_dir / file_name;
+    {
+      std::ofstream out(source_path);
+      out << source;
+    }
+
+    const auto analyzed = load_ir_program(source_path);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().find(expected_hint) != std::string::npos);
+  };
+
+  run_case("task_await_non_handle_contract_rejects.fleaux",
+           "let Std.Task.Await(task: Any): Result(Any, String) :: __builtin__;\n"
+           "1 -> Std.Task.Await;\n",
+           "TaskHandle arguments");
+
+  run_case("task_cancel_non_handle_contract_rejects.fleaux",
+           "let Std.Task.Cancel(task: Any): Bool :: __builtin__;\n"
+           "1 -> Std.Task.Cancel;\n",
+           "TaskHandle arguments");
+
+  run_case("task_awaitall_non_handle_tuple_contract_rejects.fleaux",
+           "let Std.Task.AwaitAll(tasks: Any): Result(Tuple(Any...), Tuple(Int64, String)) :: __builtin__;\n"
+           "((1, 2)) -> Std.Task.AwaitAll;\n",
+           "Tuple(TaskHandle...) arguments");
+
+  run_case("task_timeout_non_handle_contract_rejects.fleaux",
+           "let Std.Task.WithTimeout(task: Any, timeout_ms: UInt64): Result(Any, String) :: __builtin__;\n"
+           "(1, 50u64) -> Std.Task.WithTimeout;\n",
+           "TaskHandle arguments");
+
+  run_case("random_nextint64_non_generator_contract_rejects.fleaux",
+           "let Std.Random.NextInt64(gen: Any): Tuple(Int64, RandomGenerator) :: __builtin__;\n"
+           "1 -> Std.Random.NextInt64;\n",
+           "RandomGenerator arguments");
+
+  run_case("random_nextuint64_non_generator_contract_rejects.fleaux",
+           "let Std.Random.NextUInt64(gen: Any): Tuple(UInt64, RandomGenerator) :: __builtin__;\n"
+           "1 -> Std.Random.NextUInt64;\n",
+           "RandomGenerator arguments");
+
+  run_case("random_nextfloat64_non_generator_contract_rejects.fleaux",
+           "let Std.Random.NextFloat64(gen: Any): Tuple(Float64, RandomGenerator) :: __builtin__;\n"
+           "1 -> Std.Random.NextFloat64;\n",
+           "RandomGenerator arguments");
+
+  run_case("random_nextbool_non_generator_contract_rejects.fleaux",
+           "let Std.Random.NextBool(gen: Any): Tuple(Bool, RandomGenerator) :: __builtin__;\n"
+           "1 -> Std.Random.NextBool;\n",
+           "RandomGenerator arguments");
+
+  run_case("random_split_non_generator_contract_rejects.fleaux",
+           "let Std.Random.Split(gen: Any): Tuple(RandomGenerator, RandomGenerator) :: __builtin__;\n"
+           "1 -> Std.Random.Split;\n",
+           "RandomGenerator arguments");
+
+  run_case("file_readline_non_handle_contract_rejects.fleaux",
+           "let Std.File.ReadLine(handle: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+           "1 -> Std.File.ReadLine;\n",
+           "FileHandle arguments");
+
+  run_case("file_writechunk_non_handle_contract_rejects.fleaux",
+           "let Std.File.WriteChunk(handle: Any, chunk: String): FileHandle :: __builtin__;\n"
+           "(1, \"hi\") -> Std.File.WriteChunk;\n",
+           "FileHandle arguments");
+
+  run_case("file_flush_non_handle_contract_rejects.fleaux",
+           "let Std.File.Flush(handle: Any): FileHandle :: __builtin__;\n"
+           "1 -> Std.File.Flush;\n",
+           "FileHandle arguments");
+
+  run_case("file_close_non_handle_contract_rejects.fleaux",
+           "let Std.File.Close(handle: Any): Tuple() :: __builtin__;\n"
+           "1 -> Std.File.Close;\n",
+           "FileHandle arguments");
+}
+
+TEST_CASE("VM widened dict scalar-key contracts reject non-scalar keys during analysis",
+          "[vm][samples][dict][keys]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_dict_scalar_key_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto run_case = [&](const std::string& file_name, const std::string& source) {
+    const auto source_path = temp_dir / file_name;
+    {
+      std::ofstream out(source_path);
+      out << source;
+    }
+
+    const auto analyzed = load_ir_program(source_path);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().find("dictionary key types to be scalar values") != std::string::npos);
+  };
+
+  run_case("dict_set_tuple_key_contract_rejects.fleaux",
+           "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+           "let Std.Dict.Set<K, V>(dict: Any, key: Any, value: Any): Any :: __builtin__;\n"
+           "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n");
+
+  run_case("dict_keys_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Keys<K, V>(dict: Any): Any :: __builtin__;\n"
+           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Keys;\n");
+
+  run_case("dict_merge_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Merge<K, V>(dict_base: Any, dict_overlay: Any): Any :: __builtin__;\n"
+           "let MakeBadA(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "let MakeBadB(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "(() -> MakeBadA, () -> MakeBadB) -> Std.Dict.Merge;\n");
+
+  run_case("dict_values_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Values<K, V>(dict: Any): Any :: __builtin__;\n"
+           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Values;\n");
+
+  run_case("dict_entries_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Entries<K, V>(dict: Any): Any :: __builtin__;\n"
+           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Entries;\n");
+
+  run_case("dict_clear_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Clear<K, V>(dict: Any): Any :: __builtin__;\n"
+           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Clear;\n");
+
+  run_case("dict_length_tuple_channel_contract_rejects.fleaux",
+           "let Std.Dict.Length<K, V>(dict: Any): Int64 :: __builtin__;\n"
+           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Length;\n");
+}
+
+TEST_CASE("VM widened string argument contracts reject non-String inputs during analysis",
+          "[vm][samples][string][paths][io]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_string_argument_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "string_argument_contracts_reject_non_string.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Path.Join(lhs: Any, rhs: Any, rest: Any...): String :: __builtin__;\n"
+           "let Std.File.WriteText(path: String, text: Any): String :: __builtin__;\n"
+           "let Std.OS.SetEnv(name: String, value: Any): String :: __builtin__;\n"
+           "(\"root\", 1) -> Std.Path.Join;\n"
+           "(\"out.txt\", 1) -> Std.File.WriteText;\n"
+           "(\"FLEAUX_STAGE4N\", 1) -> Std.OS.SetEnv;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects String arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened callable contracts reject non-callables during analysis",
+          "[vm][samples][callable][analysis]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_callable_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "callable_contracts_reject_non_callable.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Apply<T>(value: T, func: Any): Int64 :: __builtin__;\n"
+           "let Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: Any): A :: __builtin__;\n"
+           "let Std.File.WithOpen(path: String, mode: String, func: Any): String :: __builtin__;\n"
+           "(1, 2) -> Std.Apply;\n"
+           "((1, 2), 0, 1) -> Std.Tuple.Reduce;\n"
+           "(\"out.txt\", \"r\", 1) -> Std.File.WithOpen;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects callable arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened higher-order unary callable contracts reject invalid callables during analysis",
+          "[vm][samples][callable][higherorder][unary]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_higher_order_unary_callable_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto run_case = [&](const std::string& file_name, const std::string& source, const std::string& expected_hint) {
+    const auto source_path = temp_dir / file_name;
+    {
+      std::ofstream out(source_path);
+      out << source;
+    }
+
+    const auto analyzed = load_ir_program(source_path);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().find(expected_hint) != std::string::npos);
+  };
+
+  run_case("try_non_callable_contract_rejects.fleaux",
+           "let Std.Try<T, U>(value: T, func: Any): Result(U, String) :: __builtin__;\n"
+           "(1, 2) -> Std.Try;\n",
+           "expects callable arguments");
+
+  run_case("parallel_map_non_callable_contract_rejects.fleaux",
+           "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: Any): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+           "((1.0, 2.0), 1) -> Std.Parallel.Map;\n",
+           "expects callable arguments");
+
+  run_case("parallel_foreach_non_callable_contract_rejects.fleaux",
+           "let Std.Parallel.ForEach<T>(items: Tuple(T...), func: Any): Result(Tuple(Any...), Tuple(Int64, String)) :: __builtin__;\n"
+           "((1.0, 2.0), 1) -> Std.Parallel.ForEach;\n",
+           "expects callable arguments");
+
+  run_case("tuple_map_zero_arity_contract_rejects.fleaux",
+           "let Zero(): Int64 = 1;\n"
+           "let Std.Tuple.Map<T, U>(t: Tuple(T...), func: Any): Tuple(U...) :: __builtin__;\n"
+           "((1, 2), Zero) -> Std.Tuple.Map;\n",
+           "expects callable arguments");
+
+  run_case("tuple_filter_zero_arity_contract_rejects.fleaux",
+           "let Keep(): Bool = True;\n"
+           "let Std.Tuple.Filter<T>(t: Tuple(T...), predicate: Any): Tuple(T...) :: __builtin__;\n"
+           "((1, 2), Keep) -> Std.Tuple.Filter;\n",
+           "expects callable arguments");
+
+  run_case("tuple_findindex_zero_arity_contract_rejects.fleaux",
+           "let Match(): Bool = True;\n"
+           "let Std.Tuple.FindIndex<T>(t: Tuple(T...), predicate: Any): Int64 :: __builtin__;\n"
+           "((1, 2), Match) -> Std.Tuple.FindIndex;\n",
+           "expects callable arguments");
+
+  run_case("tuple_any_zero_arity_contract_rejects.fleaux",
+           "let Match(): Bool = True;\n"
+           "let Std.Tuple.Any<T>(t: Tuple(T...), predicate: Any): Bool :: __builtin__;\n"
+           "((1, 2), Match) -> Std.Tuple.Any;\n",
+           "expects callable arguments");
+
+  run_case("tuple_all_zero_arity_contract_rejects.fleaux",
+           "let Match(): Bool = True;\n"
+           "let Std.Tuple.All<T>(t: Tuple(T...), predicate: Any): Bool :: __builtin__;\n"
+           "((1, 2), Match) -> Std.Tuple.All;\n",
+           "expects callable arguments");
+}
+
+TEST_CASE("VM widened control-flow callable and options contracts reject invalid shapes during analysis",
+          "[vm][samples][callable][higherorder][control]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_control_flow_callable_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto run_case = [&](const std::string& file_name, const std::string& source, const std::string& expected_hint) {
+    const auto source_path = temp_dir / file_name;
+    {
+      std::ofstream out(source_path);
+      out << source;
+    }
+
+    const auto analyzed = load_ir_program(source_path);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().find(expected_hint) != std::string::npos);
+  };
+
+  run_case("branch_non_callable_contract_rejects.fleaux",
+           "let Std.Branch<T>(condition: Bool, value: T, true_func: Any, false_func: Any): T :: __builtin__;\n"
+           "(True, 1, 2, 3) -> Std.Branch;\n",
+           "expects callable arguments");
+
+  run_case("loop_zero_arity_continue_contract_rejects.fleaux",
+           "let ContinueBad(): Bool = True;\n"
+           "let StepOk(x: Float64): Float64 = x;\n"
+           "let Std.Loop<S>(state: S, continue_func: Any, step_func: Any): S :: __builtin__;\n"
+           "(1.0, ContinueBad, StepOk) -> Std.Loop;\n",
+           "expects callable arguments");
+
+  run_case("loopn_zero_arity_step_contract_rejects.fleaux",
+           "let ContinueOk(x: Float64): Bool = True;\n"
+           "let StepBad(): Float64 = 1.0;\n"
+           "let Std.LoopN<S>(state: S, continue_func: Any, step_func: Any, max_iters: UInt64): S :: __builtin__;\n"
+           "(1.0, ContinueOk, StepBad, 5u64) -> Std.LoopN;\n",
+           "expects callable arguments");
+
+  run_case("parallel_withoptions_non_callable_contract_rejects.fleaux",
+           "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: Any, options: Dict(String, Any)): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+           "let BuildOptions(): Dict(String, Any) :: __builtin__;\n"
+           "((1.0, 2.0), 1, () -> BuildOptions) -> Std.Parallel.WithOptions;\n",
+           "expects callable arguments");
+
+  run_case("parallel_withoptions_bad_options_contract_rejects.fleaux",
+           "let Identity(x: Float64): Float64 = x;\n"
+           "let MakeBadOptions(): Dict(String, Float64) :: __builtin__;\n"
+           "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: Any, options: Any): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
+           "((1.0, 2.0), Identity, () -> MakeBadOptions) -> Std.Parallel.WithOptions;\n",
+           "Dict(String, Any)");
+}
+
+TEST_CASE("VM widened exact UInt64 scalar params reject positive Int64 during analysis",
+          "[vm][samples][uint64][scalar]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_exact_uint64_scalar_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "exact_uint64_scalar_contracts_reject_int64.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "type RandomGenerator = Any;\n"
+           "type FileHandle = Any;\n"
+           "type TaskHandle = Any;\n"
+           "let Std.Random.Create(seed: Any): RandomGenerator :: __builtin__;\n"
+           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+           "let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Any): S :: __builtin__;\n"
+           "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Any): Result(Any, String) :: __builtin__;\n"
+           "let Open(): FileHandle :: __builtin__;\n"
+           "let MakeTask(): TaskHandle :: __builtin__;\n"
+           "let ContinueOk(x: Float64): Bool = True;\n"
+           "let StepOk(x: Float64): Float64 = x;\n"
+           "1 -> Std.Random.Create;\n"
+           "() -> Open -> (_, 4) -> Std.File.ReadChunk;\n"
+           "(1.0, ContinueOk, StepOk, 5) -> Std.LoopN;\n"
+           "(() -> MakeTask, 50) -> Std.Task.WithTimeout;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened exact UInt64 sequence, string, and bit params reject positive Int64 during analysis",
+          "[vm][samples][uint64][sequence][string][bit]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_exact_uint64_index_contracts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "exact_uint64_index_contracts_reject_int64.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Take<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
+           "let Std.Slice<T>(tuple: Tuple(T...), stop: Any): Tuple(T...) :: __builtin__;\n"
+           "let Std.String.CharAt(s: String, index: Any): String :: __builtin__;\n"
+           "let Std.String.Find(s: String, sub: String, start: Any): Int64 :: __builtin__;\n"
+           "let Std.Bit.ShiftLeft(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+           "let Std.Bit.ShiftRight(value: Int64, bits: Any): Int64 :: __builtin__;\n"
+           "((1, 2, 3), 1) -> Std.Take;\n"
+           "((1, 2, 3), 1) -> Std.Slice;\n"
+           "(\"abc\", 1) -> Std.String.CharAt;\n"
+           "(\"abcabc\", \"bc\", 1) -> Std.String.Find;\n"
+           "(1, 1) -> Std.Bit.ShiftLeft;\n"
+           "(8, 1) -> Std.Bit.ShiftRight;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened ND array tuple params reject non-UInt64 tuple elements during analysis",
+          "[vm][samples][array][nd][uint64]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_nd_array_tuple_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "nd_array_tuple_integer_contract_rejects.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Array.GetAtND(value: Any, indices: Any): Any :: __builtin__;\n"
+           "let Std.Array.SetAtND(value: Any, indices: Any, replacement: Any): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Any): Any :: __builtin__;\n"
+           "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND;\n"
+           "(((1, 2), (3, 4)), (1, 0), 9) -> Std.Array.SetAtND;\n"
+           "((1, 2, 3, 4), (2, 2)) -> Std.Array.ReshapeND;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects all index tuple elements to be UInt64") != std::string::npos);
+}
+
 TEST_CASE("VM widened Std.Array.Slice integer params reject Float64 during analysis", "[vm][samples][array]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_array_slice_integer_contract";
   std::filesystem::remove_all(temp_dir);
@@ -899,7 +1299,53 @@ TEST_CASE("VM widened Std.Array.Slice integer params reject Float64 during analy
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened rectangular array integer params reject Float64 during analysis", "[vm][samples][array][rect][uint64]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_rect_array_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "rect_array_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Any, col: Any, value: T): Tuple(Tuple(T...)...) :: __builtin__;\n"
+           "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Any, length: Any, value: T): Tuple(T...) :: __builtin__;\n"
+           "let Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Any, row_end: Any, col_start: Any, col_end: Any): Tuple(Tuple(T...)...) :: __builtin__;\n"
+           "let Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Any, cols: Any): Tuple(Tuple(T...)...) :: __builtin__;\n"
+           "(((1, 2), (3, 4)), 0.5, 1, 9) -> Std.Array.SetAt2D;\n"
+           "((1, 2, 3, 4), 1.5, 2, 9) -> Std.Array.Fill;\n"
+           "(((1, 2), (3, 4)), 0.5, 1, 0, 1) -> Std.Array.Slice2D;\n"
+           "((1, 2, 3, 4), 2.5, 2) -> Std.Array.Reshape;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened 1D array index params reject Float64 during analysis", "[vm][samples][array][uint64]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_array_index_integer_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "array_index_integer_contract_reject_float.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Array.GetAt<T>(array: Tuple(T...), index: Any): T :: __builtin__;\n"
+           "let Std.Array.SetAt<T>(array: Tuple(T...), index: Any, value: T): Tuple(T...) :: __builtin__;\n"
+           "let Std.Array.InsertAt<T>(array: Tuple(T...), index: Any, value: T): Tuple(T...) :: __builtin__;\n"
+           "let Std.Array.RemoveAt<T>(array: Tuple(T...), index: Any): Tuple(T...) :: __builtin__;\n"
+           "((1, 2, 3), 1.5) -> Std.Array.GetAt;\n"
+           "((1, 2, 3), 1.5, 9) -> Std.Array.SetAt;\n"
+           "((1, 2, 3), 1.5, 9) -> Std.Array.InsertAt;\n"
+           "((1, 2, 3), 1.5) -> Std.Array.RemoveAt;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM widened core sequence integer params reject Float64 during analysis", "[vm][samples][sequence]") {
@@ -922,7 +1368,7 @@ TEST_CASE("VM widened core sequence integer params reject Float64 during analysi
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM widened string and file integer params reject Float64 during analysis", "[vm][samples][string][io]") {
@@ -947,7 +1393,7 @@ TEST_CASE("VM widened string and file integer params reject Float64 during analy
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM widened Random.Create seed rejects Float64 during analysis", "[vm][samples][random]") {
@@ -965,7 +1411,7 @@ TEST_CASE("VM widened Random.Create seed rejects Float64 during analysis", "[vm]
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM widened bit shift counts reject Float64 during analysis", "[vm][samples][bit]") {
@@ -984,7 +1430,7 @@ TEST_CASE("VM widened bit shift counts reject Float64 during analysis", "[vm][sa
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects UInt64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM widened Exit and Tuple.Range integer params reject Float64 during analysis",
@@ -1005,7 +1451,30 @@ TEST_CASE("VM widened Exit and Tuple.Range integer params reject Float64 during 
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("expects Int64 or UInt64 for integer arguments") != std::string::npos);
+  REQUIRE(analyzed.error().find("expects Int64 arguments") != std::string::npos);
+}
+
+TEST_CASE("VM widened Exit and Tuple.Range exact Int64 params reject UInt64 during analysis",
+          "[vm][samples][control][tuple][int64]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_exit_range_exact_int64_contract";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "exit_range_exact_int64_contract_reject_uint64.fleaux";
+
+  {
+    std::ofstream out(source_path);
+    out << "let Std.Exit(): Never :: __builtin__;\n"
+           "let Std.Exit(code: Any): Never :: __builtin__;\n"
+           "let Std.Tuple.Range(stop: Any): Tuple(Int64...) :: __builtin__;\n"
+           "let Std.Tuple.Range(start: Any, stop: Any, step: Any): Tuple(Int64...) :: __builtin__;\n"
+           "(1u64) -> Std.Exit;\n"
+           "(1u64) -> Std.Tuple.Range;\n"
+           "(1, 7, 1u64) -> Std.Tuple.Range;\n";
+  }
+
+  const auto analyzed = load_ir_program(source_path);
+  REQUIRE_FALSE(analyzed.has_value());
+  REQUIRE(analyzed.error().find("expects Int64 arguments") != std::string::npos);
 }
 
 TEST_CASE("VM Std.Array.Shape returns UInt64 dimensions", "[vm][samples][array]") {

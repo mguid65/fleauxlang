@@ -1,5 +1,7 @@
 #include "fleaux/bytecode/optimizer.hpp"
 
+#include "fleaux/bytecode/verifier.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -433,6 +435,8 @@ auto BytecodeOptimizer::optimize(Module& module, const OptimizerConfig& config) 
       return result;
     }
   }
+
+  rebuild_module_builtin_callsites(module);
 
   return {};
 }

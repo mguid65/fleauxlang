@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 15;
+constexpr std::uint32_t BYTECODE_VERSION = 22;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -211,6 +211,119 @@ auto read_export(const std::vector<std::uint8_t>& buffer, std::size_t& offset, E
   return true;
 }
 
+void write_builtin_callable_slot(std::vector<std::uint8_t>& buffer, const BuiltinCallableSlotRecord& record) {
+  write_pod(buffer, record.slot_index);
+  write_pod(buffer, static_cast<std::uint8_t>(record.kind));
+  write_pod(buffer, record.target_index);
+  write_pod(buffer, record.declared_arity);
+  write_pod(buffer, record.has_variadic_tail);
+}
+
+void write_builtin_value_slot(std::vector<std::uint8_t>& buffer, const BuiltinValueSlotRecord& record) {
+  write_pod(buffer, record.slot_index);
+  write_pod(buffer, static_cast<std::uint8_t>(record.summary_kind));
+  write_pod(buffer, static_cast<std::uint8_t>(record.source_kind));
+  write_pod(buffer, record.source_index);
+}
+
+auto read_builtin_callable_slot(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
+                                BuiltinCallableSlotRecord& record) -> bool {
+  std::uint8_t kind = 0;
+  if (!read_pod(buffer, offset, record.slot_index) || !read_pod(buffer, offset, kind) ||
+      !read_pod(buffer, offset, record.target_index) || !read_pod(buffer, offset, record.declared_arity) ||
+      !read_pod(buffer, offset, record.has_variadic_tail)) {
+    return false;
+  }
+  if (kind > static_cast<std::uint8_t>(BuiltinCallableSlotKind::kBuiltin)) {
+    return false;
+  }
+  record.kind = static_cast<BuiltinCallableSlotKind>(kind);
+  return true;
+}
+
+auto read_builtin_value_slot(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
+                             BuiltinValueSlotRecord& record) -> bool {
+  std::uint8_t summary_kind = 0;
+  std::uint8_t source_kind = 0;
+  if (!read_pod(buffer, offset, record.slot_index) || !read_pod(buffer, offset, summary_kind) ||
+      !read_pod(buffer, offset, source_kind) || !read_pod(buffer, offset, record.source_index)) {
+    return false;
+  }
+  if (summary_kind > static_cast<std::uint8_t>(BuiltinValueSlotSummaryKind::kFileHandle) ||
+      source_kind > static_cast<std::uint8_t>(BuiltinValueSlotSourceKind::kFunctionReturn)) {
+    return false;
+  }
+  record.summary_kind = static_cast<BuiltinValueSlotSummaryKind>(summary_kind);
+  record.source_kind = static_cast<BuiltinValueSlotSourceKind>(source_kind);
+  return true;
+}
+
+void write_builtin_callsite(std::vector<std::uint8_t>& buffer, const BuiltinCallsiteRecord& record) {
+  write_pod(buffer, static_cast<std::uint8_t>(record.owner_kind));
+  write_pod(buffer, record.owner_index);
+  write_pod(buffer, record.instruction_index);
+  write_pod(buffer, static_cast<std::uint16_t>(record.builtin_id));
+  write_pod(buffer, static_cast<std::uint8_t>(record.call_shape));
+  write_pod(buffer, record.static_argument_count);
+  write_pod(buffer, static_cast<std::uint32_t>(record.callable_slots.size()));
+  for (const auto& callable_slot : record.callable_slots) {
+    write_builtin_callable_slot(buffer, callable_slot);
+  }
+  write_pod(buffer, static_cast<std::uint32_t>(record.value_slots.size()));
+  for (const auto& value_slot : record.value_slots) {
+    write_builtin_value_slot(buffer, value_slot);
+  }
+}
+
+auto read_builtin_callsite(const std::vector<std::uint8_t>& buffer, std::size_t& offset, BuiltinCallsiteRecord& record)
+    -> bool {
+  std::uint8_t owner_kind = 0;
+  std::uint16_t builtin_id = 0;
+  std::uint8_t call_shape = 0;
+  if (!read_pod(buffer, offset, owner_kind) || !read_pod(buffer, offset, record.owner_index) ||
+      !read_pod(buffer, offset, record.instruction_index) || !read_pod(buffer, offset, builtin_id) ||
+      !read_pod(buffer, offset, call_shape) || !read_pod(buffer, offset, record.static_argument_count)) {
+    return false;
+  }
+
+  if (owner_kind > static_cast<std::uint8_t>(BuiltinCallsiteOwnerKind::kFunction) ||
+      std::cmp_greater_equal(builtin_id, fleaux::vm::builtin_count()) ||
+      call_shape > static_cast<std::uint8_t>(fleaux::vm::BuiltinCallShape::kDirectValue)) {
+    return false;
+  }
+
+  record.owner_kind = static_cast<BuiltinCallsiteOwnerKind>(owner_kind);
+  record.builtin_id = static_cast<fleaux::vm::BuiltinId>(builtin_id);
+  record.call_shape = static_cast<fleaux::vm::BuiltinCallShape>(call_shape);
+  std::uint32_t callable_slot_count = 0;
+  if (!read_pod(buffer, offset, callable_slot_count)) {
+    return false;
+  }
+  record.callable_slots.clear();
+  record.callable_slots.reserve(callable_slot_count);
+  for (std::uint32_t i = 0; i < callable_slot_count; ++i) {
+    BuiltinCallableSlotRecord callable_slot;
+    if (!read_builtin_callable_slot(buffer, offset, callable_slot)) {
+      return false;
+    }
+    record.callable_slots.push_back(callable_slot);
+  }
+  std::uint32_t value_slot_count = 0;
+  if (!read_pod(buffer, offset, value_slot_count)) {
+    return false;
+  }
+  record.value_slots.clear();
+  record.value_slots.reserve(value_slot_count);
+  for (std::uint32_t i = 0; i < value_slot_count; ++i) {
+    BuiltinValueSlotRecord value_slot;
+    if (!read_builtin_value_slot(buffer, offset, value_slot)) {
+      return false;
+    }
+    record.value_slots.push_back(value_slot);
+  }
+  return true;
+}
+
 void write_instruction_stream(std::vector<std::uint8_t>& buffer, const std::vector<Instruction>& instructions) {
   const auto count = static_cast<std::uint32_t>(instructions.size());
   write_pod(buffer, count);
@@ -382,7 +495,9 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
     for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                      param_type_names, return_type_name] : module.functions) {
+                      param_type_names, return_type_name, return_type_is_dict_string_any,
+                      return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
+                      return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
       write_string(buffer, name);
       write_pod(buffer, arity);
       write_pod(buffer, has_variadic_tail);
@@ -391,6 +506,12 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
       write_string_list(buffer, generic_params);
       write_string_list(buffer, param_type_names);
       write_string(buffer, return_type_name);
+      write_pod(buffer, return_type_is_dict_string_any);
+      write_pod(buffer, return_type_is_exact_uint64);
+      write_pod(buffer, return_type_is_exact_int64);
+      write_pod(buffer, return_type_is_task_handle);
+      write_pod(buffer, return_type_is_random_generator);
+      write_pod(buffer, return_type_is_file_handle);
     }
   }
 
@@ -402,6 +523,14 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
       write_pod(buffer, capture_count);
       write_pod(buffer, declared_arity);
       write_pod(buffer, declared_has_variadic_tail);
+    }
+  }
+
+  {
+    const auto count = static_cast<std::uint32_t>(module.builtin_callsites.size());
+    write_pod(buffer, count);
+    for (const auto& record : module.builtin_callsites) {
+      write_builtin_callsite(buffer, record);
     }
   }
 
@@ -502,7 +631,13 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
             SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name, *instruction_error)});
       }
       if (!read_string_list(buffer, offset, fn.generic_params) ||
-          !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name)) {
+          !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name) ||
+          !read_pod(buffer, offset, fn.return_type_is_dict_string_any) ||
+          !read_pod(buffer, offset, fn.return_type_is_exact_uint64) ||
+          !read_pod(buffer, offset, fn.return_type_is_exact_int64) ||
+          !read_pod(buffer, offset, fn.return_type_is_task_handle) ||
+          !read_pod(buffer, offset, fn.return_type_is_random_generator) ||
+          !read_pod(buffer, offset, fn.return_type_is_file_handle)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       deserialized.functions.push_back(std::move(fn));
@@ -523,6 +658,21 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
         return tl::unexpected(SerializationError{.message = "Cannot read closure"});
       }
       deserialized.closures.push_back(closure);
+    }
+  }
+
+  {
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, count)) {
+      return tl::unexpected(SerializationError{.message = "Cannot read builtin callsite count"});
+    }
+    deserialized.builtin_callsites.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+      BuiltinCallsiteRecord record;
+      if (!read_builtin_callsite(buffer, offset, record)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read builtin callsite"});
+      }
+      deserialized.builtin_callsites.push_back(record);
     }
   }
 
@@ -599,15 +749,25 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "Functions:\n";
   size_t func_index = 0;
   for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                    param_type_names, return_type_name] : module.functions) {
+                    param_type_names, return_type_name, return_type_is_dict_string_any,
+                    return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
+                    return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
         "    arity: {}\n"
         "    has_variadic_tail: {}\n"
         "    is_import_placeholder: {}\n"
-        "    return_type_name: {}\n",
-        func_index, name, arity, has_variadic_tail, is_import_placeholder, return_type_name);
+        "    return_type_name: {}\n"
+        "    return_type_is_dict_string_any: {}\n"
+        "    return_type_is_exact_uint64: {}\n"
+        "    return_type_is_exact_int64: {}\n"
+        "    return_type_is_task_handle: {}\n"
+        "    return_type_is_random_generator: {}\n"
+        "    return_type_is_file_handle: {}\n",
+        func_index, name, arity, has_variadic_tail, is_import_placeholder, return_type_name,
+        return_type_is_dict_string_any, return_type_is_exact_uint64, return_type_is_exact_int64,
+        return_type_is_task_handle, return_type_is_random_generator, return_type_is_file_handle);
 
     if (!generic_params.empty()) {
       out << "    generic_params:";
@@ -647,6 +807,59 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         closure_index, function_index, capture_count, declared_arity, declared_has_variadic_tail);
 
     closure_index++;
+  }
+
+  out << "BuiltinCallsites:\n";
+  size_t callsite_index = 0;
+  for (const auto& record : module.builtin_callsites) {
+    out << std::format(
+        "  BuiltinCallsite {}:\n"
+        "    owner_kind: {}\n"
+        "    owner_index: {}\n"
+        "    instruction_index: {}\n"
+        "    builtin: {}\n"
+        "    call_shape: {}\n"
+        "    static_argument_count: {}\n"
+        "    callable_slots: {}\n"
+        "    value_slots: {}\n",
+        callsite_index,
+        record.owner_kind == BuiltinCallsiteOwnerKind::kModule ? "module" : "function",
+        record.owner_index,
+        record.instruction_index,
+        fleaux::vm::builtin_name(record.builtin_id),
+        record.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue ? "direct" : "tuple_expanded",
+        record.static_argument_count == kUnknownBuiltinStaticArgumentCount
+            ? std::string{"unknown"}
+            : std::to_string(record.static_argument_count),
+        record.callable_slots.size(), record.value_slots.size());
+
+    for (const auto& callable_slot : record.callable_slots) {
+      out << std::format("      slot {}: kind={} target_index={} declared_arity={} variadic={}\n", callable_slot.slot_index,
+                         callable_slot.kind == BuiltinCallableSlotKind::kFunction
+                             ? "function"
+                             : callable_slot.kind == BuiltinCallableSlotKind::kClosure ? "closure" : "builtin",
+                         callable_slot.target_index, callable_slot.declared_arity, callable_slot.has_variadic_tail);
+    }
+
+    for (const auto& value_slot : record.value_slots) {
+      out << std::format("      value slot {}: summary={} source_kind={} source_index={}\n", value_slot.slot_index,
+                         value_slot.summary_kind == BuiltinValueSlotSummaryKind::kDictStringAny
+                             ? "Dict(String, Any)"
+                             : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactUInt64
+                                   ? "UInt64"
+                                   : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactInt64 ? "Int64"
+                                          : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kTaskHandle
+                                                ? "TaskHandle"
+                                                : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kRandomGenerator
+                                                      ? "RandomGenerator"
+                                                      : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kFileHandle
+                                                            ? "FileHandle"
+                                                            : "unknown",
+                         value_slot.source_kind == BuiltinValueSlotSourceKind::kFunctionReturn ? "function_return" : "unknown",
+                         value_slot.source_index);
+    }
+
+    callsite_index++;
   }
 
   return {};

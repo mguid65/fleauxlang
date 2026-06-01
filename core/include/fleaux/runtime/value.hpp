@@ -1048,12 +1048,15 @@ struct HandleId {
   return *ptr;
 }
 
+[[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value;
+
 [[nodiscard]] inline auto resolve_callable_ref(const Value& ref) -> RuntimeCallable {
-  const RegisteredCallable callable = resolve_registered_callable_ref(ref);
-  if (!callable.unary) {
+  const auto [unary, binary] = resolve_registered_callable_ref(ref);
+  std::ignore = binary;
+  if (!unary) {
     throw std::runtime_error{"Unknown callable reference"};
   }
-  return callable.unary;
+  return [unary = unary](Value arg) -> Value { return unary(unwrap_singleton_arg(std::move(arg))); };
 }
 
 [[nodiscard]] inline auto invoke_binary_callable(const RegisteredCallable& callable, Value lhs, Value rhs) -> Value {
@@ -1144,6 +1147,13 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
+[[nodiscard]] inline auto as_number(Value& value) -> Number& {
+  auto result = value.TryGetNumber();
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
+  return *result;
+}
+
 [[nodiscard]] inline auto as_bool(const Value& value) -> Bool {
   auto result = value.TryGetBool();
   if (!result)
@@ -1151,7 +1161,21 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
+[[nodiscard]] inline auto as_bool(Value& value) -> Bool& {
+  auto result = value.TryGetBool();
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected Bool"};
+  return *result;
+}
+
 [[nodiscard]] inline auto as_string(const Value& value) -> const String& {
+  auto result = value.TryGetString();
+  if (!result)
+    throw std::runtime_error{"fleaux::runtime: expected String"};
+  return *result;
+}
+
+[[nodiscard]] inline auto as_string(Value& value) -> String& {
   auto result = value.TryGetString();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected String"};
@@ -1550,7 +1574,7 @@ enum class SortTag {
 }
 
 [[nodiscard]] inline auto as_path_string_unary(Value arg) -> std::string {
-  return to_string(unwrap_singleton_arg(std::move(arg)));
+  return as_string(unwrap_singleton_arg(std::move(arg)));
 }
 
 [[nodiscard]] inline auto random_suffix(const std::size_t size = 12) -> std::string {
