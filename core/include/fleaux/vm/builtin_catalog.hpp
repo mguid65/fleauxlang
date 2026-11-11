@@ -671,7 +671,7 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
 
 inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>({
     // clang-format off
-    ConstantBuiltinSpec{.id = BuiltinId::Half, .name = "Std.Half", .value = 0.5000000000000000000000000000000000000e-01},
+    ConstantBuiltinSpec{.id = BuiltinId::Half, .name = "Std.Half", .value = 5.000000000000000000000000000000000000e-01},
     ConstantBuiltinSpec{.id = BuiltinId::Third, .name = "Std.Third", .value = 3.333333333333333333333333333333333333e-01},
     ConstantBuiltinSpec{.id = BuiltinId::TwoThirds, .name = "Std.TwoThirds", .value = 6.666666666666666666666666666666666666e-01},
     ConstantBuiltinSpec{.id = BuiltinId::Sixth, .name = "Std.Sixth", .value = 1.666666666666666666666666666666666666e-01},
@@ -727,7 +727,7 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
     ConstantBuiltinSpec{.id = BuiltinId::LnPhi, .name = "Std.LnPhi", .value = 4.812118250596034474977589134243684231e-01},
     ConstantBuiltinSpec{.id = BuiltinId::OneDivLnPhi, .name = "Std.OneDivLnPhi", .value = 2.078086921235027537601322606117795767e+00},
     ConstantBuiltinSpec{.id = BuiltinId::Euler, .name = "Std.Euler", .value = std::numbers::egamma},
-    ConstantBuiltinSpec{.id = BuiltinId::OneDivEuler, .name = "Std.OneDivEuler", .value = std::numbers::sqrt3},
+    ConstantBuiltinSpec{.id = BuiltinId::OneDivEuler, .name = "Std.OneDivEuler", .value = 1.732454714600633473583025315860829681e+00},
     ConstantBuiltinSpec{.id = BuiltinId::EulerSqr, .name = "Std.EulerSqr", .value = 3.331779238077186743183761363552442266e-01},
     ConstantBuiltinSpec{.id = BuiltinId::ZetaTwo, .name = "Std.ZetaTwo", .value = 1.644934066848226436472415166646025189e+00},
     ConstantBuiltinSpec{.id = BuiltinId::ZetaThree, .name = "Std.ZetaThree", .value = 1.202056903159594285399738161511449990e+00},

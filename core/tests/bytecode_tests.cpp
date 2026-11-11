@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -302,6 +303,43 @@ auto vm_catalog_constant_names() -> std::set<std::string> {
 TEST_CASE("VM builtin catalog stays in sync with stdlib/Std.fleaux", "[bytecode]") {
   REQUIRE(vm_catalog_builtin_names() == parse_std_declared_names(true));
   REQUIRE(vm_catalog_constant_names() == parse_std_declared_names(false));
+}
+
+TEST_CASE("VM constant catalog values match the values declared in stdlib/Std.fleaux", "[bytecode][builtins]") {
+  std::ifstream in(repo_root_path() / "stdlib" / "Std.fleaux");
+  REQUIRE(in.good());
+
+  // Collect 'let Std.Name(): Float64 :: <literal>;' declarations, which may span lines.
+  std::map<std::string, double> declared_values;
+  std::string line;
+  std::string decl;
+  while (std::getline(in, line)) {
+    if (decl.empty() && !line.starts_with("let Std.")) {
+      continue;
+    }
+    decl += decl.empty() ? line : " " + line;
+    if (decl.find(';') == std::string::npos) {
+      continue;
+    }
+    constexpr std::string_view kMarker = "(): Float64 :: ";
+    if (const auto marker = decl.find(kMarker); marker != std::string::npos) {
+      const std::string name = decl.substr(4, marker - 4);
+      const auto value_start = marker + kMarker.size();
+      const std::string literal = decl.substr(value_start, decl.find(';', value_start) - value_start);
+      declared_values.insert_or_assign(name, std::stod(literal));
+    }
+    decl.clear();
+  }
+
+  REQUIRE_FALSE(fleaux::vm::kConstantBuiltinSpecs.empty());
+  for (const auto& spec : fleaux::vm::kConstantBuiltinSpecs) {
+    const std::string name{spec.name};
+    INFO("constant: " << name);
+    const auto declared = declared_values.find(name);
+    REQUIRE(declared != declared_values.end());
+    INFO("catalog value: " << spec.value << ", Std value: " << declared->second);
+    REQUIRE(std::abs(spec.value - declared->second) <= 1e-15 * std::abs(declared->second));
+  }
 }
 
 TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecode][builtins][overload]") {
