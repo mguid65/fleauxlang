@@ -17,72 +17,13 @@ namespace {
 
 using namespace frontend::ir;
 
-// Operator helpers
-
-auto operator_to_builtin() -> const std::unordered_map<std::string, std::string>& {
-  static const std::unordered_map<std::string, std::string> map = {
-      {"+", "Std.Add"},
-      {"-", "Std.Subtract"},
-      {"*", "Std.Multiply"},
-      {"/", "Std.Divide"},
-      {"%", "Std.Mod"},
-      {"^", "Std.Pow"},
-      {"==", "Std.Equal"},
-      {"!=", "Std.NotEqual"},
-      {"<", "Std.LessThan"},
-      {">", "Std.GreaterThan"},
-      {">=", "Std.GreaterOrEqual"},
-      {"<=", "Std.LessOrEqual"},
-      {"!", "Std.Not"},
-      {"&&", "Std.And"},
-      {"||", "Std.Or"},
-  };
-  return map;
-}
-
-auto unary_operator_to_opcode(const std::string& op) -> std::optional<Opcode> {
-  if (op == "!")
-    return Opcode::kNot;
-  if (op == "-")
-    return Opcode::kNeg;
-  return std::nullopt;
-}
-
-auto binary_operator_to_opcode(const std::string& op) -> std::optional<Opcode> {
-  if (op == "+")
-    return Opcode::kAdd;
-  if (op == "-")
-    return Opcode::kSub;
-  if (op == "*")
-    return Opcode::kMul;
-  if (op == "/")
-    return Opcode::kDiv;
-  if (op == "%")
-    return Opcode::kMod;
-  if (op == "^")
-    return Opcode::kPow;
-  if (op == "==")
-    return Opcode::kCmpEq;
-  if (op == "!=")
-    return Opcode::kCmpNe;
-  if (op == "<")
-    return Opcode::kCmpLt;
-  if (op == ">")
-    return Opcode::kCmpGt;
-  if (op == "<=")
-    return Opcode::kCmpLe;
-  if (op == ">=")
-    return Opcode::kCmpGe;
-  if (op == "&&")
-    return Opcode::kAnd;
-  if (op == "||")
-    return Opcode::kOr;
-  return std::nullopt;
-}
+// Builtin intrinsic helpers
 
 auto unary_intrinsic_builtin_to_opcode(const std::string& symbol_key) -> std::optional<Opcode> {
   if (symbol_key == "Std.Not")
     return Opcode::kNot;
+  if (symbol_key == "Std.UnaryMinus")
+    return Opcode::kNeg;
   return std::nullopt;
 }
 
@@ -760,60 +701,6 @@ auto count_inline_closures(const IRExpr& expr) -> std::size_t {
       expr.node);
 }
 
-auto emit_operator_flow_expr(const IRExpr& lhs, const IROperatorRef& op_ref, std::vector<Instruction>& out,
-                             const LocalSlots& locals, CompileState& state, Module& bytecode_module) -> EmitResult {
-  const auto emit_builtin_call = [&]() -> EmitResult {
-    if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result)
-      return emit_result;
-
-    const auto& opmap = operator_to_builtin();
-    const auto it = opmap.find(op_ref.op);
-    if (it == opmap.end()) {
-      return tl::unexpected(make_err("Unsupported operator in bytecode compiler: '" + op_ref.op + "'."));
-    }
-    const auto builtin_id = vm::builtin_id_from_name(it->second);
-    if (!builtin_id.has_value()) {
-      return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + it->second + "'."));
-    }
-    record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded);
-    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
-    return {};
-  };
-
-  if (const auto* tuple = std::get_if<IRTupleExpr>(&lhs.node); tuple != nullptr) {
-    if (tuple->items.size() == 2) {
-      if (const auto opcode = binary_operator_to_opcode(op_ref.op)) {
-        if (auto emit_result = emit_expr(*tuple->items[0], out, locals, state, bytecode_module); !emit_result) {
-          return emit_result;
-        }
-        if (auto emit_result = emit_expr(*tuple->items[1], out, locals, state, bytecode_module); !emit_result) {
-          return emit_result;
-        }
-        out.push_back(Instruction{.opcode = *opcode, .operand = 0});
-        return {};
-      }
-    }
-
-    if (tuple->items.size() == 1) {
-      if (const auto opcode = unary_operator_to_opcode(op_ref.op)) {
-        if (auto emit_result = emit_expr(*tuple->items[0], out, locals, state, bytecode_module); !emit_result) {
-          return emit_result;
-        }
-        out.push_back(Instruction{.opcode = *opcode, .operand = 0});
-        return {};
-      }
-    }
-  } else if (const auto opcode = unary_operator_to_opcode(op_ref.op)) {
-    if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result) {
-      return emit_result;
-    }
-    out.push_back(Instruction{.opcode = *opcode, .operand = 0});
-    return {};
-  }
-
-  return emit_builtin_call();
-}
-
 auto expr_is_known_user_function_ref(const IRExpr& expr, const CompileState& state) -> bool {
   return std::visit(common::overloaded{[&](const IRNameRef& name_ref) -> bool {
                                          return !name_ref.materialize_as_value &&
@@ -891,14 +778,9 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
   return std::visit(
       common::overloaded{
           [&](const IROperatorRef& op_ref) -> EmitResult {
-            // Operator shorthand routes through builtin dispatch here when a native opcode
-            // form is not selected by emit_operator_flow_expr().
-            const auto& opmap = operator_to_builtin();
-            const auto it = opmap.find(op_ref.op);
-            if (it == opmap.end()) {
-              return tl::unexpected(make_err("Unsupported operator in bytecode compiler: '" + op_ref.op + "'."));
-            }
-            return emit_builtin(it->second);
+            // The type checker replaces every operator target with a reference to its Std builtin.
+            return tl::unexpected(make_err("Operator '" + op_ref.op +
+                                           "' reached the bytecode compiler without being resolved by the type checker."));
           },
           [&](const IRNameRef& name_ref) -> EmitResult {
             const std::string full_name = common::full_symbol_name(name_ref.qualifier, name_ref.name);
@@ -1905,12 +1787,10 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
                     CompileState& state, Module& bytecode_module) -> EmitResult {
   auto handled = std::visit(
       common::overloaded{[&](const IROperatorRef& op_ref) -> tl::expected<bool, CompileError> {
-                           if (auto emit_result =
-                                   emit_operator_flow_expr(*flow.lhs, op_ref, out, locals, state, bytecode_module);
-                               !emit_result) {
-                             return tl::unexpected(emit_result.error());
-                           }
-                           return true;
+                           // The type checker replaces every operator target with a reference to its Std builtin.
+                           return tl::unexpected(make_err(
+                               "Operator '" + op_ref.op +
+                               "' reached the bytecode compiler without being resolved by the type checker."));
                          },
                          [&](const IRNameRef& name_ref) -> tl::expected<bool, CompileError> {
                            return try_emit_named_flow_fast_path(flow, name_ref, out, locals, state, bytecode_module);

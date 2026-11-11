@@ -7362,3 +7362,87 @@ TEST_CASE("Type checker carries TaskHandle result types through Std.Task builtin
     REQUIRE_FALSE(lowered.has_value());
   }
 }
+
+TEST_CASE("Type checker checks operators as calls to their Std builtins", "[typecheck][operators]") {
+  SECTION("Operand types are checked against the builtin signature") {
+    const auto lowered = lower_and_check("import Std;\n(\"a\", 2) -> +;\n", "operator_string_add.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Operator '+' calls Std.Add.") != std::string::npos);
+  }
+
+  SECTION("Builtin contracts apply to operators") {
+    const auto lowered = lower_and_check("import Std;\n(1, 2.0) -> +;\n", "operator_float_promotion.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+  }
+
+  SECTION("Operand counts are checked") {
+    const auto lowered = lower_and_check("import Std;\n(1, 2, 3) -> -;\n", "operator_minus_arity.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Operator '-' calls Std.Subtract.") != std::string::npos);
+  }
+
+  SECTION("Logical operators require Bool operands") {
+    const auto lowered = lower_and_check("import Std;\n(1, 2) -> &&;\n", "operator_and_ints.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Operator '&&' calls Std.And.") != std::string::npos);
+  }
+
+  SECTION("Operator results carry the builtin return type") {
+    REQUIRE(lower_and_check("import Std;\nlet Sum(): Int64 = (1, 2) -> +;\nlet Less(): Bool = (1, 2) -> <;\n",
+                            "operator_result_types.fleaux")
+                .has_value());
+
+    const auto lowered = lower_and_check("import Std;\nlet Less(): Int64 = (1, 2) -> <;\n",
+                                         "operator_result_type_mismatch.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+  }
+
+  SECTION("Operators require import Std") {
+    const auto lowered = lower_and_check("(1, 2) -> +;\n", "operator_without_std.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Unresolved operator") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Add 'import Std;'") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker selects unary or binary minus from the operand type", "[typecheck][operators]") {
+  const auto rhs_of_last_expression = [](const fleaux::frontend::ir::IRProgram& program) {
+    REQUIRE_FALSE(program.expressions.empty());
+    const auto* flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&program.expressions.back().expr.node);
+    REQUIRE(flow != nullptr);
+    const auto* name_ref = std::get_if<fleaux::frontend::ir::IRNameRef>(&flow->rhs);
+    REQUIRE(name_ref != nullptr);
+    return *name_ref;
+  };
+
+  SECTION("A single Int64 operand is negation") {
+    const auto lowered = lower_and_check("import Std;\nlet Neg(): Int64 = 5 -> -;\n5 -> -;\n", "operator_unary_minus.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto name_ref = rhs_of_last_expression(*lowered);
+    REQUIRE(name_ref.qualifier == std::optional<std::string>{"Std"});
+    REQUIRE(name_ref.name == "UnaryMinus");
+    REQUIRE(name_ref.resolved_symbol_key.has_value());
+  }
+
+  SECTION("A tuple-typed value is binary subtraction") {
+    const auto lowered = lower_and_check(
+        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\nlet Diff(): Int64 = P -> -;\nP -> -;\n",
+        "operator_tuple_value_minus.fleaux");
+    REQUIRE(lowered.has_value());
+    REQUIRE(rhs_of_last_expression(*lowered).name == "Subtract");
+  }
+
+  SECTION("Negation keeps the operand type") {
+    REQUIRE(lower_and_check("import Std;\nlet Neg(): Float64 = 2.5 -> -;\n", "operator_unary_minus_float.fleaux")
+                .has_value());
+  }
+
+  SECTION("Unsigned values cannot be negated") {
+    const auto lowered = lower_and_check("import Std;\n5u64 -> -;\n", "operator_unary_minus_unsigned.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Std.UnaryMinus expects Int64 or Float64 input") != std::string::npos);
+  }
+}

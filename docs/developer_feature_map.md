@@ -85,6 +85,7 @@ Notes:
 - If alias behavior changes, verify both local declarations and imported typed signatures.
 - Type arguments use angle brackets everywhere (`Tuple<...>`, `Result<T, E>`). Applied type names are validated against declared types and their generic parameter counts (`KnownTypes` in `checker_internal.hpp`).
 - `Result`, `Dict`, `TaskHandle<T>`, `FileHandle`, and `RandomGenerator` are declared in `stdlib/Std.fleaux` as `type Name<...> :: __builtin__;`. Builtin types have no underlying type; use `StrongTypeIndex::is_builtin_type` instead of matching type names.
+- Operators are resolved by the type checker (`infer_operator_flow_expr` in `check_pipeline.cpp`) using the table in `core/include/fleaux/frontend/operators.hpp`. The checker replaces each `IROperatorRef` flow target with an `IRNameRef` to the resolved Std builtin, so the bytecode compiler never sees operators; an unresolved operator reaching the compiler is an error.
 - Bytecode `FunctionDef` signature metadata stores canonical type text (`lowering::format_type_text`); the module loader parses it back with `Parser::parse_type` when only bytecode is available.
 
 Tests:

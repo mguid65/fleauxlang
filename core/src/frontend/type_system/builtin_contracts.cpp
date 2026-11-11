@@ -122,6 +122,28 @@ auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, s
   return false;
 }
 
+// Accepts Int64 or Float64 only. Unsigned values have no negation of the same type.
+// Phase 2 of the type system soundness plan replaces this with a generic bound.
+auto check_signed_numeric_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
+                              const std::string& full_name) -> bool {
+  if (index >= args.size()) {
+    error_message = "Type mismatch in call target arguments.";
+    return false;
+  }
+
+  if (is_deferred_numeric_check_type(args[index])) {
+    return true;
+  }
+
+  if (const unsigned mask = numeric_type_mask(args[index]);
+      mask == kNumericInt64 || mask == kNumericFloat64 || mask == kNumericDeferred) {
+    return true;
+  }
+
+  error_message = full_name + " expects Int64 or Float64 input.";
+  return false;
+}
+
 auto check_string_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
                       const std::string& full_name) -> bool {
   if (index >= args.size()) {
@@ -372,6 +394,9 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
       full_name == "Std.Random.NextFloat64" || full_name == "Std.Random.NextBool" || full_name == "Std.Random.Split") {
     return check_expected_type_arg(args, 0U, make_nominal_type("RandomGenerator"), "RandomGenerator arguments",
                                    error_message, full_name);
+  }
+  if (full_name == "Std.UnaryMinus") {
+    return check_signed_numeric_arg(args, 0U, error_message, full_name);
   }
   if (full_name == "Std.ToInt64" || full_name == "Std.ToUInt64" || full_name == "Std.ToFloat64") {
     return check_numeric_arg(args, 0U, error_message, full_name);

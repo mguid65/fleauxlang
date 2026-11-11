@@ -481,10 +481,11 @@ let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_
 // @return A value of type Float64.
 let Std.UnaryPlus(val: Float64) : Float64 :: __builtin__;
 
-// @brief Return the unary minus of a Float64 value.
-// @param val Value for parameter val. Type: Float64.
-// @return A value of type Float64.
-let Std.UnaryMinus(val: Float64) : Float64 :: __builtin__;
+// @brief Return the negation of a signed number (Int64 or Float64). The unary form of the '-' operator.
+// @tparam T Int64 or Float64.
+// @param val Value for parameter val. Type: T.
+// @return A value of type T.
+let Std.UnaryMinus<T>(val: T) : T :: __builtin__;
 
 // @brief Convert a value to its string representation.
 // @param val Value for parameter val. Type: Any.

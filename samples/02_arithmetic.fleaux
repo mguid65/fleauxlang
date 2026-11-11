@@ -20,6 +20,14 @@ import Std;
 (10, 3) -> % -> Std.Println;                      // 1
 (2, 10) -> ^ -> Std.Println;                      // 1024
 
+// '-' with a single operand is negation (Std.UnaryMinus).
+7 -> - -> Std.Println;                            // -7
+(2.5) -> - -> Std.Println;                        // -2.5
+
+// The operand's type decides the form: a tuple-typed value is still a binary call.
+let Pair(): Tuple<Int64, Int64> = (10, 4);
+Pair -> - -> Std.Println;                         // 6
+
 // -- Composing arithmetic in pipelines --
 
 // (4 + 6) * 2 = 20

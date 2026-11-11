@@ -1945,7 +1945,7 @@ TEST_CASE("Bytecode compiler emits callable-slot metadata for higher-order built
       "let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;\n"
       "(5.0, Inc) -> Std.Apply -> Std.Println;\n"
       "(5.0, (x: Float64): Float64 = (x, 2.0) -> Std.Add) -> Std.Apply -> Std.Println;\n"
-      "(5.0, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
+      "(5.0, Std.UnaryMinus<Float64>) -> Std.Apply -> Std.Println;\n",
       "bytecode_builtin_callable_slot_metadata.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -2990,50 +2990,52 @@ TEST_CASE("Bytecode compiler emits native opcode for non-tuple unary operator sh
   REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
-TEST_CASE("Bytecode compiler falls back to builtin dispatch when operator shorthand cannot use a native opcode",
-          "[bytecode]") {
-  fleaux::frontend::ir::IRProgram ir_program;
-  ir_program.expressions = {
-      fleaux::frontend::ir::IRExprStatement{
-          .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
-              .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
-                  .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)},
-                  .span = std::nullopt,
-              }),
-              .rhs = fleaux::frontend::ir::IROperatorRef{.op = "+", .span = std::nullopt},
-              .span = std::nullopt,
-          }),
-          .span = std::nullopt,
-      },
-  };
-
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
-
-  REQUIRE(result.has_value());
-
-  bool found_native_add = false;
-  bool found_build_tuple = false;
-  bool found_builtin_add = false;
-  for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kAdd) {
-      found_native_add = true;
-    }
-    if (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple) {
-      found_build_tuple = true;
-    }
-    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.Add") {
-        found_builtin_add = true;
+TEST_CASE("Bytecode compiler emits type-checked operators as their resolved Std builtins", "[bytecode]") {
+  const auto collect = [](const fleaux::bytecode::Module& module) {
+    std::vector<fleaux::bytecode::Opcode> opcodes;
+    std::vector<std::string> builtin_names;
+    for (const auto& ins : module.instructions) {
+      opcodes.push_back(ins.opcode);
+      if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
+        const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
+        REQUIRE(builtin_id.has_value());
+        builtin_names.emplace_back(fleaux::vm::builtin_name(*builtin_id));
       }
     }
+    return std::pair{opcodes, builtin_names};
+  };
+  const auto contains = [](const auto& items, const auto& value) {
+    return std::ranges::find(items, value) != items.end();
+  };
+  const fleaux::bytecode::BytecodeCompiler compiler;
+
+  SECTION("A tuple literal operand uses the native binary opcode") {
+    const auto ir_program = lower_source_to_ir("import Std;\n(1, 2) -> + -> Std.Println;\n", "operator_native_add.fleaux");
+    const auto result = compiler.compile(ir_program);
+    REQUIRE(result.has_value());
+    const auto [opcodes, builtin_names] = collect(*result);
+    REQUIRE(contains(opcodes, fleaux::bytecode::Opcode::kAdd));
+    REQUIRE_FALSE(contains(builtin_names, std::string{"Std.Add"}));
   }
 
-  REQUIRE_FALSE(found_native_add);
-  REQUIRE(found_build_tuple);
-  REQUIRE(found_builtin_add);
+  SECTION("A single operand selects the unary minus opcode") {
+    const auto ir_program = lower_source_to_ir("import Std;\n5 -> - -> Std.Println;\n", "operator_unary_minus.fleaux");
+    const auto result = compiler.compile(ir_program);
+    REQUIRE(result.has_value());
+    const auto [opcodes, builtin_names] = collect(*result);
+    REQUIRE(contains(opcodes, fleaux::bytecode::Opcode::kNeg));
+    REQUIRE_FALSE(contains(opcodes, fleaux::bytecode::Opcode::kSub));
+  }
+
+  SECTION("A tuple-typed value selects binary subtraction from its type, not its syntax") {
+    const auto ir_program = lower_source_to_ir(
+        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\nP -> - -> Std.Println;\n", "operator_tuple_value.fleaux");
+    const auto result = compiler.compile(ir_program);
+    REQUIRE(result.has_value());
+    const auto [opcodes, builtin_names] = collect(*result);
+    REQUIRE_FALSE(contains(opcodes, fleaux::bytecode::Opcode::kNeg));
+    REQUIRE(contains(builtin_names, std::string{"Std.Subtract"}));
+  }
 }
 
 TEST_CASE("Bytecode compiler lowers explicit Std.Add to native opcode by default", "[bytecode]") {
@@ -3244,7 +3246,7 @@ TEST_CASE("Bytecode compiler can experimentally reduce Std.OS.Env null compariso
   REQUIRE_FALSE(found_builtin_os_env);
 }
 
-TEST_CASE("Bytecode compiler reports unsupported operator shorthand", "[bytecode]") {
+TEST_CASE("Bytecode compiler rejects operators the type checker did not resolve", "[bytecode]") {
   fleaux::frontend::ir::IRProgram ir_program;
   ir_program.expressions = {
       fleaux::frontend::ir::IRExprStatement{
@@ -3261,7 +3263,8 @@ TEST_CASE("Bytecode compiler reports unsupported operator shorthand", "[bytecode
   const auto result = compiler.compile(ir_program);
 
   REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message == std::string{"Unsupported operator in bytecode compiler: '"} + "??" + "'.");
+  REQUIRE(result.error().message ==
+          "Operator '??' reached the bytecode compiler without being resolved by the type checker.");
 }
 
 TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecode]") {
@@ -3476,7 +3479,7 @@ let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
 }
 
 TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value call", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir("(5.0, Std.UnaryMinus) -> Std.Apply -> Std.Println;\n",
+  const auto ir_program = lower_source_to_ir("(5.0, Std.UnaryMinus<Float64>) -> Std.Apply -> Std.Println;\n",
                                              "bytecode_builtin_callable_apply.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -3502,7 +3505,7 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs", "[bytecode]") {
   const auto ir_program =
-      lower_source_to_ir("(True, 10.0, Std.UnaryMinus, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
+      lower_source_to_ir("(True, 10.0, Std.UnaryMinus<Float64>, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
                          "bytecode_builtin_callable_branch.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -3771,12 +3774,9 @@ TEST_CASE("Bytecode compiler seeds imported placeholders and builtin aliases fro
       found_import_ref = true;
       REQUIRE(ins.operand == identity_index);
     }
-    if (ins.opcode == fleaux::bytecode::Opcode::kCallBuiltin) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      if (fleaux::vm::builtin_name(*builtin_id) == "Std.UnaryMinus") {
-        found_builtin_alias_call = true;
-      }
+    // A direct call through the alias lowers to the native negation opcode for Std.UnaryMinus.
+    if (ins.opcode == fleaux::bytecode::Opcode::kNeg) {
+      found_builtin_alias_call = true;
     }
     if (ins.opcode == fleaux::bytecode::Opcode::kMakeBuiltinFuncRef) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);

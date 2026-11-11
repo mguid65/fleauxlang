@@ -358,6 +358,19 @@ Examples:
 
 Use either the operator token or the corresponding Std builtin, depending on which reads more clearly.
 
+Each operator is shorthand for a Std builtin and is type-checked exactly like a call to it, so using operators requires import Std:
+
+- + is Std.Add, * is Std.Multiply, / is Std.Divide, % is Std.Mod, ^ is Std.Pow
+- == is Std.Equal, != is Std.NotEqual, < > <= >= are the Std comparison builtins
+- ! is Std.Not, && is Std.And, || is Std.Or
+- - is Std.Subtract with two operands and Std.UnaryMinus (negation of an Int64 or Float64) with one
+
+The operand's type decides which form of - applies, so a tuple-typed value is still subtracted:
+
+    7 -> - -> Std.Println;                      // -7
+    let Pair(): Tuple<Int64, Int64> = (10, 4);
+    Pair -> - -> Std.Println;                   // 6
+
 ## Blocks and lexical scope
 
 A block is an expression wrapped in braces.

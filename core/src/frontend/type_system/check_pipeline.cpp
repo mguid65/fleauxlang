@@ -2,7 +2,12 @@
 
 #include "fleaux/frontend/type_system/call_shape.hpp"
 
+#include <algorithm>
+#include <format>
 #include <functional>
+#include <span>
+
+#include "fleaux/frontend/operators.hpp"
 
 namespace fleaux::frontend::type_system::detail {
 
@@ -103,6 +108,92 @@ auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& o
 
   flow.call_shape = args.size() == 1U ? ir::IRFlowCallShape::kDirectValue : ir::IRFlowCallShape::kTupleExpanded;
 
+  return checked->return_type;
+}
+
+auto describe_operator_builtins(const std::span<const OperatorBuiltin> builtins) -> std::string {
+  std::string out;
+  for (std::size_t i = 0; i < builtins.size(); ++i) {
+    if (i > 0U) {
+      out += i + 1U == builtins.size() ? " or " : ", ";
+    }
+    out += std::format("{}.{}", kOperatorBuiltinQualifier, builtins[i].name);
+  }
+  return out;
+}
+
+// Operators are shorthand for Std builtins. This resolves the operator to the builtin selected by the argument
+// count, type-checks the call exactly like a named call to that builtin, and then replaces the operator target with
+// a reference to the resolved builtin so later stages only see ordinary builtin calls.
+auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_ref, const FunctionIndex& index,
+                              const StrongTypeIndex& type_index, const AliasIndex& alias_index,
+                              const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+    -> tl::expected<Type, type_check::AnalysisError> {
+  const std::string op = op_ref.op;
+  const auto op_span = op_ref.span;
+  const auto builtins = operator_builtins(op);
+  if (builtins.empty()) {
+    return tl::unexpected(make_error("Unknown operator.", std::format("'{}' is not a Fleaux operator.", op), op_span));
+  }
+
+  const std::optional<std::string> qualifier{std::string{kOperatorBuiltinQualifier}};
+  FunctionOverloadSet all_candidates;
+  for (const auto& builtin : builtins) {
+    if (const auto overloads = index.resolve_name(qualifier, std::string{builtin.name}); overloads.has_value()) {
+      all_candidates.insert(all_candidates.end(), overloads->get().begin(), overloads->get().end());
+    }
+  }
+  if (all_candidates.empty()) {
+    return tl::unexpected(make_error("Unresolved operator.",
+                                     std::format("Operator '{}' is shorthand for {}. Add 'import Std;' to use it.", op,
+                                                 describe_operator_builtins(builtins)),
+                                     op_span));
+  }
+
+  auto lhs_type = infer_expr(*flow.lhs, index, type_index, alias_index, locals, generic_params);
+  if (!lhs_type) {
+    return tl::unexpected(lhs_type.error());
+  }
+
+  const auto args = flow_args_from_lhs(all_candidates, *flow.lhs, *lhs_type);
+
+  // Pick the builtin whose signature accepts this many arguments. When none does, report against the last
+  // candidate so the arity diagnostic names a real builtin.
+  std::string builtin_name{builtins.back().name};
+  for (const auto& builtin : builtins) {
+    const auto overloads = index.resolve_name(qualifier, std::string{builtin.name});
+    if (overloads.has_value() && std::ranges::any_of(overloads->get(), [&](const FunctionSig& sig) -> bool {
+          return call_shape_matches(sig, args.size());
+        })) {
+      builtin_name = std::string{builtin.name};
+      break;
+    }
+  }
+
+  const std::string full_name = std::format("{}.{}", kOperatorBuiltinQualifier, builtin_name);
+  const auto overloads = index.resolve_name(qualifier, builtin_name);
+  if (!overloads.has_value()) {
+    return tl::unexpected(make_unresolved_symbol_error(full_name, op_span));
+  }
+
+  auto checked =
+      resolve_overload_invocation(full_name, flow.span, overloads->get(), args, type_index, generic_params, {});
+  if (!checked) {
+    auto error = checked.error();
+    const std::string context = std::format("Operator '{}' calls {}.", op, full_name);
+    error.hint = error.hint.has_value() ? context + " " + *error.hint : context;
+    return tl::unexpected(std::move(error));
+  }
+
+  flow.rhs = ir::IRNameRef{
+      .qualifier = qualifier,
+      .name = builtin_name,
+      .explicit_type_args = {},
+      .resolved_symbol_key = checked->resolved_symbol_key,
+      .materialize_as_value = false,
+      .span = op_span,
+  };
+  flow.call_shape = args.size() == 1U ? ir::IRFlowCallShape::kDirectValue : ir::IRFlowCallShape::kTupleExpanded;
   return checked->return_type;
 }
 
@@ -326,6 +417,10 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
                      const AliasIndex& alias_index, const LocalTypes& locals,
                      const std::unordered_set<std::string>& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
+  if (const auto* op_ref = std::get_if<ir::IROperatorRef>(&flow.rhs); op_ref != nullptr) {
+    return infer_operator_flow_expr(flow, *op_ref, index, type_index, alias_index, locals, generic_params);
+  }
+
   if (is_std_match_target(flow.rhs)) {
     return infer_std_match_expr(flow, index, type_index, alias_index, locals, generic_params);
   }

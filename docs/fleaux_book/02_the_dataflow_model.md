@@ -171,6 +171,9 @@ Examples:
 This is mostly a readability feature.
 If Std.Add or Std.Equal reads more clearly in context, you can use those too.
 
+Each operator is shorthand for a Std builtin, so it needs import Std and is type-checked exactly like a call to that builtin.
+The - operator is Std.Subtract with two operands and Std.UnaryMinus with one; the operand's type, not its spelling, decides which.
+
 ## Functions are values too
 
 A function is not only something you call directly.
