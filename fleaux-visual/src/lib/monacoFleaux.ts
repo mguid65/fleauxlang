@@ -11,10 +11,11 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
   monaco.languages.register({ id: 'fleaux' });
 
   monaco.languages.setMonarchTokensProvider('fleaux', {
-    keywords: ['import', 'let'],
+    keywords: ['import', 'let', 'type', 'alias'],
     typeKeywords: [
       'Float64', 'Int64', 'UInt64', 'String', 'Bool', 'Null', 'Any', 'Tuple',
-      'Never', 'TaskHandle', 'Result', 'Dict',
+      'Never', 'TaskHandle', 'Result', 'Dict', 'FileHandle', 'RandomGenerator',
+      'Numeric', 'Integer', 'Signed', 'Comparable',
     ],
     tokenizer: {
       root: [
@@ -22,7 +23,7 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
         [/"([^"\\]|\\.)*"/, 'string'],
         [/[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/, 'number'],
         [/__builtin__/, 'keyword'],
-        [/[A-Z][A-Za-z0-9_.]*(?=\()/, 'type'],  // Parameterized types: Result(...), Dict(...)
+        [/[A-Z][A-Za-z0-9_.]*(?=<)/, 'type'],  // Parameterized types: Result<T, E>, Dict<K, V>
         [/[A-Z][A-Za-z0-9_.]*/, {
           cases: {
             '@typeKeywords': 'type.identifier',

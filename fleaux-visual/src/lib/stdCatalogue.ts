@@ -27,6 +27,84 @@ export type StdFunctionEntry = {
   isTerminal: boolean;
 };
 
+export type StdTypeEntry = {
+  name: string;
+  typeParams: string[];
+  isBuiltin: boolean;
+  target: string;
+  displayName: string;
+};
+
+export type StdAliasEntry = {
+  name: string;
+  target: string;
+};
+
+export const STD_TYPES: StdTypeEntry[] = [
+  {
+    "name": "Result",
+    "typeParams": [
+      "T",
+      "E"
+    ],
+    "isBuiltin": true,
+    "target": "__builtin__",
+    "displayName": "Result<T, E>"
+  },
+  {
+    "name": "Dict",
+    "typeParams": [
+      "K",
+      "V"
+    ],
+    "isBuiltin": true,
+    "target": "__builtin__",
+    "displayName": "Dict<K, V>"
+  },
+  {
+    "name": "TaskHandle",
+    "typeParams": [
+      "T"
+    ],
+    "isBuiltin": true,
+    "target": "__builtin__",
+    "displayName": "TaskHandle<T>"
+  },
+  {
+    "name": "FileHandle",
+    "typeParams": [],
+    "isBuiltin": true,
+    "target": "__builtin__",
+    "displayName": "FileHandle"
+  },
+  {
+    "name": "RandomGenerator",
+    "typeParams": [],
+    "isBuiltin": true,
+    "target": "__builtin__",
+    "displayName": "RandomGenerator"
+  }
+];
+
+export const STD_ALIASES: StdAliasEntry[] = [
+  {
+    "name": "Numeric",
+    "target": "Int64 | UInt64 | Float64"
+  },
+  {
+    "name": "Integer",
+    "target": "Int64 | UInt64"
+  },
+  {
+    "name": "Signed",
+    "target": "Int64 | Float64"
+  },
+  {
+    "name": "Comparable",
+    "target": "Int64 | UInt64 | Float64 | String | Bool"
+  }
+];
+
 export const STD_VALUES: StdValueEntry[] = [
   {
     "qualifiedName": "Std.Half",
@@ -474,10 +552,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any..."
       }
     ],
-    "returnType": "Tuple(Any...)",
+    "returnType": "Tuple<Any...>",
     "displayName": "Std.Println",
-    "displaySignature": "Std.Println(args: Any...) -> Tuple(Any...)",
-    "signatureKey": "Std.Println(args: Any...):Tuple(Any...)",
+    "displaySignature": "Std.Println(args: Any...) -> Tuple<Any...>",
+    "signatureKey": "Std.Println(args: Any...):Tuple<Any...>",
     "hasVariadicTail": true,
     "minimumArity": 0,
     "isTerminal": false,
@@ -499,10 +577,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any..."
       }
     ],
-    "returnType": "Tuple(String, Any...)",
+    "returnType": "Tuple<String, Any...>",
     "displayName": "Std.Printf",
-    "displaySignature": "Std.Printf(fmt_str: String, args: Any...) -> Tuple(String, Any...)",
-    "signatureKey": "Std.Printf(fmt_str: String, args: Any...):Tuple(String, Any...)",
+    "displaySignature": "Std.Printf(fmt_str: String, args: Any...) -> Tuple<String, Any...>",
+    "signatureKey": "Std.Printf(fmt_str: String, args: Any...):Tuple<String, Any...>",
     "hasVariadicTail": true,
     "minimumArity": 1,
     "isTerminal": false,
@@ -523,7 +601,28 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "minimumArity": 0,
     "isTerminal": false,
     "overloadIndex": 1,
-    "overloadCount": 1
+    "overloadCount": 2
+  },
+  {
+    "qualifiedName": "Std.Input",
+    "namespace": "Std",
+    "name": "Input",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "prompt",
+        "type": "String"
+      }
+    ],
+    "returnType": "String",
+    "displayName": "Std.Input",
+    "displaySignature": "Std.Input(prompt: String) -> String",
+    "signatureKey": "Std.Input(prompt: String):String",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 2,
+    "overloadCount": 2
   },
   {
     "qualifiedName": "Std.Help",
@@ -654,6 +753,132 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "overloadCount": 1
   },
   {
+    "qualifiedName": "Std.Random.Create",
+    "namespace": "Std.Random",
+    "name": "Create",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "seed",
+        "type": "UInt64"
+      }
+    ],
+    "returnType": "RandomGenerator",
+    "displayName": "Std.Random.Create",
+    "displaySignature": "Std.Random.Create(seed: UInt64) -> RandomGenerator",
+    "signatureKey": "Std.Random.Create(seed: UInt64):RandomGenerator",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Random.NextUInt64",
+    "namespace": "Std.Random",
+    "name": "NextUInt64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "gen",
+        "type": "RandomGenerator"
+      }
+    ],
+    "returnType": "Tuple<UInt64, RandomGenerator>",
+    "displayName": "Std.Random.NextUInt64",
+    "displaySignature": "Std.Random.NextUInt64(gen: RandomGenerator) -> Tuple<UInt64, RandomGenerator>",
+    "signatureKey": "Std.Random.NextUInt64(gen: RandomGenerator):Tuple<UInt64, RandomGenerator>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Random.NextInt64",
+    "namespace": "Std.Random",
+    "name": "NextInt64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "gen",
+        "type": "RandomGenerator"
+      }
+    ],
+    "returnType": "Tuple<Int64, RandomGenerator>",
+    "displayName": "Std.Random.NextInt64",
+    "displaySignature": "Std.Random.NextInt64(gen: RandomGenerator) -> Tuple<Int64, RandomGenerator>",
+    "signatureKey": "Std.Random.NextInt64(gen: RandomGenerator):Tuple<Int64, RandomGenerator>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Random.NextFloat64",
+    "namespace": "Std.Random",
+    "name": "NextFloat64",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "gen",
+        "type": "RandomGenerator"
+      }
+    ],
+    "returnType": "Tuple<Float64, RandomGenerator>",
+    "displayName": "Std.Random.NextFloat64",
+    "displaySignature": "Std.Random.NextFloat64(gen: RandomGenerator) -> Tuple<Float64, RandomGenerator>",
+    "signatureKey": "Std.Random.NextFloat64(gen: RandomGenerator):Tuple<Float64, RandomGenerator>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Random.NextBool",
+    "namespace": "Std.Random",
+    "name": "NextBool",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "gen",
+        "type": "RandomGenerator"
+      }
+    ],
+    "returnType": "Tuple<Bool, RandomGenerator>",
+    "displayName": "Std.Random.NextBool",
+    "displaySignature": "Std.Random.NextBool(gen: RandomGenerator) -> Tuple<Bool, RandomGenerator>",
+    "signatureKey": "Std.Random.NextBool(gen: RandomGenerator):Tuple<Bool, RandomGenerator>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Random.Split",
+    "namespace": "Std.Random",
+    "name": "Split",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "gen",
+        "type": "RandomGenerator"
+      }
+    ],
+    "returnType": "Tuple<RandomGenerator, RandomGenerator>",
+    "displayName": "Std.Random.Split",
+    "displaySignature": "Std.Random.Split(gen: RandomGenerator) -> Tuple<RandomGenerator, RandomGenerator>",
+    "signatureKey": "Std.Random.Split(gen: RandomGenerator):Tuple<RandomGenerator, RandomGenerator>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
     "qualifiedName": "Std.Exit",
     "namespace": "Std",
     "name": "Exit",
@@ -694,21 +919,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Add",
     "namespace": "Std",
     "name": "Add",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Add",
-    "displaySignature": "Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Add<T: Numeric>",
+    "displaySignature": "Std.Add<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Add<T: Numeric>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -719,21 +946,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Subtract",
     "namespace": "Std",
     "name": "Subtract",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Subtract",
-    "displaySignature": "Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Subtract<T: Numeric>",
+    "displaySignature": "Std.Subtract<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Subtract<T: Numeric>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -744,21 +973,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Multiply",
     "namespace": "Std",
     "name": "Multiply",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Multiply",
-    "displaySignature": "Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Multiply<T: Numeric>",
+    "displaySignature": "Std.Multiply<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Multiply<T: Numeric>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -769,21 +1000,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Divide",
     "namespace": "Std",
     "name": "Divide",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Divide",
-    "displaySignature": "Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Divide<T: Numeric>",
+    "displaySignature": "Std.Divide<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Divide<T: Numeric>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -794,21 +1027,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Mod",
     "namespace": "Std",
     "name": "Mod",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Mod",
-    "displaySignature": "Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Mod<T: Numeric>",
+    "displaySignature": "Std.Mod<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Mod<T: Numeric>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -819,21 +1054,185 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Pow",
     "namespace": "Std",
     "name": "Pow",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64 | Int64 | UInt64",
-    "displayName": "Std.Pow",
-    "displaySignature": "Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Float64 | Int64 | UInt64",
-    "signatureKey": "Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Float64 | Int64 | UInt64",
+    "returnType": "T",
+    "displayName": "Std.Pow<T: Numeric>",
+    "displaySignature": "Std.Pow<T: Numeric>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.Pow<T: Numeric>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.WrappingAdd",
+    "namespace": "Std",
+    "name": "WrappingAdd",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.WrappingAdd<T: Integer>",
+    "displaySignature": "Std.WrappingAdd<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.WrappingAdd<T: Integer>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.WrappingSubtract",
+    "namespace": "Std",
+    "name": "WrappingSubtract",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.WrappingSubtract<T: Integer>",
+    "displaySignature": "Std.WrappingSubtract<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.WrappingSubtract<T: Integer>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.WrappingMultiply",
+    "namespace": "Std",
+    "name": "WrappingMultiply",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.WrappingMultiply<T: Integer>",
+    "displaySignature": "Std.WrappingMultiply<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.WrappingMultiply<T: Integer>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.SaturatingAdd",
+    "namespace": "Std",
+    "name": "SaturatingAdd",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.SaturatingAdd<T: Integer>",
+    "displaySignature": "Std.SaturatingAdd<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.SaturatingAdd<T: Integer>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.SaturatingSubtract",
+    "namespace": "Std",
+    "name": "SaturatingSubtract",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.SaturatingSubtract<T: Integer>",
+    "displaySignature": "Std.SaturatingSubtract<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.SaturatingSubtract<T: Integer>(lhs: T, rhs: T):T",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.SaturatingMultiply",
+    "namespace": "Std",
+    "name": "SaturatingMultiply",
+    "typeParams": [
+      "T: Integer"
+    ],
+    "params": [
+      {
+        "name": "lhs",
+        "type": "T"
+      },
+      {
+        "name": "rhs",
+        "type": "T"
+      }
+    ],
+    "returnType": "T",
+    "displayName": "Std.SaturatingMultiply<T: Integer>",
+    "displaySignature": "Std.SaturatingMultiply<T: Integer>(lhs: T, rhs: T) -> T",
+    "signatureKey": "Std.SaturatingMultiply<T: Integer>(lhs: T, rhs: T):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -948,13 +1347,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "bits",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "Int64",
     "displayName": "Std.Bit.ShiftLeft",
-    "displaySignature": "Std.Bit.ShiftLeft(value: Int64, bits: Int64) -> Int64",
-    "signatureKey": "Std.Bit.ShiftLeft(value: Int64, bits: Int64):Int64",
+    "displaySignature": "Std.Bit.ShiftLeft(value: Int64, bits: UInt64) -> Int64",
+    "signatureKey": "Std.Bit.ShiftLeft(value: Int64, bits: UInt64):Int64",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -973,13 +1372,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "bits",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "Int64",
     "displayName": "Std.Bit.ShiftRight",
-    "displaySignature": "Std.Bit.ShiftRight(value: Int64, bits: Int64) -> Int64",
-    "signatureKey": "Std.Bit.ShiftRight(value: Int64, bits: Int64):Int64",
+    "displaySignature": "Std.Bit.ShiftRight(value: Int64, bits: UInt64) -> Int64",
+    "signatureKey": "Std.Bit.ShiftRight(value: Int64, bits: UInt64):Int64",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -990,21 +1389,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.GreaterThan",
     "namespace": "Std",
     "name": "GreaterThan",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
     "returnType": "Bool",
-    "displayName": "Std.GreaterThan",
-    "displaySignature": "Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
-    "signatureKey": "Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "displayName": "Std.GreaterThan<T: Numeric>",
+    "displaySignature": "Std.GreaterThan<T: Numeric>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.GreaterThan<T: Numeric>(lhs: T, rhs: T):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1015,21 +1416,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.LessThan",
     "namespace": "Std",
     "name": "LessThan",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
     "returnType": "Bool",
-    "displayName": "Std.LessThan",
-    "displaySignature": "Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
-    "signatureKey": "Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "displayName": "Std.LessThan<T: Numeric>",
+    "displaySignature": "Std.LessThan<T: Numeric>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.LessThan<T: Numeric>(lhs: T, rhs: T):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1040,21 +1443,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.GreaterOrEqual",
     "namespace": "Std",
     "name": "GreaterOrEqual",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
     "returnType": "Bool",
-    "displayName": "Std.GreaterOrEqual",
-    "displaySignature": "Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
-    "signatureKey": "Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "displayName": "Std.GreaterOrEqual<T: Numeric>",
+    "displaySignature": "Std.GreaterOrEqual<T: Numeric>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.GreaterOrEqual<T: Numeric>(lhs: T, rhs: T):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1065,21 +1470,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.LessOrEqual",
     "namespace": "Std",
     "name": "LessOrEqual",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "lhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       },
       {
         "name": "rhs",
-        "type": "Float64 | Int64 | UInt64"
+        "type": "T"
       }
     ],
     "returnType": "Bool",
-    "displayName": "Std.LessOrEqual",
-    "displaySignature": "Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) -> Bool",
-    "signatureKey": "Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64):Bool",
+    "displayName": "Std.LessOrEqual<T: Numeric>",
+    "displaySignature": "Std.LessOrEqual<T: Numeric>(lhs: T, rhs: T) -> Bool",
+    "signatureKey": "Std.LessOrEqual<T: Numeric>(lhs: T, rhs: T):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1280,10 +1687,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "T"
       }
     ],
-    "returnType": "Result(T, Any)",
+    "returnType": "Result<T, Never>",
     "displayName": "Std.Result.Ok<T>",
-    "displaySignature": "Std.Result.Ok<T>(value: T) -> Result(T, Any)",
-    "signatureKey": "Std.Result.Ok<T>(value: T):Result(T, Any)",
+    "displaySignature": "Std.Result.Ok<T>(value: T) -> Result<T, Never>",
+    "signatureKey": "Std.Result.Ok<T>(value: T):Result<T, Never>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1303,10 +1710,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "E"
       }
     ],
-    "returnType": "Result(Any, E)",
+    "returnType": "Result<Never, E>",
     "displayName": "Std.Result.Err<E>",
-    "displaySignature": "Std.Result.Err<E>(error: E) -> Result(Any, E)",
-    "signatureKey": "Std.Result.Err<E>(error: E):Result(Any, E)",
+    "displaySignature": "Std.Result.Err<E>(error: E) -> Result<Never, E>",
+    "signatureKey": "Std.Result.Err<E>(error: E):Result<Never, E>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1324,13 +1731,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "Bool",
     "displayName": "Std.Result.Tag<T, E>",
-    "displaySignature": "Std.Result.Tag<T, E>(result: Result(T, E)) -> Bool",
-    "signatureKey": "Std.Result.Tag<T, E>(result: Result(T, E)):Bool",
+    "displaySignature": "Std.Result.Tag<T, E>(result: Result<T, E>) -> Bool",
+    "signatureKey": "Std.Result.Tag<T, E>(result: Result<T, E>):Bool",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1348,13 +1755,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "T | E",
     "displayName": "Std.Result.Payload<T, E>",
-    "displaySignature": "Std.Result.Payload<T, E>(result: Result(T, E)) -> T | E",
-    "signatureKey": "Std.Result.Payload<T, E>(result: Result(T, E)):T | E",
+    "displaySignature": "Std.Result.Payload<T, E>(result: Result<T, E>) -> T | E",
+    "signatureKey": "Std.Result.Payload<T, E>(result: Result<T, E>):T | E",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1372,13 +1779,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "Bool",
     "displayName": "Std.Result.IsOk<T, E>",
-    "displaySignature": "Std.Result.IsOk<T, E>(result: Result(T, E)) -> Bool",
-    "signatureKey": "Std.Result.IsOk<T, E>(result: Result(T, E)):Bool",
+    "displaySignature": "Std.Result.IsOk<T, E>(result: Result<T, E>) -> Bool",
+    "signatureKey": "Std.Result.IsOk<T, E>(result: Result<T, E>):Bool",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1396,13 +1803,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "Bool",
     "displayName": "Std.Result.IsErr<T, E>",
-    "displaySignature": "Std.Result.IsErr<T, E>(result: Result(T, E)) -> Bool",
-    "signatureKey": "Std.Result.IsErr<T, E>(result: Result(T, E)):Bool",
+    "displaySignature": "Std.Result.IsErr<T, E>(result: Result<T, E>) -> Bool",
+    "signatureKey": "Std.Result.IsErr<T, E>(result: Result<T, E>):Bool",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1420,13 +1827,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "T",
     "displayName": "Std.Result.Unwrap<T, E>",
-    "displaySignature": "Std.Result.Unwrap<T, E>(result: Result(T, E)) -> T",
-    "signatureKey": "Std.Result.Unwrap<T, E>(result: Result(T, E)):T",
+    "displaySignature": "Std.Result.Unwrap<T, E>(result: Result<T, E>) -> T",
+    "signatureKey": "Std.Result.Unwrap<T, E>(result: Result<T, E>):T",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1444,13 +1851,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "result",
-        "type": "Result(T, E)"
+        "type": "Result<T, E>"
       }
     ],
     "returnType": "E",
     "displayName": "Std.Result.UnwrapErr<T, E>",
-    "displaySignature": "Std.Result.UnwrapErr<T, E>(result: Result(T, E)) -> E",
-    "signatureKey": "Std.Result.UnwrapErr<T, E>(result: Result(T, E)):E",
+    "displaySignature": "Std.Result.UnwrapErr<T, E>(result: Result<T, E>) -> E",
+    "signatureKey": "Std.Result.UnwrapErr<T, E>(result: Result<T, E>):E",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1475,10 +1882,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "(T) => U"
       }
     ],
-    "returnType": "Result(U, String)",
+    "returnType": "Result<U, String>",
     "displayName": "Std.Try<T, U>",
-    "displaySignature": "Std.Try<T, U>(value: T, func: (T) => U) -> Result(U, String)",
-    "signatureKey": "Std.Try<T, U>(value: T, func: (T) => U):Result(U, String)",
+    "displaySignature": "Std.Try<T, U>(value: T, func: (T) => U) -> Result<U, String>",
+    "signatureKey": "Std.Try<T, U>(value: T, func: (T) => U):Result<U, String>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1496,17 +1903,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "items",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "func",
         "type": "(T) => U"
       }
     ],
-    "returnType": "Result(Tuple(U...), Tuple(Int64, String))",
+    "returnType": "Result<Tuple<U...>, Tuple<Int64, String>>",
     "displayName": "Std.Parallel.Map<T, U>",
-    "displaySignature": "Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U) -> Result(Tuple(U...), Tuple(Int64, String))",
-    "signatureKey": "Std.Parallel.Map<T, U>(items: Tuple(T...), func: (T) => U):Result(Tuple(U...), Tuple(Int64, String))",
+    "displaySignature": "Std.Parallel.Map<T, U>(items: Tuple<T...>, func: (T) => U) -> Result<Tuple<U...>, Tuple<Int64, String>>",
+    "signatureKey": "Std.Parallel.Map<T, U>(items: Tuple<T...>, func: (T) => U):Result<Tuple<U...>, Tuple<Int64, String>>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1524,7 +1931,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "items",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "func",
@@ -1532,13 +1939,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "options",
-        "type": "Dict(String, Any)"
+        "type": "Dict<String, Any>"
       }
     ],
-    "returnType": "Result(Tuple(U...), Tuple(Int64, String))",
+    "returnType": "Result<Tuple<U...>, Tuple<Int64, String>>",
     "displayName": "Std.Parallel.WithOptions<T, U>",
-    "displaySignature": "Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)) -> Result(Tuple(U...), Tuple(Int64, String))",
-    "signatureKey": "Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: (T) => U, options: Dict(String, Any)):Result(Tuple(U...), Tuple(Int64, String))",
+    "displaySignature": "Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: (T) => U, options: Dict<String, Any>) -> Result<Tuple<U...>, Tuple<Int64, String>>",
+    "signatureKey": "Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: (T) => U, options: Dict<String, Any>):Result<Tuple<U...>, Tuple<Int64, String>>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -1556,17 +1963,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "items",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "func",
         "type": "(T) => U"
       }
     ],
-    "returnType": "Result(Tuple(), Tuple(Int64, String))",
+    "returnType": "Result<Tuple<>, Tuple<Int64, String>>",
     "displayName": "Std.Parallel.ForEach<T, U>",
-    "displaySignature": "Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U) -> Result(Tuple(), Tuple(Int64, String))",
-    "signatureKey": "Std.Parallel.ForEach<T, U>(items: Tuple(T...), func: (T) => U):Result(Tuple(), Tuple(Int64, String))",
+    "displaySignature": "Std.Parallel.ForEach<T, U>(items: Tuple<T...>, func: (T) => U) -> Result<Tuple<>, Tuple<Int64, String>>",
+    "signatureKey": "Std.Parallel.ForEach<T, U>(items: Tuple<T...>, func: (T) => U):Result<Tuple<>, Tuple<Int64, String>>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1584,7 +1991,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "items",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "init",
@@ -1595,10 +2002,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "(A, T) => A"
       }
     ],
-    "returnType": "Result(A, Tuple(Int64, String))",
+    "returnType": "Result<A, Tuple<Int64, String>>",
     "displayName": "Std.Parallel.Reduce<T, A>",
-    "displaySignature": "Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A) -> Result(A, Tuple(Int64, String))",
-    "signatureKey": "Std.Parallel.Reduce<T, A>(items: Tuple(T...), init: A, func: (A, T) => A):Result(A, Tuple(Int64, String))",
+    "displaySignature": "Std.Parallel.Reduce<T, A>(items: Tuple<T...>, init: A, func: (A, T) => A) -> Result<A, Tuple<Int64, String>>",
+    "signatureKey": "Std.Parallel.Reduce<T, A>(items: Tuple<T...>, init: A, func: (A, T) => A):Result<A, Tuple<Int64, String>>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -1623,10 +2030,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "T"
       }
     ],
-    "returnType": "TaskHandle",
+    "returnType": "TaskHandle<U>",
     "displayName": "Std.Task.Spawn<T, U>",
-    "displaySignature": "Std.Task.Spawn<T, U>(func: (T) => U, value: T) -> TaskHandle",
-    "signatureKey": "Std.Task.Spawn<T, U>(func: (T) => U, value: T):TaskHandle",
+    "displaySignature": "Std.Task.Spawn<T, U>(func: (T) => U, value: T) -> TaskHandle<U>",
+    "signatureKey": "Std.Task.Spawn<T, U>(func: (T) => U, value: T):TaskHandle<U>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1637,17 +2044,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Task.Await",
     "namespace": "Std.Task",
     "name": "Await",
-    "typeParams": [],
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "task",
-        "type": "TaskHandle"
+        "type": "TaskHandle<T>"
       }
     ],
-    "returnType": "Result(Any, String)",
-    "displayName": "Std.Task.Await",
-    "displaySignature": "Std.Task.Await(task: TaskHandle) -> Result(Any, String)",
-    "signatureKey": "Std.Task.Await(task: TaskHandle):Result(Any, String)",
+    "returnType": "Result<T, String>",
+    "displayName": "Std.Task.Await<T>",
+    "displaySignature": "Std.Task.Await<T>(task: TaskHandle<T>) -> Result<T, String>",
+    "signatureKey": "Std.Task.Await<T>(task: TaskHandle<T>):Result<T, String>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1658,17 +2067,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Task.AwaitAll",
     "namespace": "Std.Task",
     "name": "AwaitAll",
-    "typeParams": [],
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "tasks",
-        "type": "Tuple(TaskHandle...)"
+        "type": "Tuple<TaskHandle<T>...>"
       }
     ],
-    "returnType": "Result(Tuple(Any...), Tuple(Int64, String))",
-    "displayName": "Std.Task.AwaitAll",
-    "displaySignature": "Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)) -> Result(Tuple(Any...), Tuple(Int64, String))",
-    "signatureKey": "Std.Task.AwaitAll(tasks: Tuple(TaskHandle...)):Result(Tuple(Any...), Tuple(Int64, String))",
+    "returnType": "Result<Tuple<T...>, Tuple<Int64, String>>",
+    "displayName": "Std.Task.AwaitAll<T>",
+    "displaySignature": "Std.Task.AwaitAll<T>(tasks: Tuple<TaskHandle<T>...>) -> Result<Tuple<T...>, Tuple<Int64, String>>",
+    "signatureKey": "Std.Task.AwaitAll<T>(tasks: Tuple<TaskHandle<T>...>):Result<Tuple<T...>, Tuple<Int64, String>>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1679,17 +2090,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Task.Cancel",
     "namespace": "Std.Task",
     "name": "Cancel",
-    "typeParams": [],
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "task",
-        "type": "TaskHandle"
+        "type": "TaskHandle<T>"
       }
     ],
     "returnType": "Bool",
-    "displayName": "Std.Task.Cancel",
-    "displaySignature": "Std.Task.Cancel(task: TaskHandle) -> Bool",
-    "signatureKey": "Std.Task.Cancel(task: TaskHandle):Bool",
+    "displayName": "Std.Task.Cancel<T>",
+    "displaySignature": "Std.Task.Cancel<T>(task: TaskHandle<T>) -> Bool",
+    "signatureKey": "Std.Task.Cancel<T>(task: TaskHandle<T>):Bool",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1700,21 +2113,23 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.Task.WithTimeout",
     "namespace": "Std.Task",
     "name": "WithTimeout",
-    "typeParams": [],
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "task",
-        "type": "TaskHandle"
+        "type": "TaskHandle<T>"
       },
       {
         "name": "timeout_ms",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Result(Any, String)",
-    "displayName": "Std.Task.WithTimeout",
-    "displaySignature": "Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64) -> Result(Any, String)",
-    "signatureKey": "Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Int64):Result(Any, String)",
+    "returnType": "Result<T, String>",
+    "displayName": "Std.Task.WithTimeout<T>",
+    "displaySignature": "Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: UInt64) -> Result<T, String>",
+    "signatureKey": "Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: UInt64):Result<T, String>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -1837,13 +2252,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "max_iters",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "S",
     "displayName": "Std.LoopN<S>",
-    "displaySignature": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64) -> S",
-    "signatureKey": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Int64):S",
+    "displaySignature": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64) -> S",
+    "signatureKey": "Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64):S",
     "hasVariadicTail": false,
     "minimumArity": 4,
     "isTerminal": false,
@@ -1854,17 +2269,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.UnaryPlus",
     "namespace": "Std",
     "name": "UnaryPlus",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "val",
-        "type": "Float64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64",
-    "displayName": "Std.UnaryPlus",
-    "displaySignature": "Std.UnaryPlus(val: Float64) -> Float64",
-    "signatureKey": "Std.UnaryPlus(val: Float64):Float64",
+    "returnType": "T",
+    "displayName": "Std.UnaryPlus<T: Numeric>",
+    "displaySignature": "Std.UnaryPlus<T: Numeric>(val: T) -> T",
+    "signatureKey": "Std.UnaryPlus<T: Numeric>(val: T):T",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -1875,17 +2292,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.UnaryMinus",
     "namespace": "Std",
     "name": "UnaryMinus",
-    "typeParams": [],
+    "typeParams": [
+      "T: Signed"
+    ],
     "params": [
       {
         "name": "val",
-        "type": "Float64"
+        "type": "T"
       }
     ],
-    "returnType": "Float64",
-    "displayName": "Std.UnaryMinus",
-    "displaySignature": "Std.UnaryMinus(val: Float64) -> Float64",
-    "signatureKey": "Std.UnaryMinus(val: Float64):Float64",
+    "returnType": "T",
+    "displayName": "Std.UnaryMinus<T: Signed>",
+    "displaySignature": "Std.UnaryMinus<T: Signed>(val: T) -> T",
+    "signatureKey": "Std.UnaryMinus<T: Signed>(val: T):T",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -2293,10 +2712,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.String.Split",
-    "displaySignature": "Std.String.Split(s: String, sep: String) -> Tuple(String...)",
-    "signatureKey": "Std.String.Split(s: String, sep: String):Tuple(String...)",
+    "displaySignature": "Std.String.Split(s: String, sep: String) -> Tuple<String...>",
+    "signatureKey": "Std.String.Split(s: String, sep: String):Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -2315,13 +2734,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "parts",
-        "type": "Tuple(Any...)"
+        "type": "Tuple<Any...>"
       }
     ],
     "returnType": "String",
     "displayName": "Std.String.Join",
-    "displaySignature": "Std.String.Join(sep: String, parts: Tuple(Any...)) -> String",
-    "signatureKey": "Std.String.Join(sep: String, parts: Tuple(Any...)):String",
+    "displaySignature": "Std.String.Join(sep: String, parts: Tuple<Any...>) -> String",
+    "signatureKey": "Std.String.Join(sep: String, parts: Tuple<Any...>):String",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -2465,13 +2884,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "index",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "String",
     "displayName": "Std.String.CharAt",
-    "displaySignature": "Std.String.CharAt(s: String, index: Int64) -> String",
-    "signatureKey": "Std.String.CharAt(s: String, index: Int64):String",
+    "displaySignature": "Std.String.CharAt(s: String, index: UInt64) -> String",
+    "signatureKey": "Std.String.CharAt(s: String, index: UInt64):String",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -2489,23 +2908,73 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       },
       {
-        "name": "start",
-        "type": "Int64"
-      },
-      {
         "name": "stop",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "String",
     "displayName": "Std.String.Slice",
-    "displaySignature": "Std.String.Slice(s: String, start: Int64, stop: Int64) -> String",
-    "signatureKey": "Std.String.Slice(s: String, start: Int64, stop: Int64):String",
+    "displaySignature": "Std.String.Slice(s: String, stop: UInt64) -> String",
+    "signatureKey": "Std.String.Slice(s: String, stop: UInt64):String",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 2
+  },
+  {
+    "qualifiedName": "Std.String.Slice",
+    "namespace": "Std.String",
+    "name": "Slice",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "s",
+        "type": "String"
+      },
+      {
+        "name": "start",
+        "type": "UInt64"
+      },
+      {
+        "name": "stop",
+        "type": "UInt64"
+      }
+    ],
+    "returnType": "String",
+    "displayName": "Std.String.Slice",
+    "displaySignature": "Std.String.Slice(s: String, start: UInt64, stop: UInt64) -> String",
+    "signatureKey": "Std.String.Slice(s: String, start: UInt64, stop: UInt64):String",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
+    "overloadIndex": 2,
+    "overloadCount": 2
+  },
+  {
+    "qualifiedName": "Std.String.Find",
+    "namespace": "Std.String",
+    "name": "Find",
+    "typeParams": [],
+    "params": [
+      {
+        "name": "s",
+        "type": "String"
+      },
+      {
+        "name": "sub",
+        "type": "String"
+      }
+    ],
+    "returnType": "Int64",
+    "displayName": "Std.String.Find",
+    "displaySignature": "Std.String.Find(s: String, sub: String) -> Int64",
+    "signatureKey": "Std.String.Find(s: String, sub: String):Int64",
+    "hasVariadicTail": false,
+    "minimumArity": 2,
+    "isTerminal": false,
     "overloadIndex": 1,
-    "overloadCount": 1
+    "overloadCount": 2
   },
   {
     "qualifiedName": "Std.String.Find",
@@ -2523,18 +2992,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "start",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "Int64",
     "displayName": "Std.String.Find",
-    "displaySignature": "Std.String.Find(s: String, sub: String, start: Int64) -> Int64",
-    "signatureKey": "Std.String.Find(s: String, sub: String, start: Int64):Int64",
+    "displaySignature": "Std.String.Find(s: String, sub: String, start: UInt64) -> Int64",
+    "signatureKey": "Std.String.Find(s: String, sub: String, start: UInt64):Int64",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
-    "overloadIndex": 1,
-    "overloadCount": 1
+    "overloadIndex": 2,
+    "overloadCount": 2
   },
   {
     "qualifiedName": "Std.String.Format",
@@ -2655,10 +3124,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.String.Regex.Split",
-    "displaySignature": "Std.String.Regex.Split(s: String, pattern: String) -> Tuple(String...)",
-    "signatureKey": "Std.String.Regex.Split(s: String, pattern: String):Tuple(String...)",
+    "displaySignature": "Std.String.Regex.Split(s: String, pattern: String) -> Tuple<String...>",
+    "signatureKey": "Std.String.Regex.Split(s: String, pattern: String):Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -2724,10 +3193,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(Int64, String)",
+    "returnType": "Tuple<Int64, String>",
     "displayName": "Std.OS.Exec",
-    "displaySignature": "Std.OS.Exec(command: String) -> Tuple(Int64, String)",
-    "signatureKey": "Std.OS.Exec(command: String):Tuple(Int64, String)",
+    "displaySignature": "Std.OS.Exec(command: String) -> Tuple<Int64, String>",
+    "signatureKey": "Std.OS.Exec(command: String):Tuple<Int64, String>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -2915,13 +3384,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       {
         "name": "rhs",
         "type": "String"
+      },
+      {
+        "name": "rest",
+        "type": "String..."
       }
     ],
     "returnType": "String",
     "displayName": "Std.Path.Join",
-    "displaySignature": "Std.Path.Join(lhs: String, rhs: String) -> String",
-    "signatureKey": "Std.Path.Join(lhs: String, rhs: String):String",
-    "hasVariadicTail": false,
+    "displaySignature": "Std.Path.Join(lhs: String, rhs: String, rest: String...) -> String",
+    "signatureKey": "Std.Path.Join(lhs: String, rhs: String, rest: String...):String",
+    "hasVariadicTail": true,
     "minimumArity": 2,
     "isTerminal": false,
     "overloadIndex": 1,
@@ -3248,10 +3721,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.File.ReadLines",
-    "displaySignature": "Std.File.ReadLines(path: String) -> Tuple(String...)",
-    "signatureKey": "Std.File.ReadLines(path: String):Tuple(String...)",
+    "displaySignature": "Std.File.ReadLines(path: String) -> Tuple<String...>",
+    "signatureKey": "Std.File.ReadLines(path: String):Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3353,10 +3826,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.Dir.List",
-    "displaySignature": "Std.Dir.List(path: String) -> Tuple(String...)",
-    "signatureKey": "Std.Dir.List(path: String):Tuple(String...)",
+    "displaySignature": "Std.Dir.List(path: String) -> Tuple<String...>",
+    "signatureKey": "Std.Dir.List(path: String):Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3374,10 +3847,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "String"
       }
     ],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.Dir.ListFull",
-    "displaySignature": "Std.Dir.ListFull(path: String) -> Tuple(String...)",
-    "signatureKey": "Std.Dir.ListFull(path: String):Tuple(String...)",
+    "displaySignature": "Std.Dir.ListFull(path: String) -> Tuple<String...>",
+    "signatureKey": "Std.Dir.ListFull(path: String):Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3394,17 +3867,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "item",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Tuple.Append<T>",
-    "displaySignature": "Std.Tuple.Append<T>(t: Tuple(T...), item: T) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Append<T>(t: Tuple(T...), item: T):Tuple(T...)",
+    "displaySignature": "Std.Tuple.Append<T>(t: Tuple<T...>, item: T) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Append<T>(t: Tuple<T...>, item: T):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3421,17 +3894,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "item",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Tuple.Prepend<T>",
-    "displaySignature": "Std.Tuple.Prepend<T>(t: Tuple(T...), item: T) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Prepend<T>(t: Tuple(T...), item: T):Tuple(T...)",
+    "displaySignature": "Std.Tuple.Prepend<T>(t: Tuple<T...>, item: T) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Prepend<T>(t: Tuple<T...>, item: T):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3448,13 +3921,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Tuple.Reverse<T>",
-    "displaySignature": "Std.Tuple.Reverse<T>(t: Tuple(T...)) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Reverse<T>(t: Tuple(T...)):Tuple(T...)",
+    "displaySignature": "Std.Tuple.Reverse<T>(t: Tuple<T...>) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Reverse<T>(t: Tuple<T...>):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3471,7 +3944,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "item",
@@ -3480,8 +3953,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Bool",
     "displayName": "Std.Tuple.Contains<T>",
-    "displaySignature": "Std.Tuple.Contains<T>(t: Tuple(T...), item: T) -> Bool",
-    "signatureKey": "Std.Tuple.Contains<T>(t: Tuple(T...), item: T):Bool",
+    "displaySignature": "Std.Tuple.Contains<T>(t: Tuple<T...>, item: T) -> Bool",
+    "signatureKey": "Std.Tuple.Contains<T>(t: Tuple<T...>, item: T):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3499,17 +3972,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "a",
-        "type": "Tuple(A...)"
+        "type": "Tuple<A...>"
       },
       {
         "name": "b",
-        "type": "Tuple(B...)"
+        "type": "Tuple<B...>"
       }
     ],
-    "returnType": "Tuple(Tuple(A, B)...)",
+    "returnType": "Tuple<Tuple<A, B>...>",
     "displayName": "Std.Tuple.Zip<A, B>",
-    "displaySignature": "Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)) -> Tuple(Tuple(A, B)...)",
-    "signatureKey": "Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)):Tuple(Tuple(A, B)...)",
+    "displaySignature": "Std.Tuple.Zip<A, B>(a: Tuple<A...>, b: Tuple<B...>) -> Tuple<Tuple<A, B>...>",
+    "signatureKey": "Std.Tuple.Zip<A, B>(a: Tuple<A...>, b: Tuple<B...>):Tuple<Tuple<A, B>...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3527,17 +4000,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "func",
         "type": "(T) => U"
       }
     ],
-    "returnType": "Tuple(U...)",
+    "returnType": "Tuple<U...>",
     "displayName": "Std.Tuple.Map<T, U>",
-    "displaySignature": "Std.Tuple.Map<T, U>(t: Tuple(T...), func: (T) => U) -> Tuple(U...)",
-    "signatureKey": "Std.Tuple.Map<T, U>(t: Tuple(T...), func: (T) => U):Tuple(U...)",
+    "displaySignature": "Std.Tuple.Map<T, U>(t: Tuple<T...>, func: (T) => U) -> Tuple<U...>",
+    "signatureKey": "Std.Tuple.Map<T, U>(t: Tuple<T...>, func: (T) => U):Tuple<U...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3554,17 +4027,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "pred",
         "type": "(T) => Bool"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Tuple.Filter<T>",
-    "displaySignature": "Std.Tuple.Filter<T>(t: Tuple(T...), pred: (T) => Bool) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Filter<T>(t: Tuple(T...), pred: (T) => Bool):Tuple(T...)",
+    "displaySignature": "Std.Tuple.Filter<T>(t: Tuple<T...>, pred: (T) => Bool) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Filter<T>(t: Tuple<T...>, pred: (T) => Bool):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3576,18 +4049,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "namespace": "Std.Tuple",
     "name": "Sort",
     "typeParams": [
-      "T"
+      "T: Comparable"
     ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
-    "returnType": "Tuple(T...)",
-    "displayName": "Std.Tuple.Sort<T>",
-    "displaySignature": "Std.Tuple.Sort<T>(t: Tuple(T...)) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Sort<T>(t: Tuple(T...)):Tuple(T...)",
+    "returnType": "Tuple<T...>",
+    "displayName": "Std.Tuple.Sort<T: Comparable>",
+    "displaySignature": "Std.Tuple.Sort<T: Comparable>(t: Tuple<T...>) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Sort<T: Comparable>(t: Tuple<T...>):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3604,13 +4077,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Tuple.Unique<T>",
-    "displaySignature": "Std.Tuple.Unique<T>(t: Tuple(T...)) -> Tuple(T...)",
-    "signatureKey": "Std.Tuple.Unique<T>(t: Tuple(T...)):Tuple(T...)",
+    "displaySignature": "Std.Tuple.Unique<T>(t: Tuple<T...>) -> Tuple<T...>",
+    "signatureKey": "Std.Tuple.Unique<T>(t: Tuple<T...>):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3622,18 +4095,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "namespace": "Std.Tuple",
     "name": "Min",
     "typeParams": [
-      "T"
+      "T: Comparable"
     ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
     "returnType": "T",
-    "displayName": "Std.Tuple.Min<T>",
-    "displaySignature": "Std.Tuple.Min<T>(t: Tuple(T...)) -> T",
-    "signatureKey": "Std.Tuple.Min<T>(t: Tuple(T...)):T",
+    "displayName": "Std.Tuple.Min<T: Comparable>",
+    "displaySignature": "Std.Tuple.Min<T: Comparable>(t: Tuple<T...>) -> T",
+    "signatureKey": "Std.Tuple.Min<T: Comparable>(t: Tuple<T...>):T",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3645,18 +4118,18 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "namespace": "Std.Tuple",
     "name": "Max",
     "typeParams": [
-      "T"
+      "T: Comparable"
     ],
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
     "returnType": "T",
-    "displayName": "Std.Tuple.Max<T>",
-    "displaySignature": "Std.Tuple.Max<T>(t: Tuple(T...)) -> T",
-    "signatureKey": "Std.Tuple.Max<T>(t: Tuple(T...)):T",
+    "displayName": "Std.Tuple.Max<T: Comparable>",
+    "displaySignature": "Std.Tuple.Max<T: Comparable>(t: Tuple<T...>) -> T",
+    "signatureKey": "Std.Tuple.Max<T: Comparable>(t: Tuple<T...>):T",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3674,7 +4147,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "initial",
@@ -3687,8 +4160,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "A",
     "displayName": "Std.Tuple.Reduce<T, A>",
-    "displaySignature": "Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: (A, T) => A) -> A",
-    "signatureKey": "Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: (A, T) => A):A",
+    "displaySignature": "Std.Tuple.Reduce<T, A>(t: Tuple<T...>, initial: A, func: (A, T) => A) -> A",
+    "signatureKey": "Std.Tuple.Reduce<T, A>(t: Tuple<T...>, initial: A, func: (A, T) => A):A",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -3705,7 +4178,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "pred",
@@ -3714,8 +4187,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Int64",
     "displayName": "Std.Tuple.FindIndex<T>",
-    "displaySignature": "Std.Tuple.FindIndex<T>(t: Tuple(T...), pred: (T) => Bool) -> Int64",
-    "signatureKey": "Std.Tuple.FindIndex<T>(t: Tuple(T...), pred: (T) => Bool):Int64",
+    "displaySignature": "Std.Tuple.FindIndex<T>(t: Tuple<T...>, pred: (T) => Bool) -> Int64",
+    "signatureKey": "Std.Tuple.FindIndex<T>(t: Tuple<T...>, pred: (T) => Bool):Int64",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3732,7 +4205,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "pred",
@@ -3741,8 +4214,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Bool",
     "displayName": "Std.Tuple.Any<T>",
-    "displaySignature": "Std.Tuple.Any<T>(t: Tuple(T...), pred: (T) => Bool) -> Bool",
-    "signatureKey": "Std.Tuple.Any<T>(t: Tuple(T...), pred: (T) => Bool):Bool",
+    "displaySignature": "Std.Tuple.Any<T>(t: Tuple<T...>, pred: (T) => Bool) -> Bool",
+    "signatureKey": "Std.Tuple.Any<T>(t: Tuple<T...>, pred: (T) => Bool):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3759,7 +4232,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "t",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "pred",
@@ -3768,8 +4241,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Bool",
     "displayName": "Std.Tuple.All<T>",
-    "displaySignature": "Std.Tuple.All<T>(t: Tuple(T...), pred: (T) => Bool) -> Bool",
-    "signatureKey": "Std.Tuple.All<T>(t: Tuple(T...), pred: (T) => Bool):Bool",
+    "displaySignature": "Std.Tuple.All<T>(t: Tuple<T...>, pred: (T) => Bool) -> Bool",
+    "signatureKey": "Std.Tuple.All<T>(t: Tuple<T...>, pred: (T) => Bool):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3787,10 +4260,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Int64...)",
+    "returnType": "Tuple<Int64...>",
     "displayName": "Std.Tuple.Range",
-    "displaySignature": "Std.Tuple.Range(stop: Int64) -> Tuple(Int64...)",
-    "signatureKey": "Std.Tuple.Range(stop: Int64):Tuple(Int64...)",
+    "displaySignature": "Std.Tuple.Range(stop: Int64) -> Tuple<Int64...>",
+    "signatureKey": "Std.Tuple.Range(stop: Int64):Tuple<Int64...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3812,10 +4285,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Int64...)",
+    "returnType": "Tuple<Int64...>",
     "displayName": "Std.Tuple.Range",
-    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64) -> Tuple(Int64...)",
-    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64):Tuple(Int64...)",
+    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64) -> Tuple<Int64...>",
+    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64):Tuple<Int64...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3841,10 +4314,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Int64"
       }
     ],
-    "returnType": "Tuple(Int64...)",
+    "returnType": "Tuple<Int64...>",
     "displayName": "Std.Tuple.Range",
-    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) -> Tuple(Int64...)",
-    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64):Tuple(Int64...)",
+    "displaySignature": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64) -> Tuple<Int64...>",
+    "signatureKey": "Std.Tuple.Range(start: Int64, stop: Int64, step: Int64):Tuple<Int64...>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -3861,17 +4334,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "count",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Take<T>",
-    "displaySignature": "Std.Take<T>(tuple: Tuple(T...), count: Int64) -> Tuple(T...)",
-    "signatureKey": "Std.Take<T>(tuple: Tuple(T...), count: Int64):Tuple(T...)",
+    "displaySignature": "Std.Take<T>(tuple: Tuple<T...>, count: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Take<T>(tuple: Tuple<T...>, count: UInt64):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3888,17 +4361,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "count",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Drop<T>",
-    "displaySignature": "Std.Drop<T>(tuple: Tuple(T...), count: Int64) -> Tuple(T...)",
-    "signatureKey": "Std.Drop<T>(tuple: Tuple(T...), count: Int64):Tuple(T...)",
+    "displaySignature": "Std.Drop<T>(tuple: Tuple<T...>, count: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Drop<T>(tuple: Tuple<T...>, count: UInt64):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3915,17 +4388,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "count",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "T",
     "displayName": "Std.ElementAt<T>",
-    "displaySignature": "Std.ElementAt<T>(tuple: Tuple(T...), count: Int64) -> T",
-    "signatureKey": "Std.ElementAt<T>(tuple: Tuple(T...), count: Int64):T",
+    "displaySignature": "Std.ElementAt<T>(tuple: Tuple<T...>, count: UInt64) -> T",
+    "signatureKey": "Std.ElementAt<T>(tuple: Tuple<T...>, count: UInt64):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -3942,13 +4415,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
     "returnType": "Int64",
     "displayName": "Std.Length<T>",
-    "displaySignature": "Std.Length<T>(tuple: Tuple(T...)) -> Int64",
-    "signatureKey": "Std.Length<T>(tuple: Tuple(T...)):Int64",
+    "displaySignature": "Std.Length<T>(tuple: Tuple<T...>) -> Int64",
+    "signatureKey": "Std.Length<T>(tuple: Tuple<T...>):Int64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -3965,22 +4438,88 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "stop",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Slice<T>",
-    "displaySignature": "Std.Slice<T>(tuple: Tuple(T...), stop: Int64) -> Tuple(T...)",
-    "signatureKey": "Std.Slice<T>(tuple: Tuple(T...), stop: Int64):Tuple(T...)",
+    "displaySignature": "Std.Slice<T>(tuple: Tuple<T...>, stop: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Slice<T>(tuple: Tuple<T...>, stop: UInt64):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
     "overloadIndex": 1,
-    "overloadCount": 1
+    "overloadCount": 3
+  },
+  {
+    "qualifiedName": "Std.Slice",
+    "namespace": "Std",
+    "name": "Slice",
+    "typeParams": [
+      "T"
+    ],
+    "params": [
+      {
+        "name": "tuple",
+        "type": "Tuple<T...>"
+      },
+      {
+        "name": "start",
+        "type": "UInt64"
+      },
+      {
+        "name": "stop",
+        "type": "UInt64"
+      }
+    ],
+    "returnType": "Tuple<T...>",
+    "displayName": "Std.Slice<T>",
+    "displaySignature": "Std.Slice<T>(tuple: Tuple<T...>, start: UInt64, stop: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Slice<T>(tuple: Tuple<T...>, start: UInt64, stop: UInt64):Tuple<T...>",
+    "hasVariadicTail": false,
+    "minimumArity": 3,
+    "isTerminal": false,
+    "overloadIndex": 2,
+    "overloadCount": 3
+  },
+  {
+    "qualifiedName": "Std.Slice",
+    "namespace": "Std",
+    "name": "Slice",
+    "typeParams": [
+      "T"
+    ],
+    "params": [
+      {
+        "name": "tuple",
+        "type": "Tuple<T...>"
+      },
+      {
+        "name": "start",
+        "type": "UInt64"
+      },
+      {
+        "name": "stop",
+        "type": "UInt64"
+      },
+      {
+        "name": "step",
+        "type": "UInt64"
+      }
+    ],
+    "returnType": "Tuple<T...>",
+    "displayName": "Std.Slice<T>",
+    "displaySignature": "Std.Slice<T>(tuple: Tuple<T...>, start: UInt64, stop: UInt64, step: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Slice<T>(tuple: Tuple<T...>, start: UInt64, stop: UInt64, step: UInt64):Tuple<T...>",
+    "hasVariadicTail": false,
+    "minimumArity": 4,
+    "isTerminal": false,
+    "overloadIndex": 3,
+    "overloadCount": 3
   },
   {
     "qualifiedName": "Std.ToNum",
@@ -4009,10 +4548,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "name": "GetArgs",
     "typeParams": [],
     "params": [],
-    "returnType": "Tuple(String...)",
+    "returnType": "Tuple<String...>",
     "displayName": "Std.GetArgs",
-    "displaySignature": "Std.GetArgs() -> Tuple(String...)",
-    "signatureKey": "Std.GetArgs():Tuple(String...)",
+    "displaySignature": "Std.GetArgs() -> Tuple<String...>",
+    "signatureKey": "Std.GetArgs():Tuple<String...>",
     "hasVariadicTail": false,
     "minimumArity": 0,
     "isTerminal": false,
@@ -4055,10 +4594,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "FileHandle"
       }
     ],
-    "returnType": "Tuple(FileHandle, String, Bool)",
+    "returnType": "Tuple<FileHandle, String, Bool>",
     "displayName": "Std.File.ReadLine",
-    "displaySignature": "Std.File.ReadLine(handle: FileHandle) -> Tuple(FileHandle, String, Bool)",
-    "signatureKey": "Std.File.ReadLine(handle: FileHandle):Tuple(FileHandle, String, Bool)",
+    "displaySignature": "Std.File.ReadLine(handle: FileHandle) -> Tuple<FileHandle, String, Bool>",
+    "signatureKey": "Std.File.ReadLine(handle: FileHandle):Tuple<FileHandle, String, Bool>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4077,13 +4616,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "nbytes",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(FileHandle, String, Bool)",
+    "returnType": "Tuple<FileHandle, String, Bool>",
     "displayName": "Std.File.ReadChunk",
-    "displaySignature": "Std.File.ReadChunk(handle: FileHandle, nbytes: Int64) -> Tuple(FileHandle, String, Bool)",
-    "signatureKey": "Std.File.ReadChunk(handle: FileHandle, nbytes: Int64):Tuple(FileHandle, String, Bool)",
+    "displaySignature": "Std.File.ReadChunk(handle: FileHandle, nbytes: UInt64) -> Tuple<FileHandle, String, Bool>",
+    "signatureKey": "Std.File.ReadChunk(handle: FileHandle, nbytes: UInt64):Tuple<FileHandle, String, Bool>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4201,10 +4740,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T)",
+    "returnType": "Tuple<T>",
     "displayName": "Std.Wrap<T>",
-    "displaySignature": "Std.Wrap<T>(val: T) -> Tuple(T)",
-    "signatureKey": "Std.Wrap<T>(val: T):Tuple(T)",
+    "displaySignature": "Std.Wrap<T>(val: T) -> Tuple<T>",
+    "signatureKey": "Std.Wrap<T>(val: T):Tuple<T>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4221,13 +4760,61 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T)"
+        "type": "Tuple<T>"
       }
     ],
     "returnType": "T",
     "displayName": "Std.Unwrap<T>",
-    "displaySignature": "Std.Unwrap<T>(tuple: Tuple(T)) -> T",
-    "signatureKey": "Std.Unwrap<T>(tuple: Tuple(T)):T",
+    "displaySignature": "Std.Unwrap<T>(tuple: Tuple<T>) -> T",
+    "signatureKey": "Std.Unwrap<T>(tuple: Tuple<T>):T",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.First",
+    "namespace": "Std",
+    "name": "First",
+    "typeParams": [
+      "A",
+      "B"
+    ],
+    "params": [
+      {
+        "name": "pair",
+        "type": "Tuple<A, B>"
+      }
+    ],
+    "returnType": "A",
+    "displayName": "Std.First<A, B>",
+    "displaySignature": "Std.First<A, B>(pair: Tuple<A, B>) -> A",
+    "signatureKey": "Std.First<A, B>(pair: Tuple<A, B>):A",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.Second",
+    "namespace": "Std",
+    "name": "Second",
+    "typeParams": [
+      "A",
+      "B"
+    ],
+    "params": [
+      {
+        "name": "pair",
+        "type": "Tuple<A, B>"
+      }
+    ],
+    "returnType": "B",
+    "displayName": "Std.Second<A, B>",
+    "displaySignature": "Std.Second<A, B>(pair: Tuple<A, B>) -> B",
+    "signatureKey": "Std.Second<A, B>(pair: Tuple<A, B>):B",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4240,10 +4827,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "name": "Create",
     "typeParams": [],
     "params": [],
-    "returnType": "Dict(Any, Any)",
+    "returnType": "Dict<Any, Any>",
     "displayName": "Std.Dict.Create",
-    "displaySignature": "Std.Dict.Create() -> Dict(Any, Any)",
-    "signatureKey": "Std.Dict.Create():Dict(Any, Any)",
+    "displaySignature": "Std.Dict.Create() -> Dict<Any, Any>",
+    "signatureKey": "Std.Dict.Create():Dict<Any, Any>",
     "hasVariadicTail": false,
     "minimumArity": 0,
     "isTerminal": false,
@@ -4261,13 +4848,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Dict(K, V)",
+    "returnType": "Dict<K, V>",
     "displayName": "Std.Dict.Create<K, V>",
-    "displaySignature": "Std.Dict.Create<K, V>(dict: Dict(K, V)) -> Dict(K, V)",
-    "signatureKey": "Std.Dict.Create<K, V>(dict: Dict(K, V)):Dict(K, V)",
+    "displaySignature": "Std.Dict.Create<K, V>(dict: Dict<K, V>) -> Dict<K, V>",
+    "signatureKey": "Std.Dict.Create<K, V>(dict: Dict<K, V>):Dict<K, V>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4285,7 +4872,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "key",
@@ -4296,10 +4883,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "V"
       }
     ],
-    "returnType": "Dict(K, V)",
+    "returnType": "Dict<K, V>",
     "displayName": "Std.Dict.Set<K, V>",
-    "displaySignature": "Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V) -> Dict(K, V)",
-    "signatureKey": "Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V):Dict(K, V)",
+    "displaySignature": "Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V) -> Dict<K, V>",
+    "signatureKey": "Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V):Dict<K, V>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4317,7 +4904,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "key",
@@ -4326,8 +4913,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "V",
     "displayName": "Std.Dict.Get<K, V>",
-    "displaySignature": "Std.Dict.Get<K, V>(dict: Dict(K, V), key: K) -> V",
-    "signatureKey": "Std.Dict.Get<K, V>(dict: Dict(K, V), key: K):V",
+    "displaySignature": "Std.Dict.Get<K, V>(dict: Dict<K, V>, key: K) -> V",
+    "signatureKey": "Std.Dict.Get<K, V>(dict: Dict<K, V>, key: K):V",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4345,7 +4932,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "key",
@@ -4358,8 +4945,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "V",
     "displayName": "Std.Dict.GetDefault<K, V>",
-    "displaySignature": "Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V) -> V",
-    "signatureKey": "Std.Dict.GetDefault<K, V>(dict: Dict(K, V), key: K, default: V):V",
+    "displaySignature": "Std.Dict.GetDefault<K, V>(dict: Dict<K, V>, key: K, default: V) -> V",
+    "signatureKey": "Std.Dict.GetDefault<K, V>(dict: Dict<K, V>, key: K, default: V):V",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4377,7 +4964,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "key",
@@ -4386,8 +4973,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Bool",
     "displayName": "Std.Dict.Contains<K, V>",
-    "displaySignature": "Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K) -> Bool",
-    "signatureKey": "Std.Dict.Contains<K, V>(dict: Dict(K, V), key: K):Bool",
+    "displaySignature": "Std.Dict.Contains<K, V>(dict: Dict<K, V>, key: K) -> Bool",
+    "signatureKey": "Std.Dict.Contains<K, V>(dict: Dict<K, V>, key: K):Bool",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4405,17 +4992,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "key",
         "type": "K"
       }
     ],
-    "returnType": "Dict(K, V)",
+    "returnType": "Dict<K, V>",
     "displayName": "Std.Dict.Delete<K, V>",
-    "displaySignature": "Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K) -> Dict(K, V)",
-    "signatureKey": "Std.Dict.Delete<K, V>(dict: Dict(K, V), key: K):Dict(K, V)",
+    "displaySignature": "Std.Dict.Delete<K, V>(dict: Dict<K, V>, key: K) -> Dict<K, V>",
+    "signatureKey": "Std.Dict.Delete<K, V>(dict: Dict<K, V>, key: K):Dict<K, V>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4433,17 +5020,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict_base",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       },
       {
         "name": "dict_overlay",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Dict(K, V)",
+    "returnType": "Dict<K, V>",
     "displayName": "Std.Dict.Merge<K, V>",
-    "displaySignature": "Std.Dict.Merge<K, V>(dict_base: Dict(K, V), dict_overlay: Dict(K, V)) -> Dict(K, V)",
-    "signatureKey": "Std.Dict.Merge<K, V>(dict_base: Dict(K, V), dict_overlay: Dict(K, V)):Dict(K, V)",
+    "displaySignature": "Std.Dict.Merge<K, V>(dict_base: Dict<K, V>, dict_overlay: Dict<K, V>) -> Dict<K, V>",
+    "signatureKey": "Std.Dict.Merge<K, V>(dict_base: Dict<K, V>, dict_overlay: Dict<K, V>):Dict<K, V>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4461,13 +5048,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Tuple(K...)",
+    "returnType": "Tuple<K...>",
     "displayName": "Std.Dict.Keys<K, V>",
-    "displaySignature": "Std.Dict.Keys<K, V>(dict: Dict(K, V)) -> Tuple(K...)",
-    "signatureKey": "Std.Dict.Keys<K, V>(dict: Dict(K, V)):Tuple(K...)",
+    "displaySignature": "Std.Dict.Keys<K, V>(dict: Dict<K, V>) -> Tuple<K...>",
+    "signatureKey": "Std.Dict.Keys<K, V>(dict: Dict<K, V>):Tuple<K...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4485,13 +5072,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Tuple(V...)",
+    "returnType": "Tuple<V...>",
     "displayName": "Std.Dict.Values<K, V>",
-    "displaySignature": "Std.Dict.Values<K, V>(dict: Dict(K, V)) -> Tuple(V...)",
-    "signatureKey": "Std.Dict.Values<K, V>(dict: Dict(K, V)):Tuple(V...)",
+    "displaySignature": "Std.Dict.Values<K, V>(dict: Dict<K, V>) -> Tuple<V...>",
+    "signatureKey": "Std.Dict.Values<K, V>(dict: Dict<K, V>):Tuple<V...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4509,13 +5096,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Tuple(Tuple(K, V)...)",
+    "returnType": "Tuple<Tuple<K, V>...>",
     "displayName": "Std.Dict.Entries<K, V>",
-    "displaySignature": "Std.Dict.Entries<K, V>(dict: Dict(K, V)) -> Tuple(Tuple(K, V)...)",
-    "signatureKey": "Std.Dict.Entries<K, V>(dict: Dict(K, V)):Tuple(Tuple(K, V)...)",
+    "displaySignature": "Std.Dict.Entries<K, V>(dict: Dict<K, V>) -> Tuple<Tuple<K, V>...>",
+    "signatureKey": "Std.Dict.Entries<K, V>(dict: Dict<K, V>):Tuple<Tuple<K, V>...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4533,13 +5120,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
-    "returnType": "Dict(K, V)",
+    "returnType": "Dict<K, V>",
     "displayName": "Std.Dict.Clear<K, V>",
-    "displaySignature": "Std.Dict.Clear<K, V>(dict: Dict(K, V)) -> Dict(K, V)",
-    "signatureKey": "Std.Dict.Clear<K, V>(dict: Dict(K, V)):Dict(K, V)",
+    "displaySignature": "Std.Dict.Clear<K, V>(dict: Dict<K, V>) -> Dict<K, V>",
+    "signatureKey": "Std.Dict.Clear<K, V>(dict: Dict<K, V>):Dict<K, V>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4557,13 +5144,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "dict",
-        "type": "Dict(K, V)"
+        "type": "Dict<K, V>"
       }
     ],
     "returnType": "Int64",
     "displayName": "Std.Dict.Length<K, V>",
-    "displaySignature": "Std.Dict.Length<K, V>(dict: Dict(K, V)) -> Int64",
-    "signatureKey": "Std.Dict.Length<K, V>(dict: Dict(K, V)):Int64",
+    "displaySignature": "Std.Dict.Length<K, V>(dict: Dict<K, V>) -> Int64",
+    "signatureKey": "Std.Dict.Length<K, V>(dict: Dict<K, V>):Int64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4580,17 +5167,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "index",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
     "returnType": "T",
     "displayName": "Std.Array.GetAt<T>",
-    "displaySignature": "Std.Array.GetAt<T>(array: Tuple(T...), index: Int64) -> T",
-    "signatureKey": "Std.Array.GetAt<T>(array: Tuple(T...), index: Int64):T",
+    "displaySignature": "Std.Array.GetAt<T>(array: Tuple<T...>, index: UInt64) -> T",
+    "signatureKey": "Std.Array.GetAt<T>(array: Tuple<T...>, index: UInt64):T",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4607,21 +5194,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "index",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "value",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.SetAt<T>",
-    "displaySignature": "Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T) -> Tuple(T...)",
-    "signatureKey": "Std.Array.SetAt<T>(array: Tuple(T...), index: Int64, value: T):Tuple(T...)",
+    "displaySignature": "Std.Array.SetAt<T>(array: Tuple<T...>, index: UInt64, value: T) -> Tuple<T...>",
+    "signatureKey": "Std.Array.SetAt<T>(array: Tuple<T...>, index: UInt64, value: T):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4638,21 +5225,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "index",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "value",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.InsertAt<T>",
-    "displaySignature": "Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T) -> Tuple(T...)",
-    "signatureKey": "Std.Array.InsertAt<T>(array: Tuple(T...), index: Int64, value: T):Tuple(T...)",
+    "displaySignature": "Std.Array.InsertAt<T>(array: Tuple<T...>, index: UInt64, value: T) -> Tuple<T...>",
+    "signatureKey": "Std.Array.InsertAt<T>(array: Tuple<T...>, index: UInt64, value: T):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4669,17 +5256,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "index",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.RemoveAt<T>",
-    "displaySignature": "Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64) -> Tuple(T...)",
-    "signatureKey": "Std.Array.RemoveAt<T>(array: Tuple(T...), index: Int64):Tuple(T...)",
+    "displaySignature": "Std.Array.RemoveAt<T>(array: Tuple<T...>, index: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Array.RemoveAt<T>(array: Tuple<T...>, index: UInt64):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4696,21 +5283,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "start",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "stop",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.Slice<T>",
-    "displaySignature": "Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64) -> Tuple(T...)",
-    "signatureKey": "Std.Array.Slice<T>(array: Tuple(T...), start: Int64, stop: Int64):Tuple(T...)",
+    "displaySignature": "Std.Array.Slice<T>(array: Tuple<T...>, start: UInt64, stop: UInt64) -> Tuple<T...>",
+    "signatureKey": "Std.Array.Slice<T>(array: Tuple<T...>, start: UInt64, stop: UInt64):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4727,17 +5314,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "lhs",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "rhs",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.Concat<T>",
-    "displaySignature": "Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)) -> Tuple(T...)",
-    "signatureKey": "Std.Array.Concat<T>(lhs: Tuple(T...), rhs: Tuple(T...)):Tuple(T...)",
+    "displaySignature": "Std.Array.Concat<T>(lhs: Tuple<T...>, rhs: Tuple<T...>) -> Tuple<T...>",
+    "signatureKey": "Std.Array.Concat<T>(lhs: Tuple<T...>, rhs: Tuple<T...>):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -4754,25 +5341,25 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Tuple(T...)...)"
+        "type": "Tuple<Tuple<T...>...>"
       },
       {
         "name": "row",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "col",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "value",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(Tuple(T...)...)",
+    "returnType": "Tuple<Tuple<T...>...>",
     "displayName": "Std.Array.SetAt2D<T>",
-    "displaySignature": "Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T) -> Tuple(Tuple(T...)...)",
-    "signatureKey": "Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Int64, col: Int64, value: T):Tuple(Tuple(T...)...)",
+    "displaySignature": "Std.Array.SetAt2D<T>(grid: Tuple<Tuple<T...>...>, row: UInt64, col: UInt64, value: T) -> Tuple<Tuple<T...>...>",
+    "signatureKey": "Std.Array.SetAt2D<T>(grid: Tuple<Tuple<T...>...>, row: UInt64, col: UInt64, value: T):Tuple<Tuple<T...>...>",
     "hasVariadicTail": false,
     "minimumArity": 4,
     "isTerminal": false,
@@ -4789,25 +5376,25 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "tuple",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "start_index",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "length",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "value",
         "type": "T"
       }
     ],
-    "returnType": "Tuple(T...)",
+    "returnType": "Tuple<T...>",
     "displayName": "Std.Array.Fill<T>",
-    "displaySignature": "Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T) -> Tuple(T...)",
-    "signatureKey": "Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Int64, length: Int64, value: T):Tuple(T...)",
+    "displaySignature": "Std.Array.Fill<T>(tuple: Tuple<T...>, start_index: UInt64, length: UInt64, value: T) -> Tuple<T...>",
+    "signatureKey": "Std.Array.Fill<T>(tuple: Tuple<T...>, start_index: UInt64, length: UInt64, value: T):Tuple<T...>",
     "hasVariadicTail": false,
     "minimumArity": 4,
     "isTerminal": false,
@@ -4824,13 +5411,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Tuple(T...)...)"
+        "type": "Tuple<Tuple<T...>...>"
       }
     ],
-    "returnType": "Tuple(Tuple(T...)...)",
+    "returnType": "Tuple<Tuple<T...>...>",
     "displayName": "Std.Array.Transpose2D<T>",
-    "displaySignature": "Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)) -> Tuple(Tuple(T...)...)",
-    "signatureKey": "Std.Array.Transpose2D<T>(grid: Tuple(Tuple(T...)...)):Tuple(Tuple(T...)...)",
+    "displaySignature": "Std.Array.Transpose2D<T>(grid: Tuple<Tuple<T...>...>) -> Tuple<Tuple<T...>...>",
+    "signatureKey": "Std.Array.Transpose2D<T>(grid: Tuple<Tuple<T...>...>):Tuple<Tuple<T...>...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4847,29 +5434,29 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "grid",
-        "type": "Tuple(Tuple(T...)...)"
+        "type": "Tuple<Tuple<T...>...>"
       },
       {
         "name": "row_start",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "row_end",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "col_start",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "col_end",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(Tuple(T...)...)",
+    "returnType": "Tuple<Tuple<T...>...>",
     "displayName": "Std.Array.Slice2D<T>",
-    "displaySignature": "Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64) -> Tuple(Tuple(T...)...)",
-    "signatureKey": "Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Int64, row_end: Int64, col_start: Int64, col_end: Int64):Tuple(Tuple(T...)...)",
+    "displaySignature": "Std.Array.Slice2D<T>(grid: Tuple<Tuple<T...>...>, row_start: UInt64, row_end: UInt64, col_start: UInt64, col_end: UInt64) -> Tuple<Tuple<T...>...>",
+    "signatureKey": "Std.Array.Slice2D<T>(grid: Tuple<Tuple<T...>...>, row_start: UInt64, row_end: UInt64, col_start: UInt64, col_end: UInt64):Tuple<Tuple<T...>...>",
     "hasVariadicTail": false,
     "minimumArity": 5,
     "isTerminal": false,
@@ -4886,21 +5473,21 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "flat_array",
-        "type": "Tuple(T...)"
+        "type": "Tuple<T...>"
       },
       {
         "name": "rows",
-        "type": "Int64"
+        "type": "UInt64"
       },
       {
         "name": "cols",
-        "type": "Int64"
+        "type": "UInt64"
       }
     ],
-    "returnType": "Tuple(Tuple(T...)...)",
+    "returnType": "Tuple<Tuple<T...>...>",
     "displayName": "Std.Array.Reshape<T>",
-    "displaySignature": "Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Int64, cols: Int64) -> Tuple(Tuple(T...)...)",
-    "signatureKey": "Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Int64, cols: Int64):Tuple(Tuple(T...)...)",
+    "displaySignature": "Std.Array.Reshape<T>(flat_array: Tuple<T...>, rows: UInt64, cols: UInt64) -> Tuple<Tuple<T...>...>",
+    "signatureKey": "Std.Array.Reshape<T>(flat_array: Tuple<T...>, rows: UInt64, cols: UInt64):Tuple<Tuple<T...>...>",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -4939,10 +5526,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any"
       }
     ],
-    "returnType": "Tuple(Int64...)",
+    "returnType": "Tuple<UInt64...>",
     "displayName": "Std.Array.Shape",
-    "displaySignature": "Std.Array.Shape(value: Any) -> Tuple(Int64...)",
-    "signatureKey": "Std.Array.Shape(value: Any):Tuple(Int64...)",
+    "displaySignature": "Std.Array.Shape(value: Any) -> Tuple<UInt64...>",
+    "signatureKey": "Std.Array.Shape(value: Any):Tuple<UInt64...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4960,10 +5547,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
         "type": "Any"
       }
     ],
-    "returnType": "Tuple(Any...)",
+    "returnType": "Tuple<Any...>",
     "displayName": "Std.Array.Flatten",
-    "displaySignature": "Std.Array.Flatten(value: Any) -> Tuple(Any...)",
-    "signatureKey": "Std.Array.Flatten(value: Any):Tuple(Any...)",
+    "displaySignature": "Std.Array.Flatten(value: Any) -> Tuple<Any...>",
+    "signatureKey": "Std.Array.Flatten(value: Any):Tuple<Any...>",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4982,13 +5569,13 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "indices",
-        "type": "Tuple(Int64...)"
+        "type": "Tuple<UInt64...>"
       }
     ],
     "returnType": "Any",
     "displayName": "Std.Array.GetAtND",
-    "displaySignature": "Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)) -> Any",
-    "signatureKey": "Std.Array.GetAtND(value: Any, indices: Tuple(Int64...)):Any",
+    "displaySignature": "Std.Array.GetAtND(value: Any, indices: Tuple<UInt64...>) -> Any",
+    "signatureKey": "Std.Array.GetAtND(value: Any, indices: Tuple<UInt64...>):Any",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -5007,7 +5594,7 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
       },
       {
         "name": "indices",
-        "type": "Tuple(Int64...)"
+        "type": "Tuple<UInt64...>"
       },
       {
         "name": "replacement",
@@ -5016,8 +5603,8 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     ],
     "returnType": "Any",
     "displayName": "Std.Array.SetAtND",
-    "displaySignature": "Std.Array.SetAtND(value: Any, indices: Tuple(Int64...), replacement: Any) -> Any",
-    "signatureKey": "Std.Array.SetAtND(value: Any, indices: Tuple(Int64...), replacement: Any):Any",
+    "displaySignature": "Std.Array.SetAtND(value: Any, indices: Tuple<UInt64...>, replacement: Any) -> Any",
+    "signatureKey": "Std.Array.SetAtND(value: Any, indices: Tuple<UInt64...>, replacement: Any):Any",
     "hasVariadicTail": false,
     "minimumArity": 3,
     "isTerminal": false,
@@ -5032,17 +5619,17 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "params": [
       {
         "name": "flat_array",
-        "type": "Tuple(Any...)"
+        "type": "Tuple<Any...>"
       },
       {
         "name": "shape",
-        "type": "Tuple(Int64...)"
+        "type": "Tuple<UInt64...>"
       }
     ],
     "returnType": "Any",
     "displayName": "Std.Array.ReshapeND",
-    "displaySignature": "Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)) -> Any",
-    "signatureKey": "Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(Int64...)):Any",
+    "displaySignature": "Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Tuple<UInt64...>) -> Any",
+    "signatureKey": "Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Tuple<UInt64...>):Any",
     "hasVariadicTail": false,
     "minimumArity": 2,
     "isTerminal": false,
@@ -5073,6 +5660,7 @@ export const STD_BY_NAMESPACE: Map<string, StdFunctionEntry[]> = (() => {
 
 export const STD_NAMESPACES = [
   "Std",
+  "Std.Random",
   "Std.Bit",
   "Std.Result",
   "Std.Parallel",

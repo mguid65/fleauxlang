@@ -49,6 +49,11 @@ function stripLineComments(source) {
   return out.join('');
 }
 
+// A '>' closes a type argument list unless it ends '=>' (function types) or '->' (pipelines).
+function isClosingAngle(input, index) {
+  return input[index] === '>' && input[index - 1] !== '=' && input[index - 1] !== '-';
+}
+
 function splitStatements(source) {
   const statements = [];
   let depthParen = 0;
@@ -87,7 +92,7 @@ function splitStatements(source) {
       depthAngle += 1;
       continue;
     }
-    if (ch === '>') {
+    if (isClosingAngle(source, index)) {
       depthAngle = Math.max(0, depthAngle - 1);
       continue;
     }
@@ -109,11 +114,12 @@ function splitTopLevel(input, delimiter) {
   let depthParen = 0;
   let depthAngle = 0;
   let token = '';
-  for (const ch of input) {
+  for (let index = 0; index < input.length; index += 1) {
+    const ch = input[index];
     if (ch === '(') depthParen += 1;
     if (ch === ')') depthParen -= 1;
     if (ch === '<') depthAngle += 1;
-    if (ch === '>') depthAngle = Math.max(0, depthAngle - 1);
+    if (isClosingAngle(input, index)) depthAngle = Math.max(0, depthAngle - 1);
     if (ch === delimiter && depthParen === 0 && depthAngle === 0) {
       parts.push(token.trim());
       token = '';
@@ -136,7 +142,7 @@ function findTopLevelChar(input, target) {
     if (ch === '(') depthParen += 1;
     else if (ch === ')') depthParen -= 1;
     else if (ch === '<') depthAngle += 1;
-    else if (ch === '>') depthAngle = Math.max(0, depthAngle - 1);
+    else if (isClosingAngle(input, index)) depthAngle = Math.max(0, depthAngle - 1);
   }
   return -1;
 }
@@ -159,29 +165,63 @@ function findMatchingParen(input, openIndex) {
 
 function splitQualifiedNameAndTypeParams(rawName) {
   const trimmed = rawName.trim();
-  if (!trimmed.endsWith('>')) {
+  const open = trimmed.indexOf('<');
+  if (open === -1) {
     return { qualifiedName: trimmed, typeParams: [] };
   }
 
+  const close = findMatchingAngle(trimmed, open);
+  if (close !== trimmed.length - 1) {
+    throw new Error('Malformed generic parameter list in "' + trimmed + '"');
+  }
+
+  const qualifiedName = trimmed.slice(0, open).trim();
+  const typeParamsText = trimmed.slice(open + 1, close).trim();
+  const typeParams = typeParamsText.length === 0 ? [] : splitTopLevel(typeParamsText, ',').map(normalizeTypeParam);
+  return { qualifiedName, typeParams };
+}
+
+function findMatchingAngle(input, openIndex) {
   let depth = 0;
-  for (let index = trimmed.length - 1; index >= 0; index -= 1) {
-    const ch = trimmed[index];
-    if (ch === '>') {
+  for (let index = openIndex; index < input.length; index += 1) {
+    if (input[index] === '<') {
       depth += 1;
-      continue;
-    }
-    if (ch === '<') {
+    } else if (isClosingAngle(input, index)) {
       depth -= 1;
       if (depth === 0) {
-        const qualifiedName = trimmed.slice(0, index).trim();
-        const typeParamsText = trimmed.slice(index + 1, -1).trim();
-        const typeParams = typeParamsText.length === 0 ? [] : splitTopLevel(typeParamsText, ',');
-        return { qualifiedName, typeParams };
+        return index;
       }
     }
   }
+  return -1;
+}
 
-  return { qualifiedName: trimmed, typeParams: [] };
+// Generic parameters are kept as display text, e.g. 'T' or 'T: Numeric' or 'T: Int64 | UInt64'.
+function normalizeTypeParam(raw) {
+  const colon = raw.indexOf(':');
+  if (colon === -1) {
+    return raw.trim();
+  }
+  return raw.slice(0, colon).trim() + ': ' + raw.slice(colon + 1).trim();
+}
+
+// type Name<T, E> :: __builtin__;  or  type Name = Target;
+function parseTypeStatement(statement) {
+  const match = /^type\s+([A-Za-z_][\w]*(?:\s*<.*?>)?)\s*(::|=)\s*(.+);$/.exec(statement);
+  if (!match) {
+    return null;
+  }
+  const { qualifiedName: name, typeParams } = splitQualifiedNameAndTypeParams(match[1]);
+  return { name, typeParams, separator: match[2], target: match[3].trim() };
+}
+
+// alias Name = Target;
+function parseAliasStatement(statement) {
+  const match = /^alias\s+([A-Za-z_][\w]*)\s*=\s*(.+);$/.exec(statement);
+  if (!match) {
+    return null;
+  }
+  return { name: match[1], target: match[2].trim() };
 }
 
 function parseParam(raw) {
@@ -275,12 +315,44 @@ const statements = splitStatements(stripLineComments(src));
 
 const stdValues = [];
 const stdFunctions = [];
+const stdTypes = [];
+const stdAliases = [];
 const namespaceOrder = [];
 const seenNs = new Set();
+const unparsed = [];
 
 for (const statement of statements) {
-  const parsed = parseLetStatement(statement);
+  if (/^import\s/.test(statement)) {
+    continue;
+  }
+  if (statement.startsWith('type ')) {
+    const typeDecl = parseTypeStatement(statement);
+    if (!typeDecl) {
+      unparsed.push(statement);
+      continue;
+    }
+    stdTypes.push({
+      name: typeDecl.name,
+      typeParams: typeDecl.typeParams,
+      isBuiltin: typeDecl.separator === '::' && typeDecl.target === '__builtin__',
+      target: typeDecl.target,
+      displayName: typeDecl.name + formatTypeParams(typeDecl.typeParams),
+    });
+    continue;
+  }
+  if (statement.startsWith('alias ')) {
+    const aliasDecl = parseAliasStatement(statement);
+    if (!aliasDecl) {
+      unparsed.push(statement);
+      continue;
+    }
+    stdAliases.push({ name: aliasDecl.name, target: aliasDecl.target });
+    continue;
+  }
+
+  const parsed = statement.startsWith('let ') ? parseLetStatement(statement) : null;
   if (!parsed) {
+    unparsed.push(statement);
     continue;
   }
   if (!parsed.qualifiedName.startsWith('Std.')) {
@@ -319,6 +391,14 @@ for (const statement of statements) {
       valueType: parsed.returnType,
     });
   }
+}
+
+if (unparsed.length > 0) {
+  console.error('Could not parse ' + unparsed.length + ' statement(s) in ' + STD_PATH + ':');
+  for (const statement of unparsed) {
+    console.error('  ' + statement);
+  }
+  process.exit(1);
 }
 
 const overloadCounts = new Map();
@@ -363,6 +443,23 @@ const output = [
   '  overloadCount: number;',
   '  isTerminal: boolean;',
   '};',
+  '',
+  'export type StdTypeEntry = {',
+  '  name: string;',
+  '  typeParams: string[];',
+  '  isBuiltin: boolean;',
+  '  target: string;',
+  '  displayName: string;',
+  '};',
+  '',
+  'export type StdAliasEntry = {',
+  '  name: string;',
+  '  target: string;',
+  '};',
+  '',
+  'export const STD_TYPES: StdTypeEntry[] = ' + JSON.stringify(stdTypes, null, 2) + ';',
+  '',
+  'export const STD_ALIASES: StdAliasEntry[] = ' + JSON.stringify(stdAliases, null, 2) + ';',
   '',
   'export const STD_VALUES: StdValueEntry[] = ' + JSON.stringify(stdValues, null, 2) + ';',
   '',

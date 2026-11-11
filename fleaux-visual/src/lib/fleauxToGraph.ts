@@ -221,10 +221,59 @@ function hasTopLevelDelimiter(text: string, delimiter: string): boolean {
   return false;
 }
 
+/** True when the `>` at `index` closes a type argument list rather than ending `=>` or `->`. */
+function isClosingAngle(text: string, index: number): boolean {
+  return text[index] === '>' && text[index - 1] !== '=' && text[index - 1] !== '-';
+}
+
+/**
+ * Split type text (parameter lists, type argument lists) on a top-level delimiter.
+ * Unlike `splitTopLevel`, this treats `<...>` as nesting, so `a: Tuple<A, B>, f: (A) => B`
+ * splits into two entries. Only use it on type text: in expressions `<` is an operator.
+ */
+function splitTopLevelType(text: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let parenDepth = 0;
+  let angleDepth = 0;
+  let cursor = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (ch === '(' || ch === '[') { parenDepth += 1; continue; }
+    if (ch === ')' || ch === ']') { parenDepth = Math.max(0, parenDepth - 1); continue; }
+    if (ch === '<') { angleDepth += 1; continue; }
+    if (isClosingAngle(text, index)) { angleDepth = Math.max(0, angleDepth - 1); continue; }
+    if (parenDepth === 0 && angleDepth === 0 && text.startsWith(delimiter, index)) {
+      parts.push(text.slice(cursor, index).trim());
+      cursor = index + delimiter.length;
+      index += delimiter.length - 1;
+    }
+  }
+
+  parts.push(text.slice(cursor).trim());
+  return parts.filter((part) => part.length > 0);
+}
+
+/** Index of the `>` matching the `<` at `openIndex`, ignoring the `>` of `=>` and `->`. */
+function findMatchingAngle(text: string, openIndex: number): number {
+  let depth = 0;
+  for (let index = openIndex; index < text.length; index += 1) {
+    if (text[index] === '<') {
+      depth += 1;
+    } else if (isClosingAngle(text, index)) {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
+}
+
 function parseParams(paramText: string): Param[] {
   const trimmed = paramText.trim();
   if (!trimmed) return [];
-  return splitTopLevel(trimmed, ',').map((entry) => {
+  return splitTopLevelType(trimmed, ',').map((entry) => {
     const colonIdx = entry.indexOf(':');
     if (colonIdx < 1) throw new FleauxImportError(`Invalid parameter entry: '${entry}'`);
     return { name: entry.slice(0, colonIdx).trim(), type: entry.slice(colonIdx + 1).trim() };
@@ -280,7 +329,7 @@ function findTopLevelDefinitionSeparator(text: string): DefinitionSeparator | nu
     if (ch === '(') { parenDepth += 1; continue; }
     if (ch === ')') { parenDepth = Math.max(0, parenDepth - 1); continue; }
     if (ch === '<') { angleDepth += 1; continue; }
-    if (ch === '>') { angleDepth = Math.max(0, angleDepth - 1); continue; }
+    if (isClosingAngle(text, index)) { angleDepth = Math.max(0, angleDepth - 1); continue; }
 
     if (parenDepth !== 0 || angleDepth !== 0) {
       continue;
@@ -344,7 +393,7 @@ function tryParseClosureSyntax(text: string): ClosureSyntax | null {
   // Validate the paren content looks like closure params (every comma-part has `:`)
   const paramsText = trimmed.slice(1, closeIndex).trim();
   if (paramsText) {
-    const parts = splitTopLevel(paramsText, ',');
+    const parts = splitTopLevelType(paramsText, ',');
     if (!parts.every((part) => part.includes(':'))) return null;
   }
 
@@ -360,29 +409,40 @@ function tryParseClosureSyntax(text: string): ClosureSyntax | null {
 
 function splitNameAndTypeParams(rawName: string): { name: string; typeParams: string[] } {
   const trimmed = rawName.trim();
-  if (!trimmed.endsWith('>')) {
+  const open = trimmed.indexOf('<');
+  if (open <= 0 || !trimmed.endsWith('>') || findMatchingAngle(trimmed, open) !== trimmed.length - 1) {
     return { name: trimmed, typeParams: [] };
   }
 
-  let depth = 0;
-  for (let index = trimmed.length - 1; index >= 0; index -= 1) {
-    const ch = trimmed[index];
-    if (ch === '>') {
-      depth += 1;
-      continue;
-    }
-    if (ch === '<') {
-      depth -= 1;
-      if (depth === 0) {
-        const name = trimmed.slice(0, index).trim();
-        const typeParamsText = trimmed.slice(index + 1, -1).trim();
-        const typeParams = typeParamsText.length === 0 ? [] : splitTopLevel(typeParamsText, ',');
-        return { name, typeParams };
-      }
-    }
+  const name = trimmed.slice(0, open).trim();
+  const typeParamsText = trimmed.slice(open + 1, -1).trim();
+  const typeParams = typeParamsText.length === 0 ? [] : splitTopLevelType(typeParamsText, ',');
+  return { name, typeParams };
+}
+
+/**
+ * Parse the head of a `type` or `alias` declaration. The returned name keeps any generic
+ * parameter list, e.g. `Result<T, E>` or `Id<T>`, so the declaration serializes unchanged.
+ */
+function parseDeclarationHead(stmt: string, keyword: 'type' | 'alias'): { name: string; rest: string } | null {
+  const match = new RegExp('^' + keyword + '\\s+([A-Za-z_][\\w]*)\\s*').exec(stmt);
+  if (!match) {
+    return null;
   }
 
-  return { name: trimmed, typeParams: [] };
+  let name = match[1];
+  let cursor = match[0].length;
+  if (stmt[cursor] === '<') {
+    const close = findMatchingAngle(stmt, cursor);
+    if (close === -1) {
+      return null;
+    }
+    const typeParams = splitTopLevelType(stmt.slice(cursor + 1, close), ',');
+    name += '<' + typeParams.join(', ') + '>';
+    cursor = close + 1;
+  }
+
+  return { name, rest: stmt.slice(cursor).trimStart() };
 }
 
 function parseLet(stmt: string): LetDef {
@@ -400,7 +460,7 @@ function parseLet(stmt: string): LetDef {
       angleDepth += 1;
       continue;
     }
-    if (ch === '>') {
+    if (isClosingAngle(afterLet, index)) {
       angleDepth = Math.max(0, angleDepth - 1);
       continue;
     }
@@ -442,27 +502,29 @@ function parseLet(stmt: string): LetDef {
 }
 
 function parseTypeDecl(stmt: string): TypeDecl {
-  const match = /^type\s+([A-Za-z_][\w]*)\s*(=|::)\s*(.+)$/s.exec(stmt);
-  if (!match) {
+  const head = parseDeclarationHead(stmt, 'type');
+  const separatorMatch = head ? /^(::|=)\s*(.+)$/s.exec(head.rest) : null;
+  if (!head || !separatorMatch) {
     throw new FleauxImportError(`Unsupported type declaration: ${stmt}`);
   }
 
   return {
-    name: match[1].trim(),
-    separator: match[2] as '=' | '::',
-    targetType: match[3].trim(),
+    name: head.name,
+    separator: separatorMatch[1] as '=' | '::',
+    targetType: separatorMatch[2].trim(),
   };
 }
 
 function parseAliasDecl(stmt: string): AliasDecl {
-  const match = /^alias\s+([A-Za-z_][\w]*)\s*=\s*(.+)$/s.exec(stmt);
-  if (!match) {
+  const head = parseDeclarationHead(stmt, 'alias');
+  const targetMatch = head ? /^=\s*(.+)$/s.exec(head.rest) : null;
+  if (!head || !targetMatch) {
     throw new FleauxImportError(`Unsupported alias declaration: ${stmt}`);
   }
 
   return {
-    name: match[1].trim(),
-    targetType: match[2].trim(),
+    name: head.name,
+    targetType: targetMatch[1].trim(),
   };
 }
 
