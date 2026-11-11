@@ -389,10 +389,10 @@ auto is_bound_alternative(const Type& candidate, const Type& alternative) -> boo
 
 auto satisfies_generic_bound(const Type& actual, const Type& bound) -> bool {
   switch (actual.kind) {
-    case TypeKind::kAny:
     case TypeKind::kUnknown:
     case TypeKind::kNever:
       return true;
+    case TypeKind::kAny:
     case TypeKind::kUnion:
       return false;
     case TypeKind::kTypeVar: {
@@ -417,8 +417,13 @@ auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (actual.kind == TypeKind::kNever) {
     return true;
   }
-  if (expected.kind == TypeKind::kAny || actual.kind == TypeKind::kAny) {
+  // Any is the top type: every value fits an Any slot, but an Any value fits only an Any slot. Using it as
+  // anything more specific needs Std.Cast, which is checked at runtime.
+  if (expected.kind == TypeKind::kAny) {
     return true;
+  }
+  if (actual.kind == TypeKind::kAny) {
+    return false;
   }
 
   if (expected.kind == TypeKind::kNever) {

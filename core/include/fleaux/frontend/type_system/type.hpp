@@ -68,7 +68,7 @@ struct Type {
 
 // True when actual may bind a generic parameter declared with this bound. A bound is a type, usually a union of
 // alternatives; the binding must be exactly one alternative, not a union of several. A type variable satisfies the
-// bound when its own bound only allows alternatives of this bound. Any and Never satisfy every bound.
+// bound when its own bound only allows alternatives of this bound. Never satisfies every bound; Any satisfies none.
 [[nodiscard]] auto satisfies_generic_bound(const Type& actual, const Type& bound) -> bool;
 
 // The generic parameters visible at a point in a program, each with its optional bound.

@@ -15,7 +15,6 @@ namespace {
 
 struct FlowTargetResolution {
   std::optional<std::reference_wrapper<const FunctionOverloadSet>> overloads{std::nullopt};
-  bool fallback_to_any = false;
 };
 
 auto resolve_flow_explicit_type_args(const ir::IRCallTarget& target, const StrongTypeIndex& type_index,
@@ -37,7 +36,7 @@ auto resolve_flow_explicit_type_args(const ir::IRCallTarget& target, const Stron
 auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const FunctionIndex& index)
     -> tl::expected<FlowTargetResolution, type_check::AnalysisError> {
   if (const auto overloads = resolve_signature(index, target); overloads.has_value()) {
-    return FlowTargetResolution{.overloads = overloads, .fallback_to_any = false};
+    return FlowTargetResolution{.overloads = overloads};
   }
 
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
@@ -47,7 +46,8 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
             make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
       }
       if (index.has_qualified_symbol(name_ref->qualifier, name_ref->name)) {
-        return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
+        return tl::unexpected(
+            make_untyped_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
       }
       return tl::unexpected(
           make_unresolved_symbol_error(qualified_symbol_name(name_ref->qualifier, name_ref->name), name_ref->span));
@@ -56,9 +56,10 @@ auto resolve_flow_target_or_fallback(const ir::IRCallTarget& target, const Funct
     if (!index.has_unqualified_symbol(name_ref->name)) {
       return tl::unexpected(make_unresolved_symbol_error(name_ref->name, name_ref->span));
     }
+    return tl::unexpected(make_untyped_symbol_error(name_ref->name, name_ref->span));
   }
 
-  return FlowTargetResolution{.overloads = std::nullopt, .fallback_to_any = true};
+  return tl::unexpected(make_error("Unresolved call target.", std::nullopt, std::nullopt));
 }
 
 // Pipeline call adaptation rule:
@@ -456,10 +457,6 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
   if (!target_resolution) {
     return tl::unexpected(target_resolution.error());
   }
-  if (target_resolution->fallback_to_any) {
-    return make_type(TypeKind::kAny);
-  }
-
   return finalize_flow_resolution(flow, target_resolution->overloads->get(), *lhs_type, type_index, generic_params,
                                   *explicit_type_args);
 }

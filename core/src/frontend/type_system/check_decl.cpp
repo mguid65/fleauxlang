@@ -108,7 +108,10 @@ auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const 
     if (!is_consistent(*expanded_return, *inferred_body)) {
       return tl::unexpected(detail::make_error(
           "Type mismatch in function return.",
-          std::format("{} declares return type that does not match inferred body type.", let.name), let.span));
+          std::format("{} declares return type {} but its body has type {}.{}", let.name,
+                      detail::type_debug_name(*expanded_return), detail::type_debug_name(*inferred_body),
+                      detail::any_cast_note(*expanded_return, *inferred_body)),
+          let.span));
     }
   }
 

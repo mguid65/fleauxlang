@@ -44,6 +44,13 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
                               const std::optional<diag::SourceSpan>& span) -> type_check::AnalysisError;
 [[nodiscard]] auto make_unresolved_symbol_error(const std::string& symbol, const std::optional<diag::SourceSpan>& span)
     -> type_check::AnalysisError;
+// When actual is Any and expected is not, a note suggesting the Std.Cast that would make the value fit; otherwise
+// empty. Starts with a space so it can be appended to a hint.
+[[nodiscard]] auto any_cast_note(const Type& expected, const Type& actual) -> std::string;
+// A symbol that is known to exist (for example, imported) but has no type signature. Its type would be unknown,
+// so using it is an error rather than treating it as Any.
+[[nodiscard]] auto make_untyped_symbol_error(const std::string& symbol, const std::optional<diag::SourceSpan>& span)
+    -> type_check::AnalysisError;
 [[nodiscard]] auto qualified_symbol_name(const std::optional<std::string>& qualifier, const std::string& name)
     -> std::string;
 [[nodiscard]] auto is_symbolic_qualifier(const std::optional<std::string>& qualifier) -> bool;

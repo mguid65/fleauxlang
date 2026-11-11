@@ -210,13 +210,14 @@ auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, co
           make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
     }
     if (index.has_qualified_symbol(name_ref.qualifier, name_ref.name)) {
-      return make_type(TypeKind::kAny);
+      return tl::unexpected(
+          make_untyped_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
     }
     return tl::unexpected(
         make_unresolved_symbol_error(qualified_symbol_name(name_ref.qualifier, name_ref.name), name_ref.span));
   }
   if (index.has_unqualified_symbol(name_ref.name)) {
-    return make_type(TypeKind::kAny);
+    return tl::unexpected(make_untyped_symbol_error(name_ref.name, name_ref.span));
   }
   return tl::unexpected(make_unresolved_symbol_error(name_ref.name, name_ref.span));
 }
@@ -254,7 +255,9 @@ auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index,
               if (!is_consistent(*expanded_declared, *inferred_init)) {
                 return tl::unexpected(
                     make_error("Type mismatch in local let initializer.",
-                               std::format("{} declares a type that does not match its initializer.", local_let.name),
+                               std::format("{} declares type {} but its initializer has type {}.{}", local_let.name,
+                                           type_debug_name(*expanded_declared), type_debug_name(*inferred_init),
+                                           any_cast_note(*expanded_declared, *inferred_init)),
                                local_let.span));
               }
 
@@ -329,8 +332,11 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
     return tl::unexpected(inferred_body.error());
   }
   if (!is_consistent(closure_sig.return_type, *inferred_body)) {
-    return tl::unexpected(make_error("Type mismatch in function return.",
-                                     "Closure body type does not match declared return type.", closure.span));
+    return tl::unexpected(make_error(
+        "Type mismatch in function return.",
+        std::format("Closure declares return type {} but its body has type {}.{}", type_debug_name(closure_sig.return_type),
+                    type_debug_name(*inferred_body), any_cast_note(closure_sig.return_type, *inferred_body)),
+        closure.span));
   }
 
   return function_type_from_sig(closure_sig);

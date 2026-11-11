@@ -251,8 +251,10 @@ TEST_CASE("Type consistency handles unions tuples applied names and function sig
   };
 
   SECTION("Any and Never follow the top and bottom consistency rules") {
+    // Any is the top type: every value fits Any, but an Any value fits only Any.
     REQUIRE(is_consistent(make_simple_type(TypeKind::kAny), make_simple_type(TypeKind::kString)));
-    REQUIRE(is_consistent(make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kAny)));
+    REQUIRE_FALSE(is_consistent(make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kAny)));
+    REQUIRE(is_consistent(make_simple_type(TypeKind::kAny), make_simple_type(TypeKind::kAny)));
     REQUIRE(is_consistent(make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kNever)));
     REQUIRE_FALSE(is_consistent(make_simple_type(TypeKind::kNever), make_simple_type(TypeKind::kString)));
   }
@@ -1029,7 +1031,7 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
 
   SECTION("Std.Parallel.WithOptions infers Result<Tuple<U...>, Tuple<Int64, String>> output") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "let Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: (T) => U, options: Dict<String, Any>): "
         "Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
@@ -1051,7 +1053,7 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
 
   SECTION("Std.Parallel.WithOptions rejects callable input mismatch") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "let Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: (T) => U, options: Dict<String, Any>): "
         "Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
@@ -1127,7 +1129,7 @@ TEST_CASE("Type checker matrix: Stage-3e broader generic higher-order migrations
 TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "[typecheck][stage3f][generics]") {
   SECTION("Std.Dict.Get propagates value type") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Get<K, V>(dict: Dict<K, V>, key: K): V :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
         "let Lookup(d: Dict<String, Int64>): Int64 = (d, \"a\") -> Std.Dict.Get;\n"
@@ -1144,7 +1146,7 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
 
   SECTION("Std.Dict.Get rejects key-type mismatch") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Get<K, V>(dict: Dict<K, V>, key: K): V :: __builtin__;\n"
         "let Lookup(d: Dict<String, Int64>): Int64 = (d, 1) -> Std.Dict.Get;\n"
         "(() -> Std.Dict.Create) -> Lookup;\n" "type Dict<K, V> :: __builtin__;\n";
@@ -1163,7 +1165,7 @@ TEST_CASE("Type checker matrix: Stage-3f Dict and Array signature tightening", "
 
   SECTION("Std.Dict.GetDefault rejects default-value mismatch") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.GetDefault<K, V>(dict: Dict<K, V>, key: K, default: V): V :: __builtin__;\n"
         "let Lookup(d: Dict<String, Int64>): Int64 = (d, \"a\", \"oops\") -> Std.Dict.GetDefault;\n"
         "(() -> Std.Dict.Create) -> Lookup;\n" "type Dict<K, V> :: __builtin__;\n";
@@ -2302,7 +2304,7 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Result constructor policy", "[typec
 TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[typecheck][stage4c][dict]") {
   SECTION("Std.Dict.Create propagates nullary Dict<Any, Any> output") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
         "let NeedsDict(d: Dict<Any, Any>): Dict<Any, Any> = d;\n"
         "() -> Std.Dict.Create -> NeedsDict;\n" "type Dict<K, V> :: __builtin__;\n";
@@ -2318,7 +2320,7 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[ty
 
   SECTION("Std.Dict.Create preserves channels when cloning an existing dictionary") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "let NeedsStringInt(d: Dict<String, Int64>): Dict<String, Int64> = d;\n"
@@ -2336,7 +2338,7 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[ty
 
   SECTION("Annotated analysis records the resolved builtin overload symbol key") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
@@ -2373,7 +2375,7 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Dict.Create surface contract", "[ty
 
   SECTION("Bare Std.Dict.Create reference is rejected because the overload set is ambiguous") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
         "let Keep(value: Any): Any = value;\n"
         "Std.Dict.Create -> Keep;\n" "type Dict<K, V> :: __builtin__;\n";
@@ -2790,10 +2792,10 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
 
   SECTION("Overload ambiguity reports the ambiguous-call family") {
     const std::string src =
-        "let GetUnknown(): Any :: __builtin__;\n"
+        "let GetNever(): Never :: __builtin__;\n"
         "let Echo(x: Int64): Int64 = x;\n"
         "let Echo(x: String): String = x;\n"
-        "() -> GetUnknown -> Echo;\n";
+        "() -> GetNever -> Echo;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage4h_overload_ambiguity_diagnostic.fleaux");
@@ -2891,20 +2893,6 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
     REQUIRE(lowered.error().hint->find("Std.ToFloat64") != std::string::npos);
   }
 
-  SECTION("Builtin numeric return refinement preserves Float64 flow") {
-    const std::string src =
-        "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
-        "let NeedsFloat(x: Float64): Float64 = x;\n"
-        "(1.0, 2.0) -> Std.Add -> NeedsFloat;\n";
-
-    const fleaux::frontend::parse::Parser parser;
-    const auto parsed = parser.parse_program(src, "typecheck_stage4h_builtin_contract_float64_refine_ok.fleaux");
-    REQUIRE(parsed.has_value());
-
-    const fleaux::frontend::lowering::Lowerer lowerer;
-    const auto lowered = lowerer.lower(parsed.value());
-    REQUIRE(lowered.has_value());
-  }
 }
 
 TEST_CASE("Type checker matrix: Stage-4c Std.Exit surface contract", "[typecheck][stage4c][exit]") {
@@ -3684,7 +3672,7 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
 
   SECTION("Std.Parallel.WithOptions propagates tuple index+message error shape") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "let Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: (T) => U, options: Dict<String, Any>): "
         "Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
@@ -4060,7 +4048,7 @@ TEST_CASE("Type checker matrix: strict binding diagnostics", "[typecheck][bindin
 }
 
 TEST_CASE("Type checker matrix: Stage-4b imported-qualified symbol closure", "[typecheck][binding][stage4b]") {
-  SECTION("Matching imported qualified symbol resolves") {
+  SECTION("Matching imported qualified symbol without a signature is an error") {
     const std::string src =
         "let NeedsFloat(x: Float64): Float64 = x;\n"
         "(1) -> Foo.Add4 -> NeedsFloat;\n";
@@ -4075,7 +4063,27 @@ TEST_CASE("Type checker matrix: Stage-4b imported-qualified symbol closure", "[t
 
     const std::unordered_set<std::string> imported_symbols = {"Foo.Add4"};
     const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
-    REQUIRE(analyzed.has_value());
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Symbol has no type signature") != std::string::npos);
+    REQUIRE(analyzed.error().hint.has_value());
+    REQUIRE(analyzed.error().hint->find("'Foo.Add4' is known but has no type signature") != std::string::npos);
+  }
+
+  SECTION("A value reference to an imported symbol without a signature is an error") {
+    const std::string src = "let F: Any = Foo.Add4;\n";
+
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(src, "typecheck_stage4b_imported_untyped_value_ref.fleaux");
+    REQUIRE(parsed.has_value());
+
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower_only(parsed.value());
+    REQUIRE(lowered.has_value());
+
+    const std::unordered_set<std::string> imported_symbols = {"Foo.Add4"};
+    const auto analyzed = fleaux::frontend::type_check::analyze_program(*lowered, imported_symbols);
+    REQUIRE_FALSE(analyzed.has_value());
+    REQUIRE(analyzed.error().message.find("Symbol has no type signature") != std::string::npos);
   }
 
   SECTION("Mismatched qualifier reports unresolved symbol") {
@@ -5121,7 +5129,7 @@ TEST_CASE("Type checker enforces scalar dictionary key contracts before runtime"
 
   SECTION("Std.Dict.Set rejects tuple keys even through Dict<Any, Any>") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
         "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n" "type Dict<K, V> :: __builtin__;\n";
 
@@ -5139,7 +5147,7 @@ TEST_CASE("Type checker enforces scalar dictionary key contracts before runtime"
 
   SECTION("Std.Dict.Contains rejects tuple keys even through Dict<Any, Any>") {
     const std::string src =
-        "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+        "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
         "let Std.Dict.Contains<K, V>(dict: Dict<K, V>, key: K): Bool :: __builtin__;\n"
         "(() -> Std.Dict.Create, (1, 2)) -> Std.Dict.Contains;\n" "type Dict<K, V> :: __builtin__;\n";
 
@@ -5697,7 +5705,8 @@ TEST_CASE("Type checker matrix: user function call typing", "[typecheck][stage2]
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in function return") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Closure body type") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Closure declares return type Float64 but its body has type String") !=
+            std::string::npos);
   }
 
   SECTION("Callable argument accepts matching user function signature") {
@@ -6789,5 +6798,98 @@ TEST_CASE("Type checker rejects casts from Any that cannot be checked at runtime
     const auto lowered = lower_and_check("import Std;\nlet F: Any = Std.TryCast<Int64>;\n", "trycast_reference.fleaux");
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Invalid Std.TryCast reference") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker treats Any as a strict top type", "[typecheck][strict_any]") {
+  const auto rejected = [](const std::string& body, const std::string& source_name) {
+    auto lowered = lower_and_check("import Std;\n" + body + "\n", source_name);
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    return lowered.error();
+  };
+
+  SECTION("Every value flows into Any") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Keep(x: Int64): Any = x;\n"
+                            "let Show(x: Any): String = x -> Std.ToString;\n"
+                            "let Pair(x: Any): Tuple<Any, Any> = (x, x);\n",
+                            "strict_any_into_any.fleaux")
+                .has_value());
+  }
+
+  SECTION("An Any value does not flow into a specific type") {
+    const auto error = rejected("let Bad(x: Any): Int64 = x;", "strict_any_return.fleaux");
+    REQUIRE(error.message.find("Type mismatch in function return") != std::string::npos);
+    REQUIRE(error.hint->find("Bad declares return type Int64 but its body has type Any") != std::string::npos);
+    REQUIRE(error.hint->find("check it with '-> Std.Cast<Int64>' first") != std::string::npos);
+  }
+
+  SECTION("An Any argument does not match a specific parameter") {
+    const auto error = rejected("let Bad(x: Any): String = x -> Std.String.Upper;", "strict_any_argument.fleaux");
+    REQUIRE(error.hint->find("Std.String.Upper expects argument 0") != std::string::npos);
+    REQUIRE(error.hint->find("Std.Cast<String>") != std::string::npos);
+  }
+
+  SECTION("An Any local initializer does not match a specific declared type") {
+    const auto error = rejected("let Bad(x: Any): Int64 = { let y: Int64 = x; y; };", "strict_any_local.fleaux");
+    REQUIRE(error.message.find("Type mismatch in local let initializer") != std::string::npos);
+    REQUIRE(error.hint->find("Std.Cast<Int64>") != std::string::npos);
+  }
+
+  SECTION("Any satisfies no generic bound") {
+    const auto error = rejected("let Bad(x: Any): Any = (x, 1) -> Std.Add;", "strict_any_bound.fleaux");
+    REQUIRE(error.message.find("Type argument does not satisfy its bound") != std::string::npos);
+    REQUIRE(error.hint->find("A value of type Any satisfies no bound") != std::string::npos);
+  }
+
+  SECTION("An unbounded generic parameter binds to Any and returns Any") {
+    REQUIRE(lower_and_check("import Std;\nlet Keep(x: Any): Any = (True, x, x) -> Std.Select;\n",
+                            "strict_any_generic_ok.fleaux")
+                .has_value());
+    const auto error = rejected("let Bad(x: Any): Int64 = (True, x, x) -> Std.Select;", "strict_any_generic_bad.fleaux");
+    REQUIRE(error.message.find("Type mismatch in function return") != std::string::npos);
+  }
+
+  SECTION("A cast makes an Any value usable") {
+    REQUIRE(lower_and_check("import Std;\nlet Good(x: Any): Int64 = (x -> Std.Cast<Int64>, 1) -> Std.Add;\n",
+                            "strict_any_cast_ok.fleaux")
+                .has_value());
+  }
+}
+
+TEST_CASE("Generic binding widens to a covering type and checks every argument again", "[typecheck][strict_any][generics]") {
+  SECTION("A tuple with an Any tail binds a repeated parameter to Any") {
+    REQUIRE(lower_and_check("let Std.Length<T>(tuple: Tuple<T...>): Int64 :: __builtin__;\n"
+                            "let Count(xs: Tuple<String, Any...>): Int64 = xs -> Std.Length;\n",
+                            "widen_variadic_any.fleaux")
+                .has_value());
+  }
+
+  SECTION("A value that fits an existing binding keeps it") {
+    REQUIRE(lower_and_check("type Dict<K, V> :: __builtin__;\n"
+                            "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
+                            "let Put(d: Dict<String, Any>): Dict<String, Any> = (d, \"k\", 1) -> Std.Dict.Set;\n",
+                            "binding_fits_existing.fleaux")
+                .has_value());
+  }
+
+  SECTION("Widening is rejected when an earlier callback only accepts the narrower type") {
+    const auto lowered = lower_and_check("let Std.Combine<T>(a: T, f: (T) => T, b: T): T :: __builtin__;\n"
+                                         "let IntOnly(x: Int64): Int64 = x;\n"
+                                         "let Bad(x: Any): Any = (1, IntOnly, x) -> Std.Combine;\n",
+                                         "widen_recheck_callback.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Combine expects argument 1") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments are never widened") {
+    const auto lowered = lower_and_check("let Std.Identity<T>(x: T): T :: __builtin__;\n"
+                                         "let Bad(x: Int64 | String): Int64 = x -> Std.Identity<Int64>;\n",
+                                         "explicit_type_arg_not_widened.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("explicit type argument T = Int64") != std::string::npos);
   }
 }

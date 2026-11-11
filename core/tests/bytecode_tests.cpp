@@ -2182,7 +2182,7 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib buil
           "[bytecode][builtins][overload]") {
   const auto ir_program = lower_source_to_ir(
       "type Dict<K, V> :: __builtin__;\n"
-      "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+      "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
       "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
       "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
       "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"

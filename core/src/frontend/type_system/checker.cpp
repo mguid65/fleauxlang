@@ -272,19 +272,15 @@ auto numeric_conversion_note(const Type& expected_type, const TypeBindings& bind
 auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t arg_index, const Type& expected_type,
                                const bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string {
   const auto var_suffix = generic_var_suffix_for_type(expected_type);
-  if (variadic) {
-    std::string hint =
-        std::format("{} expects variadic argument {} to match declared type{}", full_name, arg_index, var_suffix);
-    if (const auto detail = generic_binding_detail_for_type(expected_type, bindings, actual); !detail.empty()) {
-      hint += " " + detail;
-    }
-    return hint + numeric_conversion_note(expected_type, bindings, actual);
-  }
-  std::string hint = std::format("{} expects argument {} to match declared type{}", full_name, arg_index, var_suffix);
+  std::string hint = variadic ? std::format("{} expects variadic argument {} to match declared type{}", full_name,
+                                            arg_index, var_suffix)
+                              : std::format("{} expects argument {} to match declared type{}", full_name, arg_index,
+                                            var_suffix);
   if (const auto detail = generic_binding_detail_for_type(expected_type, bindings, actual); !detail.empty()) {
     hint += " " + detail;
   }
-  return hint + numeric_conversion_note(expected_type, bindings, actual);
+  return hint + numeric_conversion_note(expected_type, bindings, actual) +
+         any_cast_note(instantiate_generic_type(expected_type, bindings), actual);
 }
 
 [[nodiscard]] auto make_error(const std::string& message, const std::optional<std::string>& hint,
@@ -299,6 +295,22 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
 [[nodiscard]] auto make_unresolved_symbol_error(const std::string& symbol, const std::optional<diag::SourceSpan>& span)
     -> type_check::AnalysisError {
   return make_error("Unresolved symbol.", std::format("Could not resolve '{}'.", symbol), span);
+}
+
+auto any_cast_note(const Type& expected, const Type& actual) -> std::string {
+  if (actual.kind != TypeKind::kAny || expected.kind == TypeKind::kAny) {
+    return {};
+  }
+  return std::format(" The value has type Any; check it with '-> Std.Cast<{}>' first.", type_debug_name(expected));
+}
+
+[[nodiscard]] auto make_untyped_symbol_error(const std::string& symbol, const std::optional<diag::SourceSpan>& span)
+    -> type_check::AnalysisError {
+  return make_error("Symbol has no type signature.",
+                    std::format("'{}' is known but has no type signature, so its type is unknown. Imported functions "
+                                "need declared parameter and return types.",
+                                symbol),
+                    span);
 }
 
 auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_strong_type_names,
@@ -1282,11 +1294,18 @@ auto join_never_bindings(const Type& lhs, const Type& rhs) -> std::optional<Type
 auto bind_generic_type(const Type& expected, const Type& actual, TypeBindings& bindings) -> bool {
   if (expected.kind == TypeKind::kTypeVar) {
     if (const auto it = bindings.find(expected.nominal_name); it != bindings.end()) {
-      if (is_consistent(it->second, actual) && is_consistent(actual, it->second)) {
+      // A later argument that fits the existing binding keeps it.
+      if (is_consistent(it->second, actual)) {
         return true;
       }
       if (auto joined = join_never_bindings(it->second, actual); joined.has_value()) {
         it->second = normalize_type(std::move(*joined));
+        return true;
+      }
+      // A later argument that covers the existing binding widens it, so Tuple<String, Any...> binds Tuple<T...>
+      // with T = Any. check_invocation checks every argument again against the final bindings.
+      if (is_consistent(actual, it->second)) {
+        it->second = normalize_type(actual);
         return true;
       }
       return false;
@@ -1629,6 +1648,8 @@ auto check_generic_bounds(const std::string& full_name, const std::optional<diag
                           binding.nominal_name);
     } else if (binding.kind == TypeKind::kUnion) {
       hint += " A union cannot satisfy a bound; it must be exactly one of the allowed types.";
+    } else if (binding.kind == TypeKind::kAny) {
+      hint += " A value of type Any satisfies no bound; check it with Std.Cast first, such as '-> Std.Cast<Int64>'.";
     }
     return tl::unexpected(make_error("Type argument does not satisfy its bound.", hint, span));
   }
@@ -1663,6 +1684,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     return tl::unexpected(explicit_bindings.error());
   }
 
+  const TypeBindings explicit_type_bindings = *explicit_bindings;
   TypeBindings generic_bindings = std::move(*explicit_bindings);
   const bool is_generic_call = !sig.generic_params.empty();
 
@@ -1685,7 +1707,8 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
 
     if (!is_consistent(sig.params[i].type, args[i])) {
       return tl::unexpected(make_error("Type mismatch in call target arguments.",
-                                       std::format("{} expects argument {} to match declared type.", full_name, i),
+                                       std::format("{} expects argument {} to match declared type.{}", full_name, i,
+                                                   any_cast_note(sig.params[i].type, args[i])),
                                        span));
     }
   }
@@ -1711,7 +1734,34 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
       if (!is_consistent(variadic_type, args[i])) {
         return tl::unexpected(
             make_error("Type mismatch in call target arguments.",
-                       std::format("{} expects variadic argument {} to match declared type.", full_name, i), span));
+                       std::format("{} expects variadic argument {} to match declared type.{}", full_name, i,
+                                   any_cast_note(variadic_type, args[i])),
+                       span));
+      }
+    }
+  }
+
+  if (is_generic_call) {
+    // Binding may widen a type parameter after earlier arguments were checked, so check every argument again
+    // against the final bindings. Explicit type arguments are never widened.
+    for (const auto& [name, explicit_type] : explicit_type_bindings) {
+      if (const auto it = generic_bindings.find(name);
+          it == generic_bindings.end() || !types_are_identical(it->second, explicit_type)) {
+        return tl::unexpected(make_error(
+            "Type mismatch in call target arguments.",
+            std::format("{} arguments do not match the explicit type argument {} = {}.", full_name, name,
+                        type_debug_name(explicit_type)),
+            span));
+      }
+    }
+    for (std::size_t i = 0; i < args.size(); ++i) {
+      const bool variadic_arg = i >= fixed_count;
+      const Type& param_type = variadic_arg ? sig.params.back().type : sig.params[i].type;
+      if (!is_consistent(instantiate_generic_type(param_type, generic_bindings), args[i])) {
+        return tl::unexpected(
+            make_error("Type mismatch in call target arguments.",
+                       generic_arg_mismatch_hint(full_name, i, param_type, variadic_arg, generic_bindings, args[i]),
+                       span));
       }
     }
   }

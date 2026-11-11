@@ -556,14 +556,14 @@ TEST_CASE("VM deterministic Std.Random builtins support immutable generator thre
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let G0: Any = 123456789 -> Std.ToUInt64 -> Std.Random.Create;\n"
-           "let Step1: Tuple<UInt64, Any> = G0 -> Std.Random.NextUInt64;\n"
+           "let G0: RandomGenerator = 123456789 -> Std.ToUInt64 -> Std.Random.Create;\n"
+           "let Step1: Tuple<UInt64, RandomGenerator> = G0 -> Std.Random.NextUInt64;\n"
            "let Value1: UInt64 = Step1 -> Std.First;\n"
-           "let G1: Any = Step1 -> Std.Second;\n"
-           "let Step2: Tuple<Float64, Any> = G1 -> Std.Random.NextFloat64;\n"
-           "let SplitPair: Tuple<Any, Any> = G0 -> Std.Random.Split;\n"
-           "let LeftStep: Tuple<UInt64, Any> = SplitPair -> Std.First -> Std.Random.NextUInt64;\n"
-           "let RightStep: Tuple<UInt64, Any> = SplitPair -> Std.Second -> Std.Random.NextUInt64;\n"
+           "let G1: RandomGenerator = Step1 -> Std.Second;\n"
+           "let Step2: Tuple<Float64, RandomGenerator> = G1 -> Std.Random.NextFloat64;\n"
+           "let SplitPair: Tuple<RandomGenerator, RandomGenerator> = G0 -> Std.Random.Split;\n"
+           "let LeftStep: Tuple<UInt64, RandomGenerator> = SplitPair -> Std.First -> Std.Random.NextUInt64;\n"
+           "let RightStep: Tuple<UInt64, RandomGenerator> = SplitPair -> Std.Second -> Std.Random.NextUInt64;\n"
            "Value1 -> Std.Println;\n"
            "Step2 -> Std.First -> Std.Println;\n"
            "G0 -> Std.Random.NextBool -> Std.First -> Std.Println;\n"
@@ -973,7 +973,7 @@ TEST_CASE("VM widened dict scalar-key contracts reject non-scalar keys during an
   };
 
   run_case("dict_set_tuple_key_contract_rejects.fleaux",
-           "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+           "let Std.Dict.Create(): Dict<Never, Never> :: __builtin__;\n"
            "let Std.Dict.Set<K, V>(dict: Any, key: Any, value: Any): Any :: __builtin__;\n"
            "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n" "type Dict<K, V> :: __builtin__;\n");
 
