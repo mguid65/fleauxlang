@@ -42,6 +42,14 @@ public:
     classify_source_lines();
   }
 
+  auto parse_standalone_type() -> PResult<model::TypeNode> {
+    FLEAUX_TRY_ASSIGN(parsed_type, type());
+    if (!is(TokenKind::kEof)) {
+      return tl::unexpected(err("Unexpected trailing tokens after type."));
+    }
+    return parsed_type;
+  }
+
   auto parse() -> ParseResult {
     model::Program program;
     program.source_text = source_;
@@ -212,6 +220,62 @@ private:
       return true;
     }
     return false;
+  }
+
+  // Splits a lexed '>=' into '>' followed by '=' so a type argument list can close directly before a
+  // declaration separator, as in 'let Name: Tuple<Int64>= value;'.
+  void split_greater_equal_token() {
+    if (!is_symbol(">=")) {
+      return;
+    }
+    Token equals = tokens_[i_];
+    equals.value = "=";
+    equals.text = "=";
+    equals.offset += 1U;
+    equals.col += 1;
+    tokens_[i_].value = ">";
+    tokens_[i_].text = ">";
+    tokens_.insert(tokens_.begin() + static_cast<std::ptrdiff_t>(i_ + 1U), std::move(equals));
+  }
+
+  auto eat_type_arg_list_close() -> PResult<void> {
+    split_greater_equal_token();
+    if (!is_symbol(">")) {
+      return tl::unexpected(err("Expected '>' to close the type argument list.", peek(),
+                                "Type arguments are written as 'Name<Type, ...>'."));
+    }
+    next();
+    return {};
+  }
+
+  // Parses '<' Type (',' Type)* '>' after a type constructor name. Tuple allows an empty list.
+  auto type_arg_list(const std::string& owner, const bool allow_empty) -> PResult<model::TypeList> {
+    const std::size_t start = i_;
+    FLEAUX_TRYV(eat_symbol("<"));
+    model::TypeList type_list;
+    split_greater_equal_token();
+    if (is_symbol(">")) {
+      if (!allow_empty) {
+        return tl::unexpected(err("Type argument list cannot be empty.", peek(),
+                                  std::format("Supply the type arguments for '{}' inside '<...>'.", owner)));
+      }
+    } else {
+      while (true) {
+        FLEAUX_TRY_ASSIGN(t, type());
+        type_list.types.emplace_back(std::move(t));
+        if (!match_symbol(",")) {
+          break;
+        }
+      }
+    }
+    FLEAUX_TRYV(eat_type_arg_list_close());
+    type_list.span = span_from_mark(start);
+    return type_list;
+  }
+
+  [[nodiscard]] auto parenthesized_type_args_error(const std::string& owner) const -> ParseError {
+    return err("Type arguments use angle brackets.", peek(),
+               std::format("Write '{}<...>' instead of '{}(...)'.", owner, owner));
   }
 
   // Lookahead to check if current position looks like a function type: (TypeList) =>
@@ -386,7 +450,7 @@ private:
       }
     }
 
-    FLEAUX_TRYV(eat_symbol(">"));
+    FLEAUX_TRYV(eat_type_arg_list_close());
     return args;
   }
 
@@ -488,18 +552,10 @@ private:
 
     if (is_ident_value("Tuple")) {
       next();
-      FLEAUX_TRYV(eat_symbol("("));
-      model::TypeList type_list;
-      if (!is_symbol(")")) {
-        while (true) {
-          FLEAUX_TRY_ASSIGN(t, type());
-          type_list.types.emplace_back(std::move(t));
-          if (!match_symbol(",")) {
-            break;
-          }
-        }
+      if (is_symbol("(")) {
+        return tl::unexpected(parenthesized_type_args_error("Tuple"));
       }
-      FLEAUX_TRYV(eat_symbol(")"));
+      FLEAUX_TRY_ASSIGN(type_list, type_arg_list("Tuple", true));
       type_list.span = span_from_mark(start);
       base.value = model::TypeListBox(std::move(type_list));
       base.span = span_from_mark(start);
@@ -510,21 +566,15 @@ private:
     } else if (is(TokenKind::kIdent)) {
       FLEAUX_TRY_ASSIGN(qid, opt_qid());
       if (const auto* simple = std::get_if<std::string>(&qid); simple != nullptr) {
-        // Check for applied type syntax: Name(TypeArg, ...) e.g. Dict(String, Any)
+        // Applied type syntax: Name<TypeArg, ...>, e.g. Dict<String, Any>.
         if (is_symbol("(")) {
-          next();  // consume '('
+          return tl::unexpected(parenthesized_type_args_error(*simple));
+        }
+        if (is_symbol("<")) {
           model::AppliedTypeNode applied;
           applied.name = *simple;
-          if (!is_symbol(")")) {
-            while (true) {
-              FLEAUX_TRY_ASSIGN(t, type());
-              applied.args.types.emplace_back(std::move(t));
-              if (!match_symbol(",")) {
-                break;
-              }
-            }
-          }
-          FLEAUX_TRYV(eat_symbol(")"));
+          FLEAUX_TRY_ASSIGN(args, type_arg_list(*simple, false));
+          applied.args = std::move(args);
           applied.span = span_from_mark(start);
           applied.args.span = applied.span;
           base.value = model::AppliedTypeNodeBox(std::move(applied));
@@ -1036,9 +1086,18 @@ private:
     model::TypeStatement out;
     FLEAUX_TRY_ASSIGN(type_name, ident());
     out.name = std::move(type_name);
+    if (is_symbol("<")) {
+      FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
+      out.generic_params = std::move(generic_params);
+    }
     FLEAUX_TRYV(eat_one_of("::", "="));
-    FLEAUX_TRY_ASSIGN(target_type, type());
-    out.target = std::move(target_type);
+    if (is_ident_value("__builtin__")) {
+      next();
+      out.is_builtin = true;
+    } else {
+      FLEAUX_TRY_ASSIGN(target_type, type());
+      out.target = std::move(target_type);
+    }
     out.span = span_from_mark(start);
     return out;
   }
@@ -1398,10 +1457,13 @@ private:
   }
 
   [[nodiscard]] static auto format_statement_impl(const model::TypeStatement& stmt, const int level) -> std::string {
-    return format_block(
-        "TypeStatement",
-        {std::format("name: {}", quote(stmt.name)), std::format("target: {}", format_type(stmt.target, level + 1))},
-        level);
+    return format_block("TypeStatement",
+                        {std::format("name: {}", quote(stmt.name)),
+                         std::format("generic_params: {}", format_string_list(stmt.generic_params, level + 1)),
+                         std::format("is_builtin: {}", stmt.is_builtin),
+                         std::format("target: {}", stmt.is_builtin ? std::string{"null"}
+                                                                     : format_type(stmt.target, level + 1))},
+                        level);
   }
 
   [[nodiscard]] static auto format_statement_impl(const model::AliasStatement& stmt, const int level) -> std::string {
@@ -1681,6 +1743,17 @@ auto Parser::parse_program(const std::string& source, const std::string& source_
 
   ParserImpl impl(source, source_name, std::move(*tokens));
   return impl.parse();
+}
+
+auto Parser::parse_type(const std::string& source, const std::string& source_name) const
+    -> tl::expected<model::TypeNode, ParseError> {
+  auto tokens = lex_program(source, source_name);
+  if (!tokens) {
+    return tl::unexpected(tokens.error());
+  }
+
+  ParserImpl impl(source, source_name, std::move(*tokens));
+  return impl.parse_standalone_type();
 }
 
 auto Parser::dump_ast(const model::Program& program) const -> std::string { return AstDumper{}.dump(program); }

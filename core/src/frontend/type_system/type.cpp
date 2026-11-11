@@ -206,6 +206,7 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
       out.function_params.push_back(from_ir_type(param_type));
     }
     out.function_return = common::make_indirect_optional<Type>(from_ir_type(*type.function_sig->return_type));
+    out.variadic = type.variadic;
     return normalize_type(std::move(out));
   }
 
@@ -217,16 +218,13 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
     for (const auto& arg : type.type_args) {
       out.applied_args.push_back(from_ir_type(arg));
     }
+    out.variadic = type.variadic;
     return normalize_type(std::move(out));
   }
 
   Type out = from_name(type.name);
   out.variadic = type.variadic;
   return normalize_type(std::move(out));
-}
-
-auto is_builtin_opaque_nominal_type_name(const std::string& name) -> bool {
-  return name == "TaskHandle" || name == "FileHandle" || name == "RandomGenerator";
 }
 
 auto is_integer_like(const Type& type) -> bool {

@@ -19,8 +19,11 @@ ImportModuleNamePart:
 OptionallyQualifiedId:
   QualifiedId | Identifier;
 
+// Strong type declaration. Generic parameters are written in angle brackets.
+// Runtime-provided types are declared with '__builtin__' and have no target type,
+// e.g. type Result<T, E> :: __builtin__;
 TypeStatement:
-  'type' name=Identifier sep=('=' | '::') target=Type;
+  'type' name=Identifier generic_params=OptionalGenericParamList sep=('=' | '::') (target=Type | builtin='__builtin__');
 
 AliasStatement:
   'alias' name=Identifier '=' target=Type;
@@ -66,12 +69,14 @@ Type:
    base=Identifier)
   variadic?='...';
 
+// Type arguments always use angle brackets, e.g. Tuple<Int64, String>, Tuple<T...>, Tuple<>.
 TupleType:
-  'Tuple' '(' TypeList ')';
+  'Tuple' '<' TypeList '>';
 
-// Named type with type arguments, e.g. Dict(String, Any) or Result(Bool, Any).
+// Named type with type arguments, e.g. Dict<String, Any> or Result<Bool, String>.
+// The argument list may not be empty.
 AppliedType:
-  name=Identifier '(' TypeList ')';
+  name=Identifier '<' TypeList '>';
 
 // Function type, e.g. (Any, String) => Bool or () => Any
 FunctionType:

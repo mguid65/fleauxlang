@@ -165,14 +165,30 @@ StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const AliasIndex&
   decls_.reserve(imported_type_decls.size() + program.type_decls.size());
 
   const auto index_decl = [&](const ir::IRTypeDecl& type_decl) -> void {
-    auto expanded_target = detail::expand_aliases_in_type(from_ir_type(type_decl.target), known_names_, alias_index, {},
-                                                          type_decl.span);
+    if (type_decl.is_builtin) {
+      decls_.insert_or_assign(type_decl.name, StrongTypeDecl{
+                                                  .name = type_decl.name,
+                                                  .generic_params = type_decl.generic_params,
+                                                  .is_builtin = true,
+                                                  .target_type = make_type(TypeKind::kAny),
+                                                  .span = type_decl.span,
+                                              });
+      return;
+    }
+
+    const std::unordered_set<std::string> generic_param_set(type_decl.generic_params.begin(),
+                                                            type_decl.generic_params.end());
+    const Type target = detail::rewrite_generic_type(from_ir_type(type_decl.target), generic_param_set);
+    auto expanded_target =
+        detail::expand_aliases_in_type(target, known_names_, alias_index, generic_param_set, type_decl.span);
     if (!expanded_target) {
       throw std::logic_error("StrongTypeIndex received an invalid strong type target after alias validation.");
     }
 
     decls_.insert_or_assign(type_decl.name, StrongTypeDecl{
                                                 .name = type_decl.name,
+                                                .generic_params = type_decl.generic_params,
+                                                .is_builtin = false,
                                                 .target_type = *expanded_target,
                                                 .span = type_decl.span,
                                             });
@@ -196,6 +212,22 @@ auto StrongTypeIndex::resolve_name(const std::string& name) const
 
 auto StrongTypeIndex::has_name(const std::string& name) const -> bool { return decls_.contains(name); }
 
-auto StrongTypeIndex::known_names() const -> const std::unordered_set<std::string>& { return known_names_; }
+auto StrongTypeIndex::known_names() const -> const std::unordered_map<std::string, std::size_t>& {
+  return known_names_;
+}
+
+auto StrongTypeIndex::is_builtin_type(const Type& type) const -> bool {
+  const std::string* name = nullptr;
+  if (type.kind == TypeKind::kNominal) {
+    name = &type.nominal_name;
+  } else if (type.kind == TypeKind::kApplied) {
+    name = &type.applied_name;
+  }
+  if (name == nullptr) {
+    return false;
+  }
+  const auto decl = resolve_name(*name);
+  return decl.has_value() && decl->get().is_builtin;
+}
 
 }  // namespace fleaux::frontend::type_system

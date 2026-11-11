@@ -607,7 +607,7 @@ TEST_CASE("RuntimeSession preserves parenthesized singleton lhs for unary user f
 
   const auto result = session.run_snippet(
       "import Std;\n"
-      "let Inspect(x: Tuple(Int64)): Int64 = x -> Std.Length;\n"
+      "let Inspect(x: Tuple<Int64>): Int64 = x -> Std.Length;\n"
       "((1)) -> Inspect -> Std.Println;\n",
       output);
 
@@ -625,9 +625,9 @@ TEST_CASE("RuntimeSession Std.Apply preserves parenthesized singleton lhs for us
 
   const auto result = session.run_snippet(
       "import Std;\n"
-      "let Inspect(x: Tuple(Int64)): Int64 = x -> Std.Length;\n"
+      "let Inspect(x: Tuple<Int64>): Int64 = x -> Std.Length;\n"
       "(((1)), Inspect) -> Std.Apply -> Std.Println;\n"
-      "(((1)), (x: Tuple(Int64)): Int64 = x -> Std.Length) -> Std.Apply -> Std.Println;\n",
+      "(((1)), (x: Tuple<Int64>): Int64 = x -> Std.Length) -> Std.Apply -> Std.Println;\n",
       output);
 
   if (!result.has_value()) {

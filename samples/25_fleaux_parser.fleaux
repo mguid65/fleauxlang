@@ -16,7 +16,7 @@ let NormalizeForStatements(src: String): String =
     -> (_, StripCommentLine) -> Std.Tuple.Map
     -> ("\n", _) -> Std.String.Join;
 
-let SplitStatements(src: String): Tuple(Any...) =
+let SplitStatements(src: String): Tuple<Any...> =
     (src, ";\n") -> Std.String.Split
     -> (_, Std.String.Trim) -> Std.Tuple.Map
     -> (_, IsNotEmpty) -> Std.Tuple.Filter;
@@ -26,7 +26,7 @@ let DemoSource(): String =
           "let AddOne(x: Int64): Int64 = (x, 1) -> Std.Add;\n",
           "(41) -> AddOne -> Std.Println;\n")) -> Std.String.Join;
 
-let ParsePreview(src: String): Tuple(Any...) =
+let ParsePreview(src: String): Tuple<Any...> =
     (src) -> NormalizeForStatements -> SplitStatements;
 
 let main(): Any =

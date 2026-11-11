@@ -550,7 +550,7 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
   }
 }
 
-// Run fn on each item in parallel for side effects. Output is discarded; returns Result(()).
+// Run fn on each item in parallel for side effects. Output is discarded; returns Result<()>.
 // On first error returns Err((index, message)).
 inline auto run_parallel_foreach_pooled(const Array& items, const Value& function_ref, const std::size_t max_in_flight)
     -> Value {

@@ -174,10 +174,10 @@ The built-in primitive names are:
 
 ### Tuple types
 
-Tuple types use Tuple(...):
+Tuple types use Tuple<...>:
 
-    Tuple(Int64, String)
-    Tuple(Float64...)
+    Tuple<Int64, String>
+    Tuple<Float64...>
 
 Tuple values are written with comma-separated expressions in parentheses:
 
@@ -187,10 +187,13 @@ Tuple values are written with comma-separated expressions in parentheses:
 
 ### Applied named types
 
-Applied types look like a named type followed by type arguments in parentheses:
+Applied types look like a generic named type followed by type arguments in angle brackets:
 
-    Dict(String, Any)
-    Result(Float64, String)
+    Dict<String, Any>
+    Result<Float64, String>
+    TaskHandle<Int64>
+
+The name must be a declared generic type and the number of type arguments must match its declaration.
 
 ### Function types
 
@@ -221,6 +224,17 @@ A type declaration creates a strong nominal type:
     type Distance :: Float64;
 
 Use strong types when you want a distinct named type rather than a purely structural synonym.
+
+Strong types can be generic. Each set of type arguments is a distinct type:
+
+    type User = Null;
+    type Id<T> = Int64;
+    let MakeUserId(raw: Int64): Id<User> = raw -> Std.Cast<Id<User>>;
+
+Runtime-provided types are declared with __builtin__ and have no underlying type, so Std.Cast only allows identity casts for them:
+
+    type Result<T, E> :: __builtin__;
+    type TaskHandle<T> :: __builtin__;
 
 ### Transparent aliases
 
@@ -415,7 +429,7 @@ Variadic parameters use ... and must be the last parameter.
 
 Examples:
 
-    let Collect(items: Any...): Tuple(Any...) = items;
+    let Collect(items: Any...): Tuple<Any...> = items;
     let JoinWith(sep: String, parts: Any...): String =
         (sep, parts) -> Std.String.Join;
 
@@ -570,10 +584,10 @@ Examples:
 
 ## Dictionaries
 
-Dictionary values use Dict(KeyType, ValueType).
+Dictionary values use Dict<KeyType, ValueType>.
 Create and extend them functionally:
 
-    let Build(): Dict(Any, Any) =
+    let Build(): Dict<Any, Any> =
         () -> Std.Dict.Create
         -> (_, "name", "fleaux") -> Std.Dict.Set
         -> (_, "year", 2026) -> Std.Dict.Set;
@@ -638,13 +652,13 @@ The standard helpers include:
 
 Example pattern:
 
-    let ReciprocalOk(x: Float64): Result(Float64, String) =
+    let ReciprocalOk(x: Float64): Result<Float64, String> =
         (1.0, x) -> Std.Divide -> Std.Result.Ok;
 
-    let ReciprocalErr(x: Float64): Result(Float64, String) =
+    let ReciprocalErr(x: Float64): Result<Float64, String> =
         ("division by zero") -> Std.Result.Err;
 
-    let SafeReciprocalResult(x: Float64): Result(Float64, String) =
+    let SafeReciprocalResult(x: Float64): Result<Float64, String> =
         ((x, 0.0) -> Std.Equal, ReciprocalErr, ReciprocalOk) -> Std.Select -> (x, _) -> Std.Apply;
 
 When using Result values, Match and Branch often pair well with IsOk and IsErr.

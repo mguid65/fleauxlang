@@ -4,7 +4,7 @@ import Std;
 // def describe(value):
 //     return type(value).__name__, str(value)
 
-let TypeAndValueText<T>(value: T): Tuple(String, String) =
+let TypeAndValueText<T>(value: T): Tuple<String, String> =
     ((value) -> Std.Type, (value) -> Std.ToString);
 
 (42) -> TypeAndValueText -> Std.Println;

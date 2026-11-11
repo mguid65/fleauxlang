@@ -190,11 +190,11 @@ auto type_debug_name(const Type& type) -> std::string {
     case TypeKind::kTypeVar:
       return type.nominal_name;
     case TypeKind::kTuple: {
-      std::string out = "Tuple(";
+      std::string out = "Tuple<";
       append_joined_type_fragments(
           out, type.items, ", ", [](const Type& item) { return type_debug_name(item); },
           [](const Type& item) { return item.variadic; });
-      out += ")";
+      out += ">";
       return out;
     }
     case TypeKind::kUnion: {
@@ -204,9 +204,9 @@ auto type_debug_name(const Type& type) -> std::string {
       return out;
     }
     case TypeKind::kApplied: {
-      std::string out = type.applied_name + "(";
+      std::string out = type.applied_name + "<";
       append_joined_fragments(out, type.applied_args, ", ", [](const Type& arg) { return type_debug_name(arg); });
-      out += ")";
+      out += ">";
       return out;
     }
     case TypeKind::kFunction: {
@@ -284,19 +284,18 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   return make_error("Unresolved symbol.", std::format("Could not resolve '{}'.", symbol), span);
 }
 
-auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_strong_type_names,
+auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_strong_type_names,
                                  const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
                                  const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError>;
 
-auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_strong_type_names,
+auto expand_alias_name_impl(const std::string& name, const KnownTypes& known_strong_type_names,
                             const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                             std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
-  if (generic_params.contains(name) || known_strong_type_names.contains(name) ||
-      is_builtin_opaque_nominal_type_name(name)) {
+  if (generic_params.contains(name) || known_strong_type_names.contains(name)) {
     return make_nominal_type(name);
   }
 
@@ -332,7 +331,7 @@ auto expand_alias_name_impl(const std::string& name, const TypeNameSet& known_st
   return *expanded;
 }
 
-auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_strong_type_names,
+auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_strong_type_names,
                                  const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
                                  const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
@@ -391,7 +390,7 @@ auto expand_aliases_in_type_impl(const Type& type, const TypeNameSet& known_stro
   return normalize_type(std::move(expanded));
 }
 
-auto validate_declared_type_against_names(const Type& type, const TypeNameSet& known_strong_type_names,
+auto validate_declared_type_against_names(const Type& type, const KnownTypes& known_strong_type_names,
                                           const AliasIndex& alias_index,
                                           const std::unordered_set<std::string>& generic_params,
                                           const std::optional<diag::SourceSpan>& span)
@@ -402,13 +401,24 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
   }
 
   switch (expanded->kind) {
-    case TypeKind::kNominal:
-      if (generic_params.contains(expanded->nominal_name) || known_strong_type_names.contains(expanded->nominal_name) ||
-          is_builtin_opaque_nominal_type_name(expanded->nominal_name)) {
+    case TypeKind::kNominal: {
+      if (generic_params.contains(expanded->nominal_name)) {
         return {};
+      }
+      if (const auto known = known_strong_type_names.find(expanded->nominal_name);
+          known != known_strong_type_names.end()) {
+        if (known->second == 0U) {
+          return {};
+        }
+        return tl::unexpected(make_error(
+            "Missing type arguments.",
+            std::format("Generic type '{}' takes {} type argument{}. Write '{}<...>'.", expanded->nominal_name,
+                        known->second, known->second == 1U ? "" : "s", expanded->nominal_name),
+            span));
       }
       return tl::unexpected(
           make_error("Unknown type.", std::format("Could not resolve type '{}'.", expanded->nominal_name), span));
+    }
     case TypeKind::kTuple:
       for (const auto& item : expanded->items) {
         if (auto validated =
@@ -427,7 +437,24 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
         }
       }
       return {};
-    case TypeKind::kApplied:
+    case TypeKind::kApplied: {
+      const auto known = known_strong_type_names.find(expanded->applied_name);
+      if (known == known_strong_type_names.end()) {
+        return tl::unexpected(
+            make_error("Unknown type.", std::format("Could not resolve type '{}'.", expanded->applied_name), span));
+      }
+      if (known->second == 0U) {
+        return tl::unexpected(make_error(
+            "Unexpected type arguments.",
+            std::format("Type '{}' is not generic and does not take type arguments.", expanded->applied_name), span));
+      }
+      if (known->second != expanded->applied_args.size()) {
+        return tl::unexpected(make_error(
+            "Wrong number of type arguments.",
+            std::format("Generic type '{}' takes {} type argument{} but got {}.", expanded->applied_name, known->second,
+                        known->second == 1U ? "" : "s", expanded->applied_args.size()),
+            span));
+      }
       for (const auto& arg : expanded->applied_args) {
         if (auto validated =
                 validate_declared_type_against_names(arg, known_strong_type_names, alias_index, generic_params, span);
@@ -436,6 +463,7 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
         }
       }
       return {};
+    }
     case TypeKind::kFunction:
       for (const auto& param : expanded->function_params) {
         if (auto validated =
@@ -499,15 +527,16 @@ auto validate_declared_type_against_names(const Type& type, const TypeNameSet& k
   return out;
 }
 
+
 auto collect_known_strong_type_names(const ir::IRProgram& program,
-                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> TypeNameSet {
-  TypeNameSet names;
+                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> KnownTypes {
+  KnownTypes names;
   names.reserve(imported_type_decls.size() + program.type_decls.size());
   for (const auto& imported_type_decl : imported_type_decls) {
-    names.insert(imported_type_decl.name);
+    names.insert_or_assign(imported_type_decl.name, imported_type_decl.generic_params.size());
   }
   for (const auto& type_decl : program.type_decls) {
-    names.insert(type_decl.name);
+    names.insert_or_assign(type_decl.name, type_decl.generic_params.size());
   }
   return names;
 }
@@ -864,8 +893,28 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
 
   const auto known_strong_type_names = collect_known_strong_type_names(program, imported_type_decls);
   for (const auto& type_decl : program.type_decls) {
+    std::unordered_set<std::string> generic_param_set;
+    for (const auto& generic_param : type_decl.generic_params) {
+      if (known_strong_type_names.contains(generic_param) || alias_index.has_name(generic_param)) {
+        return tl::unexpected(make_error(
+            "Invalid generic parameter.",
+            std::format("Generic parameter '{}' of type '{}' shadows a declared type.", generic_param, type_decl.name),
+            type_decl.span));
+      }
+      if (!generic_param_set.insert(generic_param).second) {
+        return tl::unexpected(make_error(
+            "Duplicate generic parameter.",
+            std::format("Type '{}' declares generic parameter '{}' more than once.", type_decl.name, generic_param),
+            type_decl.span));
+      }
+    }
+
+    if (type_decl.is_builtin) {
+      continue;
+    }
+
     if (auto validated = validate_declared_type_against_names(from_ir_type(type_decl.target), known_strong_type_names,
-                                                              alias_index, {}, type_decl.span);
+                                                              alias_index, generic_param_set, type_decl.span);
         !validated) {
       return validated;
     }
@@ -874,7 +923,7 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
   return {};
 }
 
-auto expand_aliases_in_type(const Type& type, const TypeNameSet& known_strong_type_names, const AliasIndex& alias_index,
+auto expand_aliases_in_type(const Type& type, const KnownTypes& known_strong_type_names, const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -1212,28 +1261,42 @@ auto types_are_identical(const Type& lhs, const Type& rhs) -> bool {
   return is_consistent(lhs, rhs) && is_consistent(rhs, lhs);
 }
 
-auto is_builtin_opaque_nominal_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kNominal && is_builtin_opaque_nominal_type_name(type.nominal_name);
-}
-
-auto are_same_builtin_opaque_nominal_type(const Type& lhs, const Type& rhs) -> bool {
-  return is_builtin_opaque_nominal_type(lhs) && is_builtin_opaque_nominal_type(rhs) && lhs.nominal_name == rhs.nominal_name;
+// Returns the underlying type of a declared strong type, instantiated with the type arguments when the
+// strong type is generic. Builtin types and non-strong types have no underlying type.
+auto strong_underlying_type(const Type& type, const StrongTypeIndex& type_index) -> std::optional<Type> {
+  const bool is_nominal = type.kind == TypeKind::kNominal;
+  if (!is_nominal && type.kind != TypeKind::kApplied) {
+    return std::nullopt;
+  }
+  const auto decl = type_index.resolve_name(is_nominal ? type.nominal_name : type.applied_name);
+  if (!decl.has_value() || decl->get().is_builtin) {
+    return std::nullopt;
+  }
+  const auto& generic_params = decl->get().generic_params;
+  const std::size_t arg_count = is_nominal ? 0U : type.applied_args.size();
+  if (generic_params.size() != arg_count) {
+    return std::nullopt;
+  }
+  if (generic_params.empty()) {
+    return decl->get().target_type;
+  }
+  TypeBindings bindings;
+  for (std::size_t i = 0; i < generic_params.size(); ++i) {
+    bindings.insert_or_assign(generic_params[i], type.applied_args[i]);
+  }
+  return instantiate_generic_type(decl->get().target_type, bindings);
 }
 
 auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target, const StrongTypeIndex& type_index)
     -> bool {
-  if (source.kind == TypeKind::kNominal) {
-    if (const auto source_decl = type_index.resolve_name(source.nominal_name);
-        source_decl.has_value() && types_are_identical(source_decl->get().target_type, target)) {
-      return true;
-    }
+  if (const auto source_underlying = strong_underlying_type(source, type_index);
+      source_underlying.has_value() && types_are_identical(*source_underlying, target)) {
+    return true;
   }
 
-  if (target.kind == TypeKind::kNominal) {
-    if (const auto target_decl = type_index.resolve_name(target.nominal_name);
-        target_decl.has_value() && types_are_identical(source, target_decl->get().target_type)) {
-      return true;
-    }
+  if (const auto target_underlying = strong_underlying_type(target, type_index);
+      target_underlying.has_value() && types_are_identical(source, *target_underlying)) {
+    return true;
   }
 
   return false;
@@ -1242,14 +1305,16 @@ auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target
 auto validate_std_cast_invocation(const Type& source_type, const Type& target_type, const StrongTypeIndex& type_index,
                                   const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
-  if (is_builtin_opaque_nominal_type(source_type) || is_builtin_opaque_nominal_type(target_type)) {
-    if (are_same_builtin_opaque_nominal_type(source_type, target_type)) {
+  if (type_index.is_builtin_type(source_type) || type_index.is_builtin_type(target_type)) {
+    // Builtin types have no underlying type, so only an exact identity cast is allowed. Gradual consistency is
+    // not enough here because Any is consistent with every type.
+    if (type_debug_name(normalize_type(source_type)) == type_debug_name(normalize_type(target_type))) {
       return {};
     }
 
     return tl::unexpected(make_error(
         "Invalid Std.Cast invocation.",
-        std::format("Std.Cast does not permit casts to or from builtin opaque types. Got {} -> {}.",
+        std::format("Std.Cast does not permit casts to or from builtin types. Got {} -> {}.",
                     type_debug_name(source_type), type_debug_name(target_type)),
         span));
   }

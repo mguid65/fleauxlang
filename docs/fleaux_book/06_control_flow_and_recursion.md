@@ -168,10 +168,10 @@ For accumulators, the state is usually a tuple.
 
 Example pattern:
 
-    let SumContinue(state: Tuple(Float64, Float64)): Bool =
+    let SumContinue(state: Tuple<Float64, Float64>): Bool =
         ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
 
-    let SumStep(state: Tuple(Float64, Float64)): Tuple(Float64, Float64) =
+    let SumStep(state: Tuple<Float64, Float64>): Tuple<Float64, Float64> =
         (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
          ((state, 1) -> Std.ElementAt, (state, 0) -> Std.ElementAt) -> Std.Add);
 
@@ -200,8 +200,8 @@ Loops work well with inline closures when the logic is local.
 Example shape:
 
     ((5.0, 0.0),
-     (state: Tuple(Float64, Float64)): Bool = ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
-     (state: Tuple(Float64, Float64)): Tuple(Float64, Float64) =
+     (state: Tuple<Float64, Float64>): Bool = ((state, 0) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
+     (state: Tuple<Float64, Float64>): Tuple<Float64, Float64> =
          (((state, 0) -> Std.ElementAt, 1.0) -> Std.Subtract,
           ((state, 1) -> Std.ElementAt, (state, 0) -> Std.ElementAt) -> Std.Add)
     ) -> Std.Loop;
@@ -229,10 +229,10 @@ Another pattern is recursion that builds tuples.
 
 Example shape:
 
-    let Repeat<T>(value: T, count: Int64): Tuple(T...) =
+    let Repeat<T>(value: T, count: Int64): Tuple<T...> =
         (count,
-         (0, (): Tuple(T...) = ()),
-         (_, (): Tuple(T...) = (((value, ((count, 1) -> Std.Subtract)) -> Repeat), value) -> Std.Tuple.Prepend)
+         (0, (): Tuple<T...> = ()),
+         (_, (): Tuple<T...> = (((value, ((count, 1) -> Std.Subtract)) -> Repeat), value) -> Std.Tuple.Prepend)
         ) -> Std.Match;
 
 This is expressive and idiomatic, though you should still consider loop-style state when iteration is the clearer mental model.

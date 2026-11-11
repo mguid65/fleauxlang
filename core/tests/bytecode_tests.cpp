@@ -1988,12 +1988,12 @@ TEST_CASE("Bytecode compiler emits callable-slot metadata for higher-order built
   REQUIRE(verified.has_value());
 }
 
-TEST_CASE("Bytecode compiler emits Dict(String, Any) options metadata for Parallel.WithOptions",
+TEST_CASE("Bytecode compiler emits Dict<String, Any> options metadata for Parallel.WithOptions",
           "[bytecode][verification][builtins]") {
   const auto ir_program = lower_source_to_ir(
       "import Std;\n"
       "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
-      "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+      "let BuildOptions(): Dict<String, Any> = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
       "((1, 2, 3), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.IsOk -> Std.Println;\n",
       "bytecode_parallel_with_options_metadata.fleaux");
 
@@ -2085,7 +2085,7 @@ TEST_CASE("Bytecode compiler emits opaque handle metadata for selected builtin v
   const auto ir_program = lower_source_to_ir(
       "import Std;\n"
       "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
-      "let BuildTask(): TaskHandle = (Inc, 1) -> Std.Task.Spawn;\n"
+      "let BuildTask(): TaskHandle<Int64> = (Inc, 1) -> Std.Task.Spawn;\n"
       "(() -> BuildTask) -> Std.Task.Await -> Std.Result.IsOk -> Std.Println;\n",
       "bytecode_opaque_handle_value_slot_metadata.fleaux");
 
@@ -2142,10 +2142,11 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overlo
 TEST_CASE("Bytecode compiler dispatches direct calls to the resolved stdlib builtin overload",
           "[bytecode][builtins][overload]") {
   const auto ir_program = lower_source_to_ir(
-      "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
-      "let Std.Dict.Create<K, V>(dict: Dict(K, V)): Dict(K, V) :: __builtin__;\n"
-      "let Std.Dict.Set<K, V>(dict: Dict(K, V), key: K, value: V): Dict(K, V) :: __builtin__;\n"
-      "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+      "type Dict<K, V> :: __builtin__;\n"
+      "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
+      "let Std.Dict.Create<K, V>(dict: Dict<K, V>): Dict<K, V> :: __builtin__;\n"
+      "let Std.Dict.Set<K, V>(dict: Dict<K, V>, key: K, value: V): Dict<K, V> :: __builtin__;\n"
+      "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
       "() -> Std.Dict.Create;\n"
       "() -> MakeDict -> Std.Dict.Create;\n",
       "bytecode_builtin_overloads.fleaux");
@@ -2203,7 +2204,7 @@ TEST_CASE("Bytecode compiler rejects explicit Std.Ref and Std.Deref without cata
   const auto ir_program = lower_source_to_ir(
       "let Std.Ref(value: Any): Any :: __builtin__;\n"
       "let Std.Deref(value_ref: Any): Any :: __builtin__;\n"
-      "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+      "let Std.Println(args: Any...): Tuple<Any...> :: __builtin__;\n"
       "((1, 2, 3)) -> Std.Ref -> Std.Deref -> Std.Println;\n",
       "bytecode_value_ref_explicit_always_builtin.fleaux");
 
@@ -2705,7 +2706,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Map") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelMap(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) "
+        "let EscapeViaParallelMap(v: String): Result<Tuple<String...>, Tuple<Int64, String>> = ((v) -> Std.Wrap, Echo) "
         "-> "
         "Std.Parallel.Map;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
@@ -2716,8 +2717,8 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.WithOptions") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
-        "let EscapeViaParallelWithOptions(v: String): Result(Tuple(String...), Tuple(Int64, String)) = ((v) -> "
+        "let BuildOptions(): Dict<String, Any> = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "let EscapeViaParallelWithOptions(v: String): Result<Tuple<String...>, Tuple<Int64, String>> = ((v) -> "
         "Std.Wrap, Echo, "
         "() -> BuildOptions) -> Std.Parallel.WithOptions;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
@@ -2728,7 +2729,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.ForEach") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaParallelForEach(v: String): Result(Tuple(), Tuple(Int64, String)) = ((v) -> Std.Wrap, Echo) -> "
+        "let EscapeViaParallelForEach(v: String): Result<Tuple<>, Tuple<Int64, String>> = ((v) -> Std.Wrap, Echo) -> "
         "Std.Parallel.ForEach;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaParallelForEach -> Std.Result.IsOk -> Std.Println;\n",
@@ -2738,7 +2739,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Parallel.Reduce") {
     assert_no_value_ref_opcodes(
         "let Merge(acc: String, x: String): String = (\"\", (acc, x)) -> Std.String.Join;\n"
-        "let EscapeViaParallelReduce(v: String): Result(String, Tuple(Int64, String)) = ((v) -> Std.Wrap, \"\", Merge) "
+        "let EscapeViaParallelReduce(v: String): Result<String, Tuple<Int64, String>> = ((v) -> Std.Wrap, \"\", Merge) "
         "-> "
         "Std.Parallel.Reduce;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
@@ -2749,7 +2750,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
   SECTION("Std.Task.Spawn") {
     assert_no_value_ref_opcodes(
         "let Echo(x: String): String = x;\n"
-        "let EscapeViaTaskSpawn(v: String): TaskHandle = (Echo, v) -> Std.Task.Spawn;\n"
+        "let EscapeViaTaskSpawn(v: String): TaskHandle<String> = (Echo, v) -> Std.Task.Spawn;\n"
         "(\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\")"
         " -> EscapeViaTaskSpawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_value_ref_escape_task_spawn.fleaux", "EscapeViaTaskSpawn");
@@ -2759,7 +2760,7 @@ TEST_CASE("Bytecode compiler keeps copy semantics through Parallel and Task esca
 TEST_CASE("Auto by-ref semantic equivalence: tuple passthrough same result with/without optimization",
           "[bytecode][value_ref][semantic_equiv]") {
   const auto source =
-      "let Echo(x: Tuple(Float64...)): Tuple(Float64...) = x;\n"
+      "let Echo(x: Tuple<Float64...>): Tuple<Float64...> = x;\n"
       "((1.0, 2.0, 3.0, 4.0, 5.0)) -> Echo -> Std.Println;\n";
 
   const auto ir_program = lower_source_to_ir(source, "bytecode_semantic_equiv_tuple.fleaux");
@@ -2795,7 +2796,7 @@ TEST_CASE("Auto by-ref semantic equivalence: Parallel and Task call shapes",
   SECTION("Parallel.WithOptions") {
     require_copy_vs_auto_byref_equivalent(
         "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
-        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
+        "let BuildOptions(): Dict<String, Any> = () -> Std.Dict.Create -> (_, \"max_workers\", 2) -> Std.Dict.Set;\n"
         "((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;\n",
         "bytecode_semantic_equiv_parallel_with_options.fleaux");
   }
@@ -2868,7 +2869,7 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
 
     require_copy_vs_auto_byref_equivalent(
         "let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;\n"
-        "let BuildOptions(): Dict(String, Any) = () -> Std.Dict.Create -> (_, \"max_workers\", " +
+        "let BuildOptions(): Dict<String, Any> = () -> Std.Dict.Create -> (_, \"max_workers\", " +
             std::to_string(max_workers) +
             ") -> Std.Dict.Set;\n"
             "(" +
@@ -2892,7 +2893,7 @@ TEST_CASE("Auto by-ref property equivalence: randomized Parallel and Task call s
 
 TEST_CASE("Auto by-ref benchmark: large tuple processing", "[bytecode][value_ref][benchmark]") {
   const auto ir_program = lower_source_to_ir(
-      "let ProcessTuple(t: Tuple(Float64...)): Tuple(Float64...) = t;\n"
+      "let ProcessTuple(t: Tuple<Float64...>): Tuple<Float64...> = t;\n"
       "((1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,\n"
       "  11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0)) -> ProcessTuple -> Std.Println;\n",
       "bytecode_benchmark_tuple.fleaux");
@@ -4729,7 +4730,7 @@ TEST_CASE("Bytecode verifier rejects stale callable slot metadata", "[bytecode][
   REQUIRE(verified.error().message.find("stale function callable metadata") != std::string::npos);
 }
 
-TEST_CASE("Bytecode verifier rejects stale Dict(String, Any) options metadata", "[bytecode][verification][builtins]") {
+TEST_CASE("Bytecode verifier rejects stale Dict<String, Any> options metadata", "[bytecode][verification][builtins]") {
   fleaux::bytecode::Module module;
   module.functions = {
       fleaux::bytecode::FunctionDef{
@@ -4785,7 +4786,7 @@ TEST_CASE("Bytecode verifier rejects stale Dict(String, Any) options metadata", 
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
   REQUIRE_FALSE(verified.has_value());
-  REQUIRE(verified.error().message.find("stale Dict(String, Any) value metadata") != std::string::npos);
+  REQUIRE(verified.error().message.find("stale Dict<String, Any> value metadata") != std::string::npos);
 }
 
 TEST_CASE("Bytecode verifier rejects stale exact UInt64 value metadata", "[bytecode][verification][builtins]") {
@@ -5630,6 +5631,60 @@ TEST_CASE("Bytecode module loader reconstructs nongeneric typed import seeds fro
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().hint.has_value());
   REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
+}
+
+TEST_CASE("Bytecode module loader reconstructs structured typed import seeds from cached bytecode",
+          "[bytecode][serialization][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_typed_imports_structured_seed";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "structured_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "structured_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "structured_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "structured_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let SumAll(xs: Tuple<Int64...>): Result<Int64, String> =\n"
+           "  (xs, 0, (acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add) -> Std.Tuple.Reduce -> Std.Result.Ok;\n";
+  }
+
+  const auto write_entry = [&](const std::string& call_line) {
+    std::ofstream out(entry_path, std::ios::trunc);
+    out << "import Std;\n"
+           "import structured_dep;\n"
+        << call_line;
+  };
+
+  write_entry("((1, 2, 3)) -> SumAll -> Std.Result.Unwrap -> Std.Println;\n");
+  const auto initial_load = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE(initial_load.has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+
+  std::filesystem::remove(dependency_path);
+  REQUIRE_FALSE(std::filesystem::exists(dependency_path));
+
+  SECTION("Calls matching the full parameter and return types still type-check") {
+    std::filesystem::remove(entry_bytecode_path);
+    write_entry(
+        "let Total(): Result<Int64, String> = ((4, 5, 6)) -> SumAll;\n"
+        "Total -> Std.Result.Unwrap -> Std.Println;\n");
+    const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+    if (!loaded) {
+      INFO("load error: " << loaded.error().message);
+    }
+    REQUIRE(loaded.has_value());
+  }
+
+  SECTION("Calls with the wrong tuple element type are rejected") {
+    std::filesystem::remove(entry_bytecode_path);
+    write_entry("((\"a\", \"b\")) -> SumAll -> Std.Result.Unwrap -> Std.Println;\n");
+    const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+    REQUIRE_FALSE(loaded.has_value());
+    REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+  }
 }
 
 TEST_CASE("Bytecode module loader can start from a serialized entry module", "[bytecode][serialization][imports]") {

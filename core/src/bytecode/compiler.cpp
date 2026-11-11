@@ -9,6 +9,7 @@
 #include "fleaux/bytecode/escape_analyzer.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/common/symbol_name.hpp"
+#include "fleaux/frontend/lowering.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::bytecode {
@@ -283,16 +284,20 @@ auto is_exact_int64_ir_type(const frontend::ir::IRSimpleType& type) -> bool {
          type.tuple_items.empty() && type.type_args.empty() && !type.function_sig.has_value();
 }
 
+// Matches a declared nominal type by name, with or without type arguments (for example FileHandle or
+// TaskHandle<Int64>).
 auto is_nominal_ir_type(const frontend::ir::IRSimpleType& type, const std::string_view name) -> bool {
-  const bool scalar_shape = !type.variadic && type.alternatives.empty() && type.alternative_types.empty() &&
-                            type.tuple_items.empty() && type.type_args.empty() && !type.function_sig.has_value();
-  if (!scalar_shape) {
+  const bool nominal_shape = !type.variadic && type.alternatives.empty() && type.alternative_types.empty() &&
+                             type.tuple_items.empty() && !type.function_sig.has_value();
+  if (!nominal_shape) {
     return false;
   }
   if (type.name == name) {
     return true;
   }
-  return type.bridge_type_node.has_value() && type.bridge_type_node->kind == frontend::types::TypeNodeKind::kNamed &&
+  return type.bridge_type_node.has_value() &&
+         (type.bridge_type_node->kind == frontend::types::TypeNodeKind::kNamed ||
+          type.bridge_type_node->kind == frontend::types::TypeNodeKind::kApplied) &&
          type.bridge_type_node->name == name;
 }
 
@@ -479,7 +484,7 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
   fn_def.arity = static_cast<std::uint32_t>(let.params.size());
   fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
   fn_def.generic_params = let.generic_params;
-  fn_def.return_type_name = let.return_type.name;
+  fn_def.return_type_name = frontend::lowering::format_type_text(let.return_type);
   fn_def.return_type_is_dict_string_any = is_dict_string_any_ir_type(let.return_type);
   fn_def.return_type_is_exact_uint64 = is_exact_uint64_ir_type(let.return_type);
   fn_def.return_type_is_exact_int64 = is_exact_int64_ir_type(let.return_type);
@@ -495,7 +500,7 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
   }
   fn_def.param_type_names.reserve(let.params.size());
   for (const auto& param : let.params) {
-    fn_def.param_type_names.push_back(param.type.name);
+    fn_def.param_type_names.push_back(frontend::lowering::format_type_text(param.type));
   }
   return fn_def;
 }
@@ -1730,7 +1735,7 @@ auto emit_closure_expr(const IRClosureExpr& closure, std::vector<Instruction>& o
   fn_def.name = "__closure_" + std::to_string(fn_idx);
   fn_def.arity = static_cast<std::uint32_t>(closure.captures.size() + closure.params.size());
   fn_def.has_variadic_tail = !closure.params.empty() && closure.params.back().type.variadic;
-  fn_def.return_type_name = closure.return_type.name;
+  fn_def.return_type_name = frontend::lowering::format_type_text(closure.return_type);
   fn_def.return_type_is_dict_string_any = is_dict_string_any_ir_type(closure.return_type);
   fn_def.return_type_is_exact_uint64 = is_exact_uint64_ir_type(closure.return_type);
   fn_def.return_type_is_exact_int64 = is_exact_int64_ir_type(closure.return_type);

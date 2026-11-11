@@ -264,7 +264,7 @@ This is primarily a readability recommendation, but it also aligns with the pars
 
 ### Dictionary of callables
 
-    let BuildOps(): Dict(String, (Float64) => Float64) =
+    let BuildOps(): Dict<String, (Float64) => Float64> =
         () -> Std.Dict.Create
         -> (_, "double", Double) -> Std.Dict.Set
         -> (_, "square", Square) -> Std.Dict.Set;

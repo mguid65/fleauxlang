@@ -16,7 +16,8 @@ namespace fleaux::frontend::type_system::detail {
 
 using LocalTypes = std::unordered_map<std::string, Type>;
 using TypeBindings = std::unordered_map<std::string, Type>;
-using TypeNameSet = std::unordered_set<std::string>;
+// Declared type name -> number of generic parameters it takes.
+using KnownTypes = std::unordered_map<std::string, std::size_t>;
 
 struct ResolvedInvocation {
   Type return_type;
@@ -89,14 +90,14 @@ auto call_shape_matches(const FunctionSig& sig, std::size_t arg_count) -> bool;
 auto validate_supported_overload_sets(const ir::IRProgram& program, const std::vector<ir::IRLet>& imported_typed_lets)
     -> tl::expected<void, type_check::AnalysisError>;
 auto collect_known_strong_type_names(const ir::IRProgram& program,
-                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> TypeNameSet;
+                                     const std::vector<ir::IRTypeDecl>& imported_type_decls) -> KnownTypes;
 auto validate_alias_declarations(const ir::IRProgram& program, const std::vector<ir::IRTypeDecl>& imported_type_decls,
                                  const std::vector<ir::IRAliasDecl>& imported_alias_decls)
     -> tl::expected<AliasIndex, type_check::AnalysisError>;
 auto validate_strong_type_declarations(const ir::IRProgram& program,
                                        const std::vector<ir::IRTypeDecl>& imported_type_decls,
                                        const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError>;
-auto expand_aliases_in_type(const Type& type, const TypeNameSet& known_strong_type_names, const AliasIndex& alias_index,
+auto expand_aliases_in_type(const Type& type, const KnownTypes& known_strong_type_names, const AliasIndex& alias_index,
                             const std::unordered_set<std::string>& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError>;

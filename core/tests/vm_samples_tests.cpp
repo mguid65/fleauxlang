@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 53> kExpectedSamples = {
+constexpr std::array<std::string_view, 54> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -171,6 +171,7 @@ constexpr std::array<std::string_view, 53> kExpectedSamples = {
     "51_strong_type_casts.fleaux",
     "52_variables_and_blocks.fleaux",
     "53_random_seeded.fleaux",
+    "54_generic_types.fleaux",
 };
 
 }  // namespace
@@ -555,13 +556,13 @@ TEST_CASE("VM deterministic Std.Random builtins support immutable generator thre
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let G0: Any = 123456789 -> Std.ToUInt64 -> Std.Random.Create;\n"
-           "let Step1: Tuple(UInt64, Any) = G0 -> Std.Random.NextUInt64;\n"
+           "let Step1: Tuple<UInt64, Any> = G0 -> Std.Random.NextUInt64;\n"
            "let Value1: UInt64 = Step1 -> Std.First;\n"
            "let G1: Any = Step1 -> Std.Second;\n"
-           "let Step2: Tuple(Float64, Any) = G1 -> Std.Random.NextFloat64;\n"
-           "let SplitPair: Tuple(Any, Any) = G0 -> Std.Random.Split;\n"
-           "let LeftStep: Tuple(UInt64, Any) = SplitPair -> Std.First -> Std.Random.NextUInt64;\n"
-           "let RightStep: Tuple(UInt64, Any) = SplitPair -> Std.Second -> Std.Random.NextUInt64;\n"
+           "let Step2: Tuple<Float64, Any> = G1 -> Std.Random.NextFloat64;\n"
+           "let SplitPair: Tuple<Any, Any> = G0 -> Std.Random.Split;\n"
+           "let LeftStep: Tuple<UInt64, Any> = SplitPair -> Std.First -> Std.Random.NextUInt64;\n"
+           "let RightStep: Tuple<UInt64, Any> = SplitPair -> Std.Second -> Std.Random.NextUInt64;\n"
            "Value1 -> Std.Println;\n"
            "Step2 -> Std.First -> Std.Println;\n"
            "G0 -> Std.Random.NextBool -> Std.First -> Std.Println;\n"
@@ -629,9 +630,9 @@ TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samp
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let MakeLookup(d: Dict(String, Int64)): (String) => Int64 =\n"
+           "let MakeLookup(d: Dict<String, Int64>): (String) => Int64 =\n"
            "    (k: String): Int64 = (d, k, 0) -> Std.Dict.GetDefault;\n"
-           "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+           "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
            "() -> MakeDict -> MakeLookup -> (\"a\", _) -> Std.Apply -> "
            "Std.Println;\n"
            "((1.0, 2.0, 3.0, 4.0), (x: Float64): Float64 = (x, 1.0) -> Std.Add) -> Std.Parallel.Map -> Std.Println;\n";
@@ -742,8 +743,8 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let Collect(rest: Any...): Tuple(Any...) = rest;\n"
-           "let HeadTail(head: Float64, rest: Any...): Tuple(Any...) = rest;\n"
+           "let Collect(rest: Any...): Tuple<Any...> = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Tuple<Any...> = rest;\n"
            "(1) -> Collect -> Std.Length -> Std.Println;\n"
            "((10.0, 20.0, 30.0)) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
@@ -771,7 +772,7 @@ TEST_CASE("User variadic tail enforces minimum fixed args", "[vm][samples][varia
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let HeadTail(head: Float64, rest: Any...): Tuple(Any...) = rest;\n"
+           "let HeadTail(head: Float64, rest: Any...): Tuple<Any...> = rest;\n"
            "() -> HeadTail -> Std.Println;\n";
   }
 
@@ -833,7 +834,7 @@ TEST_CASE("Std.Dict.Create clone overload executes in the VM", "[vm][samples][di
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "let MakeDict(): Dict(String, Int64) = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
+           "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
            "() -> MakeDict -> Std.Dict.Create -> (_, \"a\") -> Std.Dict.Get -> Std.Println;\n";
   }
 
@@ -867,13 +868,13 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.GetAt(array: Tuple(Any...), index: UInt64): Any :: __builtin__;\n"
-           "let Std.Array.GetAtND(value: Any, indices: Tuple(UInt64...)): Any :: __builtin__;\n"
-           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Tuple(UInt64...)): Any :: __builtin__;\n"
+    out << "let Std.Array.GetAt(array: Tuple<Any...>, index: UInt64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple<UInt64...>): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Tuple<UInt64...>): Any :: __builtin__;\n"
            "let Std.Exit(): Never :: __builtin__;\n"
            "let Std.Exit(code: Int64): Never :: __builtin__;\n"
            "let UseFloatExit(code: Float64): Any = (code) -> Std.Exit;\n"
-           "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+           "let Std.Println(args: Any...): Tuple<Any...> :: __builtin__;\n"
            "((1, 2, 3), 1.5) -> Std.Array.GetAt -> Std.Println;\n"
            "(((1, 2), (3, 4)), (1u64, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
            "((1, 2, 3, 4), (2u64, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
@@ -924,68 +925,76 @@ TEST_CASE("VM widened opaque handle params reject non-handle arguments during an
     REQUIRE(analyzed.error().find(expected_hint) != std::string::npos);
   };
 
-  run_case("task_await_non_handle_contract_rejects.fleaux",
-           "let Std.Task.Await(task: Any): Result(Any, String) :: __builtin__;\n"
+  run_case("task_await_non_handle_rejects.fleaux",
+           "type Result<T, E> :: __builtin__;\n"
+           "type TaskHandle<T> :: __builtin__;\n"
+           "let Std.Task.Await<T>(task: TaskHandle<T>): Result<T, String> :: __builtin__;\n"
            "1 -> Std.Task.Await;\n",
-           "TaskHandle arguments");
+           "Std.Task.Await expects argument 0");
 
-  run_case("task_cancel_non_handle_contract_rejects.fleaux",
-           "let Std.Task.Cancel(task: Any): Bool :: __builtin__;\n"
+  run_case("task_cancel_non_handle_rejects.fleaux",
+           "type TaskHandle<T> :: __builtin__;\n"
+           "let Std.Task.Cancel<T>(task: TaskHandle<T>): Bool :: __builtin__;\n"
            "1 -> Std.Task.Cancel;\n",
-           "TaskHandle arguments");
+           "Std.Task.Cancel expects argument 0");
 
-  run_case("task_awaitall_non_handle_tuple_contract_rejects.fleaux",
-           "let Std.Task.AwaitAll(tasks: Any): Result(Tuple(Any...), Tuple(Int64, String)) :: __builtin__;\n"
+  run_case("task_awaitall_non_handle_tuple_rejects.fleaux",
+           "type Result<T, E> :: __builtin__;\n"
+           "type TaskHandle<T> :: __builtin__;\n"
+           "let Std.Task.AwaitAll<T>(tasks: Tuple<TaskHandle<T>...>): Result<Tuple<T...>, Tuple<Int64, String>> :: "
+           "__builtin__;\n"
            "((1, 2)) -> Std.Task.AwaitAll;\n",
-           "Tuple(TaskHandle...) arguments");
+           "Std.Task.AwaitAll expects argument 0");
 
-  run_case("task_timeout_non_handle_contract_rejects.fleaux",
-           "let Std.Task.WithTimeout(task: Any, timeout_ms: UInt64): Result(Any, String) :: __builtin__;\n"
+  run_case("task_timeout_non_handle_rejects.fleaux",
+           "type Result<T, E> :: __builtin__;\n"
+           "type TaskHandle<T> :: __builtin__;\n"
+           "let Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: UInt64): Result<T, String> :: __builtin__;\n"
            "(1, 50u64) -> Std.Task.WithTimeout;\n",
-           "TaskHandle arguments");
+           "Std.Task.WithTimeout expects argument 0");
 
   run_case("random_nextint64_non_generator_contract_rejects.fleaux",
-           "let Std.Random.NextInt64(gen: Any): Tuple(Int64, RandomGenerator) :: __builtin__;\n"
-           "1 -> Std.Random.NextInt64;\n",
+           "let Std.Random.NextInt64(gen: Any): Tuple<Int64, RandomGenerator> :: __builtin__;\n"
+           "1 -> Std.Random.NextInt64;\n" "type RandomGenerator :: __builtin__;\n",
            "RandomGenerator arguments");
 
   run_case("random_nextuint64_non_generator_contract_rejects.fleaux",
-           "let Std.Random.NextUInt64(gen: Any): Tuple(UInt64, RandomGenerator) :: __builtin__;\n"
-           "1 -> Std.Random.NextUInt64;\n",
+           "let Std.Random.NextUInt64(gen: Any): Tuple<UInt64, RandomGenerator> :: __builtin__;\n"
+           "1 -> Std.Random.NextUInt64;\n" "type RandomGenerator :: __builtin__;\n",
            "RandomGenerator arguments");
 
   run_case("random_nextfloat64_non_generator_contract_rejects.fleaux",
-           "let Std.Random.NextFloat64(gen: Any): Tuple(Float64, RandomGenerator) :: __builtin__;\n"
-           "1 -> Std.Random.NextFloat64;\n",
+           "let Std.Random.NextFloat64(gen: Any): Tuple<Float64, RandomGenerator> :: __builtin__;\n"
+           "1 -> Std.Random.NextFloat64;\n" "type RandomGenerator :: __builtin__;\n",
            "RandomGenerator arguments");
 
   run_case("random_nextbool_non_generator_contract_rejects.fleaux",
-           "let Std.Random.NextBool(gen: Any): Tuple(Bool, RandomGenerator) :: __builtin__;\n"
-           "1 -> Std.Random.NextBool;\n",
+           "let Std.Random.NextBool(gen: Any): Tuple<Bool, RandomGenerator> :: __builtin__;\n"
+           "1 -> Std.Random.NextBool;\n" "type RandomGenerator :: __builtin__;\n",
            "RandomGenerator arguments");
 
   run_case("random_split_non_generator_contract_rejects.fleaux",
-           "let Std.Random.Split(gen: Any): Tuple(RandomGenerator, RandomGenerator) :: __builtin__;\n"
-           "1 -> Std.Random.Split;\n",
+           "let Std.Random.Split(gen: Any): Tuple<RandomGenerator, RandomGenerator> :: __builtin__;\n"
+           "1 -> Std.Random.Split;\n" "type RandomGenerator :: __builtin__;\n",
            "RandomGenerator arguments");
 
   run_case("file_readline_non_handle_contract_rejects.fleaux",
-           "let Std.File.ReadLine(handle: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
-           "1 -> Std.File.ReadLine;\n",
+           "let Std.File.ReadLine(handle: Any): Tuple<FileHandle, String, Bool> :: __builtin__;\n"
+           "1 -> Std.File.ReadLine;\n" "type FileHandle :: __builtin__;\n",
            "FileHandle arguments");
 
   run_case("file_writechunk_non_handle_contract_rejects.fleaux",
            "let Std.File.WriteChunk(handle: Any, chunk: String): FileHandle :: __builtin__;\n"
-           "(1, \"hi\") -> Std.File.WriteChunk;\n",
+           "(1, \"hi\") -> Std.File.WriteChunk;\n" "type FileHandle :: __builtin__;\n",
            "FileHandle arguments");
 
   run_case("file_flush_non_handle_contract_rejects.fleaux",
            "let Std.File.Flush(handle: Any): FileHandle :: __builtin__;\n"
-           "1 -> Std.File.Flush;\n",
+           "1 -> Std.File.Flush;\n" "type FileHandle :: __builtin__;\n",
            "FileHandle arguments");
 
   run_case("file_close_non_handle_contract_rejects.fleaux",
-           "let Std.File.Close(handle: Any): Tuple() :: __builtin__;\n"
+           "let Std.File.Close(handle: Any): Tuple<> :: __builtin__;\n"
            "1 -> Std.File.Close;\n",
            "FileHandle arguments");
 }
@@ -1009,40 +1018,40 @@ TEST_CASE("VM widened dict scalar-key contracts reject non-scalar keys during an
   };
 
   run_case("dict_set_tuple_key_contract_rejects.fleaux",
-           "let Std.Dict.Create(): Dict(Any, Any) :: __builtin__;\n"
+           "let Std.Dict.Create(): Dict<Any, Any> :: __builtin__;\n"
            "let Std.Dict.Set<K, V>(dict: Any, key: Any, value: Any): Any :: __builtin__;\n"
-           "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n");
+           "(() -> Std.Dict.Create, (1, 2), 3) -> Std.Dict.Set;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_keys_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Keys<K, V>(dict: Any): Any :: __builtin__;\n"
-           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "() -> MakeBad -> Std.Dict.Keys;\n");
+           "let MakeBad(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Keys;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_merge_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Merge<K, V>(dict_base: Any, dict_overlay: Any): Any :: __builtin__;\n"
-           "let MakeBadA(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "let MakeBadB(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "(() -> MakeBadA, () -> MakeBadB) -> Std.Dict.Merge;\n");
+           "let MakeBadA(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "let MakeBadB(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "(() -> MakeBadA, () -> MakeBadB) -> Std.Dict.Merge;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_values_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Values<K, V>(dict: Any): Any :: __builtin__;\n"
-           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "() -> MakeBad -> Std.Dict.Values;\n");
+           "let MakeBad(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Values;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_entries_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Entries<K, V>(dict: Any): Any :: __builtin__;\n"
-           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "() -> MakeBad -> Std.Dict.Entries;\n");
+           "let MakeBad(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Entries;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_clear_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Clear<K, V>(dict: Any): Any :: __builtin__;\n"
-           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "() -> MakeBad -> Std.Dict.Clear;\n");
+           "let MakeBad(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Clear;\n" "type Dict<K, V> :: __builtin__;\n");
 
   run_case("dict_length_tuple_channel_contract_rejects.fleaux",
            "let Std.Dict.Length<K, V>(dict: Any): Int64 :: __builtin__;\n"
-           "let MakeBad(): Dict(Tuple(Int64, Int64), String) :: __builtin__;\n"
-           "() -> MakeBad -> Std.Dict.Length;\n");
+           "let MakeBad(): Dict<Tuple<Int64, Int64>, String> :: __builtin__;\n"
+           "() -> MakeBad -> Std.Dict.Length;\n" "type Dict<K, V> :: __builtin__;\n");
 }
 
 TEST_CASE("VM widened string argument contracts reject non-String inputs during analysis",
@@ -1077,7 +1086,7 @@ TEST_CASE("VM widened callable contracts reject non-callables during analysis",
   {
     std::ofstream out(source_path);
     out << "let Std.Apply<T>(value: T, func: Any): Int64 :: __builtin__;\n"
-           "let Std.Tuple.Reduce<T, A>(t: Tuple(T...), initial: A, func: Any): A :: __builtin__;\n"
+           "let Std.Tuple.Reduce<T, A>(t: Tuple<T...>, initial: A, func: Any): A :: __builtin__;\n"
            "let Std.File.WithOpen(path: String, mode: String, func: Any): String :: __builtin__;\n"
            "(1, 2) -> Std.Apply;\n"
            "((1, 2), 0, 1) -> Std.Tuple.Reduce;\n"
@@ -1108,47 +1117,47 @@ TEST_CASE("VM widened higher-order unary callable contracts reject invalid calla
   };
 
   run_case("try_non_callable_contract_rejects.fleaux",
-           "let Std.Try<T, U>(value: T, func: Any): Result(U, String) :: __builtin__;\n"
-           "(1, 2) -> Std.Try;\n",
+           "let Std.Try<T, U>(value: T, func: Any): Result<U, String> :: __builtin__;\n"
+           "(1, 2) -> Std.Try;\n" "type Result<T, E> :: __builtin__;\n",
            "expects callable arguments");
 
   run_case("parallel_map_non_callable_contract_rejects.fleaux",
-           "let Std.Parallel.Map<T, U>(items: Tuple(T...), func: Any): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
-           "((1.0, 2.0), 1) -> Std.Parallel.Map;\n",
+           "let Std.Parallel.Map<T, U>(items: Tuple<T...>, func: Any): Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
+           "((1.0, 2.0), 1) -> Std.Parallel.Map;\n" "type Result<T, E> :: __builtin__;\n",
            "expects callable arguments");
 
   run_case("parallel_foreach_non_callable_contract_rejects.fleaux",
-           "let Std.Parallel.ForEach<T>(items: Tuple(T...), func: Any): Result(Tuple(Any...), Tuple(Int64, String)) :: __builtin__;\n"
-           "((1.0, 2.0), 1) -> Std.Parallel.ForEach;\n",
+           "let Std.Parallel.ForEach<T>(items: Tuple<T...>, func: Any): Result<Tuple<Any...>, Tuple<Int64, String>> :: __builtin__;\n"
+           "((1.0, 2.0), 1) -> Std.Parallel.ForEach;\n" "type Result<T, E> :: __builtin__;\n",
            "expects callable arguments");
 
   run_case("tuple_map_zero_arity_contract_rejects.fleaux",
            "let Zero(): Int64 = 1;\n"
-           "let Std.Tuple.Map<T, U>(t: Tuple(T...), func: Any): Tuple(U...) :: __builtin__;\n"
+           "let Std.Tuple.Map<T, U>(t: Tuple<T...>, func: Any): Tuple<U...> :: __builtin__;\n"
            "((1, 2), Zero) -> Std.Tuple.Map;\n",
            "expects callable arguments");
 
   run_case("tuple_filter_zero_arity_contract_rejects.fleaux",
            "let Keep(): Bool = True;\n"
-           "let Std.Tuple.Filter<T>(t: Tuple(T...), predicate: Any): Tuple(T...) :: __builtin__;\n"
+           "let Std.Tuple.Filter<T>(t: Tuple<T...>, predicate: Any): Tuple<T...> :: __builtin__;\n"
            "((1, 2), Keep) -> Std.Tuple.Filter;\n",
            "expects callable arguments");
 
   run_case("tuple_findindex_zero_arity_contract_rejects.fleaux",
            "let Match(): Bool = True;\n"
-           "let Std.Tuple.FindIndex<T>(t: Tuple(T...), predicate: Any): Int64 :: __builtin__;\n"
+           "let Std.Tuple.FindIndex<T>(t: Tuple<T...>, predicate: Any): Int64 :: __builtin__;\n"
            "((1, 2), Match) -> Std.Tuple.FindIndex;\n",
            "expects callable arguments");
 
   run_case("tuple_any_zero_arity_contract_rejects.fleaux",
            "let Match(): Bool = True;\n"
-           "let Std.Tuple.Any<T>(t: Tuple(T...), predicate: Any): Bool :: __builtin__;\n"
+           "let Std.Tuple.Any<T>(t: Tuple<T...>, predicate: Any): Bool :: __builtin__;\n"
            "((1, 2), Match) -> Std.Tuple.Any;\n",
            "expects callable arguments");
 
   run_case("tuple_all_zero_arity_contract_rejects.fleaux",
            "let Match(): Bool = True;\n"
-           "let Std.Tuple.All<T>(t: Tuple(T...), predicate: Any): Bool :: __builtin__;\n"
+           "let Std.Tuple.All<T>(t: Tuple<T...>, predicate: Any): Bool :: __builtin__;\n"
            "((1, 2), Match) -> Std.Tuple.All;\n",
            "expects callable arguments");
 }
@@ -1191,17 +1200,19 @@ TEST_CASE("VM widened control-flow callable and options contracts reject invalid
            "expects callable arguments");
 
   run_case("parallel_withoptions_non_callable_contract_rejects.fleaux",
-           "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: Any, options: Dict(String, Any)): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
-           "let BuildOptions(): Dict(String, Any) :: __builtin__;\n"
-           "((1.0, 2.0), 1, () -> BuildOptions) -> Std.Parallel.WithOptions;\n",
+           "let Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: Any, options: Dict<String, Any>): Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
+           "let BuildOptions(): Dict<String, Any> :: __builtin__;\n"
+           "((1.0, 2.0), 1, () -> BuildOptions) -> Std.Parallel.WithOptions;\n"
+           "type Result<T, E> :: __builtin__;\ntype Dict<K, V> :: __builtin__;\n",
            "expects callable arguments");
 
   run_case("parallel_withoptions_bad_options_contract_rejects.fleaux",
            "let Identity(x: Float64): Float64 = x;\n"
-           "let MakeBadOptions(): Dict(String, Float64) :: __builtin__;\n"
-           "let Std.Parallel.WithOptions<T, U>(items: Tuple(T...), func: Any, options: Any): Result(Tuple(U...), Tuple(Int64, String)) :: __builtin__;\n"
-           "((1.0, 2.0), Identity, () -> MakeBadOptions) -> Std.Parallel.WithOptions;\n",
-           "Dict(String, Any)");
+           "let MakeBadOptions(): Dict<String, Float64> :: __builtin__;\n"
+           "let Std.Parallel.WithOptions<T, U>(items: Tuple<T...>, func: Any, options: Any): Result<Tuple<U...>, Tuple<Int64, String>> :: __builtin__;\n"
+           "((1.0, 2.0), Identity, () -> MakeBadOptions) -> Std.Parallel.WithOptions;\n"
+           "type Result<T, E> :: __builtin__;\ntype Dict<K, V> :: __builtin__;\n",
+           "Dict<String, Any>");
 }
 
 TEST_CASE("VM widened exact UInt64 scalar params reject positive Int64 during analysis",
@@ -1217,9 +1228,9 @@ TEST_CASE("VM widened exact UInt64 scalar params reject positive Int64 during an
            "type FileHandle = Any;\n"
            "type TaskHandle = Any;\n"
            "let Std.Random.Create(seed: Any): RandomGenerator :: __builtin__;\n"
-           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple<FileHandle, String, Bool> :: __builtin__;\n"
            "let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: Any): S :: __builtin__;\n"
-           "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Any): Result(Any, String) :: __builtin__;\n"
+           "let Std.Task.WithTimeout(task: TaskHandle, timeout_ms: Any): Result<Any, String> :: __builtin__;\n"
            "let Open(): FileHandle :: __builtin__;\n"
            "let MakeTask(): TaskHandle :: __builtin__;\n"
            "let ContinueOk(x: Float64): Bool = True;\n"
@@ -1227,7 +1238,7 @@ TEST_CASE("VM widened exact UInt64 scalar params reject positive Int64 during an
            "1 -> Std.Random.Create;\n"
            "() -> Open -> (_, 4) -> Std.File.ReadChunk;\n"
            "(1.0, ContinueOk, StepOk, 5) -> Std.LoopN;\n"
-           "(() -> MakeTask, 50) -> Std.Task.WithTimeout;\n";
+           "(() -> MakeTask, 50) -> Std.Task.WithTimeout;\n" "type Result<T, E> :: __builtin__;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -1244,8 +1255,8 @@ TEST_CASE("VM widened exact UInt64 sequence, string, and bit params reject posit
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Take<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
-           "let Std.Slice<T>(tuple: Tuple(T...), stop: Any): Tuple(T...) :: __builtin__;\n"
+    out << "let Std.Take<T>(tuple: Tuple<T...>, count: Any): Tuple<T...> :: __builtin__;\n"
+           "let Std.Slice<T>(tuple: Tuple<T...>, stop: Any): Tuple<T...> :: __builtin__;\n"
            "let Std.String.CharAt(s: String, index: Any): String :: __builtin__;\n"
            "let Std.String.Find(s: String, sub: String, start: Any): Int64 :: __builtin__;\n"
            "let Std.Bit.ShiftLeft(value: Int64, bits: Any): Int64 :: __builtin__;\n"
@@ -1274,7 +1285,7 @@ TEST_CASE("VM widened ND array tuple params reject non-UInt64 tuple elements dur
     std::ofstream out(source_path);
     out << "let Std.Array.GetAtND(value: Any, indices: Any): Any :: __builtin__;\n"
            "let Std.Array.SetAtND(value: Any, indices: Any, replacement: Any): Any :: __builtin__;\n"
-           "let Std.Array.ReshapeND(flat_array: Tuple(Any...), shape: Any): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Any): Any :: __builtin__;\n"
            "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND;\n"
            "(((1, 2), (3, 4)), (1, 0), 9) -> Std.Array.SetAtND;\n"
            "((1, 2, 3, 4), (2, 2)) -> Std.Array.ReshapeND;\n";
@@ -1293,7 +1304,7 @@ TEST_CASE("VM widened Std.Array.Slice integer params reject Float64 during analy
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.Slice<T>(array: Tuple(T...), start: Any, stop: Any): Tuple(T...) :: __builtin__;\n"
+    out << "let Std.Array.Slice<T>(array: Tuple<T...>, start: Any, stop: Any): Tuple<T...> :: __builtin__;\n"
            "((1, 2, 3, 4), 0.5, 2) -> Std.Array.Slice;\n";
   }
 
@@ -1310,10 +1321,10 @@ TEST_CASE("VM widened rectangular array integer params reject Float64 during ana
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.SetAt2D<T>(grid: Tuple(Tuple(T...)...), row: Any, col: Any, value: T): Tuple(Tuple(T...)...) :: __builtin__;\n"
-           "let Std.Array.Fill<T>(tuple: Tuple(T...), start_index: Any, length: Any, value: T): Tuple(T...) :: __builtin__;\n"
-           "let Std.Array.Slice2D<T>(grid: Tuple(Tuple(T...)...), row_start: Any, row_end: Any, col_start: Any, col_end: Any): Tuple(Tuple(T...)...) :: __builtin__;\n"
-           "let Std.Array.Reshape<T>(flat_array: Tuple(T...), rows: Any, cols: Any): Tuple(Tuple(T...)...) :: __builtin__;\n"
+    out << "let Std.Array.SetAt2D<T>(grid: Tuple<Tuple<T...>...>, row: Any, col: Any, value: T): Tuple<Tuple<T...>...> :: __builtin__;\n"
+           "let Std.Array.Fill<T>(tuple: Tuple<T...>, start_index: Any, length: Any, value: T): Tuple<T...> :: __builtin__;\n"
+           "let Std.Array.Slice2D<T>(grid: Tuple<Tuple<T...>...>, row_start: Any, row_end: Any, col_start: Any, col_end: Any): Tuple<Tuple<T...>...> :: __builtin__;\n"
+           "let Std.Array.Reshape<T>(flat_array: Tuple<T...>, rows: Any, cols: Any): Tuple<Tuple<T...>...> :: __builtin__;\n"
            "(((1, 2), (3, 4)), 0.5, 1, 9) -> Std.Array.SetAt2D;\n"
            "((1, 2, 3, 4), 1.5, 2, 9) -> Std.Array.Fill;\n"
            "(((1, 2), (3, 4)), 0.5, 1, 0, 1) -> Std.Array.Slice2D;\n"
@@ -1333,10 +1344,10 @@ TEST_CASE("VM widened 1D array index params reject Float64 during analysis", "[v
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.GetAt<T>(array: Tuple(T...), index: Any): T :: __builtin__;\n"
-           "let Std.Array.SetAt<T>(array: Tuple(T...), index: Any, value: T): Tuple(T...) :: __builtin__;\n"
-           "let Std.Array.InsertAt<T>(array: Tuple(T...), index: Any, value: T): Tuple(T...) :: __builtin__;\n"
-           "let Std.Array.RemoveAt<T>(array: Tuple(T...), index: Any): Tuple(T...) :: __builtin__;\n"
+    out << "let Std.Array.GetAt<T>(array: Tuple<T...>, index: Any): T :: __builtin__;\n"
+           "let Std.Array.SetAt<T>(array: Tuple<T...>, index: Any, value: T): Tuple<T...> :: __builtin__;\n"
+           "let Std.Array.InsertAt<T>(array: Tuple<T...>, index: Any, value: T): Tuple<T...> :: __builtin__;\n"
+           "let Std.Array.RemoveAt<T>(array: Tuple<T...>, index: Any): Tuple<T...> :: __builtin__;\n"
            "((1, 2, 3), 1.5) -> Std.Array.GetAt;\n"
            "((1, 2, 3), 1.5, 9) -> Std.Array.SetAt;\n"
            "((1, 2, 3), 1.5, 9) -> Std.Array.InsertAt;\n"
@@ -1356,10 +1367,10 @@ TEST_CASE("VM widened core sequence integer params reject Float64 during analysi
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Take<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
-           "let Std.Drop<T>(tuple: Tuple(T...), count: Any): Tuple(T...) :: __builtin__;\n"
-           "let Std.ElementAt<T>(tuple: Tuple(T...), count: Any): T :: __builtin__;\n"
-           "let Std.Slice<T>(tuple: Tuple(T...), stop: Any): Tuple(T...) :: __builtin__;\n"
+    out << "let Std.Take<T>(tuple: Tuple<T...>, count: Any): Tuple<T...> :: __builtin__;\n"
+           "let Std.Drop<T>(tuple: Tuple<T...>, count: Any): Tuple<T...> :: __builtin__;\n"
+           "let Std.ElementAt<T>(tuple: Tuple<T...>, count: Any): T :: __builtin__;\n"
+           "let Std.Slice<T>(tuple: Tuple<T...>, stop: Any): Tuple<T...> :: __builtin__;\n"
            "((1, 2, 3), 1.5) -> Std.Take;\n"
            "((1, 2, 3), 1.5) -> Std.Drop;\n"
            "((1, 2, 3), 1.5) -> Std.ElementAt;\n"
@@ -1383,7 +1394,7 @@ TEST_CASE("VM widened string and file integer params reject Float64 during analy
            "let Std.String.CharAt(s: String, index: Any): String :: __builtin__;\n"
            "let Std.String.Slice(s: String, start: Any, stop: Any): String :: __builtin__;\n"
            "let Std.String.Find(s: String, sub: String, start: Any): Int64 :: __builtin__;\n"
-           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple(FileHandle, String, Bool) :: __builtin__;\n"
+           "let Std.File.ReadChunk(handle: FileHandle, nbytes: Any): Tuple<FileHandle, String, Bool> :: __builtin__;\n"
            "let Open(): FileHandle :: __builtin__;\n"
            "(\"abc\", 1.5) -> Std.String.CharAt;\n"
            "(\"abcdef\", 1.5, 4) -> Std.String.Slice;\n"
@@ -1444,7 +1455,7 @@ TEST_CASE("VM widened Exit and Tuple.Range integer params reject Float64 during 
     std::ofstream out(source_path);
     out << "let Std.Exit(): Never :: __builtin__;\n"
            "let Std.Exit(code: Any): Never :: __builtin__;\n"
-           "let Std.Tuple.Range(stop: Any): Tuple(Int64...) :: __builtin__;\n"
+           "let Std.Tuple.Range(stop: Any): Tuple<Int64...> :: __builtin__;\n"
            "(1.25) -> Std.Exit;\n"
            "(1.5) -> Std.Tuple.Range;\n";
   }
@@ -1465,8 +1476,8 @@ TEST_CASE("VM widened Exit and Tuple.Range exact Int64 params reject UInt64 duri
     std::ofstream out(source_path);
     out << "let Std.Exit(): Never :: __builtin__;\n"
            "let Std.Exit(code: Any): Never :: __builtin__;\n"
-           "let Std.Tuple.Range(stop: Any): Tuple(Int64...) :: __builtin__;\n"
-           "let Std.Tuple.Range(start: Any, stop: Any, step: Any): Tuple(Int64...) :: __builtin__;\n"
+           "let Std.Tuple.Range(stop: Any): Tuple<Int64...> :: __builtin__;\n"
+           "let Std.Tuple.Range(start: Any, stop: Any, step: Any): Tuple<Int64...> :: __builtin__;\n"
            "(1u64) -> Std.Exit;\n"
            "(1u64) -> Std.Tuple.Range;\n"
            "(1, 7, 1u64) -> Std.Tuple.Range;\n";
@@ -1637,7 +1648,7 @@ TEST_CASE("Float64 constants reject Int64 parameters during analysis", "[vm][sam
   {
     std::ofstream out(source_path);
     out << "let Std.Pi(): Float64 = 3.14159;\n"
-           "let Std.Println(args: Any...): Tuple(Any...) :: __builtin__;\n"
+           "let Std.Println(args: Any...): Tuple<Any...> :: __builtin__;\n"
            "let NeedsInt(x: Int64): Int64 = x;\n"
            "(Std.Pi) -> NeedsInt -> Std.Println;\n";
   }
@@ -1656,7 +1667,7 @@ TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][sampl
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Identity(x: Float64): Float64 = x;\n"
-           "let BuildBadOptions(): Dict(String, Any) =\n"
+           "let BuildBadOptions(): Dict<String, Any> =\n"
            "    () -> Std.Dict.Create\n"
            "    -> (_, \"max_workers\", 0) -> Std.Dict.Set\n"
            ";\n"
@@ -1679,7 +1690,7 @@ TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][sampl
   REQUIRE(output.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
 }
 
-TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict(String, Any) options during analysis",
+TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict<String, Any> options during analysis",
           "[vm][samples][parallel]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_with_options_typed_reject";
   std::filesystem::remove_all(temp_dir);
@@ -1690,13 +1701,13 @@ TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict(String, Any) options dur
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let Identity(x: Float64): Float64 = x;\n"
-           "let MakeBadOptions(): Dict(String, Float64) :: __builtin__;\n"
+           "let MakeBadOptions(): Dict<String, Float64> :: __builtin__;\n"
            "((1.0, 2.0), Identity, () -> MakeBadOptions) -> Std.Parallel.WithOptions;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("Dict(String, Any)") != std::string::npos);
+  REQUIRE(analyzed.error().find("Dict<String, Any>") != std::string::npos);
 }
 
 TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][parallel]") {
@@ -1848,6 +1859,7 @@ FLEAUX_VM_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 FLEAUX_VM_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_SAMPLE_TEST("53_random_seeded.fleaux")
+FLEAUX_VM_SAMPLE_TEST("54_generic_types.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1901,6 +1913,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("50_multi_accumulator_loop_state.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("53_random_seeded.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("54_generic_types.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

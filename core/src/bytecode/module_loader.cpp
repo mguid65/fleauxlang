@@ -12,6 +12,8 @@
 #include "fleaux/bytecode/verifier.hpp"
 #include "fleaux/common/symbol_name.hpp"
 #include "fleaux/frontend/import_resolution.hpp"
+#include "fleaux/frontend/lowering.hpp"
+#include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/frontend/type_check.hpp"
 
@@ -368,6 +370,24 @@ void seed_imported_symbol_names(const Module& imported_module, ImportSeeds& seed
   }
 }
 
+// Rebuilds a declared type from the canonical type text stored in bytecode. Falls back to Any when the
+// text is missing or cannot be parsed.
+auto type_from_bytecode_text(const std::string& type_text) -> frontend::ir::IRSimpleType {
+  frontend::ir::IRSimpleType fallback;
+  fallback.name = "Any";
+  if (type_text.empty()) {
+    return fallback;
+  }
+  constexpr frontend::parse::Parser parser;
+  const auto parsed = parser.parse_type(type_text, "<bytecode type>");
+  if (!parsed) {
+    return fallback;
+  }
+  auto lowered = frontend::lowering::lower_type(*parsed);
+  lowered.span.reset();
+  return lowered;
+}
+
 auto make_typed_import_stub(const ExportedSymbol& exported,
                             const std::unordered_map<std::string, const FunctionDef*>& fn_by_link_name)
     -> std::optional<frontend::ir::IRLet> {
@@ -397,11 +417,11 @@ auto make_typed_import_stub(const ExportedSymbol& exported,
   for (std::uint32_t p = 0; p < fn.arity; ++p) {
     frontend::ir::IRParam param;
     param.name = "_p" + std::to_string(p);
-    param.type.name = have_type_names ? fn.param_type_names[p] : "Any";
+    param.type = type_from_bytecode_text(have_type_names ? fn.param_type_names[p] : std::string{});
     param.type.variadic = (fn.has_variadic_tail && p + 1 == fn.arity);
     stub.params.push_back(std::move(param));
   }
-  stub.return_type.name = fn.return_type_name.empty() ? "Any" : fn.return_type_name;
+  stub.return_type = type_from_bytecode_text(fn.return_type_name);
   return stub;
 }
 

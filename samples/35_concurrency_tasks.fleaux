@@ -3,14 +3,14 @@ import Std;
 let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;
 let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;
 
-let BuildOptions(): Dict(String, Any) =
+let BuildOptions(): Dict<String, Any> =
     () -> Std.Dict.Create
     -> (_, "max_workers", 2) -> Std.Dict.Set
 ;
 
-let AwaitTask(task: TaskHandle): Result(Any, String) = (task) -> Std.Task.Await;
-let CancelTask(task: TaskHandle): Bool = (task) -> Std.Task.Cancel;
-let AwaitTaskWithTimeout(task: TaskHandle, timeout: UInt64): Result(Any, String) = (task, timeout) -> Std.Task.WithTimeout;
+let AwaitTask<T>(task: TaskHandle<T>): Result<T, String> = (task) -> Std.Task.Await;
+let CancelTask<T>(task: TaskHandle<T>): Bool = (task) -> Std.Task.Cancel;
+let AwaitTaskWithTimeout<T>(task: TaskHandle<T>, timeout: UInt64): Result<T, String> = (task, timeout) -> Std.Task.WithTimeout;
 
 let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
 

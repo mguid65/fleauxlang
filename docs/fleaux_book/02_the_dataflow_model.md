@@ -109,7 +109,7 @@ You do that by building a tuple of expressions that each reference the same valu
 
 Example:
 
-    let TypeAndValueText<T>(value: T): Tuple(String, String) =
+    let TypeAndValueText<T>(value: T): Tuple<String, String> =
         ((value) -> Std.Type, (value) -> Std.ToString);
 
 This function takes one input and fans it out into two derived values.

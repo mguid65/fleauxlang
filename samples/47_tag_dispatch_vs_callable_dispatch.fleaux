@@ -28,7 +28,7 @@ let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
 let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
 let Identity(x: Float64): Float64 = x;
 
-let BuildOpTags(): Dict(String, String) =
+let BuildOpTags(): Dict<String, String> =
     () -> Std.Dict.Create
     -> (_, "grow", "double") -> Std.Dict.Set
     -> (_, "power", "square") -> Std.Dict.Set;
@@ -41,7 +41,7 @@ let ApplyWithTag(name: String, value: Float64): Float64 =
      (_, (): Float64 = value)
     ) -> Std.Match;
 
-let BuildOps(): Dict(String, (Float64) => Float64) =
+let BuildOps(): Dict<String, (Float64) => Float64> =
     () -> Std.Dict.Create
     -> (_, "grow", Double) -> Std.Dict.Set
     -> (_, "power", Square) -> Std.Dict.Set;

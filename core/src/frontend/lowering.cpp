@@ -966,7 +966,11 @@ private:
   [[nodiscard]] static auto format_type_decl(const ir::IRTypeDecl& type_decl, const int level) -> std::string {
     return format_block("IRTypeDecl",
                         {std::format("name: {}", quote(type_decl.name)),
-                         std::format("target: {}", format_simple_type(type_decl.target, level + 1))},
+                         std::format("generic_params: {}", format_string_list(type_decl.generic_params, level + 1)),
+                         std::format("is_builtin: {}", type_decl.is_builtin),
+                         std::format("target: {}", type_decl.is_builtin
+                                                       ? std::string{"null"}
+                                                       : format_simple_type(type_decl.target, level + 1))},
                         level);
   }
 
@@ -1202,7 +1206,9 @@ auto lower_type_statement(ir::IRProgram& ir_program, const model::TypeStatement&
     -> tl::expected<void, LoweringError> {
   ir_program.type_decls.push_back(ir::IRTypeDecl{
       .name = model_type.name,
-      .target = lower_simple_type(model_type.target),
+      .generic_params = model_type.generic_params,
+      .is_builtin = model_type.is_builtin,
+      .target = model_type.is_builtin ? ir::IRSimpleType{} : lower_simple_type(model_type.target),
       .span = model_type.span,
   });
   return {};
@@ -1384,6 +1390,59 @@ void assign_builtin_overload_symbol_keys(ir::IRProgram& ir_program) {
   }
 }
 }  // namespace
+
+auto lower_type(const model::TypeNode& type) -> ir::IRSimpleType { return lower_simple_type(type); }
+
+namespace {
+
+auto format_type_text_impl(const ir::IRSimpleType& type, const bool include_variadic) -> std::string {
+  const auto join = [](const std::vector<ir::IRSimpleType>& items) -> std::string {
+    std::string out;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+      if (i > 0U) {
+        out += ", ";
+      }
+      out += format_type_text_impl(items[i], true);
+    }
+    return out;
+  };
+
+  std::string out;
+  if (!type.alternative_types.empty()) {
+    for (std::size_t i = 0; i < type.alternative_types.size(); ++i) {
+      if (i > 0U) {
+        out += " | ";
+      }
+      out += format_type_text_impl(type.alternative_types[i], true);
+    }
+  } else if (!type.alternatives.empty()) {
+    for (std::size_t i = 0; i < type.alternatives.size(); ++i) {
+      if (i > 0U) {
+        out += " | ";
+      }
+      out += type.alternatives[i];
+    }
+  } else if (type.function_sig.has_value()) {
+    out = "(" + join(type.function_sig->param_types) + ") => ";
+    out += type.function_sig->return_type.has_value() ? format_type_text_impl(*type.function_sig->return_type, true)
+                                                      : std::string{"Any"};
+  } else if (type.name == "Tuple") {
+    out = "Tuple<" + join(type.tuple_items) + ">";
+  } else if (!type.type_args.empty()) {
+    out = type.name + "<" + join(type.type_args) + ">";
+  } else {
+    out = type.name;
+  }
+
+  if (include_variadic && type.variadic) {
+    out += "...";
+  }
+  return out;
+}
+
+}  // namespace
+
+auto format_type_text(const ir::IRSimpleType& type) -> std::string { return format_type_text_impl(type, false); }
 
 auto Lowerer::lower_only(const model::Program& program) const -> LoweringResult {
   ir::IRProgram ir_program;

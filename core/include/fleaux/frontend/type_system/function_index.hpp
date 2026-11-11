@@ -28,6 +28,9 @@ struct FunctionSig {
 
 struct StrongTypeDecl {
   std::string name;
+  std::vector<std::string> generic_params;
+  // Runtime-provided type declared with '__builtin__'. It has no target type.
+  bool is_builtin = false;
   Type target_type;
   std::optional<diag::SourceSpan> span;
 };
@@ -82,10 +85,12 @@ public:
   [[nodiscard]] auto resolve_name(const std::string& name) const
       -> std::optional<std::reference_wrapper<const StrongTypeDecl>>;
   [[nodiscard]] auto has_name(const std::string& name) const -> bool;
-  [[nodiscard]] auto known_names() const -> const std::unordered_set<std::string>&;
+  [[nodiscard]] auto known_names() const -> const std::unordered_map<std::string, std::size_t>&;
+  // True when the type is a declared builtin type, applied or not.
+  [[nodiscard]] auto is_builtin_type(const Type& type) const -> bool;
 
 private:
-  std::unordered_set<std::string> known_names_;
+  std::unordered_map<std::string, std::size_t> known_names_;
   std::unordered_map<std::string, StrongTypeDecl> decls_;
 };
 

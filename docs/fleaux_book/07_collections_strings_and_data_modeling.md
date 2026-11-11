@@ -148,7 +148,7 @@ These let text-heavy programs stay within the same pipeline style rather than bo
 
 ## Dictionaries
 
-Dictionaries use the applied type Dict(KeyType, ValueType).
+Dictionaries use the applied type Dict<KeyType, ValueType>.
 They are immutable from the language user's perspective, in the sense that Std.Dict.Set and related helpers return updated dictionary values rather than mutating a visible variable in place.
 
 Important helpers include:
@@ -170,7 +170,7 @@ Important helpers include:
 
 A common style is:
 
-    let Build(): Dict(Any, Any) =
+    let Build(): Dict<Any, Any> =
         () -> Std.Dict.Create
         -> (_, "name", "fleaux") -> Std.Dict.Set
         -> (_, "year", 2026) -> Std.Dict.Set;
@@ -191,7 +191,7 @@ A very useful Fleaux pattern is storing functions in dictionaries.
 
 Example:
 
-    let BuildOps(): Dict(String, (Float64) => Float64) =
+    let BuildOps(): Dict<String, (Float64) => Float64> =
         () -> Std.Dict.Create
         -> (_, "double", Double) -> Std.Dict.Set
         -> (_, "square", Square) -> Std.Dict.Set;
@@ -257,7 +257,7 @@ Useful general helpers for data shaping include:
 
 Example:
 
-    let TypeAndValueText<T>(value: T): Tuple(String, String) =
+    let TypeAndValueText<T>(value: T): Tuple<String, String> =
         ((value) -> Std.Type, (value) -> Std.ToString);
 
 This demonstrates that many reflective and formatting tasks are still handled as plain value transformations.

@@ -1,7 +1,7 @@
 import Std;
 
-let PrintUnit(_unit: Tuple()): Tuple(Any...) = ("ok") -> Std.Println;
-let FailUnit(_unit: Tuple()): Any = (("boom") -> Std.Result.Err) -> Std.Result.Unwrap;
+let PrintUnit(_unit: Tuple<>): Tuple<Any...> = ("ok") -> Std.Println;
+let FailUnit(_unit: Tuple<>): Any = (("boom") -> Std.Result.Err) -> Std.Result.Unwrap;
 
 // Demonstrate Std.Try with an empty tuple dummy input.
 ((), PrintUnit) -> Std.Try -> Std.Result.IsOk -> Std.Println;

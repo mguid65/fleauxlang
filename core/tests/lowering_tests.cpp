@@ -52,7 +52,7 @@ TEST_CASE("Lowerer preserves transparent aliases in a dedicated IR bucket", "[lo
   const std::string src =
       "type Id = Int64;\n"
       "alias UserId = Id;\n"
-      "alias Pair = Tuple(Int64, Int64);\n";
+      "alias Pair = Tuple<Int64, Int64>;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "lowering_alias_decl_shape.fleaux");
@@ -241,7 +241,7 @@ TEST_CASE("Lowerer accepts builtin generic lets during analysis", "[lowering][ge
 
 TEST_CASE("Lowerer accepts composite variadic tuple element return type", "[lowering][generics]") {
   const std::string src =
-      "let Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)): Tuple(Tuple(A, B)...) :: __builtin__;\n"
+      "let Std.Tuple.Zip<A, B>(a: Tuple<A...>, b: Tuple<B...>): Tuple<Tuple<A, B>...> :: __builtin__;\n"
       "((1, 2, 3), (\"a\", \"b\", \"c\")) -> Std.Tuple.Zip;\n";
 
   const fleaux::frontend::parse::Parser parser;
@@ -573,7 +573,7 @@ TEST_CASE("Lowerer preserves let doc comments in IR", "[lowering]") {
 }
 
 TEST_CASE("Lowerer preserves applied type name and args in IRSimpleType", "[lowering][applied_type]") {
-  const std::string src = "let Lookup(key: String) : Dict(String, Any) :: __builtin__;\n";
+  const std::string src = "let Lookup(key: String) : Dict<String, Any> :: __builtin__;\n" "type Dict<K, V> :: __builtin__;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "applied_type_lower.fleaux");
@@ -612,7 +612,7 @@ TEST_CASE("Lowerer preserves function type signature in IRSimpleType", "[lowerin
 }
 
 TEST_CASE("Lowerer preserves multi-parameter function type signature", "[lowering][function_type]") {
-  const std::string src = "let Reduce(t: Tuple(Any...), init: Any, func: (Any, Any) => Any) : Any :: __builtin__;\n";
+  const std::string src = "let Reduce(t: Tuple<Any...>, init: Any, func: (Any, Any) => Any) : Any :: __builtin__;\n";
 
   constexpr fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "function_type_lower_multi_param.fleaux");
@@ -683,8 +683,8 @@ TEST_CASE("Lowerer dump_ir includes closure captures and apply desugaring", "[lo
 
 TEST_CASE("Lowerer dump_ir includes composite type structure", "[lowering][dump_ir][types]") {
   const std::string src =
-      "alias MaybeMap = Dict(String, Any) | Null;\n"
-      "let Apply(value: Any, func: (Any) => Any) : Dict(String, Any) :: __builtin__;\n";
+      "alias MaybeMap = Dict<String, Any> | Null;\n"
+      "let Apply(value: Any, func: (Any) => Any) : Dict<String, Any> :: __builtin__;\n" "type Dict<K, V> :: __builtin__;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "dump_ir_types.fleaux");
@@ -723,3 +723,49 @@ TEST_CASE("Lowerer dump_ir keeps multiline indentation aligned", "[lowering][dum
   REQUIRE(dumped.find("      body: IRExpr {\n        kind: \"IRFlowExpr\"") != std::string::npos);
 }
 
+
+TEST_CASE("Lowerer formats IR types as canonical source text that parses back", "[lowering][type_text]") {
+  const std::vector<std::string> type_texts = {
+      "Int64",
+      "Tuple<>",
+      "Tuple<Int64, String>",
+      "Tuple<T...>",
+      "Result<Tuple<Int64...>, Tuple<Int64, String>>",
+      "Dict<String, (Int64, String) => Bool>",
+      "Int64 | String | Null",
+      "TaskHandle<Int64>",
+  };
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  for (const auto& type_text : type_texts) {
+    INFO("type: " << type_text);
+    const auto parsed = parser.parse_type(type_text, "<type>");
+    REQUIRE(parsed.has_value());
+    const auto lowered = fleaux::frontend::lowering::lower_type(*parsed);
+    REQUIRE(fleaux::frontend::lowering::format_type_text(lowered) == type_text);
+  }
+}
+
+TEST_CASE("Lowerer preserves generic and builtin type declarations in IR", "[lowering][type_decl]") {
+  const std::string src =
+      "type Id<T> = Int64;\n"
+      "type Result<T, E> :: __builtin__;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "lowering_type_decls.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->type_decls.size() == 2);
+
+  REQUIRE(lowered->type_decls[0].name == "Id");
+  REQUIRE(lowered->type_decls[0].generic_params == std::vector<std::string>{"T"});
+  REQUIRE_FALSE(lowered->type_decls[0].is_builtin);
+  REQUIRE(lowered->type_decls[0].target.name == "Int64");
+
+  REQUIRE(lowered->type_decls[1].name == "Result");
+  REQUIRE(lowered->type_decls[1].generic_params == std::vector<std::string>{"T", "E"});
+  REQUIRE(lowered->type_decls[1].is_builtin);
+}

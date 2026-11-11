@@ -228,7 +228,7 @@ Like Map, but with explicit options in a dictionary.
 
 Example style:
 
-    let BuildOptions(): Dict(String, Any) =
+    let BuildOptions(): Dict<String, Any> =
         () -> Std.Dict.Create
         -> (_, "max_workers", 2) -> Std.Dict.Set;
 

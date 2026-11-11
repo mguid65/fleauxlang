@@ -62,13 +62,13 @@ struct FunctionDef {
   // stubs and validate call sites against the generic signature.
   std::vector<std::string> generic_params{};
 
-  // Declared parameter type names, one per parameter (parallel to `arity`).
-  // For simple/named types (including type-variable names such as "T") this
-  // is the complete type name.  For complex structural types the outer name
-  // is stored (e.g. "Function", "Tuple").  Empty when not available.
+  // Declared parameter types in canonical source syntax, one per parameter
+  // (parallel to `arity`), e.g. "Int64", "T", or "Result<Tuple<Int64...>, String>".
+  // The variadic marker of a variadic tail parameter is not included; see
+  // `has_variadic_tail`.  Empty when not available.
   std::vector<std::string> param_type_names{};
 
-  // Declared return type name.  Same encoding as `param_type_names`.
+  // Declared return type in canonical source syntax.  Same encoding as `param_type_names`.
   std::string return_type_name{};
 
   // Narrow verifier-facing summary bit for the selected domain slice.

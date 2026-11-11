@@ -16,6 +16,13 @@ struct LoweringError {
 
 using LoweringResult = tl::expected<ir::IRProgram, LoweringError>;
 
+// Lowers a parsed type node to its IR representation.
+[[nodiscard]] auto lower_type(const model::TypeNode& type) -> ir::IRSimpleType;
+
+// Formats an IR type in canonical source syntax, e.g. 'Result<Tuple<Int64...>, String>'. A top-level variadic
+// marker is omitted; nested variadic markers are kept.
+[[nodiscard]] auto format_type_text(const ir::IRSimpleType& type) -> std::string;
+
 class Lowerer {
 public:
   [[nodiscard]] auto lower_only(const model::Program& program) const -> LoweringResult;

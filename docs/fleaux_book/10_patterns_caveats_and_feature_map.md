@@ -52,7 +52,7 @@ Use this when a one-line expression stops being readable.
 
 ### 5. Dictionary-backed dispatch
 
-    let BuildOps(): Dict(String, (Float64) => Float64) =
+    let BuildOps(): Dict<String, (Float64) => Float64> =
         () -> Std.Dict.Create
         -> (_, "double", Double) -> Std.Dict.Set
         -> (_, "square", Square) -> Std.Dict.Set;

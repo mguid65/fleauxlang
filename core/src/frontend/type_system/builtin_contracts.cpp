@@ -179,14 +179,6 @@ auto check_callable_args(const std::vector<Type>& args, const std::initializer_l
   return true;
 }
 
-[[nodiscard]] auto make_variadic_tuple_of_nominal_type(const std::string& nominal_name) -> Type {
-  Type tuple = make_type(TypeKind::kTuple);
-  Type item = make_nominal_type(nominal_name);
-  item.variadic = true;
-  tuple.items.push_back(std::move(item));
-  return tuple;
-}
-
 [[nodiscard]] auto make_variadic_tuple_of_type(Type item_type) -> Type {
   Type tuple = make_type(TypeKind::kTuple);
   item_type.variadic = true;
@@ -271,13 +263,10 @@ auto check_uint64_tuple_arg(const std::vector<Type>& args, const std::size_t ind
         return is_scalar_dict_key_type_impl(member, type_index, visiting);
       });
     case TypeKind::kNominal:
-      if (is_builtin_opaque_nominal_type_name(type.nominal_name)) {
-        return false;
-      }
       if (visiting.contains(type.nominal_name)) {
         return false;
       }
-      if (const auto decl = type_index.resolve_name(type.nominal_name); decl.has_value()) {
+      if (const auto decl = type_index.resolve_name(type.nominal_name); decl.has_value() && !decl->get().is_builtin) {
         visiting.insert(type.nominal_name);
         const bool result = is_scalar_dict_key_type_impl(decl->get().target_type, type_index, visiting);
         visiting.erase(type.nominal_name);
@@ -351,7 +340,7 @@ auto check_parallel_options_arg(const std::vector<Type>& args, const std::size_t
     return false;
   }
   if (arg.applied_args[0].kind != TypeKind::kString || arg.applied_args[1].kind != TypeKind::kAny) {
-    error_message = full_name + " requires options of type Dict(String, Any).";
+    error_message = full_name + " requires options of type Dict<String, Any>.";
     return false;
   }
   return true;
@@ -425,18 +414,8 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
   if (full_name == "Std.Task.Spawn") {
     return check_callable_arg(args, 0U, 1U, error_message, full_name);
   }
-  if (full_name == "Std.Task.Await" || full_name == "Std.Task.Cancel") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("TaskHandle"), "TaskHandle arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.Task.AwaitAll") {
-    return check_expected_type_arg(args, 0U, make_variadic_tuple_of_nominal_type("TaskHandle"),
-                                   "Tuple(TaskHandle...) arguments", error_message, full_name);
-  }
   if (full_name == "Std.Task.WithTimeout") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("TaskHandle"), "TaskHandle arguments", error_message,
-                                   full_name) &&
-           check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
+    return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
                                    full_name);
   }
   if (full_name == "Std.Parallel.WithOptions") {

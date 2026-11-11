@@ -9,11 +9,11 @@ import Std;
 //         index += 1
 //     return total
 
-let SumItems(items: Tuple(Int64...)): Int64 =
+let SumItems(items: Tuple<Int64...>): Int64 =
     ((0, 0),
-     (state: Tuple(Int64, Int64)): Bool =
+     (state: Tuple<Int64, Int64>): Bool =
          ((state, 0u64) -> Std.ElementAt, (items) -> Std.Length) -> Std.LessThan,
-     (state: Tuple(Int64, Int64)): Tuple(Int64, Int64) =
+     (state: Tuple<Int64, Int64>): Tuple<Int64, Int64> =
          (((state, 0u64) -> Std.ElementAt, 1) -> Std.Add,
           ((state, 1u64) -> Std.ElementAt, (items, (state, 0u64) -> Std.ElementAt -> Std.ToUInt64) -> Std.ElementAt) -> Std.Add)
     ) -> Std.Loop -> (_, 1u64) -> Std.ElementAt;

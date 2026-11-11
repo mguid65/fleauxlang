@@ -83,6 +83,9 @@ Touch:
 Notes:
 - Transparent aliases use a dedicated alias environment, not the strong nominal type environment.
 - If alias behavior changes, verify both local declarations and imported typed signatures.
+- Type arguments use angle brackets everywhere (`Tuple<...>`, `Result<T, E>`). Applied type names are validated against declared types and their generic parameter counts (`KnownTypes` in `checker_internal.hpp`).
+- `Result`, `Dict`, `TaskHandle<T>`, `FileHandle`, and `RandomGenerator` are declared in `stdlib/Std.fleaux` as `type Name<...> :: __builtin__;`. Builtin types have no underlying type; use `StrongTypeIndex::is_builtin_type` instead of matching type names.
+- Bytecode `FunctionDef` signature metadata stores canonical type text (`lowering::format_type_text`); the module loader parses it back with `Parser::parse_type` when only bytecode is available.
 
 Tests:
 - `core/tests/typecheck_tests.cpp`

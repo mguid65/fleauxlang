@@ -73,33 +73,37 @@ Zero parameters:
 
 ## Tuple types
 
-Tuple types use the form Tuple(...).
+Tuple types use the form Tuple<...>.
 
 Examples:
 
-    Tuple(Int64, Int64)
-    Tuple(String, Bool)
-    Tuple(Float64...)
+    Tuple<Int64, Int64>
+    Tuple<String, Bool>
+    Tuple<Float64...>
 
 Tuple types are heavily used because tuples are the normal way to package multiple values.
 
 Examples from real usage:
 
-- loop state such as Tuple(Float64, Float64)
-- result groups such as Tuple(String, String)
-- collection-like values such as Tuple(Int64...)
+- loop state such as Tuple<Float64, Float64>
+- result groups such as Tuple<String, String>
+- collection-like values such as Tuple<Int64...>
 
 ## Applied named types
 
-Applied types are named types with type arguments in parentheses.
+Applied types are generic named types with type arguments in angle brackets.
 
 Examples:
 
-    Dict(String, Any)
-    Result(Float64, String)
-    Result(Tuple(Any...), Tuple(Int64, String))
+    Dict<String, Any>
+    Result<Float64, String>
+    Result<Tuple<Any...>, Tuple<Int64, String>>
+    TaskHandle<Int64>
 
-These show up often in the standard library, especially for dictionaries, results, and callable-heavy APIs.
+These show up often in the standard library, especially for dictionaries, results, tasks, and callable-heavy APIs.
+
+The name must refer to a declared generic type, and the number of type arguments must match its declaration.
+Writing Result<Int64>, a bare Result, or FileHandle<Int64> is a type error.
 
 ## Function types
 
@@ -137,7 +141,7 @@ Examples:
 
     String | Null
     Int64 | UInt64 | Float64
-    Result(String | Null, String)
+    Result<String | Null, String>
 
 Union types are common in APIs that may succeed with one of several compatible shapes or may return a missing value.
 The standard library uses them in several signatures, such as environment lookups.
@@ -156,6 +160,43 @@ The grammar accepts both = and :: for strong type declarations.
 Use a strong type when you want a domain concept to stay distinct even if its underlying representation is simple.
 For example, a UserId may be represented by Int64 at runtime but still carry its own meaning at the language level.
 
+## Generic strong types
+
+A type declaration can take generic parameters in angle brackets.
+
+    type User = Null;
+    type Order = Null;
+    type Id<T> = Int64;
+    type Pair<A, B> = Tuple<A, B>;
+
+Each set of type arguments makes a distinct type: Id<User> and Id<Order> are different types even though both are stored as Int64.
+A parameter does not have to appear in the target type, so it can act purely as a marker, as T does in Id<T>.
+
+Std.Cast converts between a generic strong type and its underlying type with the type arguments filled in:
+
+    let MakeUserId(raw: Int64): Id<User> = raw -> Std.Cast<Id<User>>;
+    let PairFirst<A, B>(p: Pair<A, B>): A = p -> Std.Cast<Tuple<A, B>> -> Std.First;
+
+Std.Cast does not convert directly between two instantiations such as Id<User> and Id<Order>.
+
+## Builtin types
+
+Types whose values are created only by the runtime are declared with __builtin__ instead of a target type.
+The standard library declares these:
+
+    type Result<T, E> :: __builtin__;
+    type Dict<K, V> :: __builtin__;
+    type TaskHandle<T> :: __builtin__;
+    type FileHandle :: __builtin__;
+    type RandomGenerator :: __builtin__;
+
+A builtin type has no underlying type.
+Its values only come from builtins, and Std.Cast only allows the identity cast to and from it.
+Type arguments of builtin types are tracked by the type checker through builtin signatures, for example:
+
+    let Std.Task.Spawn<T, U>(func: (T) => U, value: T) : TaskHandle<U> :: __builtin__;
+    let Std.Task.Await<T>(task: TaskHandle<T>) : Result<T, String> :: __builtin__;
+
 ## Transparent aliases with alias
 
 An alias declaration creates a transparent shorthand for an existing type expression.
@@ -163,7 +204,7 @@ An alias declaration creates a transparent shorthand for an existing type expres
 Examples:
 
     alias Name = String;
-    alias Pair = Tuple(Int64, Int64);
+    alias Pair = Tuple<Int64, Int64>;
     alias Handler = (String, Int64) => Bool;
     alias MaybeName = String | Null;
 
@@ -248,7 +289,7 @@ This shows up both in declaration syntax and tuple-shaped types.
 
 Examples:
 
-    let Collect(items: Any...): Tuple(Any...) = items;
+    let Collect(items: Any...): Tuple<Any...> = items;
     let JoinWith(sep: String, parts: Any...): String =
         (sep, parts) -> Std.String.Join;
 
@@ -281,7 +322,7 @@ In the current implementation, both top-level and block-local lets require expli
 One of Fleaux's more interesting type patterns is storing callables in data structures.
 For example:
 
-    let BuildOps(): Dict(String, (Float64) => Float64) =
+    let BuildOps(): Dict<String, (Float64) => Float64> =
         () -> Std.Dict.Create
         -> (_, "double", Double) -> Std.Dict.Set
         -> (_, "square", Square) -> Std.Dict.Set;

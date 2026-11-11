@@ -6,10 +6,10 @@ import Std;
 //         return []
 //     return [value] + repeat(value, n - 1)
 
-let Repeat<T>(value: T, count: Int64): Tuple(T...) =
+let Repeat<T>(value: T, count: Int64): Tuple<T...> =
     (count,
-     (0, (): Tuple(T...) = ()),
-     (_, (): Tuple(T...) = ((value, (count, 1) -> Std.Subtract) -> Repeat, value) -> Std.Tuple.Prepend)
+     (0, (): Tuple<T...> = ()),
+     (_, (): Tuple<T...> = ((value, (count, 1) -> Std.Subtract) -> Repeat, value) -> Std.Tuple.Prepend)
     ) -> Std.Match;
 
 ("ha", 4) -> Repeat -> Std.Println;

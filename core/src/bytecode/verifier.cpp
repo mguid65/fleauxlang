@@ -442,7 +442,7 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
                                                     "Builtin callsite at {} instruction {} has stale {} value metadata for slot {}.",
                                                     owner_label(record), record.instruction_index,
                                                     value_slot.summary_kind == BuiltinValueSlotSummaryKind::kDictStringAny
-                                                        ? "Dict(String, Any)"
+                                                        ? "Dict<String, Any>"
                                                         : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactUInt64
                                                               ? "exact UInt64"
                                                               : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactInt64

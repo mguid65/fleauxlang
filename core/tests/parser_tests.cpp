@@ -46,7 +46,7 @@ TEST_CASE("Parser accepts transparent alias declarations and keeps them distinct
   const std::string src =
       "type Id = Int64;\n"
       "alias UserId = Id;\n"
-      "alias Pair = Tuple(Int64, Int64);\n";
+      "alias Pair = Tuple<Int64, Int64>;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "alias_declarations_parser.fleaux");
@@ -544,7 +544,7 @@ TEST_CASE("Parser accepts union types in signatures", "[parser]") {
 }
 
 TEST_CASE("Parser accepts tuple items that use union types", "[parser]") {
-  const std::string src = "let Pack(x: Tuple(Float64 | Int64, UInt64)): Tuple(Float64 | Int64, UInt64) = x;\n";
+  const std::string src = "let Pack(x: Tuple<Float64 | Int64, UInt64>): Tuple<Float64 | Int64, UInt64> = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "tuple_union_types_parser.fleaux");
@@ -555,7 +555,7 @@ TEST_CASE("Parser accepts tuple items that use union types", "[parser]") {
 
 TEST_CASE("Parser accepts variadic suffix on composite tuple element types", "[parser][generics]") {
   const std::string src =
-      "let Std.Tuple.Zip<A, B>(a: Tuple(A...), b: Tuple(B...)): Tuple(Tuple(A, B)...) :: __builtin__;\n";
+      "let Std.Tuple.Zip<A, B>(a: Tuple<A...>, b: Tuple<B...>): Tuple<Tuple<A, B>...> :: __builtin__;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "parser_composite_variadic_type.fleaux");

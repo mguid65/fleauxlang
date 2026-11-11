@@ -3,34 +3,34 @@ import Std;
 let Mid(lo: Int64, hi: Int64): Int64 =
     ((lo, hi) -> Std.Add, 1u64) -> Std.Bit.ShiftRight;
 
-let MidValue<T>(arr: Tuple(T...), lo: Int64, hi: Int64): T =
+let MidValue<T>(arr: Tuple<T...>, lo: Int64, hi: Int64): T =
     (arr, (lo, hi) -> Mid -> Std.ToUInt64) -> Std.ElementAt;
 
-let BinarySearchNext<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+let BinarySearchNext<T>(arr: Tuple<T...>, target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
     (((arr, lo, hi) -> MidValue, less_than_target) -> Std.Apply,
      (True, (): Int64 = (arr, target, less_than_target, ((lo, hi) -> Mid, 1) -> Std.Add, hi) -> BinarySearchRange),
      (_, (): Int64 = (arr, target, less_than_target, lo, ((lo, hi) -> Mid, 1) -> Std.Subtract) -> BinarySearchRange)
     ) -> Std.Match;
 
-let BinarySearchStep<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+let BinarySearchStep<T>(arr: Tuple<T...>, target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
     (((arr, lo, hi) -> MidValue, target) -> Std.Equal,
      (True, (): Int64 = (lo, hi) -> Mid),
      (_, (): Int64 = (arr, target, less_than_target, lo, hi) -> BinarySearchNext)
     ) -> Std.Match;
 
-let BinarySearchRange<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
+let BinarySearchRange<T>(arr: Tuple<T...>, target: T, less_than_target: (T) => Bool, lo: Int64, hi: Int64): Int64 =
     ((lo, hi) -> Std.GreaterThan,
      (True, (): Int64 = -1),
      (_, (): Int64 = (arr, target, less_than_target, lo, hi) -> BinarySearchStep)
     ) -> Std.Match;
 
-let BinarySearchIndex<T>(arr: Tuple(T...), target: T, less_than_target: (T) => Bool): Int64 =
+let BinarySearchIndex<T>(arr: Tuple<T...>, target: T, less_than_target: (T) => Bool): Int64 =
     (arr, target, less_than_target, 0, ((arr) -> Std.Length, 1) -> Std.Subtract) -> BinarySearchRange;
 
 let MakeInt64LessThanTarget(target: Int64): (Int64) => Bool =
     (candidate: Int64): Bool = (candidate, target) -> Std.LessThan;
 
-let SearchInt64(arr: Tuple(Int64...), target: Int64): Int64 =
+let SearchInt64(arr: Tuple<Int64...>, target: Int64): Int64 =
     (arr, target, (target) -> MakeInt64LessThanTarget) -> BinarySearchIndex;
 
 ((1, 3, 5, 7, 9, 11), 7) -> SearchInt64 -> Std.Println;

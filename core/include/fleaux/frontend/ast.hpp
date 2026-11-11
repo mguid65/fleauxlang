@@ -58,7 +58,7 @@ struct UnionTypeList {
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
-// Named type with type arguments, e.g. Dict(String, Any) or Result(Bool, Any).
+// Named type with type arguments, e.g. Dict<String, Any> or Result<Bool, String>.
 struct AppliedTypeNode {
   std::string name{};
   TypeList args{};
@@ -184,6 +184,9 @@ struct LetStatement {
 
 struct TypeStatement {
   std::string name{};
+  std::vector<std::string> generic_params{};
+  // True for 'type Name<...> :: __builtin__;'. Builtin types have no target type.
+  bool is_builtin{false};
   TypeNode target{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
@@ -223,7 +226,7 @@ struct IRSimpleType {
   // Phase 2 compatibility note: current type checking still treats tuple compatibility
   // coarsely; this field exists so later phases can stop erasing tuple shape in IR.
   std::vector<IRSimpleType> tuple_items{};
-  // Non-empty when this is an applied named type, e.g. Dict(String, Any).
+  // Non-empty when this is an applied named type, e.g. Dict<String, Any>.
   // `name` holds the outer type name; `type_args` holds the argument types.
   std::vector<IRSimpleType> type_args{};
   // When this is a function type, holds the parameter types and return type.
@@ -356,6 +359,9 @@ struct IRLet {
 
 struct IRTypeDecl {
   std::string name{};
+  std::vector<std::string> generic_params{};
+  // True for runtime-provided types declared with '__builtin__'. They have no target type.
+  bool is_builtin{false};
   IRSimpleType target{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
