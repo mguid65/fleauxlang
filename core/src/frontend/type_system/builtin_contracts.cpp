@@ -1,7 +1,6 @@
 #include "fleaux/frontend/type_system/builtin_contracts.hpp"
 
 #include <algorithm>
-#include <initializer_list>
 #include <unordered_set>
 
 #include "fleaux/frontend/type_system/function_index.hpp"
@@ -21,23 +20,6 @@ enum NumericTypeMask : unsigned {
 [[nodiscard]] auto is_deferred_numeric_check_type(const Type& type) -> bool {
   return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown;
 }
-
-[[nodiscard]] auto is_deferred_string_check_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown;
-}
-
-[[nodiscard]] auto is_deferred_callable_check_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown || type.kind == TypeKind::kTypeVar;
-}
-
-[[nodiscard]] auto is_deferred_expected_type_check_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown || type.kind == TypeKind::kTypeVar;
-}
-
-struct CallableSlotContract {
-  std::size_t index;
-  std::size_t arity;
-};
 
 [[nodiscard]] auto is_deferred_dict_key_check_type(const Type& type) -> bool {
   return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown || type.kind == TypeKind::kTypeVar;
@@ -85,128 +67,6 @@ auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, s
 
   error_message = full_name + " expects Int64, UInt64, or Float64 input.";
   return false;
-}
-
-auto check_string_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
-                      const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-  if (args[index].kind == TypeKind::kString || is_deferred_string_check_type(args[index])) {
-    return true;
-  }
-  error_message = full_name + " expects String arguments.";
-  return false;
-}
-
-auto check_string_args(const std::vector<Type>& args, const std::initializer_list<std::size_t> indices,
-                       std::string& error_message, const std::string& full_name) -> bool {
-  for (const std::size_t index : indices) {
-    if (!check_string_arg(args, index, error_message, full_name)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-auto check_callable_arg(const std::vector<Type>& args, const std::size_t index, const std::size_t expected_arity,
-                        std::string& error_message, const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-
-  const Type& arg = args[index];
-  if (is_deferred_callable_check_type(arg)) {
-    return true;
-  }
-  if (arg.kind != TypeKind::kFunction) {
-    error_message = full_name + " expects callable arguments.";
-    return false;
-  }
-  if (arg.function_params.size() != expected_arity ||
-      std::ranges::any_of(arg.function_params, [](const Type& param) { return param.variadic; })) {
-    error_message = full_name + " expects callable arguments with " + std::to_string(expected_arity) +
-                    (expected_arity == 1U ? " parameter." : " parameters.");
-    return false;
-  }
-  return true;
-}
-
-auto check_callable_args(const std::vector<Type>& args, const std::initializer_list<CallableSlotContract> contracts,
-                         std::string& error_message, const std::string& full_name) -> bool {
-  for (const auto [index, arity] : contracts) {
-    if (!check_callable_arg(args, index, arity, error_message, full_name)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-[[nodiscard]] auto make_variadic_tuple_of_type(Type item_type) -> Type {
-  Type tuple = make_type(TypeKind::kTuple);
-  item_type.variadic = true;
-  tuple.items.push_back(std::move(item_type));
-  return tuple;
-}
-
-auto check_expected_type_arg(const std::vector<Type>& args, const std::size_t index, const Type& expected,
-                             const std::string& expected_description, std::string& error_message,
-                             const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-
-  const Type& arg = args[index];
-  if (is_deferred_expected_type_check_type(arg)) {
-    return true;
-  }
-  if (is_consistent(expected, arg)) {
-    return true;
-  }
-
-  error_message = full_name + " expects " + expected_description + ".";
-  return false;
-}
-
-auto check_expected_type_args(const std::vector<Type>& args, const std::initializer_list<std::size_t> indices,
-                              const Type& expected, const std::string& expected_description, std::string& error_message,
-                              const std::string& full_name) -> bool {
-  for (const std::size_t index : indices) {
-    if (!check_expected_type_arg(args, index, expected, expected_description, error_message, full_name)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-auto check_uint64_tuple_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
-                            const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-
-  const Type& arg = args[index];
-  if (is_deferred_expected_type_check_type(arg)) {
-    return true;
-  }
-  if (const Type expected = make_variadic_tuple_of_type(make_type(TypeKind::kUInt64)); is_consistent(expected, arg)) {
-    return true;
-  }
-  if (arg.kind != TypeKind::kTuple) {
-    error_message = full_name + " expects tuple indices.";
-    return false;
-  }
-  for (const auto& item : arg.items) {
-    if (!is_deferred_expected_type_check_type(item) && !is_consistent(make_type(TypeKind::kUInt64), item)) {
-      error_message = full_name + " expects all index tuple elements to be UInt64.";
-      return false;
-    }
-  }
-  return true;
 }
 
 [[nodiscard]] auto is_scalar_dict_key_type_impl(const Type& type, const StrongTypeIndex& type_index,
@@ -315,157 +175,16 @@ auto check_parallel_options_arg(const std::vector<Type>& args, const std::size_t
 
 auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args,
                                const StrongTypeIndex& type_index, std::string& error_message) -> bool {
-  if (full_name == "Std.Array.GetAt" || full_name == "Std.Array.SetAt" || full_name == "Std.Array.InsertAt" ||
-      full_name == "Std.Array.RemoveAt") {
-    return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.Take" || full_name == "Std.Drop" || full_name == "Std.ElementAt" ||
-      full_name == "Std.String.CharAt" || full_name == "Std.Bit.ShiftLeft" || full_name == "Std.Bit.ShiftRight") {
-    return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.Random.Create") {
-    return check_expected_type_arg(args, 0U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.Random.NextUInt64" || full_name == "Std.Random.NextInt64" ||
-      full_name == "Std.Random.NextFloat64" || full_name == "Std.Random.NextBool" || full_name == "Std.Random.Split") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("RandomGenerator"), "RandomGenerator arguments",
-                                   error_message, full_name);
-  }
+  // The numeric conversions take Any so they can accept every numeric type; the argument must still be a number.
   if (full_name == "Std.ToInt64" || full_name == "Std.ToUInt64" || full_name == "Std.ToFloat64") {
     return check_numeric_arg(args, 0U, error_message, full_name);
   }
-  if (full_name == "Std.OS.Env" || full_name == "Std.OS.HasEnv" || full_name == "Std.OS.UnsetEnv" ||
-      full_name == "Std.OS.Exec" || full_name == "Std.Path.Normalize" || full_name == "Std.Path.Basename" ||
-      full_name == "Std.Path.Dirname" || full_name == "Std.Path.Exists" || full_name == "Std.Path.IsFile" ||
-      full_name == "Std.Path.IsDir" || full_name == "Std.Path.Absolute" || full_name == "Std.Path.Extension" ||
-      full_name == "Std.Path.Stem" || full_name == "Std.File.ReadText" || full_name == "Std.File.ReadLines" ||
-      full_name == "Std.File.Delete" || full_name == "Std.File.Size" || full_name == "Std.Dir.Create" ||
-      full_name == "Std.Dir.Delete" || full_name == "Std.Dir.List" || full_name == "Std.Dir.ListFull") {
-    return check_string_arg(args, 0U, error_message, full_name);
-  }
-  if (full_name == "Std.Path.Join") {
-    for (std::size_t index = 0; index < args.size(); ++index) {
-      if (!check_string_arg(args, index, error_message, full_name)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (full_name == "Std.OS.SetEnv" || full_name == "Std.Path.WithExtension" || full_name == "Std.Path.WithBasename" ||
-      full_name == "Std.File.WriteText" || full_name == "Std.File.AppendText" || full_name == "Std.File.Open") {
-    return check_string_args(args, {0U, 1U}, error_message, full_name);
-  }
-  if (full_name == "Std.File.ReadLine" || full_name == "Std.File.Flush" || full_name == "Std.File.Close") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("FileHandle"), "FileHandle arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.File.WriteChunk") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("FileHandle"), "FileHandle arguments", error_message,
-                                   full_name) &&
-           check_string_arg(args, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Try" || full_name == "Std.Parallel.Map" || full_name == "Std.Parallel.ForEach" ||
-      full_name == "Std.Apply" || full_name == "Std.Tuple.Map" || full_name == "Std.Tuple.Filter" ||
-      full_name == "Std.Tuple.FindIndex" || full_name == "Std.Tuple.Any" || full_name == "Std.Tuple.All") {
-    return check_callable_arg(args, 1U, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Task.Spawn") {
-    return check_callable_arg(args, 0U, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Task.WithTimeout") {
-    return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
-  }
+  // Parallel options are read as Dict<String, Any>; a narrower value type is rejected so options stay extensible.
   if (full_name == "Std.Parallel.WithOptions") {
-    return check_callable_arg(args, 1U, 1U, error_message, full_name) &&
-           check_parallel_options_arg(args, 2U, type_index, error_message, full_name);
+    return check_parallel_options_arg(args, 2U, type_index, error_message, full_name);
   }
-  if (full_name == "Std.Parallel.Reduce" || full_name == "Std.Tuple.Reduce") {
-    return check_callable_arg(args, 2U, 2U, error_message, full_name);
-  }
-  if (full_name == "Std.Branch") {
-    return check_callable_args(args, {{2U, 1U}, {3U, 1U}}, error_message, full_name);
-  }
-  if (full_name == "Std.Loop") {
-    return check_callable_args(args, {{1U, 1U}, {2U, 1U}}, error_message, full_name);
-  }
-  if (full_name == "Std.LoopN") {
-    return check_callable_args(args, {{1U, 1U}, {2U, 1U}}, error_message, full_name) &&
-           check_expected_type_arg(args, 3U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.File.WithOpen") {
-    return check_string_args(args, {0U, 1U}, error_message, full_name) &&
-           check_callable_arg(args, 2U, 1U, error_message, full_name);
-  }
-  if (full_name == "Std.Exit" && args.size() == 1U) {
-    return check_expected_type_arg(args, 0U, make_type(TypeKind::kInt64), "Int64 arguments", error_message,
-                                   full_name);
-  }
-  if (full_name == "Std.Tuple.Range") {
-    switch (args.size()) {
-      case 1U:
-        return check_expected_type_arg(args, 0U, make_type(TypeKind::kInt64), "Int64 arguments", error_message,
-                                       full_name);
-      case 2U:
-        return check_expected_type_args(args, {0U, 1U}, make_type(TypeKind::kInt64), "Int64 arguments",
-                                        error_message, full_name);
-      case 3U:
-        return check_expected_type_args(args, {0U, 1U, 2U}, make_type(TypeKind::kInt64), "Int64 arguments",
-                                        error_message, full_name);
-      default:
-        return true;
-    }
-  }
-  if (full_name == "Std.Slice") {
-    switch (args.size()) {
-      case 2U:
-        return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                       full_name);
-      case 3U:
-        return check_expected_type_args(args, {1U, 2U}, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                        full_name);
-      case 4U:
-        return check_expected_type_args(args, {1U, 2U, 3U}, make_type(TypeKind::kUInt64), "UInt64 arguments",
-                                        error_message, full_name);
-      default:
-        return true;
-    }
-  }
-  if (full_name == "Std.Array.Slice" || full_name == "Std.Array.SetAt2D" || full_name == "Std.Array.Fill" ||
-      full_name == "Std.Array.Reshape") {
-    return check_expected_type_args(args, {1U, 2U}, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                    full_name);
-  }
-  if (full_name == "Std.Array.Slice2D") {
-    return check_expected_type_args(args, {1U, 2U, 3U, 4U}, make_type(TypeKind::kUInt64), "UInt64 arguments",
-                                    error_message, full_name);
-  }
-  if (full_name == "Std.String.Slice") {
-    switch (args.size()) {
-      case 2U:
-        return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                       full_name);
-      case 3U:
-        return check_expected_type_args(args, {1U, 2U}, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                        full_name);
-      default:
-        return true;
-    }
-  }
-  if (full_name == "Std.String.Find") {
-    if (args.size() == 3U) {
-      return check_expected_type_arg(args, 2U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                     full_name);
-    }
-    return true;
-  }
-  if (full_name == "Std.Array.GetAtND" || full_name == "Std.Array.SetAtND" || full_name == "Std.Array.ReshapeND") {
-    return check_uint64_tuple_arg(args, 1U, error_message, full_name);
-  }
+  // Dictionary keys must be scalar. Key types may be unions of scalars or strong types over scalars, which a generic
+  // bound cannot express.
   if (full_name == "Std.Dict.Create" && args.size() == 1U) {
     return check_dict_key_channel_arg(args, 0U, type_index, error_message, full_name);
   }
@@ -481,12 +200,6 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
   if (full_name == "Std.Dict.Keys" || full_name == "Std.Dict.Values" || full_name == "Std.Dict.Entries" ||
       full_name == "Std.Dict.Clear" || full_name == "Std.Dict.Length") {
     return check_dict_key_channel_arg(args, 0U, type_index, error_message, full_name);
-  }
-  if (full_name == "Std.File.ReadChunk") {
-    return check_expected_type_arg(args, 0U, make_nominal_type("FileHandle"), "FileHandle arguments", error_message,
-                                   full_name) &&
-           check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
-                                   full_name);
   }
 
   return true;

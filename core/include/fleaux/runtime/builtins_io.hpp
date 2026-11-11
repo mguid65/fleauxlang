@@ -603,20 +603,10 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 // File streaming builtins
 
 [[nodiscard]] inline auto FileOpen(Value arg) -> Value {
-  // arg = (path, mode)  OR  (path,) defaults mode to "r"
+  // arg = (path, mode)
   detail::ensure_runtime_filesystem_ready();
-  const auto& arr = arg.TryGetArray();
-  std::string path, mode = "r";
-  if (arr && arr->Size() == 2) {
-    path = as_string(*arr->TryGet(0));
-    mode = as_string(*arr->TryGet(1));
-  } else if (arr && arr->Size() == 1) {
-    path = as_string(*arr->TryGet(0));
-  } else if (arr) {
-    throw std::runtime_error{"FileOpen: expected (path,) or (path, mode)"};
-  } else {
-    path = as_string(arg);
-  }
+  const std::string path = as_string(array_at(arg, 0));
+  const std::string mode = as_string(array_at(arg, 1));
   const UInt slot = handle_registry().open(detail::resolve_runtime_path(path).string(), mode);
   const UInt gen = handle_registry().entries[slot].generation;
   return make_handle_token(slot, gen);

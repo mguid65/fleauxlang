@@ -3265,7 +3265,7 @@ TEST_CASE("Bytecode compiler rejects operators the type checker did not resolve"
 
   REQUIRE_FALSE(result.has_value());
   REQUIRE(result.error().message ==
-          "Operator '??' reached the bytecode compiler without being resolved by the type checker.");
+          "Operator '?\?' reached the bytecode compiler without being resolved by the type checker.");
 }
 
 TEST_CASE("Bytecode compiler rejects unresolved names used as values", "[bytecode]") {

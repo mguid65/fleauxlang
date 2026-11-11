@@ -1557,22 +1557,6 @@ enum class SortTag {
   throw std::invalid_argument{"TupleSort internal error"};
 }
 
-[[nodiscard]] inline auto require_args(const Value& arg, std::size_t expected_count, const char* name) -> const Array& {
-  const auto& args = as_array(arg);
-  if (args.Size() != expected_count) {
-    throw std::invalid_argument(std::format("{} expects {} arguments", name, expected_count));
-  }
-  return args;
-}
-
-[[nodiscard]] inline auto require_args(Value& arg, std::size_t expected_count, const char* name) -> Array& {
-  auto& args = as_array(arg);
-  if (args.Size() != expected_count) {
-    throw std::invalid_argument(std::format("{} expects {} arguments", name, expected_count));
-  }
-  return args;
-}
-
 [[nodiscard]] inline auto as_path_string_unary(Value arg) -> std::string {
   return as_string(unwrap_singleton_arg(std::move(arg)));
 }

@@ -294,7 +294,7 @@ TEST_CASE("Runtime builtins: FileReadChunk rejects fractional nbytes", "[runtime
     out << "abc";
   }
 
-  const Value handle = make_tuple(make_string(file_path.string())) | FileOpen;
+  const Value handle = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
   REQUIRE_THROWS_WITH(make_tuple(handle, make_float(1.5)) | FileReadChunk,
                       Catch::Matchers::ContainsSubstring("expects an integer value"));
 
@@ -1611,12 +1611,12 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
       out << "line";
     }
 
-    const Value first_token = make_tuple(make_string(file_path.string())) | FileOpen;
+    const Value first_token = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
     REQUIRE(as_bool(first_token | FileClose));
     REQUIRE_FALSE(as_bool(first_token | FileClose));
     REQUIRE_THROWS_WITH(first_token | FileReadLine, Catch::Matchers::ContainsSubstring("closed or invalid"));
 
-    const Value reopened_token = make_tuple(make_string(file_path.string())) | FileOpen;
+    const Value reopened_token = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
     const Value read_back = reopened_token | FileReadLine;
     REQUIRE(as_array(read_back).Size() == 3);
     REQUIRE(as_string(array_at(read_back, 1)) == "line");
