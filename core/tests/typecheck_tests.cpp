@@ -216,9 +216,10 @@ TEST_CASE("Type helpers normalize unions and convert IR simple types", "[typeche
 
     const auto converted = from_ir_type(named_union);
     REQUIRE(converted.kind == TypeKind::kUnion);
-    REQUIRE(converted.union_members.size() == 6);
-    REQUIRE(std::ranges::any_of(converted.union_members,
-                                [](const Type& member) { return member.kind == TypeKind::kNever; }));
+    // Never has no values, so normalization drops it from the union.
+    REQUIRE(converted.union_members.size() == 5);
+    REQUIRE(std::ranges::none_of(converted.union_members,
+                                 [](const Type& member) { return member.kind == TypeKind::kNever; }));
     REQUIRE(
         std::ranges::any_of(converted.union_members, [](const Type& member) { return member.kind == TypeKind::kAny; }));
     REQUIRE(std::ranges::any_of(converted.union_members,
@@ -2506,7 +2507,7 @@ TEST_CASE("Type checker matrix: Stage-4d Std.Match semantics", "[typecheck][stag
   SECTION("Std.Match accepts literal, predicate, wildcard, and mixed handler forms") {
     const std::string src =
         "let Std.Match(value: Any, cases: Any...): Any :: __builtin__;\n"
-        "let Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+        "let Std.Mod<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
         "__builtin__;\n"
         "let Std.Equal<T>(lhs: T, rhs: T): Bool :: __builtin__;\n"
         "let Std.ToString(value: Any): String :: __builtin__;\n"
@@ -2923,9 +2924,9 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
     REQUIRE(lowered.error().hint->find("expects tuple indices") != std::string::npos);
   }
 
-  SECTION("Builtin numeric contracts reject implicit Float64 promotion") {
+  SECTION("Bounded numeric builtins reject implicit Float64 promotion") {
     const std::string src =
-        "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
+        "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: __builtin__;\n"
         "(1.0, 2) -> Std.Add;\n";
 
     const fleaux::frontend::parse::Parser parser;
@@ -2937,7 +2938,7 @@ TEST_CASE("Type checker matrix: Stage-4h diagnostics taxonomy", "[typecheck][sta
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Numbers are not converted implicitly") != std::string::npos);
     REQUIRE(lowered.error().hint->find("Std.ToFloat64") != std::string::npos);
   }
 
@@ -4777,7 +4778,7 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
 
   SECTION("Std.Parallel.Reduce rejects downstream error-shape mismatch") {
     const std::string src =
-        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+        "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
         "__builtin__;\n"
         "let Std.Parallel.Reduce<T, A>(items: Tuple<T...>, init: A, func: (A, T) => A): Result<A, Tuple<Int64, "
         "String>> :: __builtin__;\n"
@@ -6576,10 +6577,10 @@ TEST_CASE("Type checker rejects negative loop and task bounds before runtime", "
   }
 }
 
-TEST_CASE("Type checker narrows numeric builtin returns to concrete argument kinds", "[typecheck][builtins][numeric]") {
-  SECTION("Std.Add narrows to Int64 for concrete Int64 arguments") {
+TEST_CASE("Type checker returns the bound numeric type from numeric builtins", "[typecheck][builtins][numeric]") {
+  SECTION("Std.Add returns Int64 for Int64 arguments") {
     const std::string src =
-        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+        "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
         "__builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
         "(1, 2) -> Std.Add -> NeedsInt;\n";
@@ -6593,9 +6594,9 @@ TEST_CASE("Type checker narrows numeric builtin returns to concrete argument kin
     REQUIRE(lowered.has_value());
   }
 
-  SECTION("Std.Add narrows to UInt64 for concrete UInt64 arguments") {
+  SECTION("Std.Add returns UInt64 for UInt64 arguments") {
     const std::string src =
-        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+        "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
         "__builtin__;\n"
         "let NeedsUInt(x: UInt64): UInt64 = x;\n"
         "(1u64, 2u64) -> Std.Add -> NeedsUInt;\n";
@@ -6609,9 +6610,9 @@ TEST_CASE("Type checker narrows numeric builtin returns to concrete argument kin
     REQUIRE(lowered.has_value());
   }
 
-  SECTION("Std.Add does not narrow union-typed operands to Int64") {
+  SECTION("Std.Add rejects union-typed operands") {
     const std::string src =
-        "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+        "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
         "__builtin__;\n"
         "let AddPair(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Int64 = (lhs, rhs) -> Std.Add;\n";
 
@@ -6622,9 +6623,9 @@ TEST_CASE("Type checker narrows numeric builtin returns to concrete argument kin
     const fleaux::frontend::lowering::Lowerer lowerer;
     const auto lowered = lowerer.lower(parsed.value());
     REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    REQUIRE(lowered.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("A union cannot satisfy a bound") != std::string::npos);
   }
 }
 
@@ -7375,7 +7376,7 @@ TEST_CASE("Type checker checks operators as calls to their Std builtins", "[type
   SECTION("Builtin contracts apply to operators") {
     const auto lowered = lower_and_check("import Std;\n(1, 2.0) -> +;\n", "operator_float_promotion.fleaux");
     REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().hint->find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Numbers are not converted implicitly") != std::string::npos);
   }
 
   SECTION("Operand counts are checked") {
@@ -7443,6 +7444,158 @@ TEST_CASE("Type checker selects unary or binary minus from the operand type", "[
   SECTION("Unsigned values cannot be negated") {
     const auto lowered = lower_and_check("import Std;\n5u64 -> -;\n", "operator_unary_minus_unsigned.fleaux");
     REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().hint->find("Std.UnaryMinus expects Int64 or Float64 input") != std::string::npos);
+    REQUIRE(lowered.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.UnaryMinus requires T: Int64 | Float64, but T is UInt64") !=
+            std::string::npos);
   }
+}
+
+TEST_CASE("Type checker enforces generic bounds at call sites", "[typecheck][generic_bounds]") {
+  const std::string decls = "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: __builtin__;\n";
+
+  SECTION("A matching type satisfies the bound") {
+    REQUIRE(lower_and_check(decls + "let X(): UInt64 = (1u64, 2u64) -> Std.Add;\n", "bound_ok.fleaux").has_value());
+  }
+
+  SECTION("A type outside the bound is rejected") {
+    const auto lowered = lower_and_check(decls + "(\"a\", \"b\") -> Std.Add;\n", "bound_string.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Add requires T: Int64 | UInt64 | Float64, but T is String") !=
+            std::string::npos);
+  }
+
+  SECTION("Two different numeric types do not bind one parameter") {
+    const auto lowered = lower_and_check(decls + "(1, 2u64) -> Std.Add;\n", "bound_mixed.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Numbers are not converted implicitly") != std::string::npos);
+  }
+
+  SECTION("A union-typed value cannot satisfy a bound") {
+    const auto lowered = lower_and_check(
+        decls + "let F(x: Int64 | UInt64): Int64 | UInt64 = (x, x) -> Std.Add;\n", "bound_union.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("A union cannot satisfy a bound") != std::string::npos);
+  }
+
+  SECTION("Explicit type arguments must satisfy the bound") {
+    const auto lowered = lower_and_check(decls + "let F: Any = Std.Add<String>;\n", "bound_explicit.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
+  }
+
+  SECTION("Bounds may be aliases") {
+    REQUIRE(lower_and_check("alias Num = Int64 | Float64;\n"
+                            "let Twice<T: Num>(x: T): T = x;\n"
+                            "let X(): Float64 = 1.5 -> Twice;\n",
+                            "bound_alias.fleaux")
+                .has_value());
+  }
+}
+
+TEST_CASE("Type checker checks bounded type parameters inside generic bodies", "[typecheck][generic_bounds]") {
+  const std::string decls =
+      "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: __builtin__;\n"
+      "let Std.UnaryMinus<T: Int64 | Float64>(val: T): T :: __builtin__;\n";
+
+  SECTION("A parameter whose bound fits the callee's bound is accepted") {
+    REQUIRE(lower_and_check(decls + "let Twice<T: Int64 | Float64>(x: T): T = (x, x) -> Std.Add;\n",
+                            "body_bound_subset.fleaux")
+                .has_value());
+  }
+
+  SECTION("Block-local values typed with the parameter keep its bound") {
+    REQUIRE(lower_and_check(decls + "let Twice<T: Int64>(x: T): T = { let y: T = x; (y, y) -> Std.Add; };\n",
+                            "body_bound_local.fleaux")
+                .has_value());
+  }
+
+  SECTION("An unbounded parameter is rejected with a hint") {
+    const auto lowered = lower_and_check(decls + "let Twice<T>(x: T): T = (x, x) -> Std.Add;\n",
+                                         "body_bound_missing.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Type parameter 'T' has no bound") != std::string::npos);
+  }
+
+  SECTION("A parameter whose bound is wider than the callee's is rejected") {
+    const auto lowered = lower_and_check(
+        decls + "let Neg<T: Int64 | UInt64 | Float64>(x: T): T = x -> Std.UnaryMinus;\n", "body_bound_wider.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("type parameter 'T' bounded by") != std::string::npos);
+  }
+
+  SECTION("Closure bodies see the bounds of their generic parameters") {
+    REQUIRE(lower_and_check(decls + "let F: Any = <T: Int64>(x: T): T = (x, x) -> Std.Add;\n",
+                            "closure_bound.fleaux")
+                .has_value());
+    const auto lowered =
+        lower_and_check(decls + "let F: Any = <T>(x: T): T = (x, x) -> Std.Add;\n", "closure_unbounded.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Type parameter 'T' has no bound") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker validates generic bound declarations", "[typecheck][generic_bounds]") {
+  SECTION("Unknown names in a bound are rejected") {
+    const auto lowered = lower_and_check("let F<T: Banana>(x: T): T = x;\n", "bound_unknown.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Unknown type") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("In the bound of generic parameter 'T'") != std::string::npos);
+  }
+
+  SECTION("Bounds cannot refer to other generic parameters") {
+    const auto lowered = lower_and_check("let F<T, U: T>(x: T, y: U): T = x;\n", "bound_refers_param.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Unknown type") != std::string::npos);
+  }
+}
+
+TEST_CASE("Std numeric builtins are bounded and exact", "[typecheck][generic_bounds][std]") {
+  SECTION("Arithmetic returns the operand type") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let D(): Int64 = (10, 3) -> /;\n"
+                            "let U(): UInt64 = (10u64, 3u64) -> Std.Divide;\n"
+                            "let P(): Int64 = (2, 10) -> ^;\n",
+                            "std_numeric_returns.fleaux")
+                .has_value());
+  }
+
+  SECTION("Wrapping and saturating builtins accept integers only") {
+    REQUIRE(lower_and_check("import Std;\nlet W(): Int64 = (1, 2) -> Std.WrappingAdd;\n",
+                            "std_wrapping_int.fleaux")
+                .has_value());
+    const auto lowered =
+        lower_and_check("import Std;\n(1.0, 2.0) -> Std.SaturatingAdd;\n", "std_saturating_float.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Std.SaturatingAdd requires T: Int64 | UInt64") != std::string::npos);
+  }
+
+  SECTION("Sorting requires a comparable element type") {
+    REQUIRE(lower_and_check("import Std;\n((\"b\", \"a\")) -> Std.Tuple.Sort;\n", "std_sort_strings.fleaux")
+                .has_value());
+    const auto lowered =
+        lower_and_check("import Std;\n(((1, 2), (3, 4))) -> Std.Tuple.Sort;\n", "std_sort_tuples.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Tuple.Sort requires T:") != std::string::npos);
+  }
+
+  SECTION("Comparisons require numbers of the same type") {
+    const auto lowered = lower_and_check("import Std;\n(\"a\", \"b\") -> <;\n", "std_compare_strings.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type helpers drop Never from unions", "[typecheck][types]") {
+  using fleaux::frontend::type_system::make_type;
+  using fleaux::frontend::type_system::normalize_type;
+  using fleaux::frontend::type_system::TypeKind;
+
+  Type with_never = make_type(TypeKind::kUnion);
+  with_never.union_members = {make_type(TypeKind::kInt64), make_type(TypeKind::kNever)};
+  REQUIRE(normalize_type(with_never).kind == TypeKind::kInt64);
+
+  Type only_never = make_type(TypeKind::kUnion);
+  only_never.union_members = {make_type(TypeKind::kNever), make_type(TypeKind::kNever)};
+  REQUIRE(normalize_type(only_never).kind == TypeKind::kNever);
 }

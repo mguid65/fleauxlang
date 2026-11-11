@@ -11,32 +11,6 @@ auto symbol_key(const std::optional<std::string>& qualifier, const std::string& 
   return qualifier.has_value() ? (*qualifier + "." + name) : name;
 }
 
-auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string>& generic_params) -> Type {
-  Type out = type;
-
-  if (out.kind == TypeKind::kNominal && generic_params.contains(out.nominal_name)) {
-    out.kind = TypeKind::kTypeVar;
-    return out;
-  }
-
-  for (auto& item : out.items) {
-    item = rewrite_generic_type(item, generic_params);
-  }
-  for (auto& member : out.union_members) {
-    member = rewrite_generic_type(member, generic_params);
-  }
-  for (auto& arg : out.applied_args) {
-    arg = rewrite_generic_type(arg, generic_params);
-  }
-  for (auto& param : out.function_params) {
-    param = rewrite_generic_type(param, generic_params);
-  }
-  if (out.function_return.has_value()) {
-    out.function_return = common::make_indirect_optional<Type>(rewrite_generic_type(*out.function_return, generic_params));
-  }
-
-  return out;
-}
 
 }  // namespace
 
@@ -65,14 +39,25 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     sig.generic_params = let.generic_params;
     sig.is_builtin = let.is_builtin;
 
-    std::unordered_set<std::string> generic_param_set;
-    generic_param_set.reserve(let.generic_params.size());
+    // An invalid bound is reported by signature validation; here the parameter is treated as unbounded.
+    auto generic_scope = detail::make_generic_scope(let.generic_params, let.generic_bounds, known_strong_type_names,
+                                                    alias_index, let.span);
+    GenericScope generic_param_set;
+    if (generic_scope) {
+      generic_param_set = std::move(*generic_scope);
+    } else {
+      for (const auto& generic_param : let.generic_params) {
+        generic_param_set.add(generic_param);
+      }
+    }
     for (const auto& generic_param : let.generic_params) {
-      generic_param_set.insert(generic_param);
+      if (const Type* bound = generic_param_set.bound_of(generic_param); bound != nullptr) {
+        sig.generic_bounds.insert_or_assign(generic_param, *bound);
+      }
     }
 
     const auto rewrite_signature_type = [&](const ir::IRSimpleType& ir_type) -> Type {
-      Type rewritten = rewrite_generic_type(from_ir_type(ir_type), generic_param_set);
+      Type rewritten = detail::rewrite_generic_type(from_ir_type(ir_type), generic_param_set);
       auto expanded = detail::expand_aliases_in_type(rewritten, known_strong_type_names, alias_index, generic_param_set,
                                                      ir_type.span);
       if (!expanded) {
@@ -176,8 +161,10 @@ StrongTypeIndex::StrongTypeIndex(const ir::IRProgram& program, const AliasIndex&
       return;
     }
 
-    const std::unordered_set<std::string> generic_param_set(type_decl.generic_params.begin(),
-                                                            type_decl.generic_params.end());
+    GenericScope generic_param_set;
+    for (const auto& generic_param : type_decl.generic_params) {
+      generic_param_set.add(generic_param);
+    }
     const Type target = detail::rewrite_generic_type(from_ir_type(type_decl.target), generic_param_set);
     auto expanded_target =
         detail::expand_aliases_in_type(target, known_names_, alias_index, generic_param_set, type_decl.span);

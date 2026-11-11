@@ -1092,14 +1092,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("add", [&]() -> Value {
-          if (lhs->HasString() && rhs->HasString()) {
-            return runtime::make_string(runtime::as_string(*lhs) + runtime::as_string(*rhs));
-          }
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "add");
-          runtime::require_same_integer_kind(*lhs, *rhs, "add");
-          return runtime::num_result(runtime::to_double(*lhs) + runtime::to_double(*rhs),
-                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::AddBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1115,11 +1108,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("sub", [&]() -> Value {
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "sub");
-          runtime::require_same_integer_kind(*lhs, *rhs, "sub");
-          return runtime::num_result(runtime::to_double(*lhs) - runtime::to_double(*rhs),
-                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::SubtractBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1135,11 +1124,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("mul", [&]() -> Value {
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mul");
-          runtime::require_same_integer_kind(*lhs, *rhs, "mul");
-          return runtime::num_result(runtime::to_double(*lhs) * runtime::to_double(*rhs),
-                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::MultiplyBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1155,12 +1140,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("div", [&]() -> Value {
-          // Native division follows floating-point semantics (e.g. x/0 -> inf).
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "div");
-          runtime::require_same_integer_kind(*lhs, *rhs, "div");
-          return runtime::num_result(runtime::to_double(*lhs) / runtime::to_double(*rhs),
-                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::DivideBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1176,11 +1156,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("mod", [&]() -> Value {
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "mod");
-          runtime::require_same_integer_kind(*lhs, *rhs, "mod");
-          return runtime::num_result(std::fmod(runtime::to_double(*lhs), runtime::to_double(*rhs)),
-                                     runtime::is_uint_number(*lhs) && runtime::is_uint_number(*rhs),
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::ModBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1196,9 +1172,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!lhs)
           return tl::unexpected(lhs.error());
         auto result = run_native_op("pow", [&]() -> Value {
-          runtime::require_no_implicit_float_promotion(*lhs, *rhs, "pow");
-          return runtime::num_result(std::pow(runtime::to_double(*lhs), runtime::to_double(*rhs)), false,
-                                     runtime::prefer_float_numeric_result(*lhs, *rhs));
+          return runtime::PowBinary(*lhs, *rhs);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1211,7 +1185,7 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (!value)
           return tl::unexpected(value.error());
         auto result = run_native_op("neg", [&]() -> Value {
-          return runtime::num_result(-runtime::to_double(*value), false, runtime::is_float_number(*value));
+          return runtime::UnaryMinusValue(*value);
         });
         if (!result)
           return tl::unexpected(result.error());
@@ -1475,6 +1449,18 @@ auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape /*shape
         return runtime::Subtract(std::move(arg));
       case BuiltinId::Multiply:
         return runtime::Multiply(std::move(arg));
+      case BuiltinId::WrappingAdd:
+        return runtime::WrappingAdd(std::move(arg));
+      case BuiltinId::WrappingSubtract:
+        return runtime::WrappingSubtract(std::move(arg));
+      case BuiltinId::WrappingMultiply:
+        return runtime::WrappingMultiply(std::move(arg));
+      case BuiltinId::SaturatingAdd:
+        return runtime::SaturatingAdd(std::move(arg));
+      case BuiltinId::SaturatingSubtract:
+        return runtime::SaturatingSubtract(std::move(arg));
+      case BuiltinId::SaturatingMultiply:
+        return runtime::SaturatingMultiply(std::move(arg));
       case BuiltinId::Divide:
         return runtime::Divide(std::move(arg));
       case BuiltinId::Mod:

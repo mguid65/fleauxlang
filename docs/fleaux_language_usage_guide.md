@@ -266,6 +266,23 @@ You can supply explicit type arguments on named targets:
 
 Generic aliases are not supported, but generic functions are.
 
+Generic parameters can be bounded. A bound is a type, usually a union, and the parameter must be exactly one of its alternatives:
+
+    let Twice<T: Numeric>(x: T): T = (x, x) -> Std.Add;
+    let Square<T: Int64 | UInt64>(x: T): T = (x, x) -> Std.Multiply;
+
+Std declares the bounds Numeric, Integer, Signed, and Comparable as aliases.
+
+### Numeric semantics
+
+Arithmetic builtins take two operands of the same numeric type and return that type.
+
+- Int64 and UInt64 arithmetic is exact. Overflow in Add, Subtract, Multiply, Pow, and UnaryMinus is a runtime error.
+- Integer division truncates toward zero, Mod has the sign of the dividend, and integer division by zero is a runtime error.
+- Integer Pow requires a non-negative exponent.
+- Float64 arithmetic follows IEEE-754, so 1.0 / 0.0 is infinity.
+- Std.WrappingAdd, Std.WrappingSubtract, and Std.WrappingMultiply wrap around on overflow; Std.SaturatingAdd, Std.SaturatingSubtract, and Std.SaturatingMultiply clamp. These take Int64 or UInt64 only.
+
 ## Expressions and pipelines
 
 The most characteristic Fleaux syntax is the flow operator ->.

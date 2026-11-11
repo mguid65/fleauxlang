@@ -539,7 +539,7 @@ TEST_CASE("Lowerer preserves union alternatives in param and return types", "[lo
 
 TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[lowering]") {
   const std::string src =
-      "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): Float64 | Int64 | UInt64 :: "
+      "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: "
       "__builtin__;\n"
       "let Std.ToFloat64(value: Any): Float64 :: __builtin__;\n"
       "let Good(a: Int64, b: UInt64): Float64 = ((a) -> Std.ToFloat64, (b) -> Std.ToFloat64) -> Std.Add;\n";

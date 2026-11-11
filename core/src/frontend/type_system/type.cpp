@@ -146,6 +146,14 @@ auto normalize_type(Type type) -> Type {
     push_union_member(normalized_members, normalize_type(std::move(member)));
   }
 
+  // Never has no values, so it contributes nothing to a union: T | Never is T.
+  std::erase_if(normalized_members, [](const Type& member) -> bool { return member.kind == TypeKind::kNever; });
+  if (normalized_members.empty()) {
+    Type never = make_type(TypeKind::kNever);
+    never.variadic = type.variadic;
+    return never;
+  }
+
   std::ranges::sort(normalized_members,
                     [](const Type& lhs, const Type& rhs) -> bool { return type_sort_key(lhs) < type_sort_key(rhs); });
 
@@ -161,7 +169,9 @@ auto normalize_type(Type type) -> Type {
   }
 
   if (deduped.size() == 1U) {
-    return std::move(deduped.front());
+    Type single = std::move(deduped.front());
+    single.variadic = single.variadic || type.variadic;
+    return single;
   }
   type.union_members = std::move(deduped);
   return type;
@@ -350,6 +360,47 @@ auto are_function_types_consistent(const Type& expected, const Type& actual) -> 
 }
 
 }  // namespace
+
+namespace {
+
+auto bound_alternatives(const Type& bound) -> std::vector<Type> {
+  if (bound.kind == TypeKind::kUnion) {
+    return bound.union_members;
+  }
+  return {bound};
+}
+
+auto is_bound_alternative(const Type& candidate, const Type& alternative) -> bool {
+  return is_consistent(alternative, candidate) && is_consistent(candidate, alternative);
+}
+
+}  // namespace
+
+auto satisfies_generic_bound(const Type& actual, const Type& bound) -> bool {
+  switch (actual.kind) {
+    case TypeKind::kAny:
+    case TypeKind::kUnknown:
+    case TypeKind::kNever:
+      return true;
+    case TypeKind::kUnion:
+      return false;
+    case TypeKind::kTypeVar: {
+      if (!actual.type_var_bound.has_value()) {
+        return false;
+      }
+      const auto alternatives = bound_alternatives(bound);
+      return std::ranges::all_of(bound_alternatives(*actual.type_var_bound), [&](const Type& own) -> bool {
+        return std::ranges::any_of(alternatives,
+                                   [&](const Type& alternative) { return is_bound_alternative(own, alternative); });
+      });
+    }
+    default: {
+      const auto alternatives = bound_alternatives(bound);
+      return std::ranges::any_of(alternatives,
+                                 [&](const Type& alternative) { return is_bound_alternative(actual, alternative); });
+    }
+  }
+}
 
 auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (actual.kind == TypeKind::kNever) {

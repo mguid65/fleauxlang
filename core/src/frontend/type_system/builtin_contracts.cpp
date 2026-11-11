@@ -66,41 +66,6 @@ struct CallableSlotContract {
   }
 }
 
-[[nodiscard]] auto is_numeric_cast_sensitive_builtin(const std::string& full_name) -> bool {
-  return full_name == "Std.Add" || full_name == "Std.Subtract" || full_name == "Std.Multiply" ||
-         full_name == "Std.Divide" || full_name == "Std.Mod" || full_name == "Std.Pow" ||
-         full_name == "Std.GreaterThan" || full_name == "Std.LessThan" || full_name == "Std.GreaterOrEqual" ||
-         full_name == "Std.LessOrEqual";
-}
-
-[[nodiscard]] auto is_numeric_arithmetic_builtin(const std::string& full_name) -> bool {
-  return full_name == "Std.Add" || full_name == "Std.Subtract" || full_name == "Std.Multiply" ||
-         full_name == "Std.Divide" || full_name == "Std.Mod" || full_name == "Std.Pow";
-}
-
-auto check_no_implicit_float_promotion(const std::vector<Type>& args, std::string& error_message,
-                                       const std::string& full_name) -> bool {
-  unsigned combined_mask = kNumericNone;
-  for (const auto& arg : args) {
-    combined_mask |= numeric_type_mask(arg);
-  }
-
-  if ((combined_mask & kNumericDeferred) != 0U) {
-    return true;
-  }
-  if ((combined_mask & kNumericOther) != 0U) {
-    return true;
-  }
-
-  const bool has_float = (combined_mask & kNumericFloat64) != 0U;
-  if (const bool has_integer = (combined_mask & (kNumericInt64 | kNumericUInt64)) != 0U; !has_float || !has_integer) {
-    return true;
-  }
-
-  error_message = full_name + " does not implicitly cast Int64 or UInt64 to Float64. Use Std.ToFloat64 explicitly.";
-  return false;
-}
-
 auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
                        const std::string& full_name) -> bool {
   if (index >= args.size()) {
@@ -119,28 +84,6 @@ auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, s
   }
 
   error_message = full_name + " expects Int64, UInt64, or Float64 input.";
-  return false;
-}
-
-// Accepts Int64 or Float64 only. Unsigned values have no negation of the same type.
-// Phase 2 of the type system soundness plan replaces this with a generic bound.
-auto check_signed_numeric_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
-                              const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-
-  if (is_deferred_numeric_check_type(args[index])) {
-    return true;
-  }
-
-  if (const unsigned mask = numeric_type_mask(args[index]);
-      mask == kNumericInt64 || mask == kNumericFloat64 || mask == kNumericDeferred) {
-    return true;
-  }
-
-  error_message = full_name + " expects Int64 or Float64 input.";
   return false;
 }
 
@@ -372,10 +315,6 @@ auto check_parallel_options_arg(const std::vector<Type>& args, const std::size_t
 
 auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args,
                                const StrongTypeIndex& type_index, std::string& error_message) -> bool {
-  if (is_numeric_cast_sensitive_builtin(full_name) &&
-      !check_no_implicit_float_promotion(args, error_message, full_name)) {
-    return false;
-  }
   if (full_name == "Std.Array.GetAt" || full_name == "Std.Array.SetAt" || full_name == "Std.Array.InsertAt" ||
       full_name == "Std.Array.RemoveAt") {
     return check_expected_type_arg(args, 1U, make_type(TypeKind::kUInt64), "UInt64 arguments", error_message,
@@ -394,9 +333,6 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
       full_name == "Std.Random.NextFloat64" || full_name == "Std.Random.NextBool" || full_name == "Std.Random.Split") {
     return check_expected_type_arg(args, 0U, make_nominal_type("RandomGenerator"), "RandomGenerator arguments",
                                    error_message, full_name);
-  }
-  if (full_name == "Std.UnaryMinus") {
-    return check_signed_numeric_arg(args, 0U, error_message, full_name);
   }
   if (full_name == "Std.ToInt64" || full_name == "Std.ToUInt64" || full_name == "Std.ToFloat64") {
     return check_numeric_arg(args, 0U, error_message, full_name);
@@ -554,32 +490,6 @@ auto validate_builtin_contract(const std::string& full_name, const std::vector<T
   }
 
   return true;
-}
-
-auto refine_builtin_return_type(const std::string& full_name, const std::vector<Type>& args,
-                                const Type& declared_return_type) -> Type {
-  if (!is_numeric_arithmetic_builtin(full_name)) {
-    return declared_return_type;
-  }
-
-  unsigned combined_mask = kNumericNone;
-  for (const auto& arg : args) {
-    combined_mask |= numeric_type_mask(arg);
-  }
-
-  if ((combined_mask & (kNumericDeferred | kNumericOther)) != 0U) {
-    return declared_return_type;
-  }
-  if (combined_mask == kNumericInt64) {
-    return make_type(TypeKind::kInt64);
-  }
-  if (combined_mask == kNumericUInt64) {
-    return make_type(TypeKind::kUInt64);
-  }
-  if (combined_mask == kNumericFloat64) {
-    return make_type(TypeKind::kFloat64);
-  }
-  return declared_return_type;
 }
 
 }  // namespace fleaux::frontend::type_system

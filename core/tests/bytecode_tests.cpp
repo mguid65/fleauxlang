@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -3505,7 +3506,7 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
 
 TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs", "[bytecode]") {
   const auto ir_program =
-      lower_source_to_ir("(True, 10.0, Std.UnaryMinus<Float64>, Std.UnaryPlus) -> Std.Branch -> Std.Println;\n",
+      lower_source_to_ir("(True, 10.0, Std.UnaryMinus<Float64>, Std.UnaryPlus<Float64>) -> Std.Branch -> Std.Println;\n",
                          "bytecode_builtin_callable_branch.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -6043,97 +6044,103 @@ TEST_CASE("ConstantFoldingPass folds safe literal unary and binary sequences", "
   REQUIRE(std::get<bool>(module.constants[static_cast<std::size_t>(module.instructions[2].operand)].data));
 }
 
-TEST_CASE("ConstantFoldingPass folds kDiv and preserves floating semantics", "[bytecode][optimizer]") {
+namespace {
+
+// Builds a module computing `lhs op rhs` for each pair, then runs constant folding.
+auto fold_binary_pairs(const fleaux::bytecode::Opcode opcode, const std::vector<fleaux::bytecode::ConstValue>& constants,
+                       const std::vector<std::pair<std::int64_t, std::int64_t>>& operand_pairs)
+    -> fleaux::bytecode::Module {
   fleaux::bytecode::Module module;
-  module.constants = {
-      fleaux::bytecode::ConstValue{std::int64_t{10}},
-      fleaux::bytecode::ConstValue{std::int64_t{4}},
-      fleaux::bytecode::ConstValue{std::int64_t{0}},
-  };
-  module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kDiv, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kDiv, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
-  };
-
+  module.constants = constants;
+  for (const auto& [lhs, rhs] : operand_pairs) {
+    module.instructions.push_back({fleaux::bytecode::Opcode::kPushConst, lhs});
+    module.instructions.push_back({fleaux::bytecode::Opcode::kPushConst, rhs});
+    module.instructions.push_back({opcode, 0});
+  }
+  module.instructions.push_back({fleaux::bytecode::Opcode::kHalt, 0});
   fleaux::bytecode::ConstantFoldingPass{}.run(module);
-
-  REQUIRE(module.instructions.size() == 3);
-  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
-
-  REQUIRE(
-      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
-  REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2.5);
-
-  REQUIRE(
-      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
-  REQUIRE(
-      std::isinf(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+  return module;
 }
 
-TEST_CASE("ConstantFoldingPass folds kMod and preserves NaN on mod-by-zero", "[bytecode][optimizer]") {
-  fleaux::bytecode::Module module;
-  module.constants = {
-      fleaux::bytecode::ConstValue{std::int64_t{10}},
-      fleaux::bytecode::ConstValue{std::int64_t{4}},
-      fleaux::bytecode::ConstValue{std::int64_t{0}},
-  };
-  module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kMod, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kMod, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
-  };
-
-  fleaux::bytecode::ConstantFoldingPass{}.run(module);
-
-  REQUIRE(module.instructions.size() == 3);
-  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
-
-  REQUIRE(std::holds_alternative<std::int64_t>(
-      module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
-  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) == 2);
-
-  REQUIRE(
-      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
-  REQUIRE(
-      std::isnan(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data)));
+auto folded_constant(const fleaux::bytecode::Module& module, const std::size_t instruction_index)
+    -> const fleaux::bytecode::ConstValue& {
+  REQUIRE(module.instructions[instruction_index].opcode == fleaux::bytecode::Opcode::kPushConst);
+  return module.constants[static_cast<std::size_t>(module.instructions[instruction_index].operand)];
 }
 
-TEST_CASE("ConstantFoldingPass folds kPow with integer and floating outputs", "[bytecode][optimizer]") {
-  fleaux::bytecode::Module module;
-  module.constants = {
-      fleaux::bytecode::ConstValue{std::int64_t{2}},
-      fleaux::bytecode::ConstValue{std::int64_t{8}},
-      fleaux::bytecode::ConstValue{std::int64_t{-1}},
-  };
-  module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPow, 0},       {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kPow, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
-  };
+}  // namespace
 
-  fleaux::bytecode::ConstantFoldingPass{}.run(module);
+TEST_CASE("ConstantFoldingPass folds kDiv with truncating integer and IEEE floating semantics",
+          "[bytecode][optimizer]") {
+  const auto module = fold_binary_pairs(fleaux::bytecode::Opcode::kDiv,
+                                        {
+                                            fleaux::bytecode::ConstValue{std::int64_t{10}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{4}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{0}},
+                                            fleaux::bytecode::ConstValue{10.0},
+                                            fleaux::bytecode::ConstValue{0.0},
+                                        },
+                                        {{0, 1}, {0, 2}, {3, 4}});
 
-  REQUIRE(module.instructions.size() == 3);
-  REQUIRE(module.instructions[0].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kPushConst);
-  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kHalt);
+  // 10 / 4 folds to Int64 2, 10 / 0 is left for the runtime to report, 10.0 / 0.0 folds to infinity.
+  REQUIRE(module.instructions.size() == 6);
+  REQUIRE(std::get<std::int64_t>(folded_constant(module, 0).data) == 2);
+  REQUIRE(module.instructions[3].opcode == fleaux::bytecode::Opcode::kDiv);
+  REQUIRE(std::isinf(std::get<double>(folded_constant(module, 4).data)));
+  REQUIRE(module.instructions[5].opcode == fleaux::bytecode::Opcode::kHalt);
+}
 
-  REQUIRE(std::holds_alternative<std::int64_t>(
-      module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data));
-  REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) ==
-          256);
+TEST_CASE("ConstantFoldingPass folds kMod exactly and leaves integer mod-by-zero to the runtime",
+          "[bytecode][optimizer]") {
+  const auto module = fold_binary_pairs(fleaux::bytecode::Opcode::kMod,
+                                        {
+                                            fleaux::bytecode::ConstValue{std::int64_t{-10}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{4}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{0}},
+                                            fleaux::bytecode::ConstValue{10.0},
+                                            fleaux::bytecode::ConstValue{0.0},
+                                        },
+                                        {{0, 1}, {0, 2}, {3, 4}});
 
-  REQUIRE(
-      std::holds_alternative<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data));
-  REQUIRE(std::get<double>(module.constants[static_cast<std::size_t>(module.instructions[1].operand)].data) == 0.5);
+  // -10 % 4 keeps the dividend's sign, -10 % 0 is left for the runtime, 10.0 % 0.0 folds to NaN.
+  REQUIRE(module.instructions.size() == 6);
+  REQUIRE(std::get<std::int64_t>(folded_constant(module, 0).data) == -2);
+  REQUIRE(module.instructions[3].opcode == fleaux::bytecode::Opcode::kMod);
+  REQUIRE(std::isnan(std::get<double>(folded_constant(module, 4).data)));
+}
+
+TEST_CASE("ConstantFoldingPass folds kPow exactly and leaves negative integer exponents to the runtime",
+          "[bytecode][optimizer]") {
+  const auto module = fold_binary_pairs(fleaux::bytecode::Opcode::kPow,
+                                        {
+                                            fleaux::bytecode::ConstValue{std::int64_t{2}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{8}},
+                                            fleaux::bytecode::ConstValue{std::int64_t{-1}},
+                                            fleaux::bytecode::ConstValue{2.0},
+                                            fleaux::bytecode::ConstValue{-1.0},
+                                        },
+                                        {{0, 1}, {0, 2}, {3, 4}});
+
+  REQUIRE(module.instructions.size() == 6);
+  REQUIRE(std::get<std::int64_t>(folded_constant(module, 0).data) == 256);
+  REQUIRE(module.instructions[3].opcode == fleaux::bytecode::Opcode::kPow);
+  REQUIRE(std::get<double>(folded_constant(module, 4).data) == 0.5);
+}
+
+TEST_CASE("ConstantFoldingPass leaves integer overflow to the runtime", "[bytecode][optimizer]") {
+  const auto module = fold_binary_pairs(fleaux::bytecode::Opcode::kAdd,
+                                        {
+                                            fleaux::bytecode::ConstValue{std::numeric_limits<std::int64_t>::max()},
+                                            fleaux::bytecode::ConstValue{std::int64_t{1}},
+                                            fleaux::bytecode::ConstValue{std::uint64_t{1}},
+                                            fleaux::bytecode::ConstValue{std::uint64_t{2}},
+                                        },
+                                        {{0, 1}, {2, 3}});
+
+  // Int64 max + 1 is not folded. UInt64 1 + 2 folds to UInt64 3.
+  REQUIRE(module.instructions.size() == 5);
+  REQUIRE(module.instructions[2].opcode == fleaux::bytecode::Opcode::kAdd);
+  REQUIRE(std::get<std::uint64_t>(folded_constant(module, 3).data) == 3U);
 }
 
 TEST_CASE("BytecodeOptimizer baseline does not run ConstantFoldingPass", "[bytecode][optimizer]") {
@@ -6249,4 +6256,39 @@ TEST_CASE("BytecodeOptimizer extended mode propagates folded kSelect condition",
   REQUIRE(module.instructions[1].opcode == fleaux::bytecode::Opcode::kHalt);
   REQUIRE(std::get<std::int64_t>(module.constants[static_cast<std::size_t>(module.instructions[0].operand)].data) ==
           10);
+}
+
+TEST_CASE("Bytecode module loader keeps generic bounds for bytecode-only imports", "[bytecode][serialization][imports]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_generic_bounds_seed";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "bounded_dep.fleaux";
+  const auto dependency_bytecode_path = temp_dir / "bounded_dep.fleaux.bc";
+  const auto entry_path = temp_dir / "bounded_entry.fleaux";
+  const auto entry_bytecode_path = temp_dir / "bounded_entry.fleaux.bc";
+
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Twice<T: Numeric>(x: T): T = (x, x) -> Std.Add;\n";
+  }
+
+  const auto write_entry = [&](const std::string& call_line) {
+    std::ofstream out(entry_path, std::ios::trunc);
+    out << "import Std;\n"
+           "import bounded_dep;\n"
+        << call_line;
+  };
+
+  write_entry("21 -> Twice -> Std.Println;\n");
+  REQUIRE(fleaux::bytecode::load_linked_module(entry_path).has_value());
+  REQUIRE(std::filesystem::exists(dependency_bytecode_path));
+  std::filesystem::remove(dependency_path);
+
+  std::filesystem::remove(entry_bytecode_path);
+  write_entry("(\"a\") -> Twice -> Std.Println;\n");
+  const auto loaded = fleaux::bytecode::load_linked_module(entry_path);
+  REQUIRE_FALSE(loaded.has_value());
+  REQUIRE(loaded.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
 }

@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 23;
+constexpr std::uint32_t BYTECODE_VERSION = 24;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -495,7 +495,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
     for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                      param_type_names, return_type_name, return_type_is_dict_string_any,
+                      generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                       return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
                       return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
       write_string(buffer, name);
@@ -504,6 +504,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
       write_pod(buffer, is_import_placeholder);
       write_instruction_stream(buffer, instructions);
       write_string_list(buffer, generic_params);
+      write_string_list(buffer, generic_bounds);
       write_string_list(buffer, param_type_names);
       write_string(buffer, return_type_name);
       write_pod(buffer, return_type_is_dict_string_any);
@@ -631,6 +632,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
             SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name, *instruction_error)});
       }
       if (!read_string_list(buffer, offset, fn.generic_params) ||
+          !read_string_list(buffer, offset, fn.generic_bounds) ||
           !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name) ||
           !read_pod(buffer, offset, fn.return_type_is_dict_string_any) ||
           !read_pod(buffer, offset, fn.return_type_is_exact_uint64) ||
@@ -749,7 +751,7 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "Functions:\n";
   size_t func_index = 0;
   for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                    param_type_names, return_type_name, return_type_is_dict_string_any,
+                    generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                     return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
                     return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
     out << std::format(
@@ -771,8 +773,11 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
     if (!generic_params.empty()) {
       out << "    generic_params:";
-      for (const auto& gp : generic_params) {
-        out << " " << gp;
+      for (std::size_t index = 0; index < generic_params.size(); ++index) {
+        out << " " << generic_params[index];
+        if (index < generic_bounds.size() && !generic_bounds[index].empty()) {
+          out << ": " << generic_bounds[index];
+        }
       }
       out << "\n";
     }

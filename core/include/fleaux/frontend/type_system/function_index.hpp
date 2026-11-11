@@ -21,6 +21,8 @@ struct ParamSig {
 struct FunctionSig {
   std::string resolved_symbol_key;
   std::vector<std::string> generic_params;
+  // Alias-expanded bounds of the bounded generic parameters, keyed by parameter name.
+  std::unordered_map<std::string, Type> generic_bounds;
   std::vector<ParamSig> params;
   Type return_type;
   bool is_builtin = false;

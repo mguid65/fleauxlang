@@ -81,6 +81,13 @@ type TaskHandle<T> :: __builtin__;
 type FileHandle :: __builtin__;
 type RandomGenerator :: __builtin__;
 
+// Bounds for generic parameters, written '<T: Numeric>'. A bounded type parameter must be exactly one of the
+// listed types.
+alias Numeric = Int64 | UInt64 | Float64;
+alias Integer = Int64 | UInt64;
+alias Signed = Int64 | Float64;
+alias Comparable = Int64 | UInt64 | Float64 | String | Bool;
+
 // Core builtins
 // @brief Print values to the active output stream.
 // @param args Additional values. Type: Any....
@@ -172,41 +179,89 @@ let Std.Exit() : Never :: __builtin__;
 // @return This builtin never returns.
 let Std.Exit(code: Int64) : Never :: __builtin__;
 
-// @brief Add two numeric values of the same numeric kind.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Add two numbers of the same numeric type. Int64 and UInt64 overflow is a runtime error; see Std.WrappingAdd and Std.SaturatingAdd.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Add<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
 
-// @brief Subtract rhs from lhs for matching numeric kinds.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Subtract(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Subtract rhs from lhs for two numbers of the same numeric type. Int64 and UInt64 overflow is a runtime error; see Std.WrappingSubtract and Std.SaturatingSubtract.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Subtract<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
 
-// @brief Multiply two numeric values of the same numeric kind.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Multiply(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Multiply two numbers of the same numeric type. Int64 and UInt64 overflow is a runtime error; see Std.WrappingMultiply and Std.SaturatingMultiply.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Multiply<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
 
-// @brief Divide lhs by rhs for matching numeric kinds.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Divide(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Divide lhs by rhs. Int64 and UInt64 division truncates toward zero and fails on division by zero; Float64 division follows IEEE-754.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Divide<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
 
-// @brief Compute the modulus or remainder for matching numeric kinds.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Mod(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Remainder of lhs divided by rhs, with the sign of lhs. Int64 and UInt64 fail on division by zero; Float64 follows IEEE-754 fmod.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Mod<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
 
-// @brief Raise lhs to the power of rhs for matching numeric kinds.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
-// @return A value of type Float64 | Int64 | UInt64.
-let Std.Pow(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Float64 | Int64 | UInt64 :: __builtin__;
+// @brief Raise lhs to the power of rhs. Int64 and UInt64 exponentiation is exact; a negative Int64 exponent or overflow is a runtime error.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.Pow<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Add two integers of the same type, wrapping around on overflow (two's complement).
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.WrappingAdd<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Subtract rhs from lhs two integers of the same type, wrapping around on overflow (two's complement).
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.WrappingSubtract<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Multiply two integers of the same type, wrapping around on overflow (two's complement).
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.WrappingMultiply<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Add two integers of the same type, clamping to the nearest representable value on overflow.
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.SaturatingAdd<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Subtract rhs from lhs two integers of the same type, clamping to the nearest representable value on overflow.
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.SaturatingSubtract<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
+
+// @brief Multiply two integers of the same type, clamping to the nearest representable value on overflow.
+// @tparam T Int64 or UInt64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
+// @return A value of type T.
+let Std.SaturatingMultiply<T: Integer>(lhs: T, rhs: T) : T :: __builtin__;
 
 // @brief Compute the bitwise AND of two Int64 values.
 // @param lhs Left-hand operand value. Type: Int64.
@@ -243,29 +298,33 @@ let Std.Bit.ShiftLeft(value: Int64, bits: UInt64) : Int64 :: __builtin__;
 // @return A value of type Int64.
 let Std.Bit.ShiftRight(value: Int64, bits: UInt64) : Int64 :: __builtin__;
 
-// @brief Compare two numeric values and return whether lhs is greater than rhs.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
+// @brief Compare two numbers of the same numeric type and return whether lhs is greater than rhs.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
-let Std.GreaterThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.GreaterThan<T: Numeric>(lhs: T, rhs: T) : Bool :: __builtin__;
 
-// @brief Compare two numeric values and return whether lhs is less than rhs.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
+// @brief Compare two numbers of the same numeric type and return whether lhs is less than rhs.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
-let Std.LessThan(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.LessThan<T: Numeric>(lhs: T, rhs: T) : Bool :: __builtin__;
 
-// @brief Compare two numeric values and return whether lhs is greater than or equal to rhs.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
+// @brief Compare two numbers of the same numeric type and return whether lhs is greater than or equal to rhs.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
-let Std.GreaterOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.GreaterOrEqual<T: Numeric>(lhs: T, rhs: T) : Bool :: __builtin__;
 
-// @brief Compare two numeric values and return whether lhs is less than or equal to rhs.
-// @param lhs Left-hand operand value. Type: Float64 | Int64 | UInt64.
-// @param rhs Right-hand operand value. Type: Float64 | Int64 | UInt64.
+// @brief Compare two numbers of the same numeric type and return whether lhs is less than or equal to rhs.
+// @tparam T Int64, UInt64, or Float64.
+// @param lhs Left-hand operand value. Type: T.
+// @param rhs Right-hand operand value. Type: T.
 // @return A value of type Bool.
-let Std.LessOrEqual(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64) : Bool :: __builtin__;
+let Std.LessOrEqual<T: Numeric>(lhs: T, rhs: T) : Bool :: __builtin__;
 
 // @brief Return whether two values are equal.
 // @tparam T Generic value type.
@@ -476,16 +535,17 @@ let Std.Loop<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S) : S :
 // @return A value of type S.
 let Std.LoopN<S>(state: S, continue_func: (S) => Bool, step_func: (S) => S, max_iters: UInt64) : S :: __builtin__;
 
-// @brief Return the unary plus of a Float64 value.
-// @param val Value for parameter val. Type: Float64.
-// @return A value of type Float64.
-let Std.UnaryPlus(val: Float64) : Float64 :: __builtin__;
+// @brief Return a number unchanged.
+// @tparam T Int64, UInt64, or Float64.
+// @param val Value for parameter val. Type: T.
+// @return A value of type T.
+let Std.UnaryPlus<T: Numeric>(val: T) : T :: __builtin__;
 
 // @brief Return the negation of a signed number (Int64 or Float64). The unary form of the '-' operator.
 // @tparam T Int64 or Float64.
 // @param val Value for parameter val. Type: T.
 // @return A value of type T.
-let Std.UnaryMinus<T>(val: T) : T :: __builtin__;
+let Std.UnaryMinus<T: Signed>(val: T) : T :: __builtin__;
 
 // @brief Convert a value to its string representation.
 // @param val Value for parameter val. Type: Any.
@@ -923,10 +983,10 @@ let Std.Tuple.Map<T, U>(t: Tuple<T...>, func: (T) => U) : Tuple<U...> :: __built
 let Std.Tuple.Filter<T>(t: Tuple<T...>, pred: (T) => Bool) : Tuple<T...> :: __builtin__;
 
 // @brief Sort tuple elements.
-// @tparam T Generic value type.
+// @tparam T Int64, UInt64, Float64, String, or Bool.
 // @param t Input tuple value. Type: Tuple<T...>.
 // @return A value of type Tuple<T...>.
-let Std.Tuple.Sort<T>(t: Tuple<T...>) : Tuple<T...> :: __builtin__;
+let Std.Tuple.Sort<T: Comparable>(t: Tuple<T...>) : Tuple<T...> :: __builtin__;
 
 // @brief Return tuple elements with duplicates removed.
 // @tparam T Generic value type.
@@ -935,16 +995,16 @@ let Std.Tuple.Sort<T>(t: Tuple<T...>) : Tuple<T...> :: __builtin__;
 let Std.Tuple.Unique<T>(t: Tuple<T...>) : Tuple<T...> :: __builtin__;
 
 // @brief Return the minimum tuple element.
-// @tparam T Generic value type.
+// @tparam T Int64, UInt64, Float64, String, or Bool.
 // @param t Input tuple value. Type: Tuple<T...>.
 // @return A value of type T.
-let Std.Tuple.Min<T>(t: Tuple<T...>) : T :: __builtin__;
+let Std.Tuple.Min<T: Comparable>(t: Tuple<T...>) : T :: __builtin__;
 
 // @brief Return the maximum tuple element.
-// @tparam T Generic value type.
+// @tparam T Int64, UInt64, Float64, String, or Bool.
 // @param t Input tuple value. Type: Tuple<T...>.
 // @return A value of type T.
-let Std.Tuple.Max<T>(t: Tuple<T...>) : T :: __builtin__;
+let Std.Tuple.Max<T: Comparable>(t: Tuple<T...>) : T :: __builtin__;
 
 // @brief Reduce tuple elements into an accumulator value.
 // @tparam T Generic value type.

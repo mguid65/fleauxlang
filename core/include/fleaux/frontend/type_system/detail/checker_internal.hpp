@@ -51,7 +51,7 @@ inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildc
 [[nodiscard]] auto function_type_from_sig(const FunctionSig& sig) -> Type;
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
                                 const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                                const std::unordered_set<std::string>& generic_params,
+                                const GenericScope& generic_params,
                                 const std::optional<diag::SourceSpan>& span)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError>;
 auto explicit_type_arg_bindings_for_sig(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
@@ -64,14 +64,14 @@ auto filter_overloads_for_explicit_type_args(const std::string& full_name, const
 
 auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -> void;
 auto is_type_resolved(const Type& type, const TypeBindings& bindings,
-                      const std::unordered_set<std::string>& allowed_unbound, std::unordered_set<std::string>& visiting,
+                      const GenericScope& allowed_unbound, std::unordered_set<std::string>& visiting,
                       std::unordered_map<std::string, bool>& resolved_cache) -> bool;
 auto is_type_var_resolved(const std::string& type_var, const TypeBindings& bindings,
-                          const std::unordered_set<std::string>& allowed_unbound,
+                          const GenericScope& allowed_unbound,
                           std::unordered_set<std::string>& visiting,
                           std::unordered_map<std::string, bool>& resolved_cache) -> bool;
 auto collect_unresolved_return_type_vars(const Type& return_type, const TypeBindings& bindings,
-                                         const std::unordered_set<std::string>& allowed_unbound,
+                                         const GenericScope& allowed_unbound,
                                          std::unordered_set<std::string>& out) -> void;
 auto collect_unbound_type_vars(const Type& type, const TypeBindings& bindings, std::unordered_set<std::string>& out)
     -> void;
@@ -98,19 +98,34 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
                                        const std::vector<ir::IRTypeDecl>& imported_type_decls,
                                        const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError>;
 auto expand_aliases_in_type(const Type& type, const KnownTypes& known_strong_type_names, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto expand_aliases_in_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError>;
 
-auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string>& generic_params) -> Type;
+// Builds the scope for a declaration's generic parameters on top of an enclosing scope. Each bound is validated
+// against declared types and aliases, then alias-expanded.
+auto make_generic_scope(const std::vector<std::string>& names, const std::vector<ir::IRSimpleTypeBox>& bounds,
+                        const KnownTypes& known_types, const AliasIndex& alias_index,
+                        const std::optional<diag::SourceSpan>& span, const GenericScope& enclosing = {})
+    -> tl::expected<GenericScope, type_check::AnalysisError>;
+auto make_generic_scope(const std::vector<std::string>& names, const std::vector<ir::IRSimpleTypeBox>& bounds,
+                        const StrongTypeIndex& type_index, const AliasIndex& alias_index,
+                        const std::optional<diag::SourceSpan>& span, const GenericScope& enclosing = {})
+    -> tl::expected<GenericScope, type_check::AnalysisError>;
+// Converts names of in-scope generic parameters into type variables that carry their bounds.
+auto rewrite_generic_type(const Type& type, const GenericScope& generic_params) -> Type;
+// Checks each bounded generic parameter of sig against its binding.
+auto check_generic_bounds(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
+                          const FunctionSig& sig, const TypeBindings& bindings)
+    -> tl::expected<void, type_check::AnalysisError>;
 auto type_complexity(const Type& type) -> std::size_t;
 auto binding_quality(const TypeBindings& bindings) -> BindingQuality;
 auto is_better_binding_quality(const TypeBindings& candidate, const TypeBindings& incumbent) -> bool;
@@ -128,13 +143,13 @@ auto try_bind_union_option(const Type& expected_option, const Type& actual_membe
 
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
                       const std::vector<Type>& args, const StrongTypeIndex& type_index,
-                      const std::unordered_set<std::string>& allowed_unbound,
+                      const GenericScope& allowed_unbound,
                       const std::vector<Type>& explicit_type_args = {})
     -> tl::expected<Type, type_check::AnalysisError>;
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                                  const FunctionOverloadSet& overloads, const std::vector<Type>& args,
                                  const StrongTypeIndex& type_index,
-                                 const std::unordered_set<std::string>& allowed_unbound,
+                                 const GenericScope& allowed_unbound,
                                  const std::vector<Type>& explicit_type_args = {})
     -> tl::expected<ResolvedInvocation, type_check::AnalysisError>;
 
@@ -149,14 +164,14 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
     -> tl::expected<void, type_check::AnalysisError>;
 auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                           const AliasIndex& alias_index, const LocalTypes& locals,
-                          const std::unordered_set<std::string>& generic_params)
+                          const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                      const AliasIndex& alias_index, const LocalTypes& locals,
-                     const std::unordered_set<std::string>& generic_params)
+                     const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
                 const AliasIndex& alias_index, const LocalTypes& locals,
-                const std::unordered_set<std::string>& generic_params) -> tl::expected<Type, type_check::AnalysisError>;
+                const GenericScope& generic_params) -> tl::expected<Type, type_check::AnalysisError>;
 
 }  // namespace fleaux::frontend::type_system::detail

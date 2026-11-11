@@ -404,10 +404,20 @@ private:
     return out;
   }
 
-  auto generic_param_list() -> PResult<std::vector<std::string>> {
+  struct GenericParams {
+    std::vector<std::string> names;
+    std::vector<model::TypeBox> bounds;  // Parallel to names; std::nullopt for an unbounded parameter.
+
+    [[nodiscard]] auto has_bounds() const -> bool {
+      return std::ranges::any_of(bounds, [](const model::TypeBox& bound) -> bool { return bound.has_value(); });
+    }
+  };
+
+  // Parses '<T, U: Bound, ...>'. A bound is any type, usually a union or an alias of one.
+  auto generic_param_list() -> PResult<GenericParams> {
     FLEAUX_TRYV(eat_symbol("<"));
 
-    std::vector<std::string> params;
+    GenericParams params;
     if (is_symbol(">")) {
       return tl::unexpected(err("Generic parameter list cannot be empty.", std::nullopt,
                                 "Add at least one parameter name, for example: <T>."));
@@ -415,7 +425,13 @@ private:
 
     while (true) {
       FLEAUX_TRY_ASSIGN(param_name, ident());
-      params.push_back(std::move(param_name));
+      params.names.push_back(std::move(param_name));
+      if (match_symbol(":")) {
+        FLEAUX_TRY_ASSIGN(bound, type());
+        params.bounds.emplace_back(model::TypeBox(std::move(bound)));
+      } else {
+        params.bounds.emplace_back(std::nullopt);
+      }
       if (!match_symbol(",")) {
         break;
       }
@@ -425,7 +441,7 @@ private:
       }
     }
 
-    FLEAUX_TRYV(eat_symbol(">"));
+    FLEAUX_TRYV(eat_type_arg_list_close());
     return params;
   }
 
@@ -663,7 +679,7 @@ private:
   }
 
   auto parse_closure_after_open_paren(const std::size_t closure_start_index, const std::size_t open_paren_index,
-                                      std::vector<std::string> generic_params,
+                                      GenericParams generic_params,
                                       const bool allow_ungrouped_closure_stage_split, bool& committed)
       -> PResult<model::Atom> {
     model::Atom out_atom;
@@ -705,7 +721,8 @@ private:
     }
 
     model::ClosureExpression closure{
-        .generic_params = std::move(generic_params),
+        .generic_params = std::move(generic_params.names),
+        .generic_bounds = std::move(generic_params.bounds),
         .params = std::move(closure_params),
         .rtype = std::move(closure_rtype),
         .body = model::ExpressionBox(std::move(parsed_body_expr)),
@@ -1087,8 +1104,13 @@ private:
     FLEAUX_TRY_ASSIGN(type_name, ident());
     out.name = std::move(type_name);
     if (is_symbol("<")) {
+      const auto bound_token = peek();
       FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
-      out.generic_params = std::move(generic_params);
+      if (generic_params.has_bounds()) {
+        return tl::unexpected(err("Type declaration generic parameters cannot have bounds.", bound_token,
+                                  "Remove ': Bound' from the type declaration's generic parameters."));
+      }
+      out.generic_params = std::move(generic_params.names);
     }
     FLEAUX_TRYV(eat_one_of("::", "="));
     if (is_ident_value("__builtin__")) {
@@ -1138,7 +1160,8 @@ private:
 
     if (is_symbol("<")) {
       FLEAUX_TRY_ASSIGN(generic_params, generic_param_list());
-      out.generic_params = std::move(generic_params);
+      out.generic_params = std::move(generic_params.names);
+      out.generic_bounds = std::move(generic_params.bounds);
     }
 
     if (is_symbol("(")) {

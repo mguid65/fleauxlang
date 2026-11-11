@@ -37,7 +37,7 @@ auto collect_type_vars(const Type& type, std::unordered_set<std::string>& out) -
 }
 
 auto is_type_var_resolved(const std::string& type_var, const TypeBindings& bindings,
-                          const std::unordered_set<std::string>& allowed_unbound,
+                          const GenericScope& allowed_unbound,
                           std::unordered_set<std::string>& visiting,
                           std::unordered_map<std::string, bool>& resolved_cache) -> bool {
   if (allowed_unbound.contains(type_var)) {
@@ -67,7 +67,7 @@ auto is_type_var_resolved(const std::string& type_var, const TypeBindings& bindi
 }
 
 auto is_type_resolved(const Type& type, const TypeBindings& bindings,
-                      const std::unordered_set<std::string>& allowed_unbound, std::unordered_set<std::string>& visiting,
+                      const GenericScope& allowed_unbound, std::unordered_set<std::string>& visiting,
                       std::unordered_map<std::string, bool>& resolved_cache) -> bool {
   if (type.kind == TypeKind::kTypeVar) {
     return is_type_var_resolved(type.nominal_name, bindings, allowed_unbound, visiting, resolved_cache);
@@ -101,7 +101,7 @@ auto is_type_resolved(const Type& type, const TypeBindings& bindings,
 }
 
 auto collect_unresolved_return_type_vars(const Type& return_type, const TypeBindings& bindings,
-                                         const std::unordered_set<std::string>& allowed_unbound,
+                                         const GenericScope& allowed_unbound,
                                          std::unordered_set<std::string>& out) -> void {
   std::unordered_set<std::string> return_type_vars;
   collect_type_vars(return_type, return_type_vars);
@@ -252,6 +252,23 @@ auto generic_binding_detail_for_type(const Type& expected_type, const TypeBindin
   return std::format("Binding detail: {}. got {}.", joined, type_debug_name(actual));
 }
 
+auto is_numeric_scalar_type(const Type& type) -> bool {
+  return type.kind == TypeKind::kInt64 || type.kind == TypeKind::kUInt64 || type.kind == TypeKind::kFloat64;
+}
+
+// Explains a failed binding where one type parameter received two different numeric types, such as (1, 2.0).
+auto numeric_conversion_note(const Type& expected_type, const TypeBindings& bindings, const Type& actual)
+    -> std::string {
+  if (expected_type.kind != TypeKind::kTypeVar || !is_numeric_scalar_type(actual)) {
+    return {};
+  }
+  const auto binding = bindings.find(expected_type.nominal_name);
+  if (binding == bindings.end() || !is_numeric_scalar_type(binding->second) || binding->second.kind == actual.kind) {
+    return {};
+  }
+  return " Numbers are not converted implicitly; use Std.ToInt64, Std.ToUInt64, or Std.ToFloat64.";
+}
+
 auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t arg_index, const Type& expected_type,
                                const bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string {
   const auto var_suffix = generic_var_suffix_for_type(expected_type);
@@ -261,13 +278,13 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
     if (const auto detail = generic_binding_detail_for_type(expected_type, bindings, actual); !detail.empty()) {
       hint += " " + detail;
     }
-    return hint;
+    return hint + numeric_conversion_note(expected_type, bindings, actual);
   }
   std::string hint = std::format("{} expects argument {} to match declared type{}", full_name, arg_index, var_suffix);
   if (const auto detail = generic_binding_detail_for_type(expected_type, bindings, actual); !detail.empty()) {
     hint += " " + detail;
   }
-  return hint;
+  return hint + numeric_conversion_note(expected_type, bindings, actual);
 }
 
 [[nodiscard]] auto make_error(const std::string& message, const std::optional<std::string>& hint,
@@ -285,13 +302,13 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
 }
 
 auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_strong_type_names,
-                                 const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
+                                 const AliasIndex& alias_index, const GenericScope& generic_params,
                                  const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError>;
 
 auto expand_alias_name_impl(const std::string& name, const KnownTypes& known_strong_type_names,
-                            const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
+                            const AliasIndex& alias_index, const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                             std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -332,7 +349,7 @@ auto expand_alias_name_impl(const std::string& name, const KnownTypes& known_str
 }
 
 auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_strong_type_names,
-                                 const AliasIndex& alias_index, const std::unordered_set<std::string>& generic_params,
+                                 const AliasIndex& alias_index, const GenericScope& generic_params,
                                  const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& visiting,
                                  std::unordered_map<std::string, Type>& resolved_cache)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -392,7 +409,7 @@ auto expand_aliases_in_type_impl(const Type& type, const KnownTypes& known_stron
 
 auto validate_declared_type_against_names(const Type& type, const KnownTypes& known_strong_type_names,
                                           const AliasIndex& alias_index,
-                                          const std::unordered_set<std::string>& generic_params,
+                                          const GenericScope& generic_params,
                                           const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
   auto expanded = expand_aliases_in_type(type, known_strong_type_names, alias_index, generic_params, span);
@@ -543,7 +560,7 @@ auto collect_known_strong_type_names(const ir::IRProgram& program,
 
 auto resolve_explicit_type_args(const std::vector<ir::IRSimpleType>& explicit_type_args,
                                 const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                                const std::unordered_set<std::string>& generic_params,
+                                const GenericScope& generic_params,
                                 const std::optional<diag::SourceSpan>& span)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError> {
   std::vector<Type> resolved;
@@ -794,7 +811,7 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
   }
 
   AliasIndex alias_index(program, imported_alias_decls);
-  const std::unordered_set<std::string> no_generic_params;
+  const GenericScope no_generic_params;
   for (const auto& imported_alias_decl : imported_alias_decls) {
     if (auto validated = validate_declared_type_against_names(
             alias_index.resolve_name(imported_alias_decl.name)->get().target_type, known_strong_type_names, alias_index,
@@ -893,7 +910,8 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
 
   const auto known_strong_type_names = collect_known_strong_type_names(program, imported_type_decls);
   for (const auto& type_decl : program.type_decls) {
-    std::unordered_set<std::string> generic_param_set;
+    std::unordered_set<std::string> seen_generic_params;
+    GenericScope generic_param_set;
     for (const auto& generic_param : type_decl.generic_params) {
       if (known_strong_type_names.contains(generic_param) || alias_index.has_name(generic_param)) {
         return tl::unexpected(make_error(
@@ -901,7 +919,8 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
             std::format("Generic parameter '{}' of type '{}' shadows a declared type.", generic_param, type_decl.name),
             type_decl.span));
       }
-      if (!generic_param_set.insert(generic_param).second) {
+      generic_param_set.add(generic_param);
+      if (!seen_generic_params.insert(generic_param).second) {
         return tl::unexpected(make_error(
             "Duplicate generic parameter.",
             std::format("Type '{}' declares generic parameter '{}' more than once.", type_decl.name, generic_param),
@@ -924,7 +943,7 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
 }
 
 auto expand_aliases_in_type(const Type& type, const KnownTypes& known_strong_type_names, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError> {
   std::unordered_set<std::string> visiting;
@@ -934,24 +953,64 @@ auto expand_aliases_in_type(const Type& type, const KnownTypes& known_strong_typ
 }
 
 auto expand_aliases_in_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<Type, type_check::AnalysisError> {
   return expand_aliases_in_type(type, type_index.known_names(), alias_index, generic_params, span);
 }
 
 auto validate_declared_type(const Type& type, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                            const std::unordered_set<std::string>& generic_params,
+                            const GenericScope& generic_params,
                             const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
   return validate_declared_type_against_names(type, type_index.known_names(), alias_index, generic_params, span);
 }
 
-auto rewrite_generic_type(const Type& type, const std::unordered_set<std::string>& generic_params) -> Type {
+auto make_generic_scope(const std::vector<std::string>& names, const std::vector<ir::IRSimpleTypeBox>& bounds,
+                        const KnownTypes& known_types, const AliasIndex& alias_index,
+                        const std::optional<diag::SourceSpan>& span, const GenericScope& enclosing)
+    -> tl::expected<GenericScope, type_check::AnalysisError> {
+  GenericScope scope = enclosing;
+  const GenericScope no_generic_params;
+  for (std::size_t index = 0; index < names.size(); ++index) {
+    if (index >= bounds.size() || !bounds[index].has_value()) {
+      scope.add(names[index]);
+      continue;
+    }
+
+    // Bounds are closed types: they may name declared types and aliases but not other generic parameters.
+    const Type declared_bound = from_ir_type(*bounds[index]);
+    if (auto validated =
+            validate_declared_type_against_names(declared_bound, known_types, alias_index, no_generic_params, span);
+        !validated) {
+      auto error = validated.error();
+      error.hint = std::format("In the bound of generic parameter '{}': {}", names[index], error.hint.value_or(""));
+      return tl::unexpected(std::move(error));
+    }
+    auto expanded_bound = expand_aliases_in_type(declared_bound, known_types, alias_index, no_generic_params, span);
+    if (!expanded_bound) {
+      return tl::unexpected(expanded_bound.error());
+    }
+    scope.add(names[index], normalize_type(*expanded_bound));
+  }
+  return scope;
+}
+
+auto make_generic_scope(const std::vector<std::string>& names, const std::vector<ir::IRSimpleTypeBox>& bounds,
+                        const StrongTypeIndex& type_index, const AliasIndex& alias_index,
+                        const std::optional<diag::SourceSpan>& span, const GenericScope& enclosing)
+    -> tl::expected<GenericScope, type_check::AnalysisError> {
+  return make_generic_scope(names, bounds, type_index.known_names(), alias_index, span, enclosing);
+}
+
+auto rewrite_generic_type(const Type& type, const GenericScope& generic_params) -> Type {
   Type out = type;
 
   if (out.kind == TypeKind::kNominal && generic_params.contains(out.nominal_name)) {
     out.kind = TypeKind::kTypeVar;
+    if (const Type* bound = generic_params.bound_of(out.nominal_name); bound != nullptr) {
+      out.type_var_bound = common::make_indirect_optional<Type>(*bound);
+    }
     return out;
   }
 
@@ -1004,8 +1063,7 @@ auto binding_quality(const TypeBindings& bindings) -> BindingQuality {
 
   for (const auto& [type_var, bound_type] : bindings) {
     (void)type_var;
-    if (const std::unordered_set<std::string> no_unbound;
-        is_type_resolved(bound_type, bindings, no_unbound, visiting, resolved_cache)) {
+    if (const GenericScope no_unbound; is_type_resolved(bound_type, bindings, no_unbound, visiting, resolved_cache)) {
       ++quality.resolved_bindings;
     }
     quality.complexity += type_complexity(bound_type);
@@ -1336,9 +1394,43 @@ auto validate_std_cast_invocation(const Type& source_type, const Type& target_ty
 
 }  // namespace
 
+auto check_generic_bounds(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
+                          const FunctionSig& sig, const TypeBindings& bindings)
+    -> tl::expected<void, type_check::AnalysisError> {
+  for (const auto& generic_param : sig.generic_params) {
+    const auto bound_it = sig.generic_bounds.find(generic_param);
+    if (bound_it == sig.generic_bounds.end()) {
+      continue;
+    }
+    const auto binding_it = bindings.find(generic_param);
+    if (binding_it == bindings.end() || satisfies_generic_bound(binding_it->second, bound_it->second)) {
+      continue;
+    }
+
+    const Type& binding = binding_it->second;
+    std::string binding_text = type_debug_name(binding);
+    if (binding.kind == TypeKind::kTypeVar) {
+      binding_text = binding.type_var_bound.has_value()
+                         ? std::format("type parameter '{}' bounded by {}", binding.nominal_name,
+                                       type_debug_name(*binding.type_var_bound))
+                         : std::format("type parameter '{}'", binding.nominal_name);
+    }
+    std::string hint = std::format("{} requires {}: {}, but {} is {}.", full_name, generic_param,
+                                   type_debug_name(bound_it->second), generic_param, binding_text);
+    if (binding.kind == TypeKind::kTypeVar && !binding.type_var_bound.has_value()) {
+      hint += std::format(" Type parameter '{}' has no bound; declare it as '<{}: ...>'.", binding.nominal_name,
+                          binding.nominal_name);
+    } else if (binding.kind == TypeKind::kUnion) {
+      hint += " A union cannot satisfy a bound; it must be exactly one of the allowed types.";
+    }
+    return tl::unexpected(make_error("Type argument does not satisfy its bound.", hint, span));
+  }
+  return {};
+}
+
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
                       const std::vector<Type>& args, const StrongTypeIndex& type_index,
-                      const std::unordered_set<std::string>& allowed_unbound,
+                      const GenericScope& allowed_unbound,
                       const std::vector<Type>& explicit_type_args) -> tl::expected<Type, type_check::AnalysisError> {
   std::size_t fixed_count = sig.params.size();
   bool has_variadic = false;
@@ -1417,6 +1509,10 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     }
   }
 
+  if (auto bounds_ok = check_generic_bounds(full_name, span, sig, generic_bindings); !bounds_ok) {
+    return tl::unexpected(bounds_ok.error());
+  }
+
   if (std::string builtin_contract_error;
       !validate_builtin_contract(full_name, args, type_index, builtin_contract_error)) {
     return tl::unexpected(make_error("Type mismatch in call target arguments.", builtin_contract_error, span));
@@ -1451,15 +1547,15 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
                                                    join_sorted_type_var_names(unbound)),
                                        span));
     }
-    return refine_builtin_return_type(full_name, args, instantiate_generic_type(sig.return_type, generic_bindings));
+    return instantiate_generic_type(sig.return_type, generic_bindings);
   }
-  return refine_builtin_return_type(full_name, args, sig.return_type);
+  return sig.return_type;
 }
 
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                                  const FunctionOverloadSet& overloads, const std::vector<Type>& args,
                                  const StrongTypeIndex& type_index,
-                                 const std::unordered_set<std::string>& allowed_unbound,
+                                 const GenericScope& allowed_unbound,
                                  const std::vector<Type>& explicit_type_args)
     -> tl::expected<ResolvedInvocation, type_check::AnalysisError> {
   const auto filtered = filter_overloads_for_explicit_type_args(full_name, span, overloads, explicit_type_args);

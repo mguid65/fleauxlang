@@ -38,9 +38,14 @@ FunctionLetStatement:
 ValueLetStatement:
   'let' id=OptionallyQualifiedId ':' rtype=Type '=' expr=Expression;
 
+// Generic parameters, each optionally bounded: <T, U: Int64 | UInt64>. Type declarations take parameters
+// without bounds.
 OptionalGenericParamList:
-  '<' params+=Identifier (',' params+=Identifier)* '>' |
+  '<' params+=GenericParam (',' params+=GenericParam)* '>' |
   ;
+
+GenericParam:
+  name=Identifier (':' bound=Type)?;
 
 DeclarationDefinitionSeparator:
   '::' | '=';

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <sstream>
@@ -1743,4 +1744,40 @@ TEST_CASE("Runtime builtins: numeric cast helpers", "[runtime]") {
     REQUIRE(is_float_number(ToFloat64(make_float(7.0))));
     REQUIRE(to_double(ToFloat64(make_int(3))) == 3.0);
   }
+}
+
+TEST_CASE("Runtime builtins: wrapping and saturating integer arithmetic", "[runtime][arithmetic]") {
+  constexpr auto kInt64Max = std::numeric_limits<Int>::max();
+  constexpr auto kInt64Min = std::numeric_limits<Int>::min();
+  constexpr auto kUInt64Max = std::numeric_limits<UInt>::max();
+
+  REQUIRE(WrappingAdd(make_tuple(make_int(kInt64Max), make_int(1))) == make_int(kInt64Min));
+  REQUIRE(WrappingSubtract(make_tuple(make_int(kInt64Min), make_int(1))) == make_int(kInt64Max));
+  REQUIRE(WrappingMultiply(make_tuple(make_int(kInt64Max), make_int(2))) == make_int(-2));
+  REQUIRE(WrappingSubtract(make_tuple(make_uint(1U), make_uint(2U))) == make_uint(kUInt64Max));
+  REQUIRE(WrappingAdd(make_tuple(make_int(1), make_int(2))) == make_int(3));
+
+  REQUIRE(SaturatingAdd(make_tuple(make_int(kInt64Max), make_int(1))) == make_int(kInt64Max));
+  REQUIRE(SaturatingSubtract(make_tuple(make_int(kInt64Min), make_int(1))) == make_int(kInt64Min));
+  REQUIRE(SaturatingMultiply(make_tuple(make_int(kInt64Min), make_int(2))) == make_int(kInt64Min));
+  REQUIRE(SaturatingMultiply(make_tuple(make_int(kInt64Min), make_int(-2))) == make_int(kInt64Max));
+  REQUIRE(SaturatingSubtract(make_tuple(make_uint(1U), make_uint(2U))) == make_uint(0U));
+  REQUIRE(SaturatingAdd(make_tuple(make_uint(kUInt64Max), make_uint(1U))) == make_uint(kUInt64Max));
+  REQUIRE(SaturatingMultiply(make_tuple(make_int(2), make_int(2))) == make_int(4));
+
+  REQUIRE_THROWS_WITH(WrappingAdd(make_tuple(make_float(1.0), make_float(2.0))),
+                      "WrappingAdd: expects Int64 or UInt64 operands");
+}
+
+TEST_CASE("Runtime builtins: exact integer arithmetic keeps the operand type", "[runtime][arithmetic]") {
+  REQUIRE(Divide(make_tuple(make_int(10), make_int(3))) == make_int(3));
+  REQUIRE(Divide(make_tuple(make_int(-7), make_int(2))) == make_int(-3));
+  REQUIRE(Mod(make_tuple(make_int(-7), make_int(2))) == make_int(-1));
+  REQUIRE(Pow(make_tuple(make_uint(3U), make_uint(4U))) == make_uint(81U));
+  REQUIRE(UnaryMinus(make_tuple(make_int(5))) == make_int(-5));
+  REQUIRE(Add(make_tuple(make_int(9007199254740993), make_int(0))) == make_int(9007199254740993));
+
+  REQUIRE_THROWS_WITH(Add(make_tuple(make_int(std::numeric_limits<Int>::max()), make_int(1))), "Add: Int64 overflow");
+  REQUIRE_THROWS_WITH(Divide(make_tuple(make_uint(1U), make_uint(0U))), "Divide: UInt64 division by zero");
+  REQUIRE_THROWS_WITH(UnaryMinus(make_tuple(make_int(std::numeric_limits<Int>::min()))), "UnaryMinus: Int64 overflow");
 }

@@ -215,6 +215,12 @@ enum class BuiltinId : std::uint16_t {
   StringRegexFind,
   StringRegexReplace,
   StringRegexSplit,
+  WrappingAdd,
+  WrappingSubtract,
+  WrappingMultiply,
+  SaturatingAdd,
+  SaturatingSubtract,
+  SaturatingMultiply,
   Half,
   Third,
   TwoThirds,
@@ -583,6 +589,12 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{
         .id = BuiltinId::StringRegexReplace, .name = "Std.String.Regex.Replace", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::StringRegexSplit, .name = "Std.String.Regex.Split", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::WrappingAdd, .name = "Std.WrappingAdd", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::WrappingSubtract, .name = "Std.WrappingSubtract", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::WrappingMultiply, .name = "Std.WrappingMultiply", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::SaturatingAdd, .name = "Std.SaturatingAdd", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::SaturatingSubtract, .name = "Std.SaturatingSubtract", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::SaturatingMultiply, .name = "Std.SaturatingMultiply", .arity = builtin_arity_exact(2U)},
     nullary_builtin_spec(BuiltinId::Half, "Std.Half"),
     nullary_builtin_spec(BuiltinId::Third, "Std.Third"),
     nullary_builtin_spec(BuiltinId::TwoThirds, "Std.TwoThirds"),
@@ -764,6 +776,28 @@ inline constexpr auto kConstantBuiltinSpecs = std::to_array<ConstantBuiltinSpec>
 [[nodiscard]] constexpr auto callable_builtin_count() -> std::size_t {
   return static_cast<std::size_t>(BuiltinId::Half);
 }
+
+// The spec tables are indexed by BuiltinId, so their order must match the enum exactly.
+[[nodiscard]] consteval auto builtin_spec_tables_match_enum_order() -> bool {
+  if (kBuiltinSpecs.size() != builtin_count() ||
+      callable_builtin_count() + kConstantBuiltinSpecs.size() != builtin_count()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < kBuiltinSpecs.size(); ++index) {
+    if (static_cast<std::size_t>(kBuiltinSpecs[index].id) != index) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0; index < kConstantBuiltinSpecs.size(); ++index) {
+    if (static_cast<std::size_t>(kConstantBuiltinSpecs[index].id) != callable_builtin_count() + index) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static_assert(builtin_spec_tables_match_enum_order(),
+              "kBuiltinSpecs and kConstantBuiltinSpecs must list every BuiltinId in enum order.");
 
 inline constexpr std::uint64_t kBuiltinOperandIdMask = 0xFFFF'FFFFULL;
 inline constexpr std::uint64_t kBuiltinOperandDirectValueBit = 1ULL << 32U;

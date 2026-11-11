@@ -261,6 +261,37 @@ Examples from the standard library include:
 
 Generic functions are a normal part of the language surface.
 
+## Bounded generic parameters
+
+A generic parameter can carry a bound, written like a parameter type: <T: Bound>.
+A bound is an ordinary type, usually a union, and the parameter must be bound to exactly one of its alternatives.
+
+    let Twice<T: Int64 | UInt64 | Float64>(x: T): T = (x, x) -> Std.Add;
+
+Std names the common bounds with aliases:
+
+    alias Numeric = Int64 | UInt64 | Float64;
+    alias Integer = Int64 | UInt64;
+    alias Signed = Int64 | Float64;
+    alias Comparable = Int64 | UInt64 | Float64 | String | Bool;
+
+and uses them in its own signatures, for example:
+
+    let Std.Add<T: Numeric>(lhs: T, rhs: T) : T :: __builtin__;
+    let Std.Tuple.Sort<T: Comparable>(t: Tuple<T...>) : Tuple<T...> :: __builtin__;
+
+Because both operands share one T, (1, 2u64) -> Std.Add and (1, 2.0) -> Std.Add are type errors; numbers are never converted implicitly.
+
+Rules and limitations:
+
+- Inside a generic body, a bounded parameter satisfies another bound when every alternative of its own bound is allowed. T: Numeric can be passed to Std.Add but not to Std.UnaryMinus, whose bound is Signed.
+- A value whose type is a union, such as Int64 | UInt64, cannot satisfy a bound: it is not exactly one alternative.
+- Bounds cannot refer to other generic parameters, so <T, U: T> is rejected.
+- Explicit type arguments must satisfy the bound: Std.Add<String> is an error.
+- Any satisfies every bound.
+- Strong types are separate types: type UserId = Int64; does not satisfy Numeric.
+- Type declarations cannot bound their parameters.
+
 ## Explicit type arguments
 
 Named targets can receive explicit type arguments.

@@ -406,7 +406,7 @@ TEST_CASE("CLI REPL Std.Help prints canonical std docs", "[vm][cli][repl][help]"
   REQUIRE(result.exit_code == 0);
   REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
   REQUIRE_THAT(result.stdout_text,
-               Catch::Matchers::ContainsSubstring("Add two numeric values of the same numeric kind."));
+               Catch::Matchers::ContainsSubstring("Add two numbers of the same numeric type."));
   REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("Parameters:"));
   REQUIRE(result.stderr_text.empty());
 }

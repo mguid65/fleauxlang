@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 54> kExpectedSamples = {
+constexpr std::array<std::string_view, 55> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -172,6 +172,7 @@ constexpr std::array<std::string_view, 54> kExpectedSamples = {
     "52_variables_and_blocks.fleaux",
     "53_random_seeded.fleaux",
     "54_generic_types.fleaux",
+    "55_bounded_generics.fleaux",
 };
 
 }  // namespace
@@ -265,9 +266,8 @@ TEST_CASE("Std.Help loads canonical Std metadata in VM mode without prior help r
   REQUIRE(runtime_result.has_value());
 
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
-  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring(
-                                 "let Std.Add(lhs: Float64 | Int64 | UInt64, rhs: Float64 | Int64 | UInt64): "
-                                 "Float64 | Int64 | UInt64 :: __builtin__"));
+  REQUIRE_THAT(output.str(),
+               Catch::Matchers::ContainsSubstring("let Std.Add<T: Numeric>(lhs: T, rhs: T): T :: __builtin__"));
 }
 
 TEST_CASE("VM loader reports unresolved imports", "[vm][imports][contract]") {
@@ -895,15 +895,13 @@ TEST_CASE("VM numeric cast-sensitive builtins reject implicit Float64 promotion 
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Add(lhs: Any, rhs: Any): Any :: __builtin__;\n"
-           "let Std.LessThan(lhs: Any, rhs: Any): Bool :: __builtin__;\n"
-           "(1.0, 2) -> Std.Add;\n"
-           "(1.0, 2u64) -> Std.LessThan;\n";
+    out << "let Std.Add<T: Int64 | UInt64 | Float64>(lhs: T, rhs: T): T :: __builtin__;\n"
+           "(1.0, 2) -> Std.Add;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("does not implicitly cast Int64 or UInt64 to Float64") != std::string::npos);
+  REQUIRE(analyzed.error().find("Numbers are not converted implicitly") != std::string::npos);
   REQUIRE(analyzed.error().find("Std.ToFloat64") != std::string::npos);
 }
 
@@ -1860,6 +1858,7 @@ FLEAUX_VM_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_SAMPLE_TEST("53_random_seeded.fleaux")
 FLEAUX_VM_SAMPLE_TEST("54_generic_types.fleaux")
+FLEAUX_VM_SAMPLE_TEST("55_bounded_generics.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1914,6 +1913,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("51_strong_type_casts.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("53_random_seeded.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("54_generic_types.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("55_bounded_generics.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

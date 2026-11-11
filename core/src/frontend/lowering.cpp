@@ -187,6 +187,19 @@ auto lower_simple_type(const model::TypeNode& type) -> ir::IRSimpleType {
   return out;
 }
 
+auto lower_generic_bounds(const std::vector<model::TypeBox>& bounds) -> std::vector<ir::IRSimpleTypeBox> {
+  std::vector<ir::IRSimpleTypeBox> lowered;
+  lowered.reserve(bounds.size());
+  for (const auto& bound : bounds) {
+    if (bound.has_value()) {
+      lowered.emplace_back(lower_simple_type(*bound));
+    } else {
+      lowered.emplace_back(std::nullopt);
+    }
+  }
+  return lowered;
+}
+
 struct LoweringContext {
   std::unordered_set<std::string> bound_names{};
   std::unordered_set<std::string> visible_top_level_value_symbols{};
@@ -564,6 +577,7 @@ auto lower_closure_atom(const model::ClosureExpressionBox& closure, const Loweri
 
   ir::IRClosureExpr closure_ir{
       .generic_params = closure->generic_params,
+      .generic_bounds = lower_generic_bounds(closure->generic_bounds),
       .params = std::move(params),
       .return_type = lower_simple_type(closure->rtype),
       .body = make_ir_expr_box(std::move(*lowered_body)),
@@ -1309,6 +1323,7 @@ auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::stri
       .name = name,
       .symbol_key = std::move(symbol_key),
       .generic_params = model_let.generic_params,
+      .generic_bounds = lower_generic_bounds(model_let.generic_bounds),
       .params = std::move(params),
       .return_type = lower_simple_type(model_let.rtype),
       .doc_comments = model_let.doc_comments,

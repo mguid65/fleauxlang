@@ -5,7 +5,7 @@ import Std;
 (10, 3) -> Std.Add -> Std.Println;               // 13
 (10, 3) -> Std.Subtract -> Std.Println;           // 7
 (10, 3) -> Std.Multiply -> Std.Println;           // 30
-(10, 3) -> Std.Divide -> Std.Println;             // 3.333...
+(10, 3) -> Std.Divide -> Std.Println;             // 3 (Int64 division truncates)
 (10, 3) -> Std.Mod -> Std.Println;                // 1
 (2, 10) -> Std.Pow -> Std.Println;                // 1024
 (16.0) -> Std.Math.Sqrt -> Std.Println;           // 4.0
@@ -16,7 +16,8 @@ import Std;
 (10, 3) -> + -> Std.Println;                      // 13
 (10, 3) -> - -> Std.Println;                      // 7
 (10, 3) -> * -> Std.Println;                      // 30
-(10, 3) -> / -> Std.Println;                      // 3.333...
+(10, 3) -> / -> Std.Println;                      // 3
+(10.0, 3.0) -> / -> Std.Println;                  // 3.3333333333333335
 (10, 3) -> % -> Std.Println;                      // 1
 (2, 10) -> ^ -> Std.Println;                      // 1024
 

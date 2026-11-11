@@ -114,6 +114,9 @@ struct Atom {
 
 struct ClosureExpression {
   std::vector<std::string> generic_params{};
+  // Optional bound of each generic parameter, parallel to generic_params. A missing or empty entry means the
+  // parameter is unbounded. Written in source as '<T: Bound>'.
+  std::vector<TypeBox> generic_bounds{};
   ParameterDeclList params{};
   TypeNode rtype{};
   ExpressionBox body{std::nullopt};
@@ -173,6 +176,9 @@ struct ImportStatement {
 struct LetStatement {
   std::variant<std::string, QualifiedId> id;
   std::vector<std::string> generic_params{};
+  // Optional bound of each generic parameter, parallel to generic_params. A missing or empty entry means the
+  // parameter is unbounded. Written in source as '<T: Bound>'.
+  std::vector<TypeBox> generic_bounds{};
   ParameterDeclList params{};
   TypeNode rtype{};
   std::vector<std::string> doc_comments{};
@@ -332,6 +338,9 @@ struct IRExpr {
 
 struct IRClosureExpr {
   std::vector<std::string> generic_params{};
+  // Optional bound of each generic parameter, parallel to generic_params. A missing or empty entry means the
+  // parameter is unbounded. Written in source as '<T: Bound>'.
+  std::vector<IRSimpleTypeBox> generic_bounds{};
   std::vector<IRParam> params{};
   IRSimpleType return_type{};
   IRExprBox body{std::nullopt};
@@ -348,6 +357,9 @@ struct IRLet {
   std::string name{};
   std::string symbol_key{};
   std::vector<std::string> generic_params{};
+  // Optional bound of each generic parameter, parallel to generic_params. A missing or empty entry means the
+  // parameter is unbounded. Written in source as '<T: Bound>'.
+  std::vector<IRSimpleTypeBox> generic_bounds{};
   std::vector<IRParam> params{};
   IRSimpleType return_type{};
   std::vector<std::string> doc_comments{};

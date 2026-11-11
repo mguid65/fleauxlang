@@ -6,15 +6,6 @@ namespace fleaux::frontend::type_system {
 
 namespace {
 
-auto make_generic_param_set(const std::vector<std::string>& generic_params) -> std::unordered_set<std::string> {
-  std::unordered_set<std::string> generic_param_set;
-  generic_param_set.reserve(generic_params.size());
-  for (const auto& generic_param : generic_params) {
-    generic_param_set.insert(generic_param);
-  }
-  return generic_param_set;
-}
-
 auto validate_program_declarations(const ir::IRProgram& program,
                                    const std::vector<ir::IRLet>& imported_typed_lets,
                                    const std::vector<ir::IRTypeDecl>& imported_type_decls,
@@ -41,7 +32,12 @@ auto validate_program_declarations(const ir::IRProgram& program,
 auto validate_let_signature_types(const ir::IRProgram& program, const StrongTypeIndex& type_index,
                                   const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
   for (const auto& let : program.lets) {
-    const auto generic_param_set = make_generic_param_set(let.generic_params);
+    auto generic_scope =
+        detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+    if (!generic_scope) {
+      return tl::unexpected(generic_scope.error());
+    }
+    const GenericScope& generic_param_set = *generic_scope;
 
     for (const auto& [name, type, span] : let.params) {
       (void)name;
@@ -64,7 +60,7 @@ auto validate_let_signature_types(const ir::IRProgram& program, const StrongType
 }
 
 auto make_let_local_types(const ir::IRLet& let, const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                          const std::unordered_set<std::string>& generic_param_set)
+                          const GenericScope& generic_param_set)
     -> tl::expected<detail::LocalTypes, type_check::AnalysisError> {
   detail::LocalTypes locals;
   for (const auto& [name, type, span] : let.params) {
@@ -85,7 +81,12 @@ auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const 
       continue;
     }
 
-    const auto generic_param_set = make_generic_param_set(let.generic_params);
+    auto generic_scope =
+        detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+    if (!generic_scope) {
+      return tl::unexpected(generic_scope.error());
+    }
+    const GenericScope& generic_param_set = *generic_scope;
 
     auto locals = make_let_local_types(let, type_index, alias_index, generic_param_set);
     if (!locals) {
@@ -119,7 +120,7 @@ auto infer_top_level_expressions(ir::IRProgram& program, const FunctionIndex& in
   for (auto& [expr, span] : program.expressions) {
     (void)span;
     detail::LocalTypes empty_locals;
-    const std::unordered_set<std::string> empty_generic_params;
+    const GenericScope empty_generic_params;
     if (auto inferred = detail::infer_expr(expr, index, type_index, alias_index, empty_locals, empty_generic_params);
         !inferred) {
       return tl::unexpected(inferred.error());

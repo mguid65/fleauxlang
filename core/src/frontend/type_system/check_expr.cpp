@@ -51,7 +51,7 @@ auto instantiate_function_sig(const FunctionSig& sig, const TypeBindings& bindin
 
 auto unresolved_generic_return_error(const std::string& full_name, const FunctionSig& sig,
                                      const FunctionSig& instantiated, const TypeBindings& bindings,
-                                     const std::unordered_set<std::string>& generic_params,
+                                     const GenericScope& generic_params,
                                      const std::optional<diag::SourceSpan>& span)
     -> std::optional<type_check::AnalysisError> {
   if (sig.generic_params.empty()) {
@@ -73,7 +73,7 @@ auto unresolved_generic_return_error(const std::string& full_name, const Functio
 }
 
 auto unresolved_generic_callable_error(const std::string& full_name, const FunctionSig& sig,
-                                       const std::unordered_set<std::string>& generic_params,
+                                       const GenericScope& generic_params,
                                        const std::optional<diag::SourceSpan>& span)
     -> std::optional<type_check::AnalysisError> {
   if (sig.generic_params.empty()) {
@@ -108,7 +108,7 @@ auto infer_constant_expr(const ir::IRConstant& constant) -> Type {
 
 auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const StrongTypeIndex& type_index,
                       const AliasIndex& alias_index, const LocalTypes& locals,
-                      const std::unordered_set<std::string>& generic_params)
+                      const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
 
   Type out;
@@ -125,7 +125,7 @@ auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const 
 }
 
 auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSet& overloads,
-                               const std::unordered_set<std::string>& generic_params,
+                               const GenericScope& generic_params,
                                const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
   const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
@@ -155,6 +155,9 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   if (!bindings) {
     return tl::unexpected(bindings.error());
   }
+  if (auto bounds_ok = check_generic_bounds(full_name, name_ref.span, sig, *bindings); !bounds_ok) {
+    return tl::unexpected(bounds_ok.error());
+  }
 
   const auto instantiated = instantiate_function_sig(sig, *bindings);
   if (auto unresolved_return =
@@ -177,7 +180,7 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
 
 auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, const StrongTypeIndex& type_index,
                          const AliasIndex& alias_index, const LocalTypes& locals,
-                         const std::unordered_set<std::string>& generic_params)
+                         const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto explicit_type_args =
       resolve_explicit_type_args(name_ref.explicit_type_args, type_index, alias_index, generic_params, name_ref.span);
@@ -221,7 +224,7 @@ auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, co
 
 auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index, const StrongTypeIndex& type_index,
                       const AliasIndex& alias_index, const LocalTypes& locals,
-                      const std::unordered_set<std::string>& generic_params)
+                      const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto& block = *block_box;
   LocalTypes block_locals = locals;
@@ -277,15 +280,17 @@ auto infer_block_expr(ir::IRBlockExprBox& block_box, const FunctionIndex& index,
 
 auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& index,
                         const StrongTypeIndex& type_index, const AliasIndex& alias_index, const LocalTypes& locals,
-                        const std::unordered_set<std::string>& generic_params)
+                        const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto& closure = *closure_box;
 
   LocalTypes closure_locals = locals;
-  std::unordered_set<std::string> closure_generic_params = generic_params;
-  for (const auto& generic_param : closure.generic_params) {
-    closure_generic_params.insert(generic_param);
+  auto closure_scope = make_generic_scope(closure.generic_params, closure.generic_bounds, type_index, alias_index,
+                                          closure.span, generic_params);
+  if (!closure_scope) {
+    return tl::unexpected(closure_scope.error());
   }
+  const GenericScope& closure_generic_params = *closure_scope;
 
   FunctionSig closure_sig;
   closure_sig.params.reserve(closure.params.size());
@@ -336,7 +341,7 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
 
 auto infer_expr(ir::IRExpr& expr, const FunctionIndex& index, const StrongTypeIndex& type_index,
                 const AliasIndex& alias_index, const LocalTypes& locals,
-                const std::unordered_set<std::string>& generic_params)
+                const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   return std::visit(common::overloaded{
                         [&](const ir::IRConstant& constant) -> tl::expected<Type, type_check::AnalysisError> {

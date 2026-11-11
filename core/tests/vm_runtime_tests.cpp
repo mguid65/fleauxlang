@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -28,6 +29,11 @@ namespace {
 auto push_i64_const(fleaux::bytecode::Module& bytecode_module, const std::int64_t value) -> std::int64_t {
   bytecode_module.constants.emplace_back(value);
   return static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
+}
+
+auto push_f64_const(fleaux::bytecode::Module& bytecode_module, const double value) -> std::int64_t {
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{value});
+  return static_cast<std::int64_t>(bytecode_module.constants.size() - 1U);
 }
 
 auto push_u64_const(fleaux::bytecode::Module& bytecode_module, const std::uint64_t value) -> std::int64_t {
@@ -656,7 +662,7 @@ TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][hel
   }
   REQUIRE(help_result.has_value());
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
-  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Add two numeric values of the same numeric kind."));
+  REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Add two numbers of the same numeric type."));
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Parameters:"));
 }
 
@@ -1583,8 +1589,6 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
   bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{true});
-  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"Hello, "}});
-  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::string{"VM"}});
   const auto c10 = push_i64_const(bytecode_module, 10);
   const auto c3 = push_i64_const(bytecode_module, 3);
   const auto c2 = push_i64_const(bytecode_module, 2);
@@ -1597,9 +1601,9 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kDiv, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
@@ -1638,7 +1642,7 @@ TEST_CASE("VM executes native arithmetic and logical opcodes", "[vm]") {
   const auto result = runtime.execute(bytecode_module, output);
 
   REQUIRE(result.has_value());
-  REQUIRE(output.str() == "13\nHello, VM\n256\nTrue\nFalse\nTrue\n");
+  REQUIRE(output.str() == "13\n3\n256\nTrue\nFalse\nTrue\n");
 }
 
 TEST_CASE("VM executes native kSelect opcode", "[vm]") {
@@ -3261,11 +3265,11 @@ TEST_CASE("VM reports missing halt", "[vm]") {
   REQUIRE(result.error().message == "program terminated without halt");
 }
 
-TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
+TEST_CASE("VM native Float64 kDiv by zero returns infinity", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto c10 = push_i64_const(bytecode_module, 10);
-  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c10 = push_f64_const(bytecode_module, 10.0);
+  const auto c0 = push_f64_const(bytecode_module, 0.0);
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
@@ -3288,11 +3292,11 @@ TEST_CASE("VM native kDiv by zero returns floating result", "[vm]") {
   REQUIRE(lowered.find("inf") != std::string::npos);
 }
 
-TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
+TEST_CASE("VM native Float64 kMod by zero returns NaN", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto c10 = push_i64_const(bytecode_module, 10);
-  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c10 = push_f64_const(bytecode_module, 10.0);
+  const auto c0 = push_f64_const(bytecode_module, 0.0);
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
@@ -3318,7 +3322,7 @@ TEST_CASE("VM native kMod by zero returns NaN-like result", "[vm]") {
 TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto c0 = push_i64_const(bytecode_module, 0);
+  const auto c0 = push_f64_const(bytecode_module, 0.0);
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
@@ -3337,6 +3341,89 @@ TEST_CASE("VM native NaN is not equal to itself", "[vm]") {
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "False\n");
+}
+
+TEST_CASE("VM native integer arithmetic fails on overflow and division by zero", "[vm]") {
+  const auto run_binary = [](const fleaux::bytecode::Opcode opcode, const fleaux::bytecode::ConstValue& lhs,
+                             const fleaux::bytecode::ConstValue& rhs) {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants = {lhs, rhs};
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+        {.opcode = opcode, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    return runtime.execute(bytecode_module, output);
+  };
+  const auto expect_failure = [&](const fleaux::bytecode::Opcode opcode, const fleaux::bytecode::ConstValue& lhs,
+                                  const fleaux::bytecode::ConstValue& rhs, const std::string& message) {
+    const auto result = run_binary(opcode, lhs, rhs);
+    REQUIRE_FALSE(result.has_value());
+    INFO("error: " << result.error().message);
+    REQUIRE(result.error().message.find(message) != std::string::npos);
+  };
+
+  constexpr auto kInt64Max = std::numeric_limits<std::int64_t>::max();
+  constexpr auto kInt64Min = std::numeric_limits<std::int64_t>::min();
+  expect_failure(fleaux::bytecode::Opcode::kAdd, {kInt64Max}, {std::int64_t{1}}, "Add: Int64 overflow");
+  expect_failure(fleaux::bytecode::Opcode::kSub, {kInt64Min}, {std::int64_t{1}}, "Subtract: Int64 overflow");
+  expect_failure(fleaux::bytecode::Opcode::kMul, {kInt64Max}, {std::int64_t{2}}, "Multiply: Int64 overflow");
+  expect_failure(fleaux::bytecode::Opcode::kSub, {std::uint64_t{1}}, {std::uint64_t{2}}, "Subtract: UInt64 overflow");
+  expect_failure(fleaux::bytecode::Opcode::kDiv, {std::int64_t{1}}, {std::int64_t{0}}, "Divide: Int64 division by zero");
+  expect_failure(fleaux::bytecode::Opcode::kDiv, {kInt64Min}, {std::int64_t{-1}}, "Divide: Int64 overflow");
+  expect_failure(fleaux::bytecode::Opcode::kMod, {std::uint64_t{1}}, {std::uint64_t{0}}, "Mod: UInt64 division by zero");
+  expect_failure(fleaux::bytecode::Opcode::kPow, {std::int64_t{2}}, {std::int64_t{-1}},
+                 "Pow: Int64 exponent must not be negative");
+  expect_failure(fleaux::bytecode::Opcode::kPow, {std::int64_t{2}}, {std::int64_t{64}}, "Pow: Int64 overflow");
+}
+
+TEST_CASE("VM native integer arithmetic is exact and keeps the operand type", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  constexpr auto kTypeBuiltin = builtin(fleaux::vm::BuiltinId::Type);
+  const auto big = push_i64_const(bytecode_module, 9007199254740993);  // 2^53 + 1, not representable as double
+  const auto zero = push_i64_const(bytecode_module, 0);
+  const auto seven = push_i64_const(bytecode_module, -7);
+  const auto two = push_i64_const(bytecode_module, 2);
+  const auto ten_u = push_u64_const(bytecode_module, 10U);
+  const auto four_u = push_u64_const(bytecode_module, 4U);
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = big},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = zero},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = seven},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = two},
+      {.opcode = fleaux::bytecode::Opcode::kDiv, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = seven},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = two},
+      {.opcode = fleaux::bytecode::Opcode::kMod, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = ten_u},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = four_u},
+      {.opcode = fleaux::bytecode::Opcode::kDiv, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTypeBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "9007199254740993\n-3\n-1\nUInt64\n");
 }
 
 TEST_CASE("VM kPushConst preserves UInt64 constants", "[vm]") {

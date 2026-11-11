@@ -7,36 +7,38 @@
 #include <unordered_map>
 
 #include "fleaux/common/embedded_resource.hpp"
+#include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
 
 namespace fleaux::vm::detail {
 
+// Formats a declared type in canonical source syntax, keeping the variadic marker of a parameter.
 [[nodiscard]] inline auto format_help_ir_type(const frontend::ir::IRSimpleType& type) -> std::string {
-  const auto append_variadic = [](std::string base, const bool variadic) -> std::string {
-    if (variadic) {
-      base += "...";
-    }
-    return base;
-  };
-
-  if (!type.alternatives.empty()) {
-    std::ostringstream out;
-    for (std::size_t idx = 0; idx < type.alternatives.size(); ++idx) {
-      if (idx > 0) {
-        out << " | ";
-      }
-      out << type.alternatives[idx];
-    }
-    return append_variadic(out.str(), type.variadic);
+  std::string out = frontend::lowering::format_type_text(type);
+  if (type.variadic) {
+    out += "...";
   }
-
-  return append_variadic(type.name, type.variadic);
+  return out;
 }
 
 [[nodiscard]] inline auto format_help_signature(const frontend::ir::IRLet& let) -> std::string {
   std::ostringstream out;
-  out << "let " << frontend::source_loader::symbol_key(let.qualifier, let.name) << "(";
+  out << "let " << frontend::source_loader::symbol_key(let.qualifier, let.name);
+  if (!let.generic_params.empty()) {
+    out << "<";
+    for (std::size_t idx = 0; idx < let.generic_params.size(); ++idx) {
+      if (idx > 0) {
+        out << ", ";
+      }
+      out << let.generic_params[idx];
+      if (idx < let.generic_bounds.size() && let.generic_bounds[idx].has_value()) {
+        out << ": " << frontend::lowering::format_type_text(*let.generic_bounds[idx]);
+      }
+    }
+    out << ">";
+  }
+  out << "(";
   for (std::size_t idx = 0; idx < let.params.size(); ++idx) {
     if (idx > 0) {
       out << ", ";

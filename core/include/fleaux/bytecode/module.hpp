@@ -62,6 +62,10 @@ struct FunctionDef {
   // stubs and validate call sites against the generic signature.
   std::vector<std::string> generic_params{};
 
+  // Bound of each generic parameter in canonical source syntax, parallel to `generic_params`, e.g.
+  // "Int64 | UInt64 | Float64". An empty string means the parameter is unbounded.
+  std::vector<std::string> generic_bounds{};
+
   // Declared parameter types in canonical source syntax, one per parameter
   // (parallel to `arity`), e.g. "Int64", "T", or "Result<Tuple<Int64...>, String>".
   // The variadic marker of a variadic tail parameter is not included; see

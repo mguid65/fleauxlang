@@ -8,7 +8,7 @@ import Std;
 
 // -- Placeholder _ receives the flowing value from the previous stage --
 // (20 / 5) + 10 = 14
-(20, 5) -> Std.Divide -> (_, 10) -> Std.Add -> Std.Println;      // 14.0
+(20, 5) -> Std.Divide -> (_, 10) -> Std.Add -> Std.Println;      // 14
 
 // -- Pipelines inside function bodies --
 let AddThenSquare(a: Float64, b: Float64): Float64 =

@@ -425,6 +425,12 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
   fn_def.arity = static_cast<std::uint32_t>(let.params.size());
   fn_def.has_variadic_tail = !let.params.empty() && let.params.back().type.variadic;
   fn_def.generic_params = let.generic_params;
+  fn_def.generic_bounds.reserve(let.generic_params.size());
+  for (std::size_t index = 0; index < let.generic_params.size(); ++index) {
+    const bool has_bound = index < let.generic_bounds.size() && let.generic_bounds[index].has_value();
+    fn_def.generic_bounds.push_back(has_bound ? frontend::lowering::format_type_text(*let.generic_bounds[index])
+                                              : std::string{});
+  }
   fn_def.return_type_name = frontend::lowering::format_type_text(let.return_type);
   fn_def.return_type_is_dict_string_any = is_dict_string_any_ir_type(let.return_type);
   fn_def.return_type_is_exact_uint64 = is_exact_uint64_ir_type(let.return_type);
@@ -496,6 +502,7 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
       imported_placeholder.has_variadic_tail = imported_fn.has_variadic_tail;
       imported_placeholder.is_import_placeholder = true;
       imported_placeholder.generic_params = imported_fn.generic_params;
+      imported_placeholder.generic_bounds = imported_fn.generic_bounds;
       imported_placeholder.param_type_names = imported_fn.param_type_names;
       imported_placeholder.return_type_name = imported_fn.return_type_name;
       imported_placeholder.return_type_is_dict_string_any = imported_fn.return_type_is_dict_string_any;

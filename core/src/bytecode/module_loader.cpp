@@ -207,6 +207,7 @@ auto merge_module_into(Module& target, const Module& source,
                                 .is_import_placeholder = false,
                                 .instructions = {},
                                 .generic_params = function.generic_params,
+                                .generic_bounds = function.generic_bounds,
                                 .param_type_names = function.param_type_names,
                                 .return_type_name = function.return_type_name,
                                 .return_type_is_dict_string_any = function.return_type_is_dict_string_any,
@@ -412,6 +413,14 @@ auto make_typed_import_stub(const ExportedSymbol& exported,
   }
   stub.symbol_key = id_key;
   stub.generic_params = fn.generic_params;
+  stub.generic_bounds.reserve(fn.generic_bounds.size());
+  for (const auto& bound_text : fn.generic_bounds) {
+    if (bound_text.empty()) {
+      stub.generic_bounds.emplace_back(std::nullopt);
+    } else {
+      stub.generic_bounds.emplace_back(type_from_bytecode_text(bound_text));
+    }
+  }
 
   const bool have_type_names = fn.param_type_names.size() == static_cast<std::size_t>(fn.arity);
   for (std::uint32_t p = 0; p < fn.arity; ++p) {

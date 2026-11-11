@@ -260,3 +260,34 @@ TEST_CASE("Parser parses a standalone type", "[parser][type_syntax][standalone]"
   const auto trailing = parser.parse_type("Int64 Int64", "<type>");
   REQUIRE_FALSE(trailing.has_value());
 }
+
+TEST_CASE("Parser reads bounds on generic parameters", "[parser][type_syntax][generic_bounds]") {
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(
+      "let F<T: Int64 | UInt64, U, V: Dict<String, Tuple<Int64>>>(a: T, b: U, c: V): T = a;\n",
+      "generic_bounds.fleaux");
+  REQUIRE(parsed.has_value());
+
+  const auto& let_stmt = std::get<fleaux::frontend::model::LetStatement>(parsed->statements[0]);
+  REQUIRE(let_stmt.generic_params == std::vector<std::string>{"T", "U", "V"});
+  REQUIRE(let_stmt.generic_bounds.size() == 3U);
+  REQUIRE(let_stmt.generic_bounds[0].has_value());
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::UnionTypeListBox>(let_stmt.generic_bounds[0]->value));
+  REQUIRE_FALSE(let_stmt.generic_bounds[1].has_value());
+  REQUIRE(let_stmt.generic_bounds[2].has_value());
+  REQUIRE(std::holds_alternative<fleaux::frontend::model::AppliedTypeNodeBox>(let_stmt.generic_bounds[2]->value));
+}
+
+TEST_CASE("Parser reads bounds on closure generic parameters", "[parser][type_syntax][generic_bounds]") {
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed =
+      parser.parse_program("let Id: Int64 = (1, <T: Int64>(x: T): T = x) -> Std.Apply;\n", "closure_bounds.fleaux");
+  REQUIRE(parsed.has_value());
+}
+
+TEST_CASE("Parser rejects bounds on type declaration parameters", "[parser][type_syntax][generic_bounds]") {
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program("type Box<T: Int64> = Tuple<T>;\n", "type_decl_bound.fleaux");
+  REQUIRE_FALSE(parsed.has_value());
+  REQUIRE(parsed.error().message.find("Type declaration generic parameters cannot have bounds") != std::string::npos);
+}

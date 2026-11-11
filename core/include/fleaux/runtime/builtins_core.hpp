@@ -2,6 +2,12 @@
 // Core builtins: sequence access, arithmetic, comparison, logical, output, control flow.
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include <algorithm>
+#include <cmath>
+#include <type_traits>
+#include <string>
+#include <stdexcept>
+#include <optional>
+#include <concepts>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -11,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "fleaux/runtime/integer_arithmetic.hpp"
 #include "fleaux/runtime/value.hpp"
 
 namespace fleaux::runtime {
@@ -179,68 +186,170 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   return is_float_number(lhs) || is_float_number(rhs);
 }
 
-[[nodiscard]] inline auto AddBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Add");
-  require_same_integer_kind(lhs, rhs, "Add");
-  return num_result(to_double(lhs) + to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
-                    prefer_float_numeric_result(lhs, rhs));
+// Exact numeric arithmetic. Int64 and UInt64 operations are computed in their own type and fail on overflow;
+// Float64 operations follow IEEE-754. The type checker guarantees both operands have the same numeric type.
+
+template <std::integral T>
+[[nodiscard]] constexpr auto integer_type_name() -> const char* {
+  return std::is_signed_v<T> ? "Int64" : "UInt64";
 }
 
-[[nodiscard]] inline auto Add(Value arg) -> Value {
-  return AddBinary(array_at(arg, 0), array_at(arg, 1));
+template <std::integral T>
+[[nodiscard]] inline auto integer_operand(const Value& value) -> T {
+  return as_number(value).Visit([](const Int signed_value) -> T { return static_cast<T>(signed_value); },
+                                [](const UInt unsigned_value) -> T { return static_cast<T>(unsigned_value); },
+                                [](const Float float_value) -> T { return static_cast<T>(float_value); });
 }
+
+template <std::integral T>
+[[nodiscard]] inline auto make_integer(const T value) -> Value {
+  if constexpr (std::is_signed_v<T>) {
+    return make_int(value);
+  } else {
+    return make_uint(value);
+  }
+}
+
+template <std::integral T>
+[[nodiscard]] inline auto require_integer_result(const std::optional<T>& result, const char* op_name) -> T {
+  if (!result.has_value()) {
+    throw std::overflow_error{std::string(op_name) + ": " + integer_type_name<T>() + " overflow"};
+  }
+  return *result;
+}
+
+template <std::integral T>
+inline auto require_nonzero_divisor(const T divisor, const char* op_name) -> void {
+  if (divisor == 0) {
+    throw std::domain_error{std::string(op_name) + ": " + integer_type_name<T>() + " division by zero"};
+  }
+}
+
+// Applies an operation to two numbers of the same type. Int64 and UInt64 operands go to integer_op, which receives
+// both operands as that type and returns the same type. Float64 operands go to float_op.
+template <typename IntegerOp, typename FloatOp>
+[[nodiscard]] inline auto same_type_numeric_binary(const Value& lhs, const Value& rhs, const char* op_name,
+                                                   IntegerOp&& integer_op, FloatOp&& float_op) -> Value {
+  require_no_implicit_float_promotion(lhs, rhs, op_name);
+  require_same_integer_kind(lhs, rhs, op_name);
+  return as_number(lhs).Visit(
+      [&](const Int lhs_value) -> Value { return make_integer<Int>(integer_op(lhs_value, integer_operand<Int>(rhs))); },
+      [&](const UInt lhs_value) -> Value {
+        return make_integer<UInt>(integer_op(lhs_value, integer_operand<UInt>(rhs)));
+      },
+      [&](const Float lhs_value) -> Value { return make_float(float_op(lhs_value, to_double(rhs))); });
+}
+
+// Integer-only variant for the explicit wrapping and saturating builtins.
+template <typename IntegerOp>
+[[nodiscard]] inline auto same_type_integer_binary(const Value& lhs, const Value& rhs, const char* op_name,
+                                                   IntegerOp&& integer_op) -> Value {
+  return same_type_numeric_binary(lhs, rhs, op_name, std::forward<IntegerOp>(integer_op),
+                                  [op_name](const Float, const Float) -> Float {
+                                    throw std::invalid_argument{std::string(op_name) +
+                                                                ": expects Int64 or UInt64 operands"};
+                                  });
+}
+
+[[nodiscard]] inline auto AddBinary(const Value& lhs, const Value& rhs) -> Value {
+  return same_type_numeric_binary(
+      lhs, rhs, "Add",
+      [](const auto a, const auto b) { return require_integer_result(integer::checked_add(a, b), "Add"); },
+      [](const Float a, const Float b) -> Float { return a + b; });
+}
+
+[[nodiscard]] inline auto Add(Value arg) -> Value { return AddBinary(array_at(arg, 0), array_at(arg, 1)); }
 
 [[nodiscard]] inline auto SubtractBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Subtract");
-  require_same_integer_kind(lhs, rhs, "Subtract");
-  return num_result(to_double(lhs) - to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
-                    prefer_float_numeric_result(lhs, rhs));
+  return same_type_numeric_binary(
+      lhs, rhs, "Subtract",
+      [](const auto a, const auto b) { return require_integer_result(integer::checked_sub(a, b), "Subtract"); },
+      [](const Float a, const Float b) -> Float { return a - b; });
 }
 
-[[nodiscard]] inline auto Subtract(Value arg) -> Value {
-  return SubtractBinary(array_at(arg, 0), array_at(arg, 1));
-}
+[[nodiscard]] inline auto Subtract(Value arg) -> Value { return SubtractBinary(array_at(arg, 0), array_at(arg, 1)); }
 
 [[nodiscard]] inline auto MultiplyBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Multiply");
-  require_same_integer_kind(lhs, rhs, "Multiply");
-  return num_result(to_double(lhs) * to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
-                    prefer_float_numeric_result(lhs, rhs));
+  return same_type_numeric_binary(
+      lhs, rhs, "Multiply",
+      [](const auto a, const auto b) { return require_integer_result(integer::checked_mul(a, b), "Multiply"); },
+      [](const Float a, const Float b) -> Float { return a * b; });
 }
 
-[[nodiscard]] inline auto Multiply(Value arg) -> Value {
-  return MultiplyBinary(array_at(arg, 0), array_at(arg, 1));
-}
+[[nodiscard]] inline auto Multiply(Value arg) -> Value { return MultiplyBinary(array_at(arg, 0), array_at(arg, 1)); }
 
+// Integer division truncates toward zero. Float64 division follows IEEE-754 (x / 0.0 is infinite or NaN).
 [[nodiscard]] inline auto DivideBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Divide");
-  require_same_integer_kind(lhs, rhs, "Divide");
-  return num_result(to_double(lhs) / to_double(rhs), is_uint_number(lhs) && is_uint_number(rhs),
-                    prefer_float_numeric_result(lhs, rhs));
+  return same_type_numeric_binary(
+      lhs, rhs, "Divide",
+      [](const auto a, const auto b) {
+        require_nonzero_divisor(b, "Divide");
+        return require_integer_result(integer::checked_div(a, b), "Divide");
+      },
+      [](const Float a, const Float b) -> Float { return a / b; });
 }
 
-[[nodiscard]] inline auto Divide(Value arg) -> Value {
-  return DivideBinary(array_at(arg, 0), array_at(arg, 1));
-}
+[[nodiscard]] inline auto Divide(Value arg) -> Value { return DivideBinary(array_at(arg, 0), array_at(arg, 1)); }
 
+// The remainder has the sign of the dividend, matching truncating division.
 [[nodiscard]] inline auto ModBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Mod");
-  require_same_integer_kind(lhs, rhs, "Mod");
-  return num_result(std::fmod(to_double(lhs), to_double(rhs)), is_uint_number(lhs) && is_uint_number(rhs),
-                    prefer_float_numeric_result(lhs, rhs));
+  return same_type_numeric_binary(
+      lhs, rhs, "Mod",
+      [](const auto a, const auto b) {
+        require_nonzero_divisor(b, "Mod");
+        return integer::remainder(a, b);
+      },
+      [](const Float a, const Float b) -> Float { return std::fmod(a, b); });
 }
 
-[[nodiscard]] inline auto Mod(Value arg) -> Value {
-  return ModBinary(array_at(arg, 0), array_at(arg, 1));
-}
+[[nodiscard]] inline auto Mod(Value arg) -> Value { return ModBinary(array_at(arg, 0), array_at(arg, 1)); }
 
+// Integer exponentiation is exact and requires a non-negative exponent.
 [[nodiscard]] inline auto PowBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "Pow");
-  return num_result(std::pow(to_double(lhs), to_double(rhs)), false, prefer_float_numeric_result(lhs, rhs));
+  return same_type_numeric_binary(
+      lhs, rhs, "Pow",
+      [](const auto base, const auto exponent) {
+        using T = std::remove_cvref_t<decltype(base)>;
+        if constexpr (std::is_signed_v<T>) {
+          if (exponent < 0) {
+            throw std::domain_error{"Pow: Int64 exponent must not be negative"};
+          }
+        }
+        return require_integer_result(integer::checked_pow(base, exponent), "Pow");
+      },
+      [](const Float a, const Float b) -> Float { return std::pow(a, b); });
 }
 
-[[nodiscard]] inline auto Pow(Value arg) -> Value {
-  return PowBinary(array_at(arg, 0), array_at(arg, 1));
+[[nodiscard]] inline auto Pow(Value arg) -> Value { return PowBinary(array_at(arg, 0), array_at(arg, 1)); }
+
+[[nodiscard]] inline auto WrappingAdd(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "WrappingAdd",
+                                  [](const auto a, const auto b) { return integer::wrapping_add(a, b); });
+}
+
+[[nodiscard]] inline auto WrappingSubtract(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "WrappingSubtract",
+                                  [](const auto a, const auto b) { return integer::wrapping_sub(a, b); });
+}
+
+[[nodiscard]] inline auto WrappingMultiply(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "WrappingMultiply",
+                                  [](const auto a, const auto b) { return integer::wrapping_mul(a, b); });
+}
+
+[[nodiscard]] inline auto SaturatingAdd(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "SaturatingAdd",
+                                  [](const auto a, const auto b) { return integer::saturating_add(a, b); });
+}
+
+[[nodiscard]] inline auto SaturatingSubtract(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "SaturatingSubtract",
+                                  [](const auto a, const auto b) { return integer::saturating_sub(a, b); });
+}
+
+[[nodiscard]] inline auto SaturatingMultiply(Value arg) -> Value {
+  return same_type_integer_binary(array_at(arg, 0), array_at(arg, 1), "SaturatingMultiply",
+                                  [](const auto a, const auto b) { return integer::saturating_mul(a, b); });
 }
 
 [[nodiscard]] inline auto BitAndBinary(const Value& lhs, const Value& rhs) -> Value {
@@ -291,14 +400,22 @@ inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& r
   return BitShiftRightBinary(array_at(arg, 0), array_at(arg, 1));
 }
 
-[[nodiscard]] inline auto UnaryMinus(Value arg) -> Value {
-  const Value value = unwrap_singleton_arg(std::move(arg));
-  return num_result(-to_double(value), false, is_float_number(value));
+// Negates an Int64 (failing on overflow) or a Float64.
+[[nodiscard]] inline auto UnaryMinusValue(const Value& value) -> Value {
+  return as_number(value).Visit(
+      [](const Int signed_value) -> Value {
+        return make_int(require_integer_result(integer::checked_neg(signed_value), "UnaryMinus"));
+      },
+      [](const UInt) -> Value { throw std::invalid_argument{"UnaryMinus: expects Int64 or Float64 operand"}; },
+      [](const Float float_value) -> Value { return make_float(-float_value); });
 }
 
+[[nodiscard]] inline auto UnaryMinus(Value arg) -> Value { return UnaryMinusValue(unwrap_singleton_arg(std::move(arg))); }
+
 [[nodiscard]] inline auto UnaryPlus(Value arg) -> Value {
-  const Value value = unwrap_singleton_arg(std::move(arg));
-  return num_result(+to_double(value), false, is_float_number(value));
+  Value value = unwrap_singleton_arg(std::move(arg));
+  (void)as_number(value);
+  return value;
 }
 
 // Comparison & logical

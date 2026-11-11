@@ -20,7 +20,7 @@ struct FlowTargetResolution {
 
 auto resolve_flow_explicit_type_args(const ir::IRCallTarget& target, const StrongTypeIndex& type_index,
                                      const AliasIndex& alias_index,
-                                     const std::unordered_set<std::string>& generic_params)
+                                     const GenericScope& generic_params)
     -> tl::expected<std::vector<Type>, type_check::AnalysisError> {
   if (const auto* name_ref = std::get_if<ir::IRNameRef>(&target); name_ref != nullptr) {
     auto resolved =
@@ -91,7 +91,7 @@ auto flow_args_from_lhs(const FunctionOverloadSet& overloads, const ir::IRExpr& 
 
 auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& overloads, const Type& lhs_type,
                               const StrongTypeIndex& type_index,
-                              const std::unordered_set<std::string>& generic_params,
+                              const GenericScope& generic_params,
                               const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
   const auto args = flow_args_from_lhs(overloads, *flow.lhs, lhs_type);
@@ -127,7 +127,7 @@ auto describe_operator_builtins(const std::span<const OperatorBuiltin> builtins)
 // a reference to the resolved builtin so later stages only see ordinary builtin calls.
 auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_ref, const FunctionIndex& index,
                               const StrongTypeIndex& type_index, const AliasIndex& alias_index,
-                              const LocalTypes& locals, const std::unordered_set<std::string>& generic_params)
+                              const LocalTypes& locals, const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   const std::string op = op_ref.op;
   const auto op_span = op_ref.span;
@@ -281,7 +281,7 @@ auto validate_match_pattern_type(const Type& pattern_type, const Type& subject_t
 
 auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                           const AliasIndex& alias_index, const LocalTypes& locals,
-                          const std::unordered_set<std::string>& generic_params)
+                          const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   auto* match_args = std::get_if<ir::IRTupleExpr>(&flow.lhs->node);
   if (match_args == nullptr || match_args->items.size() < 2U) {
@@ -350,7 +350,7 @@ auto infer_std_match_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 
 auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                           const AliasIndex& alias_index, const LocalTypes& locals,
-                          const std::unordered_set<std::string>& generic_params)
+                          const GenericScope& generic_params)
     -> std::optional<tl::expected<Type, type_check::AnalysisError>> {
   const auto* target_name_ref = std::get_if<ir::IRNameRef>(&flow.rhs);
   if (target_name_ref == nullptr) {
@@ -415,7 +415,7 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
 
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                      const AliasIndex& alias_index, const LocalTypes& locals,
-                     const std::unordered_set<std::string>& generic_params)
+                     const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (const auto* op_ref = std::get_if<ir::IROperatorRef>(&flow.rhs); op_ref != nullptr) {
     return infer_operator_flow_expr(flow, *op_ref, index, type_index, alias_index, locals, generic_params);

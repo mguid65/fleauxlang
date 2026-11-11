@@ -4,10 +4,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <type_traits>
 #include <vector>
+
+#include "fleaux/runtime/integer_arithmetic.hpp"
 
 namespace fleaux::bytecode {
 
@@ -142,48 +146,93 @@ auto try_fold_unary(const Opcode opcode, const ConstValue& input) -> std::option
   return std::nullopt;
 }
 
+// Folds integer arithmetic exactly like the runtime does. Returns std::nullopt when the runtime would fail (overflow,
+// division by zero, negative exponent) so the failure is still reported when the program runs.
+template <std::integral T>
+auto try_fold_integer_arithmetic(const Opcode opcode, const T lhs, const T rhs) -> std::optional<T> {
+  switch (opcode) {
+    case Opcode::kAdd:
+      return runtime::integer::checked_add(lhs, rhs);
+    case Opcode::kSub:
+      return runtime::integer::checked_sub(lhs, rhs);
+    case Opcode::kMul:
+      return runtime::integer::checked_mul(lhs, rhs);
+    case Opcode::kDiv:
+      if (rhs == 0) {
+        return std::nullopt;
+      }
+      return runtime::integer::checked_div(lhs, rhs);
+    case Opcode::kMod:
+      if (rhs == 0) {
+        return std::nullopt;
+      }
+      return runtime::integer::remainder(lhs, rhs);
+    case Opcode::kPow:
+      if (rhs < 0) {
+        return std::nullopt;
+      }
+      return runtime::integer::checked_pow(lhs, rhs);
+    default:
+      return std::nullopt;
+  }
+}
+
+auto try_fold_float_arithmetic(const Opcode opcode, const double lhs, const double rhs) -> std::optional<double> {
+  switch (opcode) {
+    case Opcode::kAdd:
+      return lhs + rhs;
+    case Opcode::kSub:
+      return lhs - rhs;
+    case Opcode::kMul:
+      return lhs * rhs;
+    case Opcode::kDiv:
+      return lhs / rhs;
+    case Opcode::kMod:
+      return std::fmod(lhs, rhs);
+    case Opcode::kPow:
+      return std::pow(lhs, rhs);
+    default:
+      return std::nullopt;
+  }
+}
+
+template <typename T>
+auto try_fold_ordering(const Opcode opcode, const T lhs, const T rhs) -> std::optional<ConstValue> {
+  switch (opcode) {
+    case Opcode::kCmpLt:
+      return ConstValue{.data = (lhs < rhs)};
+    case Opcode::kCmpGt:
+      return ConstValue{.data = (lhs > rhs)};
+    case Opcode::kCmpLe:
+      return ConstValue{.data = (lhs <= rhs)};
+    case Opcode::kCmpGe:
+      return ConstValue{.data = (lhs >= rhs)};
+    default:
+      return std::nullopt;
+  }
+}
+
+// Folds a binary operation on two constants of the same type. Constants of different numeric types are left alone;
+// the type checker rejects them, and the runtime reports them if they arrive through Any.
+template <typename T>
+auto try_fold_same_type_binary(const Opcode opcode, const T lhs, const T rhs) -> std::optional<ConstValue> {
+  if (auto ordering = try_fold_ordering(opcode, lhs, rhs); ordering.has_value()) {
+    return ordering;
+  }
+  if constexpr (std::is_same_v<T, double>) {
+    if (const auto folded = try_fold_float_arithmetic(opcode, lhs, rhs); folded.has_value()) {
+      return ConstValue{.data = *folded};
+    }
+  } else {
+    if (const auto folded = try_fold_integer_arithmetic(opcode, lhs, rhs); folded.has_value()) {
+      return ConstValue{.data = *folded};
+    }
+  }
+  return std::nullopt;
+}
+
 auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstValue& right)
     -> std::optional<ConstValue> {
-  const auto is_uint = [](const ConstValue& value) -> bool {
-    return std::holds_alternative<std::uint64_t>(value.data);
-  };
-  const auto is_int = [](const ConstValue& value) -> bool { return std::holds_alternative<std::int64_t>(value.data); };
-  const auto is_float = [](const ConstValue& value) -> bool { return std::holds_alternative<double>(value.data); };
-  const auto is_numeric = [&](const ConstValue& value) -> bool {
-    return is_int(value) || is_uint(value) || is_float(value);
-  };
-  const auto to_double = [](const ConstValue& value) -> std::optional<double> {
-    if (const auto* signed_value = std::get_if<std::int64_t>(&value.data); signed_value != nullptr) {
-      return static_cast<double>(*signed_value);
-    }
-    if (const auto* unsigned_value = std::get_if<std::uint64_t>(&value.data); unsigned_value != nullptr) {
-      return static_cast<double>(*unsigned_value);
-    }
-    if (const auto* float_value = std::get_if<double>(&value.data); float_value != nullptr) {
-      return *float_value;
-    }
-    return std::nullopt;
-  };
-  const auto num_result = [](const double value, const bool prefer_unsigned = false,
-                             const bool prefer_float = false) -> ConstValue {
-    if (prefer_float) {
-      return ConstValue{.data = value};
-    }
-    if (value == std::floor(value) && std::isfinite(value)) {
-      if (prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
-        return ConstValue{.data = static_cast<std::uint64_t>(value)};
-      }
-      if (value >= static_cast<double>(std::numeric_limits<std::int64_t>::min()) &&
-          value <= static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
-        return ConstValue{.data = static_cast<std::int64_t>(value)};
-      }
-      if (!prefer_unsigned && value >= 0.0 && value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
-        return ConstValue{.data = static_cast<std::uint64_t>(value)};
-      }
-    }
-    return ConstValue{.data = value};
-  };
-
   if (opcode == Opcode::kCmpEq) {
     return ConstValue{.data = (left.data == right.data)};
   }
@@ -200,102 +249,17 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
     return ConstValue{.data = (opcode == Opcode::kAnd ? (*lhs && *rhs) : (*lhs || *rhs))};
   }
 
-  if (opcode == Opcode::kDiv || opcode == Opcode::kMod || opcode == Opcode::kPow) {
-    if (!is_numeric(left) || !is_numeric(right)) {
-      return std::nullopt;
-    }
-
-    // Runtime rejects mixed Int64/UInt64 for div/mod (but not for pow).
-    const bool mixed_signed_unsigned_integer_pair =
-        ((is_int(left) && is_uint(right)) || (is_uint(left) && is_int(right)));
-    if (mixed_signed_unsigned_integer_pair && (opcode == Opcode::kDiv || opcode == Opcode::kMod)) {
-      return std::nullopt;
-    }
-
-    const auto lhs = to_double(left);
-    const auto rhs = to_double(right);
-    if (!lhs.has_value() || !rhs.has_value()) {
-      return std::nullopt;
-    }
-
-    if (opcode == Opcode::kDiv) {
-      const bool prefer_unsigned = is_uint(left) && is_uint(right);
-      const bool prefer_float = std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data);
-      return num_result(*lhs / *rhs, prefer_unsigned, prefer_float);
-    }
-    if (opcode == Opcode::kMod) {
-      const bool prefer_unsigned = is_uint(left) && is_uint(right);
-      const bool prefer_float = std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data);
-      return num_result(std::fmod(*lhs, *rhs), prefer_unsigned, prefer_float);
-    }
-    // pow uses default runtime numeric-result preference.
-    return num_result(std::pow(*lhs, *rhs), false,
-                      std::holds_alternative<double>(left.data) || std::holds_alternative<double>(right.data));
+  if (const auto* lhs = std::get_if<std::int64_t>(&left.data), *rhs = std::get_if<std::int64_t>(&right.data);
+      lhs != nullptr && rhs != nullptr) {
+    return try_fold_same_type_binary(opcode, *lhs, *rhs);
   }
-
-  const auto* lhs_i64 = std::get_if<std::int64_t>(&left.data);
-  if (const auto* rhs_i64 = std::get_if<std::int64_t>(&right.data); lhs_i64 != nullptr && rhs_i64 != nullptr) {
-    switch (opcode) {
-      case Opcode::kAdd: {
-        const bool overflow = (*rhs_i64 > 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() - *rhs_i64) ||
-                              (*rhs_i64 < 0 && *lhs_i64 < std::numeric_limits<std::int64_t>::min() - *rhs_i64);
-        if (overflow) {
-          return std::nullopt;
-        }
-        return ConstValue{.data = *lhs_i64 + *rhs_i64};
-      }
-      case Opcode::kSub: {
-        const bool overflow = (*rhs_i64 < 0 && *lhs_i64 > std::numeric_limits<std::int64_t>::max() + *rhs_i64) ||
-                              (*rhs_i64 > 0 && *lhs_i64 < std::numeric_limits<std::int64_t>::min() + *rhs_i64);
-        if (overflow) {
-          return std::nullopt;
-        }
-        return ConstValue{.data = *lhs_i64 - *rhs_i64};
-      }
-      case Opcode::kMul: {
-        if (*lhs_i64 == 0 || *rhs_i64 == 0) {
-          return ConstValue{.data = std::int64_t{0}};
-        }
-        if (const auto result = static_cast<long double>(*lhs_i64) * static_cast<long double>(*rhs_i64);
-            result > static_cast<long double>(std::numeric_limits<std::int64_t>::max()) ||
-            result < static_cast<long double>(std::numeric_limits<std::int64_t>::min())) {
-          return std::nullopt;
-        }
-        return ConstValue{.data = *lhs_i64 * *rhs_i64};
-      }
-      case Opcode::kCmpLt:
-        return ConstValue{.data = (*lhs_i64 < *rhs_i64)};
-      case Opcode::kCmpGt:
-        return ConstValue{.data = (*lhs_i64 > *rhs_i64)};
-      case Opcode::kCmpLe:
-        return ConstValue{.data = (*lhs_i64 <= *rhs_i64)};
-      case Opcode::kCmpGe:
-        return ConstValue{.data = (*lhs_i64 >= *rhs_i64)};
-      default:
-        break;
-    }
+  if (const auto* lhs = std::get_if<std::uint64_t>(&left.data), *rhs = std::get_if<std::uint64_t>(&right.data);
+      lhs != nullptr && rhs != nullptr) {
+    return try_fold_same_type_binary(opcode, *lhs, *rhs);
   }
-
-  const auto* lhs_double = std::get_if<double>(&left.data);
-  if (const auto* rhs_double = std::get_if<double>(&right.data); lhs_double != nullptr && rhs_double != nullptr) {
-    switch (opcode) {
-      case Opcode::kAdd:
-        return ConstValue{.data = (*lhs_double + *rhs_double)};
-      case Opcode::kSub:
-        return ConstValue{.data = (*lhs_double - *rhs_double)};
-      case Opcode::kMul:
-        return ConstValue{.data = (*lhs_double * *rhs_double)};
-      case Opcode::kCmpLt:
-        return ConstValue{.data = (*lhs_double < *rhs_double)};
-      case Opcode::kCmpGt:
-        return ConstValue{.data = (*lhs_double > *rhs_double)};
-      case Opcode::kCmpLe:
-        return ConstValue{.data = (*lhs_double <= *rhs_double)};
-      case Opcode::kCmpGe:
-        return ConstValue{.data = (*lhs_double >= *rhs_double)};
-      default:
-        break;
-    }
+  if (const auto* lhs = std::get_if<double>(&left.data), *rhs = std::get_if<double>(&right.data);
+      lhs != nullptr && rhs != nullptr) {
+    return try_fold_same_type_binary(opcode, *lhs, *rhs);
   }
 
   return std::nullopt;
