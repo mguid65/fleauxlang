@@ -693,6 +693,14 @@ Example pattern:
 
 When using Result values, Match and Branch often pair well with IsOk and IsErr.
 
+Std.Result.Ok returns Result<T, Never> and Std.Result.Err returns Result<Never, E>.
+Never is the type with no values, so it combines with any other type: branches that produce Ok and Err values join into one Result type.
+
+    let Pick(c: Bool): Result<Int64, String> =
+        (c, (1) -> Std.Result.Ok, ("bad") -> Std.Result.Err) -> Std.Select;
+
+Unwrapping an Err value has type Never, which fits wherever a value is expected because it never produces one.
+
 ## OS, path, file, and directory helpers
 
 The standard library provides host interaction helpers grouped by namespace.

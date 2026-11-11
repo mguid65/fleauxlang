@@ -7599,3 +7599,59 @@ TEST_CASE("Type helpers drop Never from unions", "[typecheck][types]") {
   only_never.union_members = {make_type(TypeKind::kNever), make_type(TypeKind::kNever)};
   REQUIRE(normalize_type(only_never).kind == TypeKind::kNever);
 }
+
+TEST_CASE("Type checker types Result constructors with Never for the unknown side", "[typecheck][result][never]") {
+  SECTION("Ok and Err branches join to one Result type") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Pick(c: Bool): Result<Int64, String> =\n"
+                            "  (c, (1) -> Std.Result.Ok, (\"bad\") -> Std.Result.Err) -> Std.Select;\n",
+                            "result_join_select.fleaux")
+                .has_value());
+  }
+
+  SECTION("The joined type is precise, not Any") {
+    const auto lowered = lower_and_check("import Std;\n"
+                                         "let Pick(c: Bool): Result<Int64, Int64> =\n"
+                                         "  (c, (1) -> Std.Result.Ok, (\"bad\") -> Std.Result.Err) -> Std.Select;\n",
+                                         "result_join_precise.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in function return") != std::string::npos);
+  }
+
+  SECTION("Two different success types still do not join") {
+    const auto lowered = lower_and_check("import Std;\n"
+                                         "(True, (1) -> Std.Result.Ok, (\"a\") -> Std.Result.Ok) -> Std.Select;\n",
+                                         "result_join_conflict.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Select expects argument 2") != std::string::npos);
+  }
+
+  SECTION("Payload of an Ok value is the success type") {
+    REQUIRE(lower_and_check("import Std;\nlet P(): Int64 = (5) -> Std.Result.Ok -> Std.Result.Payload;\n",
+                            "result_ok_payload.fleaux")
+                .has_value());
+  }
+
+  SECTION("Unwrapping an Err value has type Never and fits any declared type") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Fails(): Int64 = (\"boom\") -> Std.Result.Err -> Std.Result.Unwrap;\n",
+                            "result_err_unwrap_never.fleaux")
+                .has_value());
+  }
+
+  SECTION("Ok values flow into a declared error type") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Wrap(x: Int64): Result<Int64, Tuple<Int64, String>> = (x) -> Std.Result.Ok;\n",
+                            "result_ok_declared_error.fleaux")
+                .has_value());
+  }
+}
+
+TEST_CASE("Generic binding joins Never inside tuples", "[typecheck][never]") {
+  REQUIRE(lower_and_check("let Std.Select<T>(c: Bool, a: T, b: T): T :: __builtin__;\n"
+                          "let Left(): Tuple<Int64, Never> :: __builtin__;\n"
+                          "let Right(): Tuple<Never, String> :: __builtin__;\n"
+                          "let Both(c: Bool): Tuple<Int64, String> = (c, Left, Right) -> Std.Select;\n",
+                          "never_join_tuple.fleaux")
+              .has_value());
+}

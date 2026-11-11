@@ -35,7 +35,7 @@ A few notes:
 - Float64 is the main floating-point type
 - Null is the type associated with null-like absence
 - Any is the most permissive general-purpose type
-- Never is used for computations that do not return, such as Std.Exit
+- Never is the type with no values. It is used for computations that do not return, such as Std.Exit, and for the side of a Result that cannot occur: Std.Result.Ok returns Result<T, Never>. Never fits wherever any type is expected, and T | Never is just T.
 
 ## Literal overview
 

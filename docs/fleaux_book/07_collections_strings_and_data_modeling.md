@@ -244,6 +244,8 @@ Their constructors and helpers include:
 
 Because Result is just another value shape, it composes naturally with Match, Branch, dictionaries, and tuple helpers.
 
+Std.Result.Ok returns Result<T, Never> and Std.Result.Err returns Result<Never, E>, so a Select between an Ok branch and an Err branch has the precise type Result<T, E>.
+
 ## Type introspection and conversion
 
 Useful general helpers for data shaping include:

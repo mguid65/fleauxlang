@@ -1205,10 +1205,74 @@ auto bind_function_type(const Type& expected, const Type& actual, TypeBindings& 
   return bind_generic_type(*expected.function_return, *actual.function_return, bindings);
 }
 
+// Joins two bindings of one type parameter that differ only where one side is Never. Never has no values, so
+// Result<Int64, Never> and Result<Never, String> join to Result<Int64, String>. Any other difference does not join.
+auto join_never_bindings(const Type& lhs, const Type& rhs) -> std::optional<Type> {
+  if (lhs.kind == TypeKind::kNever) {
+    return rhs;
+  }
+  if (rhs.kind == TypeKind::kNever) {
+    return lhs;
+  }
+  if (is_consistent(lhs, rhs) && is_consistent(rhs, lhs)) {
+    return lhs;
+  }
+  if (lhs.kind != rhs.kind) {
+    return std::nullopt;
+  }
+
+  const auto join_each = [](const std::vector<Type>& lhs_items,
+                            const std::vector<Type>& rhs_items) -> std::optional<std::vector<Type>> {
+    if (lhs_items.size() != rhs_items.size()) {
+      return std::nullopt;
+    }
+    std::vector<Type> joined;
+    joined.reserve(lhs_items.size());
+    for (std::size_t index = 0; index < lhs_items.size(); ++index) {
+      if (lhs_items[index].variadic != rhs_items[index].variadic) {
+        return std::nullopt;
+      }
+      auto item = join_never_bindings(lhs_items[index], rhs_items[index]);
+      if (!item.has_value()) {
+        return std::nullopt;
+      }
+      item->variadic = lhs_items[index].variadic;
+      joined.push_back(std::move(*item));
+    }
+    return joined;
+  };
+
+  Type joined = lhs;
+  if (lhs.kind == TypeKind::kApplied && lhs.applied_name == rhs.applied_name) {
+    auto args = join_each(lhs.applied_args, rhs.applied_args);
+    if (!args.has_value()) {
+      return std::nullopt;
+    }
+    joined.applied_args = std::move(*args);
+    return normalize_type(std::move(joined));
+  }
+  if (lhs.kind == TypeKind::kTuple) {
+    auto items = join_each(lhs.items, rhs.items);
+    if (!items.has_value()) {
+      return std::nullopt;
+    }
+    joined.items = std::move(*items);
+    return normalize_type(std::move(joined));
+  }
+  return std::nullopt;
+}
+
 auto bind_generic_type(const Type& expected, const Type& actual, TypeBindings& bindings) -> bool {
   if (expected.kind == TypeKind::kTypeVar) {
     if (const auto it = bindings.find(expected.nominal_name); it != bindings.end()) {
-      return is_consistent(it->second, actual) && is_consistent(actual, it->second);
+      if (is_consistent(it->second, actual) && is_consistent(actual, it->second)) {
+        return true;
+      }
+      if (auto joined = join_never_bindings(it->second, actual); joined.has_value()) {
+        it->second = normalize_type(std::move(*joined));
+        return true;
+      }
+      return false;
     }
     bindings.insert_or_assign(expected.nominal_name, normalize_type(actual));
     return true;

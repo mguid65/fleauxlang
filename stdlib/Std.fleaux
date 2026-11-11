@@ -374,14 +374,16 @@ let Std.Match(value: Any, cases: Any...) : Any :: __builtin__;
 // @brief Construct a Result value tagged as Ok.
 // @tparam T Generic value type.
 // @param value Input value. Type: T.
-// @return A value of type Result<T, Any>.
-let Std.Result.Ok<T>(value: T) : Result<T, Any> :: __builtin__;
+// @return A value of type Result<T, Never>. Never is the error type of a value that cannot be an error, so it
+// combines with any other error type.
+let Std.Result.Ok<T>(value: T) : Result<T, Never> :: __builtin__;
 
 // @brief Construct a Result value tagged as Err.
 // @tparam E Generic error type.
 // @param error Error payload value. Type: E.
-// @return A value of type Result<Any, E>.
-let Std.Result.Err<E>(error: E) : Result<Any, E> :: __builtin__;
+// @return A value of type Result<Never, E>. Never is the success type of a value that cannot succeed, so it
+// combines with any other success type.
+let Std.Result.Err<E>(error: E) : Result<Never, E> :: __builtin__;
 
 // @brief Return the Ok or Err tag for a Result value.
 // @tparam T Generic value type.
