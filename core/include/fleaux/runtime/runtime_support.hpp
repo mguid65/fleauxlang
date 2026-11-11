@@ -17,4 +17,5 @@
 #include "fleaux/runtime/builtins_string.hpp"    // String ops
 #include "fleaux/runtime/builtins_tuple.hpp"     // TupleMap/Filter/Sort/Reduce/Range/Zip etc.
 #include "fleaux/runtime/builtins_math.hpp"      // Math builtins
+#include "fleaux/runtime/type_check.hpp"         // Runtime checks for casts from Any
 #include "fleaux/runtime/value.hpp"              // Type aliases, registries, construction/extraction helpers, printing

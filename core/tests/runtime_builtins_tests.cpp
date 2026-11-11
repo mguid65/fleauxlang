@@ -1781,3 +1781,44 @@ TEST_CASE("Runtime builtins: exact integer arithmetic keeps the operand type", "
   REQUIRE_THROWS_WITH(Divide(make_tuple(make_uint(1U), make_uint(0U))), "Divide: UInt64 division by zero");
   REQUIRE_THROWS_WITH(UnaryMinus(make_tuple(make_int(std::numeric_limits<Int>::min()))), "UnaryMinus: Int64 overflow");
 }
+
+TEST_CASE("Runtime type checks follow the runtime value representation", "[runtime][cast]") {
+  using fleaux::common::RuntimeTypeCheck;
+  using fleaux::common::RuntimeTypeCheckKind;
+  const auto leaf = [](const RuntimeTypeCheckKind kind) { return RuntimeTypeCheck{.kind = kind}; };
+  const auto tuple_of_any = RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kTuple,
+                                             .items = {leaf(RuntimeTypeCheckKind::kAny)},
+                                             .variadic_tail = true};
+
+  SECTION("Tagged runtime tokens never pass as plain tuples") {
+    const Value callable = make_callable_ref([](const Value& value) -> Value { return value; });
+    REQUIRE(is_tagged_runtime_token(callable));
+    REQUIRE_FALSE(value_matches_type_check(callable, tuple_of_any));
+    REQUIRE(value_matches_type_check(make_tuple(make_int(1), make_string("a")), tuple_of_any));
+  }
+
+  SECTION("Numeric dictionary keys match by their text") {
+    const Value dict = DictSet(make_tuple(Value{Object{}}, make_int(3), make_string("three")));
+    const auto dict_of = [&](const RuntimeTypeCheckKind key_kind) {
+      return RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kDict,
+                              .items = {leaf(key_kind), leaf(RuntimeTypeCheckKind::kString)}};
+    };
+    REQUIRE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kInt64)));
+    REQUIRE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kFloat64)));
+    REQUIRE_FALSE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kString)));
+  }
+
+  SECTION("Result checks the payload against the side its tag selects") {
+    const auto result_check = RuntimeTypeCheck{
+        .kind = RuntimeTypeCheckKind::kResult,
+        .items = {leaf(RuntimeTypeCheckKind::kInt64), leaf(RuntimeTypeCheckKind::kString)}};
+    REQUIRE(value_matches_type_check(ResultOk(make_tuple(make_int(1))), result_check));
+    REQUIRE(value_matches_type_check(ResultErr(make_tuple(make_string("bad"))), result_check));
+    REQUIRE_FALSE(value_matches_type_check(ResultOk(make_tuple(make_string("bad"))), result_check));
+  }
+
+  SECTION("Never matches nothing and Any matches everything") {
+    REQUIRE_FALSE(value_matches_type_check(make_null(), leaf(RuntimeTypeCheckKind::kNever)));
+    REQUIRE(value_matches_type_check(make_null(), leaf(RuntimeTypeCheckKind::kAny)));
+  }
+}

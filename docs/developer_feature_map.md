@@ -126,6 +126,7 @@ Tests:
 Notes:
 - Imported transparent aliases must be propagated alongside imported typed lets and strong nominal type declarations.
 - Symbolic Std seeding must keep alias declarations in step with builtin lets and strong types.
+- A `Std.Cast<T>` or `Std.TryCast<T>` whose argument has static type `Any` is checked at runtime. The checker builds a `common::RuntimeTypeCheck` (`core/include/fleaux/common/runtime_type_check.hpp`) with `runtime_type_check_for_cast` and stores it on the cast's `IRNameRef`; the compiler emits the `Std.Cast` builtin followed by `kCheckType` or `kTryCheckType`, whose operand indexes `Module::type_checks`. Matching lives in `core/include/fleaux/runtime/type_check.hpp`. Targets that cannot be checked at runtime (function types, `TaskHandle<T>` other than `TaskHandle<Any>`, generic parameters) are compile errors.
 
 ### 6) Bytecode instruction/opcode/compiler behavior
 Touch:

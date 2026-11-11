@@ -782,6 +782,27 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         break;
       }
 
+      case bytecode::Opcode::kCheckType:
+      case bytecode::Opcode::kTryCheckType: {
+        const auto idx = static_cast<std::size_t>(operand);
+        if (operand < 0 || idx >= bytecode_module.type_checks.size()) {
+          return tl::unexpected(make_runtime_error("type check index out of range"));
+        }
+        auto value = pop_stack(stack, "check_type");
+        if (!value)
+          return tl::unexpected(value.error());
+        const auto& check = bytecode_module.type_checks[idx];
+        if (opcode == bytecode::Opcode::kTryCheckType) {
+          stack.push_back(runtime::try_check_cast(std::move(*value), check));
+          break;
+        }
+        if (!runtime::value_matches_type_check(*value, check)) {
+          return tl::unexpected(make_runtime_error(runtime::type_check_failure_message("Std.Cast", *value, check)));
+        }
+        stack.push_back(std::move(*value));
+        break;
+      }
+
       case bytecode::Opcode::kMakeValueRef: {
         auto value = pop_stack(stack, "make_value_ref");
         if (!value)
@@ -1709,6 +1730,8 @@ auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape /*shape
         return runtime::DictLength(std::move(arg));
       case BuiltinId::Cast:
         return runtime::Cast(std::move(arg));
+      case BuiltinId::TryCast:
+        return runtime::TryCast(std::move(arg));
       case BuiltinId::ToInt64:
         return runtime::ToInt64(std::move(arg));
       case BuiltinId::ToUInt64:

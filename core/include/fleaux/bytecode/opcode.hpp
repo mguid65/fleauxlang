@@ -132,6 +132,12 @@ enum class Opcode {
   // tuple argument first.
   // operand = index into Module::functions.
   kCallUserFuncBinary,
+
+  // Runtime type checks for casts from Any (operand = index into Module::type_checks):
+  // kCheckType leaves TOS in place when it matches the check and is a runtime error otherwise.
+  kCheckType,
+  // kTryCheckType pops TOS and pushes Ok(value) when it matches the check, otherwise Err(message).
+  kTryCheckType,
 };
 
 inline constexpr std::array opcode_names{
@@ -174,7 +180,9 @@ inline constexpr std::array opcode_names{
   std::string_view{"MakeValueRef"},
   std::string_view{"DerefValueRef"},
   std::string_view{"StoreLocal"},
-  std::string_view{"CallUserFuncBinary"}
+  std::string_view{"CallUserFuncBinary"},
+  std::string_view{"CheckType"},
+  std::string_view{"TryCheckType"}
 };
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {

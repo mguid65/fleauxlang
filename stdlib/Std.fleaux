@@ -119,11 +119,18 @@ let Std.Help(name: String) : String :: __builtin__;
 // @return The runtime type name as a String.
 let Std.Type(value: Any) : String :: __builtin__;
 
-// @brief Reinterpret a value as an explicitly requested type.
+// @brief Reinterpret a value as an explicitly requested type. A value of type Any is checked against T at runtime,
+// and a value that does not match is a runtime error.
 // @param value Input value. Type: Any.
 // @tparam T Requested cast target
 // @return The same runtime value, checked against the requested type parameter.
 let Std.Cast<T>(value: Any) : T :: __builtin__;
+
+// @brief Like Std.Cast, but a value of type Any that does not match T gives an Err instead of a runtime error.
+// @param value Input value. Type: Any.
+// @tparam T Requested cast target
+// @return Ok with the value when it matches T, otherwise Err with a message naming the expected and actual types.
+let Std.TryCast<T>(value: Any) : Result<T, String> :: __builtin__;
 
 // @brief Convert a value to Int64 explicitly.
 // @param value Input value. Type: Any.

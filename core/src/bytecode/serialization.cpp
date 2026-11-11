@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 24;
+constexpr std::uint32_t BYTECODE_VERSION = 25;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -379,6 +379,40 @@ auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offs
   return true;
 }
 
+// Nesting limit for type checks read from bytecode, so a malformed file cannot exhaust the stack.
+constexpr std::size_t kMaxTypeCheckDepth = 128;
+
+void write_type_check(std::vector<std::uint8_t>& buffer, const common::RuntimeTypeCheck& check) {
+  write_pod(buffer, static_cast<std::uint8_t>(check.kind));
+  write_pod(buffer, check.variadic_tail);
+  write_pod(buffer, static_cast<std::uint32_t>(check.items.size()));
+  for (const auto& item : check.items) {
+    write_type_check(buffer, item);
+  }
+}
+
+auto read_type_check(const std::vector<std::uint8_t>& buffer, std::size_t& offset, common::RuntimeTypeCheck& check,
+                     const std::size_t depth) -> bool {
+  if (depth > kMaxTypeCheckDepth) {
+    return false;
+  }
+  std::uint8_t kind = 0;
+  std::uint32_t count = 0;
+  if (!read_pod(buffer, offset, kind) || kind >= common::kRuntimeTypeCheckKindCount ||
+      !read_pod(buffer, offset, check.variadic_tail) || !read_pod(buffer, offset, count) ||
+      count > buffer.size() - offset) {
+    return false;
+  }
+  check.kind = static_cast<common::RuntimeTypeCheckKind>(kind);
+  check.items.resize(count);
+  for (auto& item : check.items) {
+    if (!read_type_check(buffer, offset, item, depth + 1U)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 auto valid_index(const std::int64_t operand, const std::size_t size) -> bool {
   return operand >= 0 && std::cmp_less(operand, size);
 }
@@ -425,6 +459,14 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
       }
       return std::format("closure[{}] -> function[{}]={}", instruction.operand, closure.function_index,
                          module.functions[closure.function_index].name);
+    }
+    case Opcode::kCheckType:
+    case Opcode::kTryCheckType: {
+      if (!valid_index(instruction.operand, module.type_checks.size())) {
+        return index_label(instruction.operand, module.type_checks.size(), "type check");
+      }
+      return std::format("type_check[{}]={}", instruction.operand,
+                         common::describe(module.type_checks[static_cast<std::size_t>(instruction.operand)]));
     }
     case Opcode::kLoadLocal:
       return std::format("local[{}]", instruction.operand);
@@ -532,6 +574,14 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     write_pod(buffer, count);
     for (const auto& record : module.builtin_callsites) {
       write_builtin_callsite(buffer, record);
+    }
+  }
+
+  {
+    const auto count = static_cast<std::uint32_t>(module.type_checks.size());
+    write_pod(buffer, count);
+    for (const auto& check : module.type_checks) {
+      write_type_check(buffer, check);
     }
   }
 
@@ -678,6 +728,19 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     }
   }
 
+  {
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+      return tl::unexpected(SerializationError{.message = "Cannot read type check count"});
+    }
+    deserialized.type_checks.resize(count);
+    for (auto& check : deserialized.type_checks) {
+      if (!read_type_check(buffer, offset, check, 0U) || !common::is_well_formed(check)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read type check"});
+      }
+    }
+  }
+
   return deserialized;
 }
 
@@ -812,6 +875,11 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         closure_index, function_index, capture_count, declared_arity, declared_has_variadic_tail);
 
     closure_index++;
+  }
+
+  out << "TypeChecks:\n";
+  for (std::size_t check_index = 0; check_index < module.type_checks.size(); ++check_index) {
+    out << std::format("  TypeCheck {}: {}\n", check_index, common::describe(module.type_checks[check_index]));
   }
 
   out << "BuiltinCallsites:\n";

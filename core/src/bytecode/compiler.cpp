@@ -1791,7 +1791,39 @@ auto try_emit_named_flow_fast_path(const IRFlowExpr& flow, const IRNameRef& name
 }
 
 auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
+                    CompileState& state, Module& bytecode_module) -> EmitResult;
+
+// A Std.Cast or Std.TryCast whose argument has static type Any compiles to the Std.Cast builtin, which only unwraps
+// the argument, followed by a runtime check of the value.
+auto emit_checked_cast_flow(const IRFlowExpr& flow, const IRNameRef& name_ref, std::vector<Instruction>& out,
+                            const LocalSlots& locals, CompileState& state, Module& bytecode_module) -> EmitResult {
+  const bool is_try = common::full_symbol_name(name_ref.qualifier, name_ref.name) == "Std.TryCast";
+  const IRFlowExpr cast_flow{
+      .lhs = flow.lhs,
+      .rhs = IRNameRef{.qualifier = std::string{"Std"},
+                       .name = "Cast",
+                       .resolved_symbol_key = std::string{"Std.Cast"},
+                       .span = name_ref.span},
+      .call_shape = flow.call_shape,
+      .span = flow.span,
+  };
+  if (auto emitted = emit_flow_expr(cast_flow, out, locals, state, bytecode_module); !emitted) {
+    return emitted;
+  }
+
+  const auto check_index = static_cast<std::int64_t>(bytecode_module.type_checks.size());
+  bytecode_module.type_checks.push_back(*name_ref.runtime_type_check);
+  out.push_back(Instruction{.opcode = is_try ? Opcode::kTryCheckType : Opcode::kCheckType, .operand = check_index});
+  return {};
+}
+
+auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
                     CompileState& state, Module& bytecode_module) -> EmitResult {
+  if (const auto* name_ref = std::get_if<IRNameRef>(&flow.rhs);
+      name_ref != nullptr && name_ref->runtime_type_check.has_value()) {
+    return emit_checked_cast_flow(flow, *name_ref, out, locals, state, bytecode_module);
+  }
+
   auto handled = std::visit(
       common::overloaded{[&](const IROperatorRef& op_ref) -> tl::expected<bool, CompileError> {
                            // The type checker replaces every operator target with a reference to its Std builtin.

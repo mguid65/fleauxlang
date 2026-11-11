@@ -547,7 +547,13 @@ template <typename IntegerOp>
   return make_string(type_name(unwrap_singleton_arg(std::move(arg))));
 }
 
+// Casts whose argument has static type Any are followed by a CheckType or TryCheckType instruction that checks
+// the value; any other cast is already known to succeed.
 [[nodiscard]] inline auto Cast(Value arg) -> Value { return unwrap_singleton_arg(std::move(arg)); }
+
+[[nodiscard]] inline auto ResultOk(Value arg) -> Value;
+
+[[nodiscard]] inline auto TryCast(Value arg) -> Value { return ResultOk(make_tuple(unwrap_singleton_arg(std::move(arg)))); }
 
 [[nodiscard]] inline auto ToInt64(Value arg) -> Value {
   return make_int(as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "ToInt64"));

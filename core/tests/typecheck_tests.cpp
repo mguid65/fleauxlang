@@ -6697,3 +6697,97 @@ TEST_CASE("Std signatures reject mistyped builtin arguments without builtin cont
     REQUIRE(lowered.error().hint->find(expected_hint) != std::string::npos);
   }
 }
+
+namespace {
+
+auto find_cast_name_ref(const fleaux::frontend::ir::IRProgram& program, const std::string& let_name)
+    -> const fleaux::frontend::ir::IRNameRef* {
+  for (const auto& let : program.lets) {
+    if (let.name != let_name || !let.body.has_value()) {
+      continue;
+    }
+    if (const auto* flow = std::get_if<fleaux::frontend::ir::IRFlowExpr>(&let.body->node); flow != nullptr) {
+      return std::get_if<fleaux::frontend::ir::IRNameRef>(&flow->rhs);
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+TEST_CASE("Type checker attaches runtime checks to casts from Any", "[typecheck][cast]") {
+  using fleaux::common::RuntimeTypeCheck;
+  using fleaux::common::RuntimeTypeCheckKind;
+
+  const auto lowered = lower_and_check("import Std;\n"
+                                       "type UserId :: Int64;\n"
+                                       "let FromAny(x: Any): Int64 = x -> Std.Cast<Int64>;\n"
+                                       "let Known(x: Int64): UserId = x -> Std.Cast<UserId>;\n"
+                                       "let Strong(x: Any): UserId = x -> Std.Cast<UserId>;\n"
+                                       "let Try(x: Any): Result<Tuple<String, Int64...>, String> =\n"
+                                       "  x -> Std.TryCast<Tuple<String, Int64...>>;\n"
+                                       "let Handle(x: Any): FileHandle = x -> Std.Cast<FileHandle>;\n",
+                                       "cast_runtime_checks.fleaux");
+  REQUIRE(lowered.has_value());
+
+  const auto* from_any = find_cast_name_ref(*lowered, "FromAny");
+  REQUIRE(from_any != nullptr);
+  REQUIRE(from_any->runtime_type_check == RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kInt64});
+
+  const auto* known = find_cast_name_ref(*lowered, "Known");
+  REQUIRE(known != nullptr);
+  REQUIRE_FALSE(known->runtime_type_check.has_value());
+
+  const auto* strong = find_cast_name_ref(*lowered, "Strong");
+  REQUIRE(strong != nullptr);
+  REQUIRE(strong->runtime_type_check == RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kInt64});
+
+  const auto* try_cast = find_cast_name_ref(*lowered, "Try");
+  REQUIRE(try_cast != nullptr);
+  REQUIRE(try_cast->runtime_type_check ==
+          RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kTuple,
+                           .items = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kString},
+                                     RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kInt64}},
+                           .variadic_tail = true});
+
+  const auto* handle = find_cast_name_ref(*lowered, "Handle");
+  REQUIRE(handle != nullptr);
+  REQUIRE(handle->runtime_type_check == RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kFileHandle});
+}
+
+TEST_CASE("Type checker rejects casts from Any that cannot be checked at runtime", "[typecheck][cast]") {
+  struct Case {
+    const char* name;
+    const char* body;
+    const char* expected_hint;
+  };
+  const std::vector<Case> cases = {
+      {"Function type", "let F(x: Any): (Int64) => Int64 = x -> Std.Cast<(Int64) => Int64>;",
+       "function parameter and return types"},
+      {"Task result type", "let F(x: Any): TaskHandle<Int64> = x -> Std.Cast<TaskHandle<Int64>>;",
+       "cast to TaskHandle<Any>"},
+      {"Generic parameter", "let F<T>(x: Any): T = x -> Std.Cast<T>;", "generic parameters"},
+      {"Function inside a tuple", "let F(x: Any): Tuple<(Int64) => Int64> = x -> Std.TryCast<Tuple<(Int64) => Int64>> -> Std.Result.Unwrap;",
+       "Std.TryCast from Any cannot check"},
+  };
+  for (const auto& [name, body, expected_hint] : cases) {
+    INFO(name);
+    const auto lowered = lower_and_check(std::string{"import Std;\n"} + body + "\n", "cast_unsupported.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    INFO("hint: " << *lowered.error().hint);
+    REQUIRE(lowered.error().hint->find(expected_hint) != std::string::npos);
+  }
+
+  SECTION("TaskHandle<Any> is checked by its tag") {
+    REQUIRE(lower_and_check("import Std;\nlet F(x: Any): TaskHandle<Any> = x -> Std.Cast<TaskHandle<Any>>;\n",
+                            "cast_task_any.fleaux")
+                .has_value());
+  }
+
+  SECTION("Std.TryCast is only valid in direct call position") {
+    const auto lowered = lower_and_check("import Std;\nlet F: Any = Std.TryCast<Int64>;\n", "trycast_reference.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid Std.TryCast reference") != std::string::npos);
+  }
+}

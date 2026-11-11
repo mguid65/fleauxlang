@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fleaux/common/indirect_optional.hpp"
+#include "fleaux/common/runtime_type_check.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
 #include "fleaux/frontend/type_node.hpp"
 
@@ -279,6 +280,9 @@ struct IRNameRef {
   std::vector<IRSimpleType> explicit_type_args{};
   std::optional<std::string> resolved_symbol_key{std::nullopt};
   bool materialize_as_value{false};
+  // Set by the type checker on a Std.Cast or Std.TryCast whose argument has static type Any: the VM checks the
+  // value against this description.
+  std::optional<common::RuntimeTypeCheck> runtime_type_check{std::nullopt};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 

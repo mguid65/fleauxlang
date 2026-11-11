@@ -24,6 +24,14 @@ struct ResolvedInvocation {
   std::string resolved_symbol_key{};
 };
 
+// The runtime check for a cast from Any to `target`. Strong types are checked by their underlying type, and
+// builtin types by their runtime tag. Function types, TaskHandle<T> with T other than Any, and unresolved generic
+// parameters cannot be checked at runtime and are rejected.
+[[nodiscard]] auto runtime_type_check_for_cast(const std::string& full_name, const Type& target,
+                                               const StrongTypeIndex& type_index,
+                                               const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError>;
+
 struct BindingQuality {
   std::size_t resolved_bindings{0U};
   std::size_t total_bindings{0U};

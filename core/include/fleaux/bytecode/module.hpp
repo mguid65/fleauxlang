@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "fleaux/bytecode/opcode.hpp"
+#include "fleaux/common/runtime_type_check.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 
 namespace fleaux::bytecode {
@@ -164,6 +165,9 @@ struct Module {
 
   // Inline closure templates: indexed by kMakeClosureRef operand.
   std::vector<ClosureDef> closures{};
+
+  // Runtime type checks for casts from Any: indexed by kCheckType and kTryCheckType operands.
+  std::vector<common::RuntimeTypeCheck> type_checks{};
 
   // One record per emitted kCallBuiltin instruction. This metadata is used by
   // loader-side verification and is intentionally kept parallel to the runtime

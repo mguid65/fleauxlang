@@ -41,6 +41,7 @@ struct MergeMaps {
   std::vector<std::uint32_t> constants;
   std::vector<std::uint32_t> functions;
   std::vector<std::uint32_t> closures;
+  std::vector<std::uint32_t> type_checks;
 };
 
 struct LoadedImports {
@@ -164,6 +165,10 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
       case Opcode::kMakeClosureRef:
         operand = static_cast<std::int64_t>(maps.closures[static_cast<std::size_t>(operand)]);
         break;
+      case Opcode::kCheckType:
+      case Opcode::kTryCheckType:
+        operand = static_cast<std::int64_t>(maps.type_checks[static_cast<std::size_t>(operand)]);
+        break;
       case Opcode::kJump:
       case Opcode::kJumpIf:
       case Opcode::kJumpIfNot:
@@ -186,6 +191,12 @@ auto merge_module_into(Module& target, const Module& source,
   for (const auto& constant : source.constants) {
     maps.constants.push_back(static_cast<std::uint32_t>(target.constants.size()));
     target.constants.push_back(constant);
+  }
+
+  maps.type_checks.reserve(source.type_checks.size());
+  for (const auto& check : source.type_checks) {
+    maps.type_checks.push_back(static_cast<std::uint32_t>(target.type_checks.size()));
+    target.type_checks.push_back(check);
   }
 
   maps.functions.resize(source.functions.size());

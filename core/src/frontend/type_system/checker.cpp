@@ -1441,9 +1441,128 @@ auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target
   return false;
 }
 
+auto build_runtime_type_check(const std::string& full_name, const Type& target, const StrongTypeIndex& type_index,
+                              const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& expanding)
+    -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError> {
+  using common::RuntimeTypeCheck;
+  using common::RuntimeTypeCheckKind;
+
+  const auto unsupported = [&](const std::string& reason) -> tl::unexpected<type_check::AnalysisError> {
+    return tl::unexpected(make_error(
+        std::format("Invalid {} invocation.", full_name),
+        std::format("{} from Any cannot check {} at runtime: {}. Give the value a precise type instead of Any.",
+                    full_name, type_debug_name(target), reason),
+        span));
+  };
+  const auto leaf = [](const RuntimeTypeCheckKind kind) -> RuntimeTypeCheck { return RuntimeTypeCheck{.kind = kind}; };
+  const auto build_items =
+      [&](const std::vector<Type>& types) -> tl::expected<std::vector<RuntimeTypeCheck>, type_check::AnalysisError> {
+    std::vector<RuntimeTypeCheck> items;
+    items.reserve(types.size());
+    for (const auto& type : types) {
+      auto item = build_runtime_type_check(full_name, type, type_index, span, expanding);
+      if (!item) {
+        return tl::unexpected(item.error());
+      }
+      items.push_back(std::move(*item));
+    }
+    return items;
+  };
+
+  switch (target.kind) {
+    case TypeKind::kAny:
+      return leaf(RuntimeTypeCheckKind::kAny);
+    case TypeKind::kNever:
+      return leaf(RuntimeTypeCheckKind::kNever);
+    case TypeKind::kInt64:
+      return leaf(RuntimeTypeCheckKind::kInt64);
+    case TypeKind::kUInt64:
+      return leaf(RuntimeTypeCheckKind::kUInt64);
+    case TypeKind::kFloat64:
+      return leaf(RuntimeTypeCheckKind::kFloat64);
+    case TypeKind::kString:
+      return leaf(RuntimeTypeCheckKind::kString);
+    case TypeKind::kBool:
+      return leaf(RuntimeTypeCheckKind::kBool);
+    case TypeKind::kNull:
+      return leaf(RuntimeTypeCheckKind::kNull);
+    case TypeKind::kTuple: {
+      auto items = build_items(target.items);
+      if (!items) {
+        return tl::unexpected(items.error());
+      }
+      return RuntimeTypeCheck{
+          .kind = RuntimeTypeCheckKind::kTuple,
+          .items = std::move(*items),
+          .variadic_tail = !target.items.empty() && target.items.back().variadic,
+      };
+    }
+    case TypeKind::kUnion: {
+      auto items = build_items(target.union_members);
+      if (!items) {
+        return tl::unexpected(items.error());
+      }
+      return RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kUnion, .items = std::move(*items)};
+    }
+    case TypeKind::kFunction:
+      return unsupported("function parameter and return types are not stored with callable values");
+    case TypeKind::kTypeVar:
+      return unsupported("generic parameters are not known at runtime");
+    case TypeKind::kNominal:
+    case TypeKind::kApplied: {
+      const std::string& name = target.kind == TypeKind::kNominal ? target.nominal_name : target.applied_name;
+      if (type_index.is_builtin_type(target)) {
+        if (name == "FileHandle") {
+          return leaf(RuntimeTypeCheckKind::kFileHandle);
+        }
+        if (name == "RandomGenerator") {
+          return leaf(RuntimeTypeCheckKind::kRandomGenerator);
+        }
+        if (name == "TaskHandle") {
+          if (!target.applied_args.empty() && target.applied_args.front().kind != TypeKind::kAny) {
+            return unsupported("a task's result type is not stored with its handle; cast to TaskHandle<Any>");
+          }
+          return leaf(RuntimeTypeCheckKind::kTaskHandle);
+        }
+        if ((name == "Dict" || name == "Result") && target.applied_args.size() == 2U) {
+          auto items = build_items(target.applied_args);
+          if (!items) {
+            return tl::unexpected(items.error());
+          }
+          return RuntimeTypeCheck{
+              .kind = name == "Dict" ? RuntimeTypeCheckKind::kDict : RuntimeTypeCheckKind::kResult,
+              .items = std::move(*items),
+          };
+        }
+        return unsupported("it has no runtime representation that can be checked");
+      }
+
+      const auto underlying = strong_underlying_type(target, type_index);
+      if (!underlying.has_value()) {
+        return unsupported("the type is unknown");
+      }
+      const std::string key = type_debug_name(target);
+      if (!expanding.insert(key).second) {
+        return unsupported("the type refers to itself");
+      }
+      auto expanded = build_runtime_type_check(full_name, *underlying, type_index, span, expanding);
+      expanding.erase(key);
+      return expanded;
+    }
+    default:
+      return unsupported("the type is unknown");
+  }
+}
+
 auto validate_std_cast_invocation(const Type& source_type, const Type& target_type, const StrongTypeIndex& type_index,
                                   const std::optional<diag::SourceSpan>& span)
     -> tl::expected<void, type_check::AnalysisError> {
+  if (source_type.kind == TypeKind::kAny) {
+    // The value is checked against the target at runtime; runtime_type_check_for_cast rejects targets that cannot
+    // be checked.
+    return {};
+  }
+
   if (type_index.is_builtin_type(source_type) || type_index.is_builtin_type(target_type)) {
     // Builtin types have no underlying type, so only an exact identity cast is allowed. Gradual consistency is
     // not enough here because Any is consistent with every type.
@@ -1474,6 +1593,13 @@ auto validate_std_cast_invocation(const Type& source_type, const Type& target_ty
 }
 
 }  // namespace
+
+auto runtime_type_check_for_cast(const std::string& full_name, const Type& target, const StrongTypeIndex& type_index,
+                                 const std::optional<diag::SourceSpan>& span)
+    -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError> {
+  std::unordered_set<std::string> expanding;
+  return build_runtime_type_check(full_name, normalize_type(target), type_index, span, expanding);
+}
 
 auto check_generic_bounds(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                           const FunctionSig& sig, const TypeBindings& bindings)
@@ -1599,8 +1725,11 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     return tl::unexpected(make_error("Type mismatch in call target arguments.", builtin_contract_error, span));
   }
 
-  if (full_name == "Std.Cast") {
-    Type target_type = is_generic_call ? instantiate_generic_type(sig.return_type, generic_bindings) : sig.return_type;
+  if (full_name == "Std.Cast" || full_name == "Std.TryCast") {
+    // Std.Cast<T> returns T and Std.TryCast<T> returns Result<T, String>; either way the cast target is T.
+    const Type& declared_target =
+        full_name == "Std.Cast" || sig.return_type.applied_args.empty() ? sig.return_type : sig.return_type.applied_args.front();
+    Type target_type = is_generic_call ? instantiate_generic_type(declared_target, generic_bindings) : declared_target;
 
     std::unordered_map<std::string, bool> resolved_cache;
     if (std::unordered_set<std::string> visiting;
@@ -1616,7 +1745,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     if (auto validated = validate_std_cast_invocation(args.front(), target_type, type_index, span); !validated) {
       return tl::unexpected(validated.error());
     }
-    return target_type;
+    return is_generic_call ? instantiate_generic_type(sig.return_type, generic_bindings) : sig.return_type;
   }
 
   if (is_generic_call) {

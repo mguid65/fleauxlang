@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 55> kExpectedSamples = {
+constexpr std::array<std::string_view, 56> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -173,6 +173,7 @@ constexpr std::array<std::string_view, 55> kExpectedSamples = {
     "53_random_seeded.fleaux",
     "54_generic_types.fleaux",
     "55_bounded_generics.fleaux",
+    "56_checked_casts.fleaux",
 };
 
 }  // namespace
@@ -1230,6 +1231,58 @@ TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict<String, Any> options dur
   REQUIRE(analyzed.error().find("Dict<String, Any>") != std::string::npos);
 }
 
+TEST_CASE("VM checks casts from Any at runtime", "[vm][samples][cast]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_checked_casts";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto run = [&](const std::string& name, const std::string& source) {
+    const auto source_path = temp_dir / name;
+    {
+      std::ofstream out(source_path);
+      out << source;
+    }
+    const auto analyzed = load_ir_program(source_path);
+    REQUIRE(analyzed.has_value());
+    constexpr fleaux::bytecode::BytecodeCompiler compiler;
+    const auto compiled_module = compiler.compile(analyzed.value());
+    REQUIRE(compiled_module.has_value());
+    REQUIRE_FALSE(compiled_module->type_checks.empty());
+
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    set_runtime_process_args(source_path, {});
+    auto result = runtime.execute(compiled_module.value(), output);
+    return std::pair{std::move(result), output.str()};
+  };
+
+  SECTION("Matching values pass through and TryCast reports mismatches") {
+    const auto [result, output] = run("checked_casts_ok.fleaux",
+                                      "import Std;\n"
+                                      "let Forget(x: Any): Any = x;\n"
+                                      "(41 -> Forget -> Std.Cast<Int64>, 1) -> Std.Add -> Std.Println;\n"
+                                      "(\"a\", 1) -> Forget -> Std.TryCast<Tuple<String, Int64>> -> Std.Println;\n"
+                                      "(1, 2) -> Forget -> Std.TryCast<Tuple<String...>> -> Std.Println;\n"
+                                      "1.5 -> Forget -> Std.TryCast<Int64 | Float64> -> Std.Println;\n");
+    REQUIRE(result.has_value());
+    REQUIRE(output ==
+            "42\n"
+            "True (a, 1)\n"
+            "False Std.TryCast: expected Tuple<String...>, got Tuple\n"
+            "True 1.5\n");
+  }
+
+  SECTION("A Std.Cast mismatch is a runtime error naming both types") {
+    const auto [result, output] = run("checked_casts_fail.fleaux",
+                                      "import Std;\n"
+                                      "let Forget(x: Any): Any = x;\n"
+                                      "\"seven\" -> Forget -> Std.Cast<Int64> -> Std.Println;\n");
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("Std.Cast: expected Int64, got String") != std::string::npos);
+    REQUIRE(output.empty());
+  }
+}
+
 TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][parallel]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_parallel_reduce_error";
   std::filesystem::remove_all(temp_dir);
@@ -1381,6 +1434,7 @@ FLEAUX_VM_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_SAMPLE_TEST("53_random_seeded.fleaux")
 FLEAUX_VM_SAMPLE_TEST("54_generic_types.fleaux")
 FLEAUX_VM_SAMPLE_TEST("55_bounded_generics.fleaux")
+FLEAUX_VM_SAMPLE_TEST("56_checked_casts.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1436,6 +1490,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("52_variables_and_blocks.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("53_random_seeded.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("54_generic_types.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("55_bounded_generics.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("56_checked_casts.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

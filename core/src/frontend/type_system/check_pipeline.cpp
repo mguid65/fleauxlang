@@ -104,6 +104,16 @@ auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& o
 
   if (auto* name_ref = std::get_if<ir::IRNameRef>(&flow.rhs); name_ref != nullptr) {
     name_ref->resolved_symbol_key = checked->resolved_symbol_key;
+    name_ref->runtime_type_check = std::nullopt;
+    if ((full_name == "Std.Cast" || full_name == "Std.TryCast") && args.size() == 1U &&
+        args.front().kind == TypeKind::kAny) {
+      const Type target = full_name == "Std.Cast" ? checked->return_type : checked->return_type.applied_args.front();
+      auto runtime_check = runtime_type_check_for_cast(full_name, target, type_index, flow.span);
+      if (!runtime_check) {
+        return tl::unexpected(runtime_check.error());
+      }
+      name_ref->runtime_type_check = std::move(*runtime_check);
+    }
   }
 
   flow.call_shape = args.size() == 1U ? ir::IRFlowCallShape::kDirectValue : ir::IRFlowCallShape::kTupleExpanded;

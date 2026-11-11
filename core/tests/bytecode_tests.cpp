@@ -6330,3 +6330,81 @@ TEST_CASE("Bytecode module loader keeps generic bounds for bytecode-only imports
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type argument does not satisfy its bound") != std::string::npos);
 }
+
+TEST_CASE("Bytecode serialization round-trips runtime type checks", "[bytecode][serialization][cast]") {
+  using fleaux::common::RuntimeTypeCheck;
+  using fleaux::common::RuntimeTypeCheckKind;
+
+  fleaux::bytecode::Module original;
+  original.type_checks = {
+      RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kInt64},
+      RuntimeTypeCheck{
+          .kind = RuntimeTypeCheckKind::kDict,
+          .items = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kString},
+                    RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kUnion,
+                                     .items = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kNull},
+                                               RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kTuple,
+                                                                .items = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kFloat64}},
+                                                                .variadic_tail = true}}}}},
+  };
+  original.instructions = {
+      {fleaux::bytecode::Opcode::kPushConst, 0},
+      {fleaux::bytecode::Opcode::kCheckType, 0},
+      {fleaux::bytecode::Opcode::kTryCheckType, 1},
+      {fleaux::bytecode::Opcode::kHalt, 0},
+  };
+  original.constants = {fleaux::bytecode::ConstValue{.data = std::int64_t{1}}};
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->type_checks == original.type_checks);
+  REQUIRE(fleaux::common::describe(deserialized->type_checks[1]) == "Dict<String, Null | Tuple<Float64...>>");
+
+  std::ostringstream dump;
+  REQUIRE(fleaux::bytecode::disassemble_module(*deserialized, dump).has_value());
+  REQUIRE(dump.str().find("type_check[1]=Dict<String, Null | Tuple<Float64...>>") != std::string::npos);
+}
+
+TEST_CASE("Bytecode deserialization rejects malformed runtime type checks", "[bytecode][serialization][cast]") {
+  using fleaux::common::RuntimeTypeCheck;
+  using fleaux::common::RuntimeTypeCheckKind;
+
+  fleaux::bytecode::Module module;
+  // A Dict check needs exactly a key and a value check.
+  module.type_checks = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kDict,
+                                         .items = {RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kString}}}};
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE_FALSE(deserialized.has_value());
+  REQUIRE(deserialized.error().message == "Cannot read type check");
+}
+
+TEST_CASE("Module loader links runtime type checks from imported modules", "[bytecode][loader][cast]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_cast_import";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  {
+    std::ofstream lib(temp_dir / "cast_lib.fleaux");
+    lib << "import Std;\n"
+           "let Forget(x: Any): Any = x;\n"
+           "let AsString(x: Any): String = x -> Std.Cast<String>;\n";
+  }
+  {
+    std::ofstream main(temp_dir / "cast_main.fleaux");
+    main << "import Std;\n"
+            "import cast_lib;\n"
+            "(\"a\" -> Forget -> AsString, 1 -> Forget -> Std.TryCast<Int64> -> Std.Result.Unwrap) -> Std.Println;\n";
+  }
+
+  const auto linked = fleaux::bytecode::load_linked_module(temp_dir / "cast_main.fleaux");
+  REQUIRE(linked.has_value());
+  REQUIRE(linked->type_checks.size() == 2U);
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(*linked, output).has_value());
+  REQUIRE(output.str() == "a 1\n");
+}
