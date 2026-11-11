@@ -69,7 +69,7 @@ auto make_let_local_types(const ir::IRLet& let, const StrongTypeIndex& type_inde
     if (!expanded_param) {
       return tl::unexpected(expanded_param.error());
     }
-    locals.insert_or_assign(name, *expanded_param);
+    locals.insert_or_assign(name, param_local_type(*expanded_param, type.variadic));
   }
   return locals;
 }

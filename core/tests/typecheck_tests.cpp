@@ -308,7 +308,7 @@ TEST_CASE("Type consistency handles unions tuples applied names and function sig
     REQUIRE_FALSE(is_consistent(make_nominal_type("Widget"), make_nominal_type("Gadget")));
   }
 
-  SECTION("function consistency handles missing returns and exact symmetric signatures") {
+  SECTION("function consistency handles missing returns, arity, and variadic shape") {
     const Type missing_return_expected = mk_function({make_simple_type(TypeKind::kInt64)}, std::nullopt);
     const Type mismatched_actual = mk_function(
         {make_simple_type(TypeKind::kString), make_simple_type(TypeKind::kString)}, make_simple_type(TypeKind::kBool));
@@ -327,6 +327,24 @@ TEST_CASE("Type consistency handles unions tuples applied names and function sig
     REQUIRE(is_consistent(named_widget_fn, named_widget_fn));
     REQUIRE_FALSE(is_consistent(named_widget_fn, named_gadget_fn));
     REQUIRE_FALSE(is_consistent(named_widget_fn, make_simple_type(TypeKind::kInt64)));
+  }
+
+  SECTION("function parameters are contravariant and returns are covariant") {
+    const Type int_or_string =
+        make_union_type({make_simple_type(TypeKind::kInt64), make_simple_type(TypeKind::kString)});
+    const Type int64 = make_simple_type(TypeKind::kInt64);
+
+    const Type int_to_int = mk_function({int64}, int64);
+    const Type wide_param = mk_function({int_or_string}, int64);
+    const Type wide_return = mk_function({int64}, int_or_string);
+
+    // A function that accepts more arguments can stand in for one that accepts fewer.
+    REQUIRE(is_consistent(int_to_int, wide_param));
+    REQUIRE_FALSE(is_consistent(wide_param, int_to_int));
+
+    // A function that returns fewer kinds of values can stand in for one that returns more.
+    REQUIRE(is_consistent(wide_return, int_to_int));
+    REQUIRE_FALSE(is_consistent(int_to_int, wide_return));
   }
 }
 
@@ -6565,6 +6583,84 @@ TEST_CASE("Generic binding joins Never inside tuples", "[typecheck][never]") {
                           "let Both(c: Bool): Tuple<Int64, String> = (c, Left, Right) -> Std.Select;\n",
                           "never_join_tuple.fleaux")
               .has_value());
+}
+
+TEST_CASE("Type checker passes callbacks whose parameters are wider than expected", "[typecheck][functions]") {
+  SECTION("A callback that accepts a union fits a callback slot for one member") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Describe(x: Int64 | String): String = x -> Std.ToString;\n"
+                            "let Run(): Tuple<String...> = ((1, 2), Describe) -> Std.Tuple.Map;\n",
+                            "callback_wide_param.fleaux")
+                .has_value());
+  }
+
+  SECTION("A callback whose result is wider than the declared result is rejected") {
+    const auto lowered = lower_and_check("let Apply(f: (Int64) => Int64, x: Int64): Int64 :: __builtin__;\n"
+                                         "let Widen(x: Int64): Int64 | String = x;\n"
+                                         "(Widen, 1) -> Apply;\n",
+                                         "callback_wide_return.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    REQUIRE(lowered.error().hint->find("Apply expects argument 0") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker types variadic parameters as tuples inside the body", "[typecheck][variadic]") {
+  SECTION("The variadic parameter is a tuple of its declared item type") {
+    REQUIRE(lower_and_check("let Collect(items: Int64...): Tuple<Int64...> = items;\n"
+                            "let Rest(head: String, rest: Int64...): Tuple<Int64...> = rest;\n",
+                            "variadic_param_tuple.fleaux")
+                .has_value());
+  }
+
+  SECTION("The variadic parameter is not a single item") {
+    const auto lowered =
+        lower_and_check("let Bad(items: Int64...): Int64 = items;\n", "variadic_param_not_item.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in function return") != std::string::npos);
+  }
+
+  SECTION("Closure variadic parameters are tuples too") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Count: (Int64...) => Int64 = (items: Int64...): Int64 = items -> Std.Length;\n",
+                            "variadic_closure_param_tuple.fleaux")
+                .has_value());
+  }
+}
+
+TEST_CASE("Type checker fills in empty dictionary types from the first Set", "[typecheck][dict][never]") {
+  SECTION("Key and value types come from the first entry") {
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Build(): Dict<String, Int64> =\n"
+                            "  () -> Std.Dict.Create -> (_, \"a\", 1) -> Std.Dict.Set -> (_, \"b\", 2) -> Std.Dict.Set;\n",
+                            "dict_create_join.fleaux")
+                .has_value());
+  }
+
+  SECTION("The filled-in types are precise") {
+    const auto lowered = lower_and_check("import Std;\n"
+                                         "let Build(): Dict<String, String> =\n"
+                                         "  () -> Std.Dict.Create -> (_, \"a\", 1) -> Std.Dict.Set;\n",
+                                         "dict_create_join_precise.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in function return") != std::string::npos);
+  }
+
+  SECTION("Entries of different value types need a declared dictionary type") {
+    const auto mixed = lower_and_check("import Std;\n"
+                                       "() -> Std.Dict.Create -> (_, \"a\", 1) -> Std.Dict.Set\n"
+                                       "  -> (_, \"b\", \"two\") -> Std.Dict.Set;\n",
+                                       "dict_create_mixed.fleaux");
+    REQUIRE_FALSE(mixed.has_value());
+
+    REQUIRE(lower_and_check("import Std;\n"
+                            "let Build(): Dict<String, Any> = {\n"
+                            "  let empty: Dict<String, Any> = () -> Std.Dict.Create;\n"
+                            "  empty -> (_, \"a\", 1) -> Std.Dict.Set -> (_, \"b\", \"two\") -> Std.Dict.Set;\n"
+                            "};\n",
+                            "dict_create_declared.fleaux")
+                .has_value());
+  }
 }
 
 TEST_CASE("Std signatures reject mistyped builtin arguments without builtin contracts", "[typecheck][std][signatures]") {

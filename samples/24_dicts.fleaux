@@ -1,10 +1,13 @@
 import Std;
 
-let Build(): Dict<Any, Any> =
-    () -> Std.Dict.Create
+// An empty dictionary takes its key and value types from the first Set. This one holds values of
+// different types, so its type is declared up front.
+let Build(): Dict<String, Any> = {
+    let empty: Dict<String, Any> = () -> Std.Dict.Create;
+    empty
     -> (_, "name", "fleaux") -> Std.Dict.Set
-    -> (_, "year", 2026) -> Std.Dict.Set
-;
+    -> (_, "year", 2026) -> Std.Dict.Set;
+};
 
 () -> Build -> Std.Dict.Keys -> Std.Println;
 () -> Build -> Std.Dict.Values -> Std.Println;

@@ -177,6 +177,17 @@ auto normalize_type(Type type) -> Type {
   return type;
 }
 
+auto param_local_type(const Type& declared, const bool variadic) -> Type {
+  if (!variadic) {
+    return declared;
+  }
+  Type item = declared;
+  item.variadic = true;
+  Type tuple = make_type(TypeKind::kTuple);
+  tuple.items.push_back(std::move(item));
+  return normalize_type(std::move(tuple));
+}
+
 auto from_ir_type(const ir::IRSimpleType& type) -> Type {
   if (!type.alternative_types.empty() || !type.alternatives.empty()) {
     Type out;
@@ -349,14 +360,14 @@ auto are_function_types_consistent(const Type& expected, const Type& actual) -> 
     if (expected.function_params[i].variadic != actual.function_params[i].variadic) {
       return false;
     }
-    if (!is_consistent(expected.function_params[i], actual.function_params[i]) ||
-        !is_consistent(actual.function_params[i], expected.function_params[i])) {
+    // Parameters are contravariant: the actual function must accept every argument the expected type allows.
+    if (!is_consistent(actual.function_params[i], expected.function_params[i])) {
       return false;
     }
   }
 
-  return is_consistent(*expected.function_return, *actual.function_return) &&
-         is_consistent(*actual.function_return, *expected.function_return);
+  // Returns are covariant: every result of the actual function must fit the expected return type.
+  return is_consistent(*expected.function_return, *actual.function_return);
 }
 
 }  // namespace

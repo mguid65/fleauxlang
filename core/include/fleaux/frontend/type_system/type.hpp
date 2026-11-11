@@ -56,6 +56,10 @@ struct Type {
 
 [[nodiscard]] auto normalize_type(Type type) -> Type;
 
+// The type a parameter has inside its function body. A variadic parameter `items: T...` collects the remaining
+// arguments, so inside the body it is `Tuple<T...>`; any other parameter keeps its declared type.
+[[nodiscard]] auto param_local_type(const Type& declared, bool variadic) -> Type;
+
 [[nodiscard]] auto from_ir_type(const ir::IRSimpleType& type) -> Type;
 
 [[nodiscard]] auto is_integer_like(const Type& type) -> bool;

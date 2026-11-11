@@ -304,7 +304,7 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
     if (!expanded_param) {
       return tl::unexpected(expanded_param.error());
     }
-    closure_locals.insert_or_assign(name, *expanded_param);
+    closure_locals.insert_or_assign(name, param_local_type(*expanded_param, type.variadic));
     closure_sig.params.push_back(ParamSig{
         .name = name,
         .type = std::move(*expanded_param),

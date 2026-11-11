@@ -82,6 +82,7 @@ auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, s
     case TypeKind::kString:
     case TypeKind::kBool:
     case TypeKind::kNull:
+    case TypeKind::kNever:
       return true;
     case TypeKind::kUnion:
       return std::ranges::all_of(type.union_members, [&](const Type& member) {

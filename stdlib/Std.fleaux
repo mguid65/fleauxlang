@@ -1187,9 +1187,9 @@ let Std.Second<A, B>(pair: Tuple<A, B>) : B :: __builtin__;
 
 
 // Dictionary builtins
-// @brief Create or clone a dictionary value.
-// @return A value of type Dict<Any, Any>.
-let Std.Dict.Create() : Dict<Any, Any> :: __builtin__;
+// @brief Create an empty dictionary. Its key and value types are filled in by the first Std.Dict.Set.
+// @return A value of type Dict<Never, Never>.
+let Std.Dict.Create() : Dict<Never, Never> :: __builtin__;
 
 // @brief Create or clone a dictionary value.
 // @tparam K Generic dictionary key type.

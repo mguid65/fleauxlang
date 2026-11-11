@@ -1179,6 +1179,23 @@ auto instantiate_generic_type(const Type& type, const TypeBindings& bindings) ->
   return normalize_type(std::move(out));
 }
 
+// Binds one parameter of a function-typed argument. Parameters are contravariant, so once the expected parameter
+// is fully determined by earlier bindings, a function whose parameter accepts a wider type still fits: a
+// (Int64 | String) => String callback can be passed where (T) => U is expected and T is already Int64.
+auto bind_function_param(const Type& expected, const Type& actual, TypeBindings& bindings) -> bool {
+  if (TypeBindings attempt = bindings; bind_generic_type(expected, actual, attempt)) {
+    bindings = std::move(attempt);
+    return true;
+  }
+
+  std::unordered_set<std::string> type_vars;
+  collect_type_vars(expected, type_vars);
+  if (!std::ranges::all_of(type_vars, [&](const std::string& name) { return bindings.contains(name); })) {
+    return false;
+  }
+  return is_consistent(actual, instantiate_generic_type(expected, bindings));
+}
+
 auto bind_function_type(const Type& expected, const Type& actual, TypeBindings& bindings) -> bool {
   if (actual.kind != TypeKind::kFunction) {
     return false;
@@ -1191,7 +1208,7 @@ auto bind_function_type(const Type& expected, const Type& actual, TypeBindings& 
     if (expected.function_params[i].variadic != actual.function_params[i].variadic) {
       return false;
     }
-    if (!bind_generic_type(expected.function_params[i], actual.function_params[i], bindings)) {
+    if (!bind_function_param(expected.function_params[i], actual.function_params[i], bindings)) {
       return false;
     }
   }
