@@ -8,65 +8,10 @@
 namespace fleaux::frontend::type_system {
 namespace {
 
-enum NumericTypeMask : unsigned {
-  kNumericNone = 0U,
-  kNumericInt64 = 1U << 0U,
-  kNumericUInt64 = 1U << 1U,
-  kNumericFloat64 = 1U << 2U,
-  kNumericDeferred = 1U << 3U,
-  kNumericOther = 1U << 4U,
-};
-
-[[nodiscard]] auto is_deferred_numeric_check_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown;
-}
-
+// Inside a generic body a key type may still be a type parameter; the call that instantiates it is checked instead.
+// Any is not deferred: a dictionary cannot have Any keys, because the runtime only stores scalar keys.
 [[nodiscard]] auto is_deferred_dict_key_check_type(const Type& type) -> bool {
-  return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown || type.kind == TypeKind::kTypeVar;
-}
-
-[[nodiscard]] auto numeric_type_mask(const Type& type) -> unsigned {
-  switch (type.kind) {
-    case TypeKind::kInt64:
-      return kNumericInt64;
-    case TypeKind::kUInt64:
-      return kNumericUInt64;
-    case TypeKind::kFloat64:
-      return kNumericFloat64;
-    case TypeKind::kAny:
-    case TypeKind::kUnknown:
-      return kNumericDeferred;
-    case TypeKind::kUnion: {
-      unsigned mask = kNumericNone;
-      for (const auto& member : type.union_members) {
-        mask |= numeric_type_mask(member);
-      }
-      return mask == kNumericNone ? kNumericOther : mask;
-    }
-    default:
-      return kNumericOther;
-  }
-}
-
-auto check_numeric_arg(const std::vector<Type>& args, const std::size_t index, std::string& error_message,
-                       const std::string& full_name) -> bool {
-  if (index >= args.size()) {
-    error_message = "Type mismatch in call target arguments.";
-    return false;
-  }
-
-  if (is_deferred_numeric_check_type(args[index])) {
-    return true;
-  }
-
-  if (const unsigned mask = numeric_type_mask(args[index]);
-      (mask & kNumericOther) == 0U &&
-      (mask & (kNumericInt64 | kNumericUInt64 | kNumericFloat64 | kNumericDeferred)) != 0U) {
-    return true;
-  }
-
-  error_message = full_name + " expects Int64, UInt64, or Float64 input.";
-  return false;
+  return type.kind == TypeKind::kUnknown || type.kind == TypeKind::kTypeVar;
 }
 
 [[nodiscard]] auto is_scalar_dict_key_type_impl(const Type& type, const StrongTypeIndex& type_index,
@@ -128,7 +73,7 @@ auto check_dict_key_channel_arg(const std::vector<Type>& args, const std::size_t
     return false;
   }
   const Type& arg = args[index];
-  if (arg.kind == TypeKind::kAny || arg.kind == TypeKind::kUnknown || arg.kind == TypeKind::kTypeVar) {
+  if (arg.kind == TypeKind::kUnknown || arg.kind == TypeKind::kTypeVar) {
     return true;
   }
   if (arg.kind != TypeKind::kApplied || arg.applied_name != "Dict" || arg.applied_args.size() != 2U) {
@@ -158,7 +103,7 @@ auto check_parallel_options_arg(const std::vector<Type>& args, const std::size_t
   }
 
   const Type& arg = args[index];
-  if (arg.kind == TypeKind::kAny || arg.kind == TypeKind::kUnknown || arg.kind == TypeKind::kTypeVar) {
+  if (arg.kind == TypeKind::kUnknown || arg.kind == TypeKind::kTypeVar) {
     return true;
   }
   if (arg.kind != TypeKind::kApplied || arg.applied_name != "Dict" || arg.applied_args.size() != 2U) {
@@ -176,10 +121,6 @@ auto check_parallel_options_arg(const std::vector<Type>& args, const std::size_t
 
 auto validate_builtin_contract(const std::string& full_name, const std::vector<Type>& args,
                                const StrongTypeIndex& type_index, std::string& error_message) -> bool {
-  // The numeric conversions take Any so they can accept every numeric type; the argument must still be a number.
-  if (full_name == "Std.ToInt64" || full_name == "Std.ToUInt64" || full_name == "Std.ToFloat64") {
-    return check_numeric_arg(args, 0U, error_message, full_name);
-  }
   // Parallel options are read as Dict<String, Any>; a narrower value type is rejected so options stay extensible.
   if (full_name == "Std.Parallel.WithOptions") {
     return check_parallel_options_arg(args, 2U, type_index, error_message, full_name);

@@ -129,10 +129,14 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
                                const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
   const auto full_name = qualified_symbol_name(name_ref.qualifier, name_ref.name);
-  if (full_name == "Std.Cast" || full_name == "Std.TryCast") {
-    return tl::unexpected(make_error(
-        std::format("Invalid {} reference.", full_name),
-        std::format("Use {0} only in direct call position, such as '(value) -> {0}<T>'.", full_name), name_ref.span));
+  // These builtins are typed specially at each direct call, so they cannot be used as values.
+  if (full_name == "Std.Cast" || full_name == "Std.TryCast" || full_name == "Std.Match") {
+    const std::string example = full_name == "Std.Match" ? "(value, (pattern, handler)) -> Std.Match"
+                                                         : std::format("(value) -> {}<T>", full_name);
+    return tl::unexpected(make_error(std::format("Invalid {} reference.", full_name),
+                                     std::format("Use {} only in direct call position, such as '{}'.", full_name,
+                                                 example),
+                                     name_ref.span));
   }
 
   auto filtered = filter_overloads_for_explicit_type_args(full_name, name_ref.span, overloads, explicit_type_args);

@@ -21,24 +21,9 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
   return mixed ^ (mixed >> 31U);
 }
 
-[[nodiscard]] inline auto random_seed_from_arg(Value arg, const std::string_view builtin_name) -> UInt {
-  const Value seed = unwrap_singleton_arg(std::move(arg));
-  const auto number = seed.TryGetNumber();
-  if (!number) {
-    throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
-  }
-
-  return number->Visit(
-      [&](const Int signed_value) -> UInt {
-        if (signed_value < 0) {
-          throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
-        }
-        return static_cast<UInt>(signed_value);
-      },
-      [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-      [&](const Float) -> UInt {
-        throw std::logic_error(std::format("{} invariant violated: expected validated non-negative integer seed", builtin_name));
-      });
+// The seed is a UInt64 by type.
+[[nodiscard]] inline auto random_seed_from_arg(Value arg) -> UInt {
+  return uint64_value(unwrap_singleton_arg(std::move(arg)));
 }
 
 [[nodiscard]] inline auto random_unit_float(const UInt seed) -> double {
@@ -54,55 +39,25 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
   return Value{std::move(token)};
 }
 
-[[nodiscard]] inline auto random_generator_state_from_arg(Value arg, const std::string_view builtin_name) -> UInt {
+// The generator is a RandomGenerator by type: every generator reaching a builtin was built by make_random_generator
+// or passed is_valid_random_generator in a cast or host entry check.
+[[nodiscard]] inline auto random_generator_state_from_arg(Value arg) -> UInt {
   const Value generator = unwrap_singleton_arg(std::move(arg));
-  const auto& token = generator.TryGetArray();
-  if (!token) {
-    throw std::invalid_argument(std::format("{}: expected RandomGenerator", builtin_name));
-  }
-  if (token->Size() != 3) {
-    throw std::invalid_argument(std::format("{}: expected RandomGenerator", builtin_name));
-  }
+  return uint64_value(*as_array(generator).TryGet(2));
+}
 
+// True for a well-formed generator token: (tag, version, state) with an unsigned version equal to the current one
+// and an unsigned state, exactly as make_random_generator builds it.
+[[nodiscard]] inline auto is_valid_random_generator(const Value& value) -> bool {
+  const auto& token = value.TryGetArray();
+  if (!token || token->Size() != 3U) {
+    return false;
+  }
   const auto& tag = token->TryGet(0)->TryGetString();
-  if (!tag || *tag != k_random_generator_tag) {
-    throw std::invalid_argument(std::format("{}: expected RandomGenerator", builtin_name));
-  }
-
-  const UInt version = as_number(*token->TryGet(1)).Visit(
-      [](const Int signed_value) -> UInt {
-        if (signed_value < 0) {
-          throw std::invalid_argument{"RandomGenerator: invalid version"};
-        }
-        return static_cast<UInt>(signed_value);
-      },
-      [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-      [](const Float float_value) -> UInt {
-        if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0 ||
-            float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
-          throw std::invalid_argument{"RandomGenerator: invalid version"};
-        }
-        return static_cast<UInt>(float_value);
-      });
-  if (version != k_random_generator_version) {
-    throw std::invalid_argument(std::format("{}: unsupported RandomGenerator version", builtin_name));
-  }
-
-  return as_number(*token->TryGet(2)).Visit(
-      [](const Int signed_value) -> UInt {
-        if (signed_value < 0) {
-          throw std::invalid_argument{"RandomGenerator: invalid state"};
-        }
-        return static_cast<UInt>(signed_value);
-      },
-      [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-      [](const Float float_value) -> UInt {
-        if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0 ||
-            float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
-          throw std::invalid_argument{"RandomGenerator: invalid state"};
-        }
-        return static_cast<UInt>(float_value);
-      });
+  const auto& version = token->TryGet(1)->TryGetNumber();
+  const auto& state = token->TryGet(2)->TryGetNumber();
+  return tag && *tag == k_random_generator_tag && version && version->IsUInt() &&
+         *version->GetUInt() == k_random_generator_version && state && state->IsUInt();
 }
 
 [[nodiscard]] inline auto random_step_pair(const UInt state) -> std::pair<UInt, Value> {
@@ -113,35 +68,35 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
 }  // namespace detail
 
 [[nodiscard]] inline auto RandomCreate(Value arg) -> Value {
-  return detail::make_random_generator(detail::random_seed_from_arg(std::move(arg), "RandomCreate"));
+  return detail::make_random_generator(detail::random_seed_from_arg(std::move(arg)));
 }
 
 [[nodiscard]] inline auto RandomNextUInt64(Value arg) -> Value {
   const auto [next_state, next_generator] =
-      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg), "RandomNextUInt64"));
+      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg)));
   return make_tuple(make_uint(next_state), next_generator);
 }
 
 [[nodiscard]] inline auto RandomNextInt64(Value arg) -> Value {
   const auto [next_state, next_generator] =
-      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg), "RandomNextInt64"));
+      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg)));
   return make_tuple(make_int(std::bit_cast<Int>(next_state)), next_generator);
 }
 
 [[nodiscard]] inline auto RandomNextFloat64(Value arg) -> Value {
   const auto [next_state, next_generator] =
-      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg), "RandomNextFloat64"));
+      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg)));
   return make_tuple(make_float(detail::random_unit_float(next_state)), next_generator);
 }
 
 [[nodiscard]] inline auto RandomNextBool(Value arg) -> Value {
   const auto [next_state, next_generator] =
-      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg), "RandomNextBool"));
+      detail::random_step_pair(detail::random_generator_state_from_arg(std::move(arg)));
   return make_tuple(make_bool((next_state & 1ULL) != 0ULL), next_generator);
 }
 
 [[nodiscard]] inline auto RandomSplit(Value arg) -> Value {
-  const UInt state = detail::random_generator_state_from_arg(std::move(arg), "RandomSplit");
+  const UInt state = detail::random_generator_state_from_arg(std::move(arg));
   const UInt left_state = detail::random_seed_step(state ^ detail::k_random_split_left_salt);
   const UInt right_state = detail::random_seed_step(state ^ detail::k_random_split_right_salt);
   return make_tuple(detail::make_random_generator(left_state), detail::make_random_generator(right_state));

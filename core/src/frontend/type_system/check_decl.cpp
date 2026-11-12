@@ -29,9 +29,9 @@ auto validate_program_declarations(const ir::IRProgram& program,
   return *alias_index;
 }
 
-auto validate_let_signature_types(const ir::IRProgram& program, const StrongTypeIndex& type_index,
+auto validate_let_signature_types(ir::IRProgram& program, const StrongTypeIndex& type_index,
                                   const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
-  for (const auto& let : program.lets) {
+  for (auto& let : program.lets) {
     auto generic_scope =
         detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
     if (!generic_scope) {
@@ -54,6 +54,12 @@ auto validate_let_signature_types(const ir::IRProgram& program, const StrongType
         !validated) {
       return tl::unexpected(validated.error());
     }
+
+    auto host_entry_check = detail::host_entry_check_for_let(let, type_index, alias_index);
+    if (!host_entry_check) {
+      return tl::unexpected(host_entry_check.error());
+    }
+    let.host_entry_check = std::move(*host_entry_check);
   }
 
   return {};

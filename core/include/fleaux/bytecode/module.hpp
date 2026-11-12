@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -36,6 +37,9 @@ struct ExportedSymbol {
   ExportKind kind{ExportKind::kFunction};
   std::uint32_t index{0};
   std::string builtin_name{};
+  // Checked against the argument when the host calls this symbol (Runtime::invoke_symbol). Absent only in modules
+  // built by hand rather than by the compiler.
+  std::optional<common::HostEntryCheck> host_entry_check{};
 };
 
 struct Instruction {

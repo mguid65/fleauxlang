@@ -27,26 +27,6 @@ inline constexpr std::string_view k_task_handle_tag = "__fleaux_task__";
 inline constexpr std::string_view k_task_cancelled_message = "Task cancelled";
 inline constexpr std::string_view k_task_timeout_message = "Task.WithTimeout: timeout exceeded";
 
-inline auto require_result_tuple(const Value& value, const char* op_name) -> const Array& {
-  const auto& result = as_array(value);
-  if (result.Size() != 2) {
-    throw std::invalid_argument{std::string(op_name) + ": expected Result tuple (tag, payload)"};
-  }
-
-  if (const Value& tag = *result.TryGet(0); !tag.HasBool()) {
-    throw std::invalid_argument{std::string(op_name) + ": Result tag must be a Bool (true for Ok, false for Err)"};
-  }
-  return result;
-}
-
-inline auto require_pair_tuple(const Value& value, const char* op_name) -> const Array& {
-  const auto& pair = as_array(value);
-  if (pair.Size() != 2) {
-    throw std::invalid_argument{std::string(op_name) + ": expected a 2-tuple"};
-  }
-  return pair;
-}
-
 inline auto normalize_runtime_error_message(std::string message) -> std::string {
   // Unwrap nested runtime wrappers like:
   // "native 'branch_call' threw: native builtin 'Std.X' threw: actual message"
@@ -94,18 +74,18 @@ private:
 }
 
 [[nodiscard]] inline auto First(Value arg) -> Value {
-  const auto& values = require_pair_tuple(arg, "First");
+  const auto& values = as_array(arg);
   return *values.TryGet(0);
 }
 
 [[nodiscard]] inline auto Second(Value arg) -> Value {
-  const auto& values = require_pair_tuple(arg, "Second");
+  const auto& values = as_array(arg);
   return *values.TryGet(1);
 }
 
 [[nodiscard]] inline auto ElementAt(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t idx = as_index_strict(array_at(arg, 1), "ElementAt index");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   auto result = seq.TryGet(idx);
   if (!result)
     throw std::out_of_range{"ElementAt: index out of range"};
@@ -116,7 +96,7 @@ private:
 
 [[nodiscard]] inline auto Take(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t take_count = std::min(as_index_strict(array_at(arg, 1), "Take count"), seq.Size());
+  const std::size_t take_count = std::min(uint64_index(array_at(arg, 1)), seq.Size());
   Array out;
   out.Reserve(take_count);
   append_sequence_range(out, seq, 0, take_count);
@@ -125,7 +105,7 @@ private:
 
 [[nodiscard]] inline auto Drop(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t start = as_index_strict(array_at(arg, 1), "Drop count");
+  const std::size_t start = uint64_index(array_at(arg, 1));
   const std::size_t clamped_start = std::min(start, seq.Size());
   Array out;
   out.Reserve(seq.Size() - clamped_start);
@@ -143,22 +123,22 @@ private:
 
 [[nodiscard]] inline auto SliceTupleUInt64(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t stop = as_index_strict(array_at(arg, 1), "Slice stop");
+  const std::size_t stop = uint64_index(array_at(arg, 1));
   return slice_impl(seq, 0, stop, 1);
 }
 
 [[nodiscard]] inline auto SliceTupleUInt64UInt64(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t start = as_index_strict(array_at(arg, 1), "Slice start");
-  const std::size_t stop = as_index_strict(array_at(arg, 2), "Slice stop");
+  const std::size_t start = uint64_index(array_at(arg, 1));
+  const std::size_t stop = uint64_index(array_at(arg, 2));
   return slice_impl(seq, start, stop, 1);
 }
 
 [[nodiscard]] inline auto SliceTupleUInt64UInt64UInt64(Value arg) -> Value {
   const auto& seq = as_array(array_at(arg, 0));
-  const std::size_t start = as_index_strict(array_at(arg, 1), "Slice start");
-  const std::size_t stop = as_index_strict(array_at(arg, 2), "Slice stop");
-  const std::size_t step = as_index_strict(array_at(arg, 3), "Slice step");
+  const std::size_t start = uint64_index(array_at(arg, 1));
+  const std::size_t stop = uint64_index(array_at(arg, 2));
+  const std::size_t step = uint64_index(array_at(arg, 3));
   if (step == 0) {
     throw std::invalid_argument{"Slice: step cannot be 0"};
   }
@@ -166,25 +146,6 @@ private:
 }
 
 // Arithmetic
-
-inline auto require_same_integer_kind(const Value& lhs, const Value& rhs, const char* op_name) -> void {
-  if (is_mixed_signed_unsigned_integer_pair(lhs, rhs)) {
-    throw std::invalid_argument{std::string(op_name) + ": cannot mix Int64 and UInt64 operands without explicit cast"};
-  }
-}
-
-inline auto require_no_implicit_float_promotion(const Value& lhs, const Value& rhs, const char* op_name) -> void {
-  const bool has_float = is_float_number(lhs) || is_float_number(rhs);
-  if (const bool has_integer = is_int_number(lhs) || is_int_number(rhs) || is_uint_number(lhs) || is_uint_number(rhs);
-      has_float && has_integer) {
-    throw std::invalid_argument{std::string(op_name) +
-                                ": cannot mix Float64 with Int64 or UInt64 operands without explicit cast"};
-  }
-}
-
-[[nodiscard]] inline auto prefer_float_numeric_result(const Value& lhs, const Value& rhs) -> bool {
-  return is_float_number(lhs) || is_float_number(rhs);
-}
 
 // Exact numeric arithmetic. Int64 and UInt64 operations are computed in their own type and fail on overflow;
 // Float64 operations follow IEEE-754. The type checker guarantees both operands have the same numeric type.
@@ -226,12 +187,13 @@ inline auto require_nonzero_divisor(const T divisor, const char* op_name) -> voi
 }
 
 // Applies an operation to two numbers of the same type. Int64 and UInt64 operands go to integer_op, which receives
-// both operands as that type and returns the same type. Float64 operands go to float_op.
+// both operands as that type and returns the same type. Float64 operands go to float_op. The operands always have the
+// same type: a bound such as <T: Numeric> makes the checker reject mixed operands, and host arguments are checked
+// against the same bounds when the host calls a function.
 template <typename IntegerOp, typename FloatOp>
 [[nodiscard]] inline auto same_type_numeric_binary(const Value& lhs, const Value& rhs, const char* op_name,
                                                    IntegerOp&& integer_op, FloatOp&& float_op) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, op_name);
-  require_same_integer_kind(lhs, rhs, op_name);
+  (void)op_name;
   return as_number(lhs).Visit(
       [&](const Int lhs_value) -> Value { return make_integer<Int>(integer_op(lhs_value, integer_operand<Int>(rhs))); },
       [&](const UInt lhs_value) -> Value {
@@ -246,8 +208,8 @@ template <typename IntegerOp>
                                                    IntegerOp&& integer_op) -> Value {
   return same_type_numeric_binary(lhs, rhs, op_name, std::forward<IntegerOp>(integer_op),
                                   [op_name](const Float, const Float) -> Float {
-                                    throw std::invalid_argument{std::string(op_name) +
-                                                                ": expects Int64 or UInt64 operands"};
+                                    throw std::logic_error{std::string(op_name) +
+                                                           " invariant violated: expected Int64 or UInt64 operands"};
                                   });
 }
 
@@ -353,7 +315,7 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto BitAndBinary(const Value& lhs, const Value& rhs) -> Value {
-  return make_int(as_int_value_strict(lhs, "BitAnd lhs") & as_int_value_strict(rhs, "BitAnd rhs"));
+  return make_int(int64_value(lhs) & int64_value(rhs));
 }
 
 [[nodiscard]] inline auto BitAnd(Value arg) -> Value {
@@ -361,7 +323,7 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto BitOrBinary(const Value& lhs, const Value& rhs) -> Value {
-  return make_int(as_int_value_strict(lhs, "BitOr lhs") | as_int_value_strict(rhs, "BitOr rhs"));
+  return make_int(int64_value(lhs) | int64_value(rhs));
 }
 
 [[nodiscard]] inline auto BitOr(Value arg) -> Value {
@@ -369,7 +331,7 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto BitXorBinary(const Value& lhs, const Value& rhs) -> Value {
-  return make_int(as_int_value_strict(lhs, "BitXor lhs") ^ as_int_value_strict(rhs, "BitXor rhs"));
+  return make_int(int64_value(lhs) ^ int64_value(rhs));
 }
 
 [[nodiscard]] inline auto BitXor(Value arg) -> Value {
@@ -377,12 +339,12 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto BitNot(Value arg) -> Value {
-  return make_int(~as_int_value_strict(unwrap_singleton_arg(std::move(arg)), "BitNot value"));
+  return make_int(~int64_value(unwrap_singleton_arg(std::move(arg))));
 }
 
 [[nodiscard]] inline auto BitShiftLeftBinary(const Value& lhs, const Value& rhs) -> Value {
-  const Int value = as_int_value_strict(lhs, "BitShiftLeft value");
-  const std::size_t shift = as_index_strict(rhs, "BitShiftLeft shift");
+  const Int value = int64_value(lhs);
+  const std::size_t shift = uint64_index(rhs);
   return make_int(value << shift);
 }
 
@@ -391,8 +353,8 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto BitShiftRightBinary(const Value& lhs, const Value& rhs) -> Value {
-  const Int value = as_int_value_strict(lhs, "BitShiftRight value");
-  const std::size_t shift = as_index_strict(rhs, "BitShiftRight shift");
+  const Int value = int64_value(lhs);
+  const std::size_t shift = uint64_index(rhs);
   return make_int(value >> shift);
 }
 
@@ -406,7 +368,7 @@ template <typename IntegerOp>
       [](const Int signed_value) -> Value {
         return make_int(require_integer_result(integer::checked_neg(signed_value), "UnaryMinus"));
       },
-      [](const UInt) -> Value { throw std::invalid_argument{"UnaryMinus: expects Int64 or Float64 operand"}; },
+      [](const UInt) -> Value { throw std::logic_error{"UnaryMinus invariant violated: expected Int64 or Float64"}; },
       [](const Float float_value) -> Value { return make_float(-float_value); });
 }
 
@@ -421,7 +383,6 @@ template <typename IntegerOp>
 // Comparison & logical
 
 [[nodiscard]] inline auto GreaterThanBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "GreaterThan");
   return make_bool(compare_numbers(lhs, rhs) > 0);
 }
 
@@ -430,7 +391,6 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto LessThanBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "LessThan");
   return make_bool(compare_numbers(lhs, rhs) < 0);
 }
 
@@ -439,7 +399,6 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto GreaterOrEqualBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "GreaterOrEqual");
   return make_bool(compare_numbers(lhs, rhs) >= 0);
 }
 
@@ -448,7 +407,6 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto LessOrEqualBinary(const Value& lhs, const Value& rhs) -> Value {
-  require_no_implicit_float_promotion(lhs, rhs, "LessOrEqual");
   return make_bool(compare_numbers(lhs, rhs) <= 0);
 }
 
@@ -591,7 +549,7 @@ template <typename IntegerOp>
 
 [[nodiscard]] inline auto Exit_Int64(Value arg) -> Value {
   auto to_exit_code = [](const Value& value) -> int {
-    const Int code = as_int_value_strict(value, "Exit code");
+    const Int code = int64_value(value);
     if (code < static_cast<Int>(std::numeric_limits<int>::min()) ||
         code > static_cast<Int>(std::numeric_limits<int>::max())) {
       throw std::invalid_argument{"Exit code out of range for host int"};
@@ -613,17 +571,12 @@ template <typename IntegerOp>
   // arg = [value, [pattern, handler], [pattern, handler], ...]
   // Pattern wildcard is encoded as the lowering sentinel string.
   // Callable patterns are predicates: pattern(subject) -> Bool.
+  // Std.Match is direct-call only, and the type checker enforces this shape at each call.
   const auto& args = as_array(arg);
-  if (args.Size() < 2) {
-    throw std::invalid_argument{"Match expects a value and at least one case"};
-  }
 
   const Value subject = *args.TryGet(0);
   for (std::size_t case_index = 1; case_index < args.Size(); ++case_index) {
     const auto& case_tuple = as_array(*args.TryGet(case_index));
-    if (case_tuple.Size() != 2) {
-      throw std::invalid_argument{"Match case must be a (pattern, handler) tuple"};
-    }
 
     const Value pattern = *case_tuple.TryGet(0);
     const Value handler = *case_tuple.TryGet(1);
@@ -642,6 +595,8 @@ template <typename IntegerOp>
   throw std::runtime_error{"Match: no case matched and no wildcard case provided"};
 }
 
+// A Result is stored as a (Bool tag, payload) tuple. Its shape is guaranteed by the Result<T, E> type, by the
+// checked cast to Result, and by the host entry check, so the Result builtins do not check it again.
 [[nodiscard]] inline auto ResultOk(Value arg) -> Value {
   return make_tuple(make_bool(true), unwrap_singleton_arg(std::move(arg)));
 }
@@ -651,27 +606,27 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto ResultTag(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.Tag");
+  const auto& tuple = as_array(arg);
   return *tuple.TryGet(0);
 }
 
 [[nodiscard]] inline auto ResultPayload(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.Payload");
+  const auto& tuple = as_array(arg);
   return *tuple.TryGet(1);
 }
 
 [[nodiscard]] inline auto ResultIsOk(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.IsOk");
+  const auto& tuple = as_array(arg);
   return *tuple.TryGet(0);
 }
 
 [[nodiscard]] inline auto ResultIsErr(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.IsErr");
+  const auto& tuple = as_array(arg);
   return make_bool(!as_bool(*tuple.TryGet(0)));
 }
 
 [[nodiscard]] inline auto ResultUnwrap(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.Unwrap");
+  const auto& tuple = as_array(arg);
   if (!as_bool(*tuple.TryGet(0))) {
     throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"};
   }
@@ -679,7 +634,7 @@ template <typename IntegerOp>
 }
 
 [[nodiscard]] inline auto ResultUnwrapErr(Value arg) -> Value {
-  const auto& tuple = require_result_tuple(arg, "Result.UnwrapErr");
+  const auto& tuple = as_array(arg);
   if (as_bool(*tuple.TryGet(0))) {
     throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"};
   }
@@ -728,7 +683,7 @@ template <typename IntegerOp>
   Value state = std::move(array_at(arg, 0));
   const Value& continue_func = array_at(arg, 1);
   const Value& step_func = array_at(arg, 2);
-  const std::size_t max_iters = as_index_strict(array_at(arg, 3), "LoopN max_iters");
+  const std::size_t max_iters = uint64_index(array_at(arg, 3));
   const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
   const RuntimeCallable step_callable = resolve_callable_ref(step_func);
 

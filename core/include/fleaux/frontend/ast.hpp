@@ -370,6 +370,8 @@ struct IRLet {
   IRExprBox body{std::nullopt};
   bool is_value_binding{false};
   bool is_builtin{false};
+  // Set by the type checker: the runtime check of an argument the host passes when it calls this function.
+  std::optional<common::HostEntryCheck> host_entry_check{std::nullopt};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 

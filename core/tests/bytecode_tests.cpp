@@ -6408,3 +6408,154 @@ TEST_CASE("Module loader links runtime type checks from imported modules", "[byt
   REQUIRE(runtime.execute(*linked, output).has_value());
   REQUIRE(output.str() == "a 1\n");
 }
+
+namespace {
+
+auto compile_host_module(const std::string& source, const std::string& name) -> fleaux::bytecode::Module {
+  const auto ir_program = lower_source_to_ir(source, name);
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  auto compiled = compiler.compile(ir_program);
+  REQUIRE(compiled.has_value());
+  return std::move(*compiled);
+}
+
+auto host_call(const fleaux::bytecode::Module& module, const std::string& symbol, fleaux::runtime::Value arg)
+    -> fleaux::vm::RuntimeValueResult {
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  return runtime.invoke_symbol(module, symbol, std::move(arg), output);
+}
+
+}  // namespace
+
+TEST_CASE("Host calls are checked against the declared parameter types", "[bytecode][host_entry]") {
+  using fleaux::runtime::make_float;
+  using fleaux::runtime::make_int;
+  using fleaux::runtime::make_string;
+  using fleaux::runtime::make_tuple;
+  using fleaux::runtime::make_uint;
+
+  const auto module = compile_host_module("import Std;\n"
+                                          "type UserId :: Int64;\n"
+                                          "let App.Double(x: Int64): Int64 = (x, x) -> Std.Add;\n"
+                                          "let App.Greet(name: String, times: UInt64): String = name;\n"
+                                          "let App.Id(id: UserId): UserId = id;\n"
+                                          "let App.Count(items: Int64...): Int64 = items -> Std.Length;\n"
+                                          "let App.Apply(f: (Int64) => Int64, x: Int64): Int64 = (x, f) -> Std.Apply;\n",
+                                          "host_entry_checks.fleaux");
+
+  SECTION("Matching arguments run") {
+    REQUIRE(host_call(module, "App.Double", make_int(21)).value() == make_int(42));
+    REQUIRE(host_call(module, "App.Greet", make_tuple(make_string("ada"), make_uint(2))).value() == make_string("ada"));
+    REQUIRE(host_call(module, "App.Id", make_int(7)).value() == make_int(7));
+    REQUIRE(host_call(module, "App.Count", make_tuple(make_int(1), make_int(2), make_int(3))).value() == make_int(3));
+    REQUIRE(host_call(module, "App.Count", make_int(5)).value() == make_int(1));
+  }
+
+  SECTION("A mismatched argument is rejected before the function runs") {
+    const auto result = host_call(module, "App.Double", make_float(1.5));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("App.Double: argument 0 expected Int64, got Float64") != std::string::npos);
+  }
+
+  SECTION("Strong types are checked by their underlying type") {
+    const auto result = host_call(module, "App.Id", make_string("seven"));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("argument 0 expected Int64") != std::string::npos);
+  }
+
+  SECTION("Argument counts are checked") {
+    const auto result = host_call(module, "App.Greet", make_tuple(make_string("ada")));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("App.Greet: expected a tuple of 2 arguments") != std::string::npos);
+  }
+
+  SECTION("Each variadic argument is checked") {
+    const auto result = host_call(module, "App.Count", make_tuple(make_int(1), make_string("two")));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("App.Count: argument 1 expected Int64, got String") != std::string::npos);
+  }
+
+  SECTION("Function parameters must be callables") {
+    const auto result = host_call(module, "App.Apply", make_tuple(make_int(1), make_int(2)));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("App.Apply: argument 0 expected a function, got Int64") != std::string::npos);
+  }
+}
+
+TEST_CASE("Host calls bind bounded generic parameters to one alternative", "[bytecode][host_entry][generics]") {
+  using fleaux::runtime::make_float;
+  using fleaux::runtime::make_int;
+  using fleaux::runtime::make_string;
+  using fleaux::runtime::make_tuple;
+
+  const auto module = compile_host_module(
+      "import Std;\n"
+      "let App.Sum<T: Numeric>(a: T, b: T): T = (a, b) -> Std.Add;\n"
+      "let App.Total<T: Numeric>(xs: Tuple<T...>): Int64 = xs -> Std.Length;\n"
+      "let App.Pick<T>(c: Bool, a: T, b: T): T = (c, a, b) -> Std.Select;\n"
+      "let App.Area<T: Tuple<Int64, Int64> | Tuple<Int64...>>(a: T, b: T): Int64 = 0;\n",
+      "host_entry_generics.fleaux");
+
+  SECTION("Arguments matching one alternative run") {
+    REQUIRE(host_call(module, "App.Sum", make_tuple(make_int(1), make_int(2))).value() == make_int(3));
+    REQUIRE(host_call(module, "App.Sum", make_tuple(make_float(1.5), make_float(2.0))).value() == make_float(3.5));
+  }
+
+  SECTION("Arguments matching different alternatives are rejected, in either order") {
+    for (const auto& arg : {make_tuple(make_int(1), make_float(2.5)), make_tuple(make_float(2.5), make_int(1))}) {
+      const auto result = host_call(module, "App.Sum", arg);
+      REQUIRE_FALSE(result.has_value());
+      REQUIRE(result.error().message.find("App.Sum: argument 1") != std::string::npos);
+      REQUIRE(result.error().message.find("the same alternative as the earlier arguments for T") != std::string::npos);
+    }
+  }
+
+  SECTION("Uses inside a tuple share the parameter") {
+    REQUIRE(host_call(module, "App.Total", make_tuple(make_int(1), make_int(2))).value() == make_int(2));
+    const auto result = host_call(module, "App.Total", make_tuple(make_int(1), make_float(2.5)));
+    REQUIRE_FALSE(result.has_value());
+  }
+
+  SECTION("A value outside the bound is rejected") {
+    const auto result = host_call(module, "App.Sum", make_tuple(make_string("a"), make_string("b")));
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("expected Int64 | UInt64 | Float64, got String") != std::string::npos);
+  }
+
+  SECTION("Unbounded parameters accept any values") {
+    REQUIRE(host_call(module, "App.Pick", make_tuple(fleaux::runtime::make_bool(true), make_int(1), make_string("x")))
+                .value() == make_int(1));
+  }
+
+  SECTION("Overlapping alternatives use the alternative common to every argument") {
+    const auto pair = make_tuple(make_int(2), make_int(3));
+    const auto triple = make_tuple(make_int(1), make_int(2), make_int(3));
+    REQUIRE(host_call(module, "App.Area", make_tuple(pair, triple)).has_value());
+    REQUIRE(host_call(module, "App.Area", make_tuple(triple, pair)).has_value());
+  }
+}
+
+TEST_CASE("Bytecode serialization round-trips host entry checks", "[bytecode][serialization][host_entry]") {
+  const auto module = compile_host_module("import Std;\n"
+                                          "let App.Sum<T: Numeric>(a: T, b: T): T = (a, b) -> Std.Add;\n"
+                                          "let App.Each(f: (Int64) => Int64, xs: Int64...): Int64 = 0;\n",
+                                          "host_entry_serialization.fleaux");
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->exports.size() == module.exports.size());
+  for (std::size_t index = 0; index < module.exports.size(); ++index) {
+    INFO(module.exports[index].name);
+    REQUIRE(module.exports[index].host_entry_check.has_value());
+    REQUIRE(deserialized->exports[index].host_entry_check == module.exports[index].host_entry_check);
+  }
+
+  // Host-only kinds are not valid in the cast table.
+  fleaux::bytecode::Module bad;
+  bad.type_checks = {fleaux::common::RuntimeTypeCheck{.kind = fleaux::common::RuntimeTypeCheckKind::kCallable}};
+  const auto bad_bytes = fleaux::bytecode::serialize_module(bad);
+  REQUIRE(bad_bytes.has_value());
+  REQUIRE_FALSE(fleaux::bytecode::deserialize_module(*bad_bytes).has_value());
+}

@@ -1012,32 +1012,26 @@ struct HandleId {
   return HandleId{.slot = parsed->slot, .gen = parsed->generation};
 }
 
+// The token is a FileHandle by type; what can still fail is that it belongs to another run or was closed.
 [[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
   const auto token_state_id = parse_tagged_registry_token_state_id(token, k_handle_tag);
-  if (!token_state_id) {
-    throw std::runtime_error{std::string(op) + ": not a valid handle token"};
-  }
-  if (*token_state_id != runtime_execution_state().token_state_id) {
-    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
-  }
   const auto id = handle_id_from_value(token);
-  if (!id)
-    throw std::runtime_error{std::string(op) + ": not a valid handle token"};
-  HandleEntry* entry = handle_registry().get(id->slot, id->gen);
-  if (!entry)
+  HandleEntry* entry = token_state_id && id && *token_state_id == runtime_execution_state().token_state_id
+                           ? handle_registry().get(id->slot, id->gen)
+                           : nullptr;
+  if (entry == nullptr) {
     throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+  }
   return *entry;
 }
 
 [[nodiscard]] inline auto resolve_registered_callable_ref(const Value& ref) -> RegisteredCallable {
+  // The value is a callable by type; what can still fail is that it belongs to another run or was released.
   const auto token_state_id =
       parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
-  if (!token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
-    throw std::runtime_error{"Unknown callable reference"};
-  }
   const auto id = callable_id_from_value(ref);
-  if (!id) {
-    throw std::runtime_error{"Expected callable reference"};
+  if (!token_state_id || !id || *token_state_id != runtime_execution_state().token_state_id) {
+    throw std::runtime_error{"Unknown callable reference"};
   }
 
   std::scoped_lock lock(callable_registry_mutex());
@@ -1257,13 +1251,6 @@ auto make_tuple(Values&&... vals) -> Value {
                               [](const Float) -> bool { return true; });
 }
 
-[[nodiscard]] inline auto is_mixed_signed_unsigned_integer_pair(const Value& lhs, const Value& rhs) -> bool {
-  if (is_float_number(lhs) || is_float_number(rhs)) {
-    return false;
-  }
-  return (is_int_number(lhs) && is_uint_number(rhs)) || (is_uint_number(lhs) && is_int_number(rhs));
-}
-
 [[nodiscard]] inline auto compare_numbers(const Value& lhs, const Value& rhs) -> int {
   const bool lhs_float = is_float_number(lhs);
   if (const bool rhs_float = is_float_number(rhs); lhs_float || rhs_float) {
@@ -1331,6 +1318,21 @@ auto make_tuple(Values&&... vals) -> Value {
                               [](const UInt unsigned_value) -> Int { return static_cast<Int>(unsigned_value); },
                               [](const Float float_value) -> Int { return static_cast<Int>(float_value); });
 }
+
+// Reads of a parameter whose numeric type the Std signature fixes. The type checker, or the host entry check for
+// host calls, guarantees the value's kind, so these do not validate it. A C++ caller that bypasses both and passes
+// another numeric kind gets the value converted as by a C++ cast.
+[[nodiscard]] inline auto int64_value(const Value& val) -> Int {
+  return as_number(val).Visit([](const Int value) -> Int { return value; },
+                              [](const UInt value) -> Int { return static_cast<Int>(value); },
+                              [](const Float value) -> Int { return static_cast<Int>(value); });
+}
+[[nodiscard]] inline auto uint64_value(const Value& val) -> UInt {
+  return as_number(val).Visit([](const Int value) -> UInt { return static_cast<UInt>(value); },
+                              [](const UInt value) -> UInt { return value; },
+                              [](const Float value) -> UInt { return static_cast<UInt>(value); });
+}
+[[nodiscard]] inline auto uint64_index(const Value& val) -> std::size_t { return uint64_value(val); }
 
 [[nodiscard]] inline auto as_int_value_strict(const Value& val, const std::string_view name) -> Int {
   return as_number(val).Visit([&](const Int signed_value) -> Int { return signed_value; },
@@ -1525,13 +1527,10 @@ enum class SortTag {
   return 0;
 }
 
+// Orders two values of one Comparable type (Std.Tuple.Sort, Min, Max): the <T: Comparable> bound on Tuple<T...>
+// guarantees both values have the same kind, so the kinds are not compared here.
 [[nodiscard]] inline auto compare_values_for_sort(const Value& lhs, const Value& rhs) -> int {
-  const SortTag lhs_tag = sort_tag_of(lhs);
-  if (const SortTag rhs_tag = sort_tag_of(rhs); lhs_tag != rhs_tag) {
-    throw std::invalid_argument{"TupleSort supports homogeneous comparable values only"};
-  }
-
-  switch (lhs_tag) {
+  switch (sort_tag_of(lhs)) {
     case SortTag::kNull:
       return 0;
     case SortTag::kBool: {
@@ -1550,11 +1549,10 @@ enum class SortTag {
     case SortTag::kArray:
       return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
     case SortTag::kGeneric:
-      throw std::invalid_argument{"TupleSort does not support sorting generic values"};
     case SortTag::kObject:
-      throw std::invalid_argument{"TupleSort does not support sorting object values"};
+      break;
   }
-  throw std::invalid_argument{"TupleSort internal error"};
+  throw std::logic_error{"TupleSort invariant violated: expected Comparable values"};
 }
 
 [[nodiscard]] inline auto as_path_string_unary(Value arg) -> std::string {

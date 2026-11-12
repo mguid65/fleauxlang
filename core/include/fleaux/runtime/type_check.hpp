@@ -8,12 +8,16 @@
 //   Result, and a Result also passes as such a tuple.
 // - Numeric Dict keys share one encoding, so a numeric key passes an integer key type when its text is an integer
 //   of that type, and passes Float64 whenever it is numeric.
-// - FileHandle, RandomGenerator, and TaskHandle are checked by their runtime tag only.
+// - FileHandle and TaskHandle are checked by their runtime tag; RandomGenerator by its whole token.
+// - Callables (host entry checks only) are checked by their tag: parameter and return types are not stored.
 
 #include <algorithm>
 #include <charconv>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fleaux/common/runtime_type_check.hpp"
 #include "fleaux/runtime/builtins_core.hpp"
@@ -60,9 +64,14 @@ namespace fleaux::runtime {
   return type_name(value);
 }
 
-[[nodiscard]] inline auto value_matches_type_check(const Value& value, const common::RuntimeTypeCheck& check) -> bool;
-
 namespace detail {
+
+// For each generic parameter of a host entry check, the bound alternatives that every use so far has matched, as a
+// bit set. Casts have no generic parameters and pass no candidates.
+using TypeParamCandidates = std::vector<std::uint64_t>;
+
+[[nodiscard]] inline auto matches(const Value& value, const common::RuntimeTypeCheck& check,
+                                  TypeParamCandidates* candidates) -> bool;
 
 template <typename Integer>
 [[nodiscard]] auto parses_as_integer(const std::string_view text) -> bool {
@@ -72,16 +81,64 @@ template <typename Integer>
   return error == std::errc{} && ptr == end;
 }
 
-// Dict keys are stored with a type prefix (see dict_key_from_value).
-[[nodiscard]] inline auto dict_key_matches(const std::string& internal_key, const common::RuntimeTypeCheck& check)
-    -> bool {
+// Dict keys are stored with a type prefix (see dict_key_from_validated_value).
+[[nodiscard]] inline auto dict_key_matches(const std::string& internal_key, const common::RuntimeTypeCheck& check,
+                                           TypeParamCandidates* candidates) -> bool;
+
+// The bit set of the bound alternatives that `matches_alternative` accepts, narrowed into the parameter's
+// candidates. False when no alternative common to every use remains.
+template <typename MatchesAlternative>
+[[nodiscard]] auto narrow_type_param(const common::RuntimeTypeCheck& check, TypeParamCandidates* candidates,
+                                     MatchesAlternative&& matches_alternative) -> bool {
+  if (check.items.empty() || candidates == nullptr || check.type_param >= candidates->size()) {
+    return true;
+  }
+  std::uint64_t matched = 0;
+  for (std::size_t index = 0; index < check.items.size(); ++index) {
+    if (matches_alternative(check.items[index])) {
+      matched |= std::uint64_t{1} << index;
+    }
+  }
+  auto& remaining = (*candidates)[check.type_param];
+  remaining &= matched;
+  return remaining != 0U;
+}
+
+// A union member may narrow generic parameters only when it is the member that matches.
+template <typename MatchesMember>
+[[nodiscard]] auto union_matches(const common::RuntimeTypeCheck& check, TypeParamCandidates* candidates,
+                                 MatchesMember&& matches_member) -> bool {
+  for (const auto& member : check.items) {
+    if (candidates == nullptr) {
+      if (matches_member(member, nullptr)) {
+        return true;
+      }
+      continue;
+    }
+    TypeParamCandidates attempt = *candidates;
+    if (matches_member(member, &attempt)) {
+      *candidates = std::move(attempt);
+      return true;
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] inline auto dict_key_matches(const std::string& internal_key, const common::RuntimeTypeCheck& check,
+                                           TypeParamCandidates* candidates) -> bool {
   using common::RuntimeTypeCheckKind;
   if (check.kind == RuntimeTypeCheckKind::kAny) {
     return true;
   }
   if (check.kind == RuntimeTypeCheckKind::kUnion) {
-    return std::ranges::any_of(check.items,
-                               [&](const common::RuntimeTypeCheck& member) { return dict_key_matches(internal_key, member); });
+    return union_matches(check, candidates, [&](const common::RuntimeTypeCheck& member, TypeParamCandidates* attempt) {
+      return dict_key_matches(internal_key, member, attempt);
+    });
+  }
+  if (check.kind == RuntimeTypeCheckKind::kTypeParam) {
+    return narrow_type_param(check, candidates, [&](const common::RuntimeTypeCheck& alternative) {
+      return dict_key_matches(internal_key, alternative, nullptr);
+    });
   }
   if (internal_key.size() < 2U || internal_key[1] != ':') {
     return false;
@@ -110,14 +167,15 @@ template <typename Integer>
   }
 }
 
-[[nodiscard]] inline auto tuple_matches(const Array& array, const common::RuntimeTypeCheck& check) -> bool {
+[[nodiscard]] inline auto tuple_matches(const Array& array, const common::RuntimeTypeCheck& check,
+                                        TypeParamCandidates* candidates) -> bool {
   const std::size_t fixed_count = check.variadic_tail ? check.items.size() - 1U : check.items.size();
   if (check.variadic_tail ? array.Size() < fixed_count : array.Size() != fixed_count) {
     return false;
   }
   for (std::size_t index = 0; index < array.Size(); ++index) {
     const auto& item_check = index < fixed_count ? check.items[index] : check.items.back();
-    if (!value_matches_type_check(*array.TryGet(index), item_check)) {
+    if (!matches(*array.TryGet(index), item_check, candidates)) {
       return false;
     }
   }
@@ -134,9 +192,8 @@ template <typename Integer>
                        [&](const Float) { return kind == common::RuntimeTypeCheckKind::kFloat64; });
 }
 
-}  // namespace detail
-
-[[nodiscard]] inline auto value_matches_type_check(const Value& value, const common::RuntimeTypeCheck& check) -> bool {
+[[nodiscard]] inline auto matches(const Value& value, const common::RuntimeTypeCheck& check,
+                                  TypeParamCandidates* candidates) -> bool {
   using common::RuntimeTypeCheckKind;
   switch (check.kind) {
     case RuntimeTypeCheckKind::kAny:
@@ -155,19 +212,20 @@ template <typename Integer>
       return value.HasNull();
     case RuntimeTypeCheckKind::kTuple: {
       const auto& array = value.TryGetArray();
-      return array && !is_tagged_runtime_token(value) && detail::tuple_matches(*array, check);
+      return array && !is_tagged_runtime_token(value) && tuple_matches(*array, check, candidates);
     }
     case RuntimeTypeCheckKind::kUnion:
-      return std::ranges::any_of(check.items,
-                                 [&](const common::RuntimeTypeCheck& member) { return value_matches_type_check(value, member); });
+      return union_matches(check, candidates, [&](const common::RuntimeTypeCheck& member, TypeParamCandidates* attempt) {
+        return matches(value, member, attempt);
+      });
     case RuntimeTypeCheckKind::kDict: {
       const auto& object = value.TryGetObject();
       if (!object) {
         return false;
       }
       return std::ranges::all_of(*object, [&](const auto& entry) {
-        return detail::dict_key_matches(entry.first, check.items[0]) &&
-               value_matches_type_check(entry.second, check.items[1]);
+        return dict_key_matches(entry.first, check.items[0], candidates) &&
+               matches(entry.second, check.items[1], candidates);
       });
     }
     case RuntimeTypeCheckKind::kResult: {
@@ -176,19 +234,28 @@ template <typename Integer>
         return false;
       }
       const bool is_ok = as_bool(*array->TryGet(0));
-      return value_matches_type_check(*array->TryGet(1), is_ok ? check.items[0] : check.items[1]);
+      return matches(*array->TryGet(1), is_ok ? check.items[0] : check.items[1], candidates);
     }
     case RuntimeTypeCheckKind::kFileHandle:
       return handle_id_from_value(value).has_value();
-    case RuntimeTypeCheckKind::kRandomGenerator: {
-      const auto& array = value.TryGetArray();
-      return array && array->Size() == 3U && array->TryGet(0)->HasString() &&
-             as_string(*array->TryGet(0)) == detail::k_random_generator_tag;
-    }
+    case RuntimeTypeCheckKind::kRandomGenerator:
+      return is_valid_random_generator(value);
     case RuntimeTypeCheckKind::kTaskHandle:
       return parse_tagged_registry_token(value, k_task_handle_tag).has_value();
+    case RuntimeTypeCheckKind::kCallable:
+      return callable_id_from_value(value).has_value();
+    case RuntimeTypeCheckKind::kTypeParam:
+      return narrow_type_param(check, candidates, [&](const common::RuntimeTypeCheck& alternative) {
+        return matches(value, alternative, nullptr);
+      });
   }
   return false;
+}
+
+}  // namespace detail
+
+[[nodiscard]] inline auto value_matches_type_check(const Value& value, const common::RuntimeTypeCheck& check) -> bool {
+  return detail::matches(value, check, nullptr);
 }
 
 [[nodiscard]] inline auto type_check_failure_message(const std::string_view builtin_name, const Value& value,
@@ -210,6 +277,91 @@ template <typename Integer>
     return ResultErr(make_tuple(make_string(type_check_failure_message("Std.TryCast", value, check))));
   }
   return ResultOk(make_tuple(std::move(value)));
+}
+
+namespace detail {
+
+inline auto collect_type_param_names(const common::RuntimeTypeCheck& check, const common::HostEntryCheck& entry,
+                                     std::vector<std::string>& out) -> void {
+  if (check.kind == common::RuntimeTypeCheckKind::kTypeParam && check.type_param < entry.type_params.size()) {
+    const auto& name = entry.type_params[check.type_param];
+    if (std::ranges::find(out, name) == out.end()) {
+      out.push_back(name);
+    }
+  }
+  for (const auto& item : check.items) {
+    collect_type_param_names(item, entry, out);
+  }
+}
+
+}  // namespace detail
+
+// Checks the argument the host passes to an exported function against the function's declared parameter types,
+// following the same argument layout the VM uses to bind parameters. Returns an error message when it does not
+// match. Every use of a bounded generic parameter must match one alternative of its bound common to all uses.
+[[nodiscard]] inline auto check_host_argument(const Value& arg, const common::HostEntryCheck& entry,
+                                              const std::string_view function_name) -> std::optional<std::string> {
+  detail::TypeParamCandidates candidates(entry.type_params.size(), ~std::uint64_t{0});
+
+  const auto check_one = [&](const Value& value, const common::RuntimeTypeCheck& check,
+                             const std::size_t index) -> std::optional<std::string> {
+    if (detail::matches(value, check, &candidates)) {
+      return std::nullopt;
+    }
+    if (std::vector<std::string> type_params; (detail::collect_type_param_names(check, entry, type_params),
+                                               !type_params.empty())) {
+      detail::TypeParamCandidates fresh(entry.type_params.size(), ~std::uint64_t{0});
+      if (detail::matches(value, check, &fresh)) {
+        std::string names;
+        for (const auto& name : type_params) {
+          names += (names.empty() ? "" : ", ") + name;
+        }
+        return std::format("{}: argument {} ({}) does not match the same alternative as the earlier arguments for {}",
+                           function_name, index, runtime_value_kind_name(value), names);
+      }
+    }
+    return std::format("{}: argument {} expected {}, got {}", function_name, index, common::describe(check),
+                       runtime_value_kind_name(value));
+  };
+
+  const std::size_t param_count = entry.params.size();
+  if (param_count == 0U) {
+    return std::nullopt;
+  }
+
+  if (!entry.variadic_tail) {
+    if (param_count == 1U) {
+      return check_one(arg, entry.params.front(), 0U);
+    }
+    const auto& array = arg.TryGetArray();
+    if (!array || is_tagged_runtime_token(arg) || array->Size() != param_count) {
+      return std::format("{}: expected a tuple of {} arguments", function_name, param_count);
+    }
+    for (std::size_t index = 0; index < param_count; ++index) {
+      if (auto error = check_one(*array->TryGet(index), entry.params[index], index)) {
+        return error;
+      }
+    }
+    return std::nullopt;
+  }
+
+  // Variadic: the VM binds a single variadic parameter to the whole tuple, or to a 1-tuple of a non-tuple value.
+  const std::size_t fixed_count = param_count - 1U;
+  const auto& tail_check = entry.params.back();
+  if (fixed_count == 0U && !arg.HasArray()) {
+    return check_one(arg, tail_check, 0U);
+  }
+  const auto& array = arg.TryGetArray();
+  if (!array || array->Size() < fixed_count) {
+    return std::format("{}: expected a tuple of at least {} arguments", function_name, fixed_count);
+  }
+  for (std::size_t index = 0; index < array->Size(); ++index) {
+    if (auto error =
+            check_one(*array->TryGet(index), index < fixed_count ? entry.params[index] : tail_check, index)) {
+      return error;
+    }
+  }
+  return std::nullopt;
 }
 
 }  // namespace fleaux::runtime

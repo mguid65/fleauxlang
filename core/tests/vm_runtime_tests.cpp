@@ -1970,7 +1970,7 @@ TEST_CASE("VM executes exact-1 Std.Result.Payload builtin refs with direct-value
 
 TEST_CASE("VM executes exact-1 Std.Random.NextUInt64 builtin refs with direct-value generator handles", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
-  const auto cSeed = push_i64_const(bytecode_module, 123456789);
+  const auto cSeed = push_u64_const(bytecode_module, 123456789ULL);
   constexpr auto kRandomCreateBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomCreate);
   constexpr auto kRandomNextUInt64BuiltinRef = builtin_direct(fleaux::vm::BuiltinId::RandomNextUInt64);
   constexpr auto kApplyBuiltin = builtin(fleaux::vm::BuiltinId::Apply);
@@ -3473,30 +3473,6 @@ TEST_CASE("VM native kAdd preserves UInt64 for UInt64 operands", "[vm]") {
   REQUIRE(output.str() == "UInt64\n");
 }
 
-TEST_CASE("VM native kAdd rejects mixed Int64 and UInt64 operands", "[vm]") {
-  fleaux::bytecode::Module bytecode_module;
-  constexpr auto kTypeBuiltin = builtin(fleaux::vm::BuiltinId::Type);
-  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto c_neg2 = push_i64_const(bytecode_module, -2);
-  const auto c5u = push_u64_const(bytecode_module, 5U);
-
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c_neg2},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5u},
-      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTypeBuiltin},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
-      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE_FALSE(result.has_value());
-}
-
 TEST_CASE("VM kCallBuiltin executes Std.Add through primary builtin dispatch and preserves UInt64 results", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c4 = push_i64_const(bytecode_module, 4);
@@ -3533,27 +3509,6 @@ TEST_CASE("VM kCallBuiltin executes Std.Add through primary builtin dispatch and
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "9\nUInt64\n");
-}
-
-TEST_CASE("VM kCallBuiltin rejects mixed Int64 and UInt64 arithmetic through primary builtin dispatch", "[vm]") {
-  fleaux::bytecode::Module bytecode_module;
-  const auto cNeg2 = push_i64_const(bytecode_module, -2);
-  const auto u5 = push_u64_const(bytecode_module, 5);
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cNeg2},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = u5},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Add)},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message ==
-          "builtin 'Std.Add' threw: Add: cannot mix Int64 and UInt64 operands without explicit cast");
 }
 
 TEST_CASE("VM kCallBuiltin resolves Std.Println via builtin dispatch", "[vm]") {
@@ -4235,45 +4190,6 @@ TEST_CASE("VM kCallBuiltin executes Std.Apply for two-argument inline closure ca
   REQUIRE(output.str() == "42\n");
 }
 
-TEST_CASE("VM reports too few arguments for inline closure callable", "[vm]") {
-  fleaux::bytecode::Module bytecode_module;
-  const auto c10 = push_i64_const(bytecode_module, 10);
-
-  fleaux::bytecode::FunctionDef sum2;
-  sum2.name = "__closure_sum2";
-  sum2.arity = 2;
-  sum2.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
-      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
-  };
-  bytecode_module.functions.push_back(std::move(sum2));
-  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
-      .function_index = 0,
-      .capture_count = 0,
-      .declared_arity = 2,
-      .declared_has_variadic_tail = false,
-  });
-
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kMakeClosureRef, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::Apply)},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message == "builtin 'Std.Apply' threw: too few arguments for inline closure");
-}
-
 TEST_CASE("VM kCallBuiltin executes Std.Match with wildcard closure case through primary builtin dispatch", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   const auto c3 = push_i64_const(bytecode_module, 3);
@@ -4461,7 +4377,7 @@ TEST_CASE(
     "VM kCallBuiltin executes Std.Random builtins through primary builtin dispatch with exact-1 direct-value shape",
     "[vm]") {
   fleaux::bytecode::Module bytecode_module;
-  const auto cSeed = push_i64_const(bytecode_module, 123456789);
+  const auto cSeed = push_u64_const(bytecode_module, 123456789ULL);
   constexpr auto kRandomCreateBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomCreate);
   constexpr auto kRandomSplitBuiltin = builtin_direct(fleaux::vm::BuiltinId::RandomSplit);
   constexpr auto kFirstBuiltin = builtin_direct(fleaux::vm::BuiltinId::First);
@@ -5300,27 +5216,6 @@ TEST_CASE("VM kCallBuiltin executes bitwise builtins through primary builtin dis
 
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "2\n-1\n12\n3\n");
-}
-
-TEST_CASE("VM kCallBuiltin reports bitwise shift errors through primary builtin dispatch", "[vm]") {
-  fleaux::bytecode::Module bytecode_module;
-  const auto c1 = push_i64_const(bytecode_module, 1);
-  const auto cNeg1 = push_i64_const(bytecode_module, -1);
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cNeg1},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::BitShiftLeft)},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message ==
-          "builtin 'Std.Bit.ShiftLeft' threw: BitShiftLeft shift expects non-negative integer");
 }
 
 TEST_CASE("VM kCallBuiltin executes Std.Type through direct unary builtin dispatch", "[vm]") {
@@ -6590,10 +6485,10 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(array_value) == 20.0);
 
   fleaux::runtime::Value base{fleaux::runtime::Object{}};
-  fleaux::runtime::as_object(base)[fleaux::runtime::dict_key_from_value(fleaux::runtime::make_string("shared"))] =
+  fleaux::runtime::as_object(base)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
       fleaux::runtime::make_int(1);
   fleaux::runtime::Value overlay{fleaux::runtime::Object{}};
-  fleaux::runtime::as_object(overlay)[fleaux::runtime::dict_key_from_value(fleaux::runtime::make_string("shared"))] =
+  fleaux::runtime::as_object(overlay)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
       fleaux::runtime::make_int(2);
 
   const auto merged = fleaux::runtime::DictMerge(fleaux::runtime::make_tuple(base, overlay));
@@ -7002,29 +6897,3 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 2 3\n0 1 2\nTrue\n(1, 3) (2, 4)\n9\n1\nk\n9\n42\n");
 }
-
-TEST_CASE("VM Std.ElementAt rejects fractional index through shared helper path", "[vm]") {
-  fleaux::bytecode::Module bytecode_module;
-  const auto c10 = push_i64_const(bytecode_module, 10);
-  const auto c20 = push_i64_const(bytecode_module, 20);
-  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{1.5});
-  const auto cIdx = static_cast<std::int64_t>(bytecode_module.constants.size() - 1);
-
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cIdx},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::ElementAt)},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE_FALSE(result.has_value());
-  REQUIRE(result.error().message.find("expects an integer value") != std::string::npos);
-}
-

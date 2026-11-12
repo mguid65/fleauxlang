@@ -410,6 +410,7 @@ void register_builtin_alias_export(Module& bytecode_module, const IRLet& let, co
       .kind = ExportKind::kBuiltinAlias,
       .index = 0,
       .builtin_name = full_name,
+      .host_entry_check = let.host_entry_check,
   });
 }
 
@@ -464,6 +465,7 @@ void register_user_function_export(Module& bytecode_module, const IRLet& let, co
       .kind = ExportKind::kFunction,
       .index = function_index,
       .builtin_name = {},
+      .host_entry_check = let.host_entry_check,
   });
 }
 
@@ -480,7 +482,7 @@ void register_user_function_definition(Module& bytecode_module, CompileState& st
 
 void seed_imported_exports(Module& bytecode_module, CompileState& state, const CompileOptions& options) {
   for (const Module& imported_module : options.imported_modules) {
-    for (const auto& [name, actual_link_name, kind, index, builtin_name] : imported_module.exports) {
+    for (const auto& [name, actual_link_name, kind, index, builtin_name, host_entry_check] : imported_module.exports) {
       if (kind == ExportKind::kBuiltinAlias) {
         state.builtin_alias.emplace(name, builtin_name);
         continue;

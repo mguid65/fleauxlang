@@ -6893,3 +6893,35 @@ TEST_CASE("Generic binding widens to a covering type and checks every argument a
     REQUIRE(lowered.error().hint->find("explicit type argument T = Int64") != std::string::npos);
   }
 }
+
+TEST_CASE("Builtin contracts do not let Any through", "[typecheck][strict_any][contracts]") {
+  const auto rejected = [](const std::string& body, const std::string& name) {
+    auto lowered = lower_and_check("import Std;\n" + body + "\n", name);
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint.has_value());
+    return *lowered.error().hint;
+  };
+
+  SECTION("Numeric conversions take one numeric type") {
+    REQUIRE(lower_and_check("import Std;\nlet A(x: Float64): Int64 = x -> Std.ToInt64;\n"
+                            "let B(x: Int64): Float64 = x -> Std.ToFloat64;\n",
+                            "convert_numeric_ok.fleaux")
+                .has_value());
+    REQUIRE(rejected("let Bad(x: Any): Int64 = x -> Std.ToInt64;", "convert_any.fleaux")
+                .find("A value of type Any satisfies no bound") != std::string::npos);
+    REQUIRE(rejected("let Bad(x: String): Int64 = x -> Std.ToInt64;", "convert_string.fleaux")
+                .find("Std.ToInt64 requires T") != std::string::npos);
+  }
+
+  SECTION("Dictionary keys cannot have type Any") {
+    REQUIRE(rejected("let Bad(d: Dict<Any, Int64>, k: Any): Dict<Any, Int64> = (d, k, 1) -> Std.Dict.Set;",
+                     "dict_any_key.fleaux")
+                .find("requires dictionary key types to be scalar") != std::string::npos);
+  }
+
+  SECTION("Std.Match is only valid in direct call position") {
+    const auto lowered = lower_and_check("import Std;\nlet F: Any = Std.Match;\n", "match_reference.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Invalid Std.Match reference") != std::string::npos);
+  }
+}

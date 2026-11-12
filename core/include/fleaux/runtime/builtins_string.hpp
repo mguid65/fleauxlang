@@ -277,7 +277,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 // arg = [str, index] -> 1-char string or "" when out of range
 [[nodiscard]] inline auto StringCharAt(Value arg) -> Value {
   const std::string str = as_string(array_at(arg, 0));
-  const std::size_t idx = as_index_strict(array_at(arg, 1), "StringCharAt index");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   if (idx >= str.size()) {
     return make_string("");
   }
@@ -296,14 +296,14 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 
 [[nodiscard]] inline auto StringSliceStringUInt64(Value arg) -> Value {
   const std::string str = as_string(array_at(arg, 0));
-  const std::size_t stop = as_index_strict(array_at(arg, 1), "StringSlice stop");
+  const std::size_t stop = uint64_index(array_at(arg, 1));
   return string_slice_impl(str, 0, stop);
 }
 
 [[nodiscard]] inline auto StringSliceStringUInt64UInt64(Value arg) -> Value {
   const std::string str = as_string(array_at(arg, 0));
-  const std::size_t start = as_index_strict(array_at(arg, 1), "StringSlice start");
-  const std::size_t stop = as_index_strict(array_at(arg, 2), "StringSlice stop");
+  const std::size_t start = uint64_index(array_at(arg, 1));
+  const std::size_t stop = uint64_index(array_at(arg, 2));
   return string_slice_impl(str, start, stop);
 }
 
@@ -324,7 +324,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 
 [[nodiscard]] inline auto StringFindStringStringUInt64(Value arg) -> Value {
   return string_find_impl(as_string(array_at(arg, 0)), as_string(array_at(arg, 1)),
-                          as_index_strict(array_at(arg, 2), "StringFind start"));
+                          uint64_index(array_at(arg, 2)));
 }
 
 // arg = [format, arg0, arg1, ...]

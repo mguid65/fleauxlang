@@ -132,20 +132,23 @@ let Std.Cast<T>(value: Any) : T :: __builtin__;
 // @return Ok with the value when it matches T, otherwise Err with a message naming the expected and actual types.
 let Std.TryCast<T>(value: Any) : Result<T, String> :: __builtin__;
 
-// @brief Convert a value to Int64 explicitly.
-// @param value Input value. Type: Any.
+// @brief Convert a number to Int64 explicitly.
+// @tparam T Numeric type of the input.
+// @param value Input value. Type: T.
 // @return A value of type Int64.
-let Std.ToInt64(value: Any) : Int64 :: __builtin__;
+let Std.ToInt64<T: Numeric>(value: T) : Int64 :: __builtin__;
 
-// @brief Convert a value to UInt64 explicitly.
-// @param value Input value. Type: Any.
+// @brief Convert a number to UInt64 explicitly.
+// @tparam T Numeric type of the input.
+// @param value Input value. Type: T.
 // @return A value of type UInt64.
-let Std.ToUInt64(value: Any) : UInt64 :: __builtin__;
+let Std.ToUInt64<T: Numeric>(value: T) : UInt64 :: __builtin__;
 
-// @brief Convert a value to Float64 explicitly.
-// @param value Input value. Type: Any.
+// @brief Convert a number to Float64 explicitly.
+// @tparam T Numeric type of the input.
+// @param value Input value. Type: T.
 // @return A value of type Float64.
-let Std.ToFloat64(value: Any) : Float64 :: __builtin__;
+let Std.ToFloat64<T: Numeric>(value: T) : Float64 :: __builtin__;
 
 // @brief Create a deterministic random generator from a seed value.
 // @param seed Initial seed. Type: UInt64.

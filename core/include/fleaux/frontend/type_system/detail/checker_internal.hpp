@@ -27,6 +27,12 @@ struct ResolvedInvocation {
 // The runtime check for a cast from Any to `target`. Strong types are checked by their underlying type, and
 // builtin types by their runtime tag. Function types, TaskHandle<T> with T other than Any, and unresolved generic
 // parameters cannot be checked at runtime and are rejected.
+// The runtime check of the argument the host passes to `let`. Unlike a cast check, function types become a callable
+// tag check and generic parameters become type parameter checks against their bounds.
+[[nodiscard]] auto host_entry_check_for_let(const ir::IRLet& let, const StrongTypeIndex& type_index,
+                                            const AliasIndex& alias_index)
+    -> tl::expected<common::HostEntryCheck, type_check::AnalysisError>;
+
 [[nodiscard]] auto runtime_type_check_for_cast(const std::string& full_name, const Type& target,
                                                const StrongTypeIndex& type_index,
                                                const std::optional<diag::SourceSpan>& span)

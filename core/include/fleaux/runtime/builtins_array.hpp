@@ -20,14 +20,6 @@ inline void append_array_range(Array& out, const Array& src, const std::size_t s
   }
 }
 
-[[nodiscard]] inline auto checked_index(const Value& value, const char* name) -> std::size_t {
-  const Int index_value = as_int_value_strict(value, name);
-  if (index_value < 0) {
-    throw std::out_of_range(std::format("{} expects non-negative index, got {}", name, index_value));
-  }
-  return static_cast<std::size_t>(index_value);
-}
-
 [[nodiscard]] inline auto validated_array_value(const Value& value, const std::string_view builtin_name) -> const Array& {
   const auto array = value.TryGetArray();
   if (!array) {
@@ -46,42 +38,13 @@ inline void append_array_range(Array& out, const Array& src, const std::size_t s
   return grid;
 }
 
-[[nodiscard]] inline auto checked_validated_index(const Value& value, const char* name, const std::string_view builtin_name)
-    -> std::size_t {
-  const auto number = value.TryGetNumber();
-  if (!number) {
-    throw std::logic_error(std::format("{} invariant violated: expected validated integer index", builtin_name));
-  }
-
-  const Int index_value = number->Visit(
-      [](const Int signed_value) -> Int { return signed_value; },
-      [&](const UInt unsigned_value) -> Int {
-        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
-        }
-        return static_cast<Int>(unsigned_value);
-      },
-      [&](const Float) -> Int {
-        throw std::logic_error(std::format("{} invariant violated: expected validated integer index", builtin_name));
-      });
-  if (index_value < 0) {
-    throw std::out_of_range(std::format("{} expects non-negative index, got {}", name, index_value));
-  }
-  return static_cast<std::size_t>(index_value);
-}
-
-[[nodiscard]] inline auto validated_integer_tuple_indices(const Value& value, const char* name,
-                                                          const std::string_view builtin_name)
-    -> std::vector<std::size_t> {
-  const auto tuple = value.TryGetArray();
-  if (!tuple) {
-    throw std::logic_error(std::format("{} invariant violated: expected validated integer tuple value", builtin_name));
-  }
-
+// A Tuple<UInt64...> of indices or extents, read without checking the kind of each item (guaranteed by its type).
+[[nodiscard]] inline auto uint64_indices(const Value& value) -> std::vector<std::size_t> {
+  const auto& tuple = as_array(value);
   std::vector<std::size_t> indices;
-  indices.reserve(tuple->Size());
-  for (std::size_t index_position = 0; index_position < tuple->Size(); ++index_position) {
-    indices.push_back(checked_validated_index(*tuple->TryGet(index_position), name, builtin_name));
+  indices.reserve(tuple.Size());
+  for (std::size_t index_position = 0; index_position < tuple.Size(); ++index_position) {
+    indices.push_back(uint64_index(*tuple.TryGet(index_position)));
   }
   return indices;
 }
@@ -163,7 +126,7 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [array, index]
 [[nodiscard]] inline auto ArrayGetAt(Value arg) -> Value {
   const auto& arr = validated_array_value(array_at(arg, 0), "Std.Array.GetAt");
-  const std::size_t idx = checked_validated_index(array_at(arg, 1), "ArrayGetAt index", "Std.Array.GetAt");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArrayGetAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -173,7 +136,7 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [array, index, value]
 [[nodiscard]] inline auto ArraySetAt(Value arg) -> Value {
   const auto& arr = validated_array_value(array_at(arg, 0), "Std.Array.SetAt");
-  const std::size_t idx = checked_validated_index(array_at(arg, 1), "ArraySetAt index", "Std.Array.SetAt");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   const Value& replacement = array_at(arg, 2);
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArraySetAt: index {} out of range for size {}", idx, arr.Size()));
@@ -190,7 +153,7 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [array, index, value]
 [[nodiscard]] inline auto ArrayInsertAt(Value arg) -> Value {
   const auto& arr = validated_array_value(array_at(arg, 0), "Std.Array.InsertAt");
-  const std::size_t idx = checked_validated_index(array_at(arg, 1), "ArrayInsertAt index", "Std.Array.InsertAt");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   const Value& value = array_at(arg, 2);
   if (idx > arr.Size()) {
     throw std::out_of_range(std::format("ArrayInsertAt: index {} out of range for size {}", idx, arr.Size()));
@@ -207,7 +170,7 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [array, index]
 [[nodiscard]] inline auto ArrayRemoveAt(Value arg) -> Value {
   const auto& arr = validated_array_value(array_at(arg, 0), "Std.Array.RemoveAt");
-  const std::size_t idx = checked_validated_index(array_at(arg, 1), "ArrayRemoveAt index", "Std.Array.RemoveAt");
+  const std::size_t idx = uint64_index(array_at(arg, 1));
   if (idx >= arr.Size()) {
     throw std::out_of_range(std::format("ArrayRemoveAt: index {} out of range for size {}", idx, arr.Size()));
   }
@@ -225,8 +188,8 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [array, start, stop], stop exclusive
 [[nodiscard]] inline auto ArraySlice(Value arg) -> Value {
   const auto& arr = validated_array_value(array_at(arg, 0), "Std.Array.Slice");
-  const std::size_t start = checked_validated_index(array_at(arg, 1), "ArraySlice start", "Std.Array.Slice");
-  const std::size_t stop = checked_validated_index(array_at(arg, 2), "ArraySlice stop", "Std.Array.Slice");
+  const std::size_t start = uint64_index(array_at(arg, 1));
+  const std::size_t stop = uint64_index(array_at(arg, 2));
   if (start > stop) {
     throw std::invalid_argument(std::format("ArraySlice: start {} > stop {}", start, stop));
   }
@@ -257,8 +220,8 @@ inline void flatten_into(const Value& value, Array& out) {
 // Returns a new grid with element at (row, col) replaced.
 [[nodiscard]] inline auto ArraySetAt2D(Value arg) -> Value {
   const auto& grid = validated_grid_value(array_at(arg, 0), "Std.Array.SetAt2D");
-  const std::size_t row_idx = checked_validated_index(array_at(arg, 1), "ArraySetAt2D row", "Std.Array.SetAt2D");
-  const std::size_t col_idx = checked_validated_index(array_at(arg, 2), "ArraySetAt2D col", "Std.Array.SetAt2D");
+  const std::size_t row_idx = uint64_index(array_at(arg, 1));
+  const std::size_t col_idx = uint64_index(array_at(arg, 2));
   const Value& new_val = array_at(arg, 3);
 
   if (row_idx >= grid.Size()) {
@@ -298,8 +261,8 @@ inline void flatten_into(const Value& value, Array& out) {
 // Returns a new tuple with elements [start_index, start_index+length) set to value.
 [[nodiscard]] inline auto ArrayFill(Value arg) -> Value {
   const auto& src = validated_array_value(array_at(arg, 0), "Std.Array.Fill");
-  const std::size_t start_idx = checked_validated_index(array_at(arg, 1), "ArrayFill start_index", "Std.Array.Fill");
-  const std::size_t fill_len = checked_validated_index(array_at(arg, 2), "ArrayFill length", "Std.Array.Fill");
+  const std::size_t start_idx = uint64_index(array_at(arg, 1));
+  const std::size_t fill_len = uint64_index(array_at(arg, 2));
   const Value& fill_val = array_at(arg, 3);
 
   if (start_idx > src.Size()) {
@@ -359,11 +322,11 @@ inline void flatten_into(const Value& value, Array& out) {
 [[nodiscard]] inline auto ArraySlice2D(Value arg) -> Value {
   const auto& grid = validated_grid_value(array_at(arg, 0), "Std.Array.Slice2D");
   const std::size_t row_start =
-      checked_validated_index(array_at(arg, 1), "ArraySlice2D row_start", "Std.Array.Slice2D");
-  const std::size_t row_end = checked_validated_index(array_at(arg, 2), "ArraySlice2D row_end", "Std.Array.Slice2D");
+      uint64_index(array_at(arg, 1));
+  const std::size_t row_end = uint64_index(array_at(arg, 2));
   const std::size_t col_start =
-      checked_validated_index(array_at(arg, 3), "ArraySlice2D col_start", "Std.Array.Slice2D");
-  const std::size_t col_end = checked_validated_index(array_at(arg, 4), "ArraySlice2D col_end", "Std.Array.Slice2D");
+      uint64_index(array_at(arg, 3));
+  const std::size_t col_end = uint64_index(array_at(arg, 4));
 
   if (row_start > row_end) {
     throw std::invalid_argument(std::format("ArraySlice2D: row_start {} > row_end {}", row_start, row_end));
@@ -399,8 +362,8 @@ inline void flatten_into(const Value& value, Array& out) {
 // Reshapes a flattened array into a grid of rows x cols in row-major order.
 [[nodiscard]] inline auto ArrayReshape(Value arg) -> Value {
   const auto& flat = validated_array_value(array_at(arg, 0), "Std.Array.Reshape");
-  const std::size_t num_rows = checked_validated_index(array_at(arg, 1), "ArrayReshape rows", "Std.Array.Reshape");
-  const std::size_t num_cols = checked_validated_index(array_at(arg, 2), "ArrayReshape cols", "Std.Array.Reshape");
+  const std::size_t num_rows = uint64_index(array_at(arg, 1));
+  const std::size_t num_cols = uint64_index(array_at(arg, 2));
 
   if (num_cols != 0 && num_rows > (std::numeric_limits<std::size_t>::max() / num_cols)) {
     throw std::invalid_argument("ArrayReshape: rows * cols overflows size_t");
@@ -459,7 +422,7 @@ inline void flatten_into(const Value& value, Array& out) {
 // arg = [value, indices]
 [[nodiscard]] inline auto ArrayGetAtND(Value arg) -> Value {
   const Value* current = &array_at(arg, 0);
-  const auto indices = validated_integer_tuple_indices(array_at(arg, 1), "ArrayGetAtND index", "Std.Array.GetAtND");
+  const auto indices = uint64_indices(array_at(arg, 1));
 
   for (std::size_t depth = 0; depth < indices.size(); ++depth) {
     const auto& arr = as_array(*current);
@@ -479,7 +442,7 @@ inline void flatten_into(const Value& value, Array& out) {
   const Value& replacement = array_at(arg, 2);
 
   const auto path =
-      validated_integer_tuple_indices(array_at(arg, 1), "ArraySetAtND index", "Std.Array.SetAtND");
+      uint64_indices(array_at(arg, 1));
   return set_at_path(value, path, 0, replacement);
 }
 
@@ -487,7 +450,7 @@ inline void flatten_into(const Value& value, Array& out) {
 [[nodiscard]] inline auto ArrayReshapeND(Value arg) -> Value {
   const auto& flat = validated_array_value(array_at(arg, 0), "Std.Array.ReshapeND");
   const auto dims =
-      validated_integer_tuple_indices(array_at(arg, 1), "ArrayReshapeND shape", "Std.Array.ReshapeND");
+      uint64_indices(array_at(arg, 1));
 
   std::size_t total = 1;
   for (std::size_t shape_index = 0; shape_index < dims.size(); ++shape_index) {

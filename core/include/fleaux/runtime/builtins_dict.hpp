@@ -12,24 +12,6 @@ namespace fleaux::runtime {
 //  numeric    -> "n:<value>"  (Int64/UInt64/Float64)
 //  bool       -> "b:<true|false>"
 //  null       -> "z:"
-[[nodiscard]] inline auto dict_key_from_value(const Value& key_val) -> std::string {
-  switch (sort_tag_of(key_val)) {
-    case SortTag::kString:
-      return "s:" + as_string(key_val);
-    case SortTag::kNumber:
-      return "n:" + to_string(key_val);
-    case SortTag::kBool:
-      return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
-    case SortTag::kNull:
-      return "z:";
-    case SortTag::kArray:
-    case SortTag::kObject:
-    case SortTag::kGeneric:
-      throw std::invalid_argument{"Dict keys must be scalar values (null/bool/number/string)"};
-  }
-  throw std::invalid_argument{"Dict key conversion failed"};
-}
-
 [[nodiscard]] inline auto dict_key_from_validated_value(const Value& key_val, const std::string_view builtin_name)
     -> std::string {
   switch (sort_tag_of(key_val)) {
@@ -68,7 +50,7 @@ namespace fleaux::runtime {
   return keys;
 }
 
-// Strips the type prefix added by dict_key_from_value and converts back to a
+// Strips the type prefix added by dict_key_from_validated_value and converts back to a
 // Fleaux Value so callers (DictKeys, DictEntries) expose the original key type.
 [[nodiscard]] inline auto dict_key_to_value(const std::string& internal_key) -> Value {
   if (internal_key.size() >= 2 && internal_key[1] == ':') {

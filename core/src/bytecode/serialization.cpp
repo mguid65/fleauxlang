@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 25;
+constexpr std::uint32_t BYTECODE_VERSION = 26;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -192,22 +192,58 @@ auto read_dependency(const std::vector<std::uint8_t>& buffer, std::size_t& offse
   return read_string(buffer, offset, dependency.module_name) && read_pod(buffer, offset, dependency.is_symbolic);
 }
 
+void write_type_check(std::vector<std::uint8_t>& buffer, const common::RuntimeTypeCheck& check);
+void write_string_list(std::vector<std::uint8_t>& buffer, const std::vector<std::string>& list);
+auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offset, std::vector<std::string>& out)
+    -> bool;
+auto read_type_check(const std::vector<std::uint8_t>& buffer, std::size_t& offset, common::RuntimeTypeCheck& check,
+                     std::size_t depth) -> bool;
+
 void write_export(std::vector<std::uint8_t>& buffer, const ExportedSymbol& symbol) {
   write_string(buffer, symbol.name);
   write_string(buffer, symbol.link_name);
   write_pod(buffer, static_cast<std::uint8_t>(symbol.kind));
   write_pod(buffer, symbol.index);
   write_string(buffer, symbol.builtin_name);
+  write_pod(buffer, symbol.host_entry_check.has_value());
+  if (symbol.host_entry_check.has_value()) {
+    const auto& entry = *symbol.host_entry_check;
+    write_pod(buffer, entry.variadic_tail);
+    write_string_list(buffer, entry.type_params);
+    write_pod(buffer, static_cast<std::uint32_t>(entry.params.size()));
+    for (const auto& param : entry.params) {
+      write_type_check(buffer, param);
+    }
+  }
 }
 
 auto read_export(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ExportedSymbol& symbol) -> bool {
   std::uint8_t kind = 0;
+  bool has_entry_check = false;
   if (!read_string(buffer, offset, symbol.name) || !read_string(buffer, offset, symbol.link_name) ||
       !read_pod(buffer, offset, kind) || !read_pod(buffer, offset, symbol.index) ||
-      !read_string(buffer, offset, symbol.builtin_name)) {
+      !read_string(buffer, offset, symbol.builtin_name) || !read_pod(buffer, offset, has_entry_check)) {
     return false;
   }
   symbol.kind = static_cast<ExportKind>(kind);
+  if (has_entry_check) {
+    common::HostEntryCheck entry;
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, entry.variadic_tail) || !read_string_list(buffer, offset, entry.type_params) ||
+        !read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+      return false;
+    }
+    entry.params.resize(count);
+    for (auto& param : entry.params) {
+      if (!read_type_check(buffer, offset, param, 0U)) {
+        return false;
+      }
+    }
+    if (!common::is_well_formed(entry)) {
+      return false;
+    }
+    symbol.host_entry_check = std::move(entry);
+  }
   return true;
 }
 
@@ -385,6 +421,7 @@ constexpr std::size_t kMaxTypeCheckDepth = 128;
 void write_type_check(std::vector<std::uint8_t>& buffer, const common::RuntimeTypeCheck& check) {
   write_pod(buffer, static_cast<std::uint8_t>(check.kind));
   write_pod(buffer, check.variadic_tail);
+  write_pod(buffer, check.type_param);
   write_pod(buffer, static_cast<std::uint32_t>(check.items.size()));
   for (const auto& item : check.items) {
     write_type_check(buffer, item);
@@ -399,7 +436,8 @@ auto read_type_check(const std::vector<std::uint8_t>& buffer, std::size_t& offse
   std::uint8_t kind = 0;
   std::uint32_t count = 0;
   if (!read_pod(buffer, offset, kind) || kind >= common::kRuntimeTypeCheckKindCount ||
-      !read_pod(buffer, offset, check.variadic_tail) || !read_pod(buffer, offset, count) ||
+      !read_pod(buffer, offset, check.variadic_tail) || !read_pod(buffer, offset, check.type_param) ||
+      !read_pod(buffer, offset, count) ||
       count > buffer.size() - offset) {
     return false;
   }
@@ -735,7 +773,8 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     }
     deserialized.type_checks.resize(count);
     for (auto& check : deserialized.type_checks) {
-      if (!read_type_check(buffer, offset, check, 0U) || !common::is_well_formed(check)) {
+      if (!read_type_check(buffer, offset, check, 0U) || !common::is_well_formed(check) ||
+          !common::is_cast_check(check)) {
         return tl::unexpected(SerializationError{.message = "Cannot read type check"});
       }
     }
@@ -765,7 +804,7 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   }
 
   out << "Exports:\n";
-  for (const auto& [name, link_name, kind, index, builtin_name] : module.exports) {
+  for (const auto& [name, link_name, kind, index, builtin_name, host_entry_check] : module.exports) {
     out << std::format(
         "  ExportedSymbol:\n"
         "    name: {}\n"
@@ -774,6 +813,13 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         "    index: {}\n"
         "    builtin_name: {}\n",
         name, link_name, static_cast<std::uint8_t>(kind), index, builtin_name);
+    if (host_entry_check.has_value()) {
+      out << "    host_entry_check:";
+      for (const auto& param : host_entry_check->params) {
+        out << " " << common::describe(param);
+      }
+      out << (host_entry_check->variadic_tail ? " (variadic tail)\n" : "\n");
+    }
   }
 
   out << "Instructions:\n";

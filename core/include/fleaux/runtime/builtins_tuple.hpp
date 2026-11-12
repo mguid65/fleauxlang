@@ -37,26 +37,6 @@ namespace fleaux::runtime {
   return resolve_registered_callable_ref(value);
 }
 
-[[nodiscard]] inline auto validated_integer_value(const Value& value, const char* name, const std::string_view builtin_name)
-    -> Int {
-  const auto number = value.TryGetNumber();
-  if (!number) {
-    throw std::logic_error(std::format("{} invariant violated: expected validated integer value", builtin_name));
-  }
-
-  return number->Visit(
-      [](const Int signed_value) -> Int { return signed_value; },
-      [&](const UInt unsigned_value) -> Int {
-        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
-        }
-        return static_cast<Int>(unsigned_value);
-      },
-      [&](const Float) -> Int {
-        throw std::logic_error(std::format("{} invariant violated: expected validated integer value", builtin_name));
-      });
-}
-
 template <typename Visitor>
 void for_each_tuple_value(const Array& src, Visitor&& visitor) {
   for (std::size_t index = 0; index < src.Size(); ++index) {
@@ -315,21 +295,21 @@ template <typename Predicate>
 
 // arg = stop or [stop]
 [[nodiscard]] inline auto TupleRangeInt64(Value arg) -> Value {
-  const Int stop = validated_integer_value(arg, "TupleRange stop", "Std.Tuple.Range");
+  const Int stop = int64_value(arg);
   return tuple_range_impl(0, stop, 1);
 }
 
 // arg = [start, stop]
 [[nodiscard]] inline auto TupleRangeInt64Int64(Value arg) -> Value {
-  return tuple_range_impl(validated_integer_value(array_at(arg, 0), "TupleRange start", "Std.Tuple.Range"),
-                          validated_integer_value(array_at(arg, 1), "TupleRange stop", "Std.Tuple.Range"), 1);
+  return tuple_range_impl(int64_value(array_at(arg, 0)),
+                          int64_value(array_at(arg, 1)), 1);
 }
 
 // arg = [start, stop, step]
 [[nodiscard]] inline auto TupleRangeInt64Int64Int64(Value arg) -> Value {
-  return tuple_range_impl(validated_integer_value(array_at(arg, 0), "TupleRange start", "Std.Tuple.Range"),
-                          validated_integer_value(array_at(arg, 1), "TupleRange stop", "Std.Tuple.Range"),
-                          validated_integer_value(array_at(arg, 2), "TupleRange step", "Std.Tuple.Range"));
+  return tuple_range_impl(int64_value(array_at(arg, 0)),
+                          int64_value(array_at(arg, 1)),
+                          int64_value(array_at(arg, 2)));
 }
 
 }  // namespace fleaux::runtime

@@ -484,7 +484,7 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 
     const Value result = wait_task_result(task);
 
-    const auto& tuple = require_result_tuple(result, "Task.AwaitAll");
+    const auto& tuple = as_array(result);
     if (!as_bool(*tuple.TryGet(0))) {
       return ResultErr(make_tuple(make_tuple(make_int(static_cast<Int>(task_index)), *tuple.TryGet(1))));
     }
@@ -507,7 +507,7 @@ inline auto run_parallel_map_pooled(const Array& items, const Value& function_re
 }
 
 [[nodiscard]] inline auto TaskWithTimeout(Value arg) -> Value {
-  const std::size_t timeout_ms = as_index_strict(array_at(arg, 1), "Task.WithTimeout timeout_ms");
+  const std::size_t timeout_ms = uint64_index(array_at(arg, 1));
   const TaskControlPtr task = task_control_from_handle(array_at(arg, 0));
   if (!task) {
     return ResultErr(make_tuple(make_string("Task.WithTimeout: invalid task handle")));

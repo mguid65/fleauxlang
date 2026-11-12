@@ -636,7 +636,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto FileReadChunk(Value arg) -> Value {
   // arg = (handle_token, nbytes)  ->  (handle_token, chunk_string, eof_bool)
   auto& handle_entry = require_handle(array_at(arg, 0), "FileReadChunk");
-  const std::size_t nbytes = as_index_strict(array_at(arg, 1), "FileReadChunk nbytes");
+  const std::size_t nbytes = uint64_index(array_at(arg, 1));
   std::string buf(nbytes, '\0');
   handle_entry.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
   const std::streamsize bytes_read = handle_entry.stream.gcount();

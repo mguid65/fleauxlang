@@ -1460,8 +1460,12 @@ auto is_exact_strong_underlying_cast_pair(const Type& source, const Type& target
   return false;
 }
 
+// Generic parameters of a function checked at host entry, by name, in declaration order. Null for casts.
+using HostTypeParams = std::unordered_map<std::string, std::uint32_t>;
+
 auto build_runtime_type_check(const std::string& full_name, const Type& target, const StrongTypeIndex& type_index,
-                              const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& expanding)
+                              const std::optional<diag::SourceSpan>& span, std::unordered_set<std::string>& expanding,
+                              const HostTypeParams* host_type_params = nullptr)
     -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError> {
   using common::RuntimeTypeCheck;
   using common::RuntimeTypeCheckKind;
@@ -1479,7 +1483,7 @@ auto build_runtime_type_check(const std::string& full_name, const Type& target, 
     std::vector<RuntimeTypeCheck> items;
     items.reserve(types.size());
     for (const auto& type : types) {
-      auto item = build_runtime_type_check(full_name, type, type_index, span, expanding);
+      auto item = build_runtime_type_check(full_name, type, type_index, span, expanding, host_type_params);
       if (!item) {
         return tl::unexpected(item.error());
       }
@@ -1524,9 +1528,32 @@ auto build_runtime_type_check(const std::string& full_name, const Type& target, 
       return RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kUnion, .items = std::move(*items)};
     }
     case TypeKind::kFunction:
+      if (host_type_params != nullptr) {
+        return leaf(RuntimeTypeCheckKind::kCallable);
+      }
       return unsupported("function parameter and return types are not stored with callable values");
-    case TypeKind::kTypeVar:
-      return unsupported("generic parameters are not known at runtime");
+    case TypeKind::kTypeVar: {
+      if (host_type_params == nullptr) {
+        return unsupported("generic parameters are not known at runtime");
+      }
+      const auto param_it = host_type_params->find(target.nominal_name);
+      if (param_it == host_type_params->end()) {
+        return leaf(RuntimeTypeCheckKind::kAny);
+      }
+      RuntimeTypeCheck param_check{.kind = RuntimeTypeCheckKind::kTypeParam, .type_param = param_it->second};
+      if (target.type_var_bound.has_value()) {
+        const Type& bound = *target.type_var_bound;
+        auto alternatives = build_items(bound.kind == TypeKind::kUnion ? bound.union_members : std::vector{bound});
+        if (!alternatives) {
+          return tl::unexpected(alternatives.error());
+        }
+        if (alternatives->size() > common::kMaxTypeParamAlternatives) {
+          return unsupported(std::format("a bound may list at most {} alternatives", common::kMaxTypeParamAlternatives));
+        }
+        param_check.items = std::move(*alternatives);
+      }
+      return param_check;
+    }
     case TypeKind::kNominal:
     case TypeKind::kApplied: {
       const std::string& name = target.kind == TypeKind::kNominal ? target.nominal_name : target.applied_name;
@@ -1538,7 +1565,8 @@ auto build_runtime_type_check(const std::string& full_name, const Type& target, 
           return leaf(RuntimeTypeCheckKind::kRandomGenerator);
         }
         if (name == "TaskHandle") {
-          if (!target.applied_args.empty() && target.applied_args.front().kind != TypeKind::kAny) {
+          if (host_type_params == nullptr && !target.applied_args.empty() &&
+              target.applied_args.front().kind != TypeKind::kAny) {
             return unsupported("a task's result type is not stored with its handle; cast to TaskHandle<Any>");
           }
           return leaf(RuntimeTypeCheckKind::kTaskHandle);
@@ -1564,7 +1592,7 @@ auto build_runtime_type_check(const std::string& full_name, const Type& target, 
       if (!expanding.insert(key).second) {
         return unsupported("the type refers to itself");
       }
-      auto expanded = build_runtime_type_check(full_name, *underlying, type_index, span, expanding);
+      auto expanded = build_runtime_type_check(full_name, *underlying, type_index, span, expanding, host_type_params);
       expanding.erase(key);
       return expanded;
     }
@@ -1618,6 +1646,40 @@ auto runtime_type_check_for_cast(const std::string& full_name, const Type& targe
     -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError> {
   std::unordered_set<std::string> expanding;
   return build_runtime_type_check(full_name, normalize_type(target), type_index, span, expanding);
+}
+
+auto host_entry_check_for_let(const ir::IRLet& let, const StrongTypeIndex& type_index, const AliasIndex& alias_index)
+    -> tl::expected<common::HostEntryCheck, type_check::AnalysisError> {
+  auto generic_scope = make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+  if (!generic_scope) {
+    return tl::unexpected(generic_scope.error());
+  }
+
+  common::HostEntryCheck entry{.type_params = let.generic_params};
+  HostTypeParams host_type_params;
+  for (std::uint32_t index = 0; index < static_cast<std::uint32_t>(let.generic_params.size()); ++index) {
+    host_type_params.insert_or_assign(let.generic_params[index], index);
+  }
+
+  const std::string full_name = qualified_symbol_name(let.qualifier, let.name);
+  entry.params.reserve(let.params.size());
+  for (const auto& param : let.params) {
+    Type param_type = rewrite_generic_type(from_ir_type(param.type), *generic_scope);
+    auto expanded = expand_aliases_in_type(param_type, type_index, alias_index, *generic_scope, param.span);
+    if (!expanded) {
+      return tl::unexpected(expanded.error());
+    }
+    expanded->variadic = false;
+    std::unordered_set<std::string> expanding;
+    auto check = build_runtime_type_check(full_name, normalize_type(*expanded), type_index, param.span, expanding,
+                                          &host_type_params);
+    if (!check) {
+      return tl::unexpected(check.error());
+    }
+    entry.params.push_back(std::move(*check));
+  }
+  entry.variadic_tail = !let.params.empty() && let.params.back().type.variadic;
+  return entry;
 }
 
 auto check_generic_bounds(const std::string& full_name, const std::optional<diag::SourceSpan>& span,

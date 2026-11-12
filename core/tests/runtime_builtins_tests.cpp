@@ -56,14 +56,6 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     REQUIRE(to_double(First(pair)) == 10.0);
     REQUIRE(as_string(Second(pair)) == "hello");
 
-    REQUIRE_THROWS_WITH(First(make_tuple(make_tuple(make_int(1), make_int(2)))),
-                        Catch::Matchers::ContainsSubstring("First: expected a 2-tuple"));
-    REQUIRE_THROWS_WITH(Second(make_tuple(make_tuple(make_int(1), make_int(2)))),
-                        Catch::Matchers::ContainsSubstring("Second: expected a 2-tuple"));
-    REQUIRE_THROWS_WITH(First(make_tuple(make_int(1), make_int(2), make_int(3))),
-                        Catch::Matchers::ContainsSubstring("First: expected a 2-tuple"));
-    REQUIRE_THROWS_WITH(Second(make_tuple(make_int(1))),
-                        Catch::Matchers::ContainsSubstring("Second: expected a 2-tuple"));
   }
 
   SECTION("Cast returns the original runtime value after one unary convenience unwrap") {
@@ -92,8 +84,6 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     Value r2 = ElementAt(make_tuple(tpl, make_int(2)));
     REQUIRE(as_bool(r2));
 
-    REQUIRE_THROWS_WITH(ElementAt(make_tuple(tpl, make_float(1.9))),
-                        Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 
   SECTION("Length") {
@@ -144,11 +134,8 @@ TEST_CASE("Runtime builtins: arithmetic, comparison, and logic", "[runtime]") {
   REQUIRE(to_double(make_tuple(make_int(10), make_int(3)) | Mod) == 1.0);
   REQUIRE(as_string((make_tuple(make_uint(40), make_uint(2)) | Add) | Type) == "UInt64");
   REQUIRE(as_string((make_tuple(make_uint(40), make_uint(2)) | Multiply) | Type) == "UInt64");
-  REQUIRE_THROWS_AS(make_tuple(make_int(-2), make_uint(5)) | Add, std::invalid_argument);
   REQUIRE(as_string((make_tuple(make_uint(40), make_uint(2)) | Divide) | Type) == "UInt64");
-  REQUIRE_THROWS_AS(make_tuple(make_int(-10), make_uint(3)) | Divide, std::invalid_argument);
   REQUIRE(as_string((make_tuple(make_uint(40), make_uint(3)) | Mod) | Type) == "UInt64");
-  REQUIRE_THROWS_AS(make_tuple(make_int(-10), make_uint(3)) | Mod, std::invalid_argument);
   REQUIRE(to_double(make_int(5) | UnaryMinus) == -5.0);
   REQUIRE(to_double(make_tuple(make_int(5)) | UnaryPlus) == 5.0);
   REQUIRE_THROWS_WITH(make_tuple(make_string("hello"), make_string(" world")) | Add,
@@ -172,20 +159,12 @@ TEST_CASE("Runtime builtins: arithmetic, comparison, and logic", "[runtime]") {
   REQUIRE(to_double(make_int(0) | BitNot) == -1.0);
   REQUIRE(to_double(make_tuple(make_int(3), make_int(2)) | BitShiftLeft) == 12.0);
   REQUIRE(to_double(make_tuple(make_int(12), make_int(2)) | BitShiftRight) == 3.0);
-  REQUIRE_THROWS_WITH(make_tuple(make_float(6.5), make_int(3)) | BitAnd,
-                      Catch::Matchers::ContainsSubstring("expects an integer value"));
 
   Value r = make_tuple(make_bool(true), make_int(11), make_int(22)) | Select;
   REQUIRE(to_double(r) == 11.0);
 }
 
 TEST_CASE("Runtime builtins: arithmetic and bitwise boundaries", "[runtime][boundary]") {
-  SECTION("Mixed signed/unsigned integer kinds are rejected consistently") {
-    REQUIRE_THROWS_AS(make_tuple(make_int(-5), make_uint(2)) | Subtract, std::invalid_argument);
-    REQUIRE_THROWS_AS(make_tuple(make_int(-5), make_uint(2)) | Multiply, std::invalid_argument);
-    REQUIRE_THROWS_AS(make_tuple(make_int(-5), make_uint(2)) | Mod, std::invalid_argument);
-  }
-
   SECTION("Mixed signed/unsigned comparisons retain compare_numbers semantics while equality stays structural") {
     REQUIRE(as_bool(make_tuple(make_int(-5), make_uint(2)) | LessThan));
     REQUIRE(as_bool(make_tuple(make_uint(2), make_int(-5)) | GreaterThan));
@@ -194,14 +173,6 @@ TEST_CASE("Runtime builtins: arithmetic and bitwise boundaries", "[runtime][boun
   }
 
   SECTION("Bit shifts reject negative and non-integer shift values") {
-    REQUIRE_THROWS_WITH(make_tuple(make_int(1), make_int(-1)) | BitShiftLeft,
-                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
-    REQUIRE_THROWS_WITH(make_tuple(make_int(8), make_int(-1)) | BitShiftRight,
-                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
-    REQUIRE_THROWS_WITH(make_tuple(make_int(1), make_float(1.5)) | BitShiftLeft,
-                        Catch::Matchers::ContainsSubstring("expects an integer value"));
-    REQUIRE_THROWS_WITH(make_tuple(make_int(8), make_float(1.5)) | BitShiftRight,
-                        Catch::Matchers::ContainsSubstring("expects an integer value"));
   }
 }
 
@@ -246,14 +217,6 @@ TEST_CASE("Runtime builtins: deterministic random generators", "[runtime][random
   REQUIRE(as_string(ToString(First(left_step))) == "1278849761381179246");
   REQUIRE(as_string(ToString(First(right_step))) == "15883818742529415426");
 
-
-  const Value invalid_version_generator =
-      make_tuple(make_string("__fleaux_rng__"), make_int(-1), make_uint(123456789ULL));
-  REQUIRE_THROWS_WITH(RandomNextUInt64(invalid_version_generator),
-                      Catch::Matchers::ContainsSubstring("invalid version"));
-
-  const Value invalid_state_generator = make_tuple(make_string("__fleaux_rng__"), make_uint(1ULL), make_int(-1));
-  REQUIRE_THROWS_WITH(RandomSplit(invalid_state_generator), Catch::Matchers::ContainsSubstring("invalid state"));
 }
 
 TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
@@ -283,24 +246,6 @@ TEST_CASE("Runtime builtins: path and filesystem helpers require String slots", 
 
   std::error_code ec;
   std::filesystem::remove_all(temp_dir, ec);
-}
-
-TEST_CASE("Runtime builtins: FileReadChunk rejects fractional nbytes", "[runtime]") {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_runtime_builtins_tests";
-  std::filesystem::create_directories(temp_dir);
-  const auto file_path = temp_dir / "readchunk_numeric_guard.txt";
-  {
-    std::ofstream out(file_path);
-    out << "abc";
-  }
-
-  const Value handle = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
-  REQUIRE_THROWS_WITH(make_tuple(handle, make_float(1.5)) | FileReadChunk,
-                      Catch::Matchers::ContainsSubstring("expects an integer value"));
-
-  (void)(handle | FileClose);
-  std::error_code ec;
-  std::filesystem::remove(file_path, ec);
 }
 
 TEST_CASE("Runtime builtins: Std.Match supports predicate patterns", "[runtime]") {
@@ -348,32 +293,6 @@ TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
     REQUIRE_FALSE(as_bool(ResultIsOk(err)));
     REQUIRE_FALSE(as_bool(ResultTag(err)));
     REQUIRE(as_string(ResultPayload(err)) == "boom");
-  }
-
-  SECTION("Accessors require direct result tuples") {
-    const Value wrapped_ok = make_tuple(ResultOk(make_int(7)));
-    const Value wrapped_err = make_tuple(ResultErr(make_string("bad")));
-
-    REQUIRE_THROWS_WITH(ResultTag(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Tag: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultPayload(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Payload: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultIsOk(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.IsOk: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultIsErr(wrapped_err), Catch::Matchers::ContainsSubstring("Result.IsErr: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultUnwrap(wrapped_ok), Catch::Matchers::ContainsSubstring("Result.Unwrap: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultUnwrapErr(wrapped_err),
-                        Catch::Matchers::ContainsSubstring("Result.UnwrapErr: expected Result tuple"));
-  }
-
-  SECTION("Malformed Result encodings still fail structural validation") {
-    const Value wrong_width = make_tuple(make_bool(true));
-    const Value wrong_tag = make_tuple(make_int(1), make_string("boom"));
-
-    REQUIRE_THROWS_WITH(ResultTag(wrong_width), Catch::Matchers::ContainsSubstring("Result.Tag: expected Result tuple"));
-    REQUIRE_THROWS_WITH(ResultPayload(wrong_tag),
-                        Catch::Matchers::ContainsSubstring("Result.Payload: Result tag must be a Bool"));
-    REQUIRE_THROWS_WITH(ResultUnwrap(wrong_tag),
-                        Catch::Matchers::ContainsSubstring("Result.Unwrap: Result tag must be a Bool"));
-    REQUIRE_THROWS_WITH(ResultUnwrapErr(wrong_width),
-                        Catch::Matchers::ContainsSubstring("Result.UnwrapErr: expected Result tuple"));
   }
 
   SECTION("Unwrap and UnwrapErr") {
@@ -663,8 +582,6 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
     const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
     const Value task = TaskSpawn(make_tuple(identity, make_int(7)));
 
-    REQUIRE_THROWS_WITH(TaskWithTimeout(make_tuple(task, make_int(-1))),
-                        Catch::Matchers::ContainsSubstring("expects non-negative integer"));
   }
 
   SECTION("Task.WithTimeout returns Err(String) for invalid task handle") {
@@ -1178,10 +1095,6 @@ TEST_CASE("Runtime builtins: stdlib environment helpers", "[runtime]") {
     REQUIRE(as_string(first) == "Ada");
     REQUIRE(as_string(second) == "Grace");
   }
-
-  SECTION("Exit validates non-terminating error paths") {
-    REQUIRE_THROWS_WITH(Exit_Int64(make_float(1.25)), Catch::Matchers::ContainsSubstring("expects an integer value"));
-  }
 }
 
 TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
@@ -1214,12 +1127,12 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
 
   SECTION("DictMerge overlays values without mutating the base input") {
     Value base{Object{}};
-    as_object(base)[dict_key_from_value(make_string("shared"))] = make_int(1);
-    as_object(base)[dict_key_from_value(make_string("base_only"))] = make_int(10);
+    as_object(base)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(1);
+    as_object(base)[dict_key_from_validated_value(make_string("base_only"), "test")] = make_int(10);
 
     Value overlay{Object{}};
-    as_object(overlay)[dict_key_from_value(make_string("shared"))] = make_int(2);
-    as_object(overlay)[dict_key_from_value(make_string("overlay_only"))] = make_int(20);
+    as_object(overlay)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(2);
+    as_object(overlay)[dict_key_from_validated_value(make_string("overlay_only"), "test")] = make_int(20);
 
     const Value merged = DictMerge(make_tuple(base, overlay));
     const auto& merged_object = as_object(merged);
@@ -1233,7 +1146,7 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
 
   SECTION("merge_dict_values keeps empty overlays as no-ops") {
     Value base{Object{}};
-    as_object(base)[dict_key_from_value(make_string("k"))] = make_int(7);
+    as_object(base)[dict_key_from_validated_value(make_string("k"), "test")] = make_int(7);
 
     const Value merged = merge_dict_values(base, Value{Object{}});
     const auto& merged_object = as_object(merged);
@@ -1258,8 +1171,6 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(as_bool(TupleContains(make_tuple(values, make_int(2)))));
     REQUIRE(as_array(zipped).Size() == 2U);
     REQUIRE(to_double(array_at(TupleRangeInt64(make_int(3)), 2)) == 2.0);
-    REQUIRE_THROWS_WITH(TupleRangeInt64(make_tuple(make_int(3))),
-                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
 
     const Value from_start = TupleRangeInt64Int64(make_tuple(make_int(2), make_int(5)));
     REQUIRE(as_array(from_start).Size() == 3U);
@@ -1272,10 +1183,6 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(array_at(stepped, 1)) == 3.0);
     REQUIRE(to_double(array_at(stepped, 2)) == 1.0);
 
-    REQUIRE_THROWS_WITH(TupleRangeInt64(make_float(1.5)),
-                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
-    REQUIRE_THROWS_WITH(TupleRangeInt64Int64(make_tuple(make_int(0), make_float(3.5))),
-                        Catch::Matchers::ContainsSubstring("Std.Tuple.Range invariant violated: expected validated integer value"));
     REQUIRE_THROWS_WITH(TupleRangeInt64Int64Int64(make_tuple(make_int(0), make_int(5), make_int(0))),
                         Catch::Matchers::ContainsSubstring("TupleRange step cannot be 0"));
 
@@ -1509,16 +1416,10 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     const Value reshaped_nd = ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_int(2), make_int(2))));
     REQUIRE(to_double(ArrayGetAtND(make_tuple(reshaped_nd, make_tuple(make_int(1), make_int(1), make_int(1))))) == 8.0);
 
-    REQUIRE_THROWS_WITH(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(1), make_float(0.5), make_int(1)))),
-                        Catch::Matchers::ContainsSubstring("invariant violated: expected validated integer index"));
-    REQUIRE_THROWS_WITH(ArrayReshapeND(make_tuple(flattened, make_tuple(make_int(2), make_float(2.5), make_int(2)))),
-                        Catch::Matchers::ContainsSubstring("invariant violated: expected validated integer index"));
 
     const Value whole = ArrayGetAtND(make_tuple(cube, make_tuple()));
     REQUIRE(as_array(whole).Size() == 2);
 
-    REQUIRE_THROWS_WITH(ArrayGetAtND(make_tuple(cube, make_tuple(make_int(-1), make_int(0), make_int(0)))),
-                        Catch::Matchers::ContainsSubstring("non-negative index"));
     REQUIRE_THROWS_AS(
         ArrayGetAtND(make_tuple(cube, make_tuple(make_int(0), make_int(0), make_int(0), make_int(0)))),
         std::runtime_error);
@@ -1764,9 +1665,6 @@ TEST_CASE("Runtime builtins: wrapping and saturating integer arithmetic", "[runt
   REQUIRE(SaturatingSubtract(make_tuple(make_uint(1U), make_uint(2U))) == make_uint(0U));
   REQUIRE(SaturatingAdd(make_tuple(make_uint(kUInt64Max), make_uint(1U))) == make_uint(kUInt64Max));
   REQUIRE(SaturatingMultiply(make_tuple(make_int(2), make_int(2))) == make_int(4));
-
-  REQUIRE_THROWS_WITH(WrappingAdd(make_tuple(make_float(1.0), make_float(2.0))),
-                      "WrappingAdd: expects Int64 or UInt64 operands");
 }
 
 TEST_CASE("Runtime builtins: exact integer arithmetic keeps the operand type", "[runtime][arithmetic]") {
@@ -1821,4 +1719,15 @@ TEST_CASE("Runtime type checks follow the runtime value representation", "[runti
     REQUIRE_FALSE(value_matches_type_check(make_null(), leaf(RuntimeTypeCheckKind::kNever)));
     REQUIRE(value_matches_type_check(make_null(), leaf(RuntimeTypeCheckKind::kAny)));
   }
+}
+
+TEST_CASE("RandomGenerator checks validate the whole token", "[runtime][cast]") {
+  using fleaux::common::RuntimeTypeCheck;
+  using fleaux::common::RuntimeTypeCheckKind;
+  const RuntimeTypeCheck check{.kind = RuntimeTypeCheckKind::kRandomGenerator};
+
+  REQUIRE(value_matches_type_check(RandomCreate(make_tuple(make_uint(1U))), check));
+  REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_uint(2U), make_uint(5U)), check));
+  REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_uint(1U), make_int(5)), check));
+  REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_int(1), make_uint(5U)), check));
 }

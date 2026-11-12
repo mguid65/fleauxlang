@@ -1,7 +1,7 @@
 #pragma once
 // A structural description of a type that the VM can check a value against at runtime.
-// The type checker builds one for each Std.Cast or Std.TryCast whose argument has static type Any, the compiler
-// stores it in the bytecode module, and the VM checks the cast value against it.
+// The type checker builds one for each Std.Cast or Std.TryCast whose argument has static type Any, and one for each
+// parameter of a function the host can call (HostEntryCheck). The compiler stores them in the bytecode module.
 
 #include <cstdint>
 #include <string>
@@ -30,16 +30,37 @@ enum class RuntimeTypeCheckKind : std::uint8_t {
   kFileHandle,
   kRandomGenerator,
   kTaskHandle,
+  // Host entry checks only. A callable value, checked by its tag: the runtime does not store parameter and return
+  // types with callables.
+  kCallable,
+  // Host entry checks only. One use of generic parameter `type_param`; `items` are the alternatives of its bound
+  // (empty when unbounded). Every use of one parameter must match a common alternative.
+  kTypeParam,
 };
 
-inline constexpr auto kRuntimeTypeCheckKindCount = static_cast<std::uint8_t>(RuntimeTypeCheckKind::kTaskHandle) + 1U;
+inline constexpr auto kRuntimeTypeCheckKindCount = static_cast<std::uint8_t>(RuntimeTypeCheckKind::kTypeParam) + 1U;
+
+// A bound may list at most this many alternatives, so the alternatives a value matches fit in one bit set.
+inline constexpr std::size_t kMaxTypeParamAlternatives = 64;
 
 struct RuntimeTypeCheck {
   RuntimeTypeCheckKind kind{RuntimeTypeCheckKind::kAny};
   std::vector<RuntimeTypeCheck> items{};
   bool variadic_tail{false};
+  std::uint32_t type_param{0};
 
   friend auto operator==(const RuntimeTypeCheck&, const RuntimeTypeCheck&) -> bool = default;
+};
+
+// Checks for the argument of a function called by the host, one per declared parameter. When `variadic_tail` is
+// set, the last check applies to each remaining argument. `type_params` names the generic parameters that
+// kTypeParam checks refer to.
+struct HostEntryCheck {
+  std::vector<RuntimeTypeCheck> params{};
+  bool variadic_tail{false};
+  std::vector<std::string> type_params{};
+
+  friend auto operator==(const HostEntryCheck&, const HostEntryCheck&) -> bool = default;
 };
 
 // Number of `items` a well-formed check of this kind has, or -1 when any number is allowed.
@@ -47,6 +68,7 @@ struct RuntimeTypeCheck {
   switch (kind) {
     case RuntimeTypeCheckKind::kTuple:
     case RuntimeTypeCheckKind::kUnion:
+    case RuntimeTypeCheckKind::kTypeParam:
       return -1;
     case RuntimeTypeCheckKind::kDict:
     case RuntimeTypeCheckKind::kResult:
@@ -71,8 +93,57 @@ struct RuntimeTypeCheck {
   if (check.kind == RuntimeTypeCheckKind::kUnion && check.items.size() < 2U) {
     return false;
   }
+  if (check.kind == RuntimeTypeCheckKind::kTypeParam) {
+    // Bounds are closed types: their alternatives cannot use generic parameters.
+    if (check.items.size() > kMaxTypeParamAlternatives) {
+      return false;
+    }
+  } else if (check.type_param != 0U) {
+    return false;
+  }
   for (const auto& item : check.items) {
     if (!is_well_formed(item)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// A check that a cast may use: no host-only kinds anywhere inside.
+[[nodiscard]] inline auto is_cast_check(const RuntimeTypeCheck& check) -> bool {
+  if (check.kind == RuntimeTypeCheckKind::kCallable || check.kind == RuntimeTypeCheckKind::kTypeParam) {
+    return false;
+  }
+  for (const auto& item : check.items) {
+    if (!is_cast_check(item)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] inline auto is_well_formed(const HostEntryCheck& entry) -> bool {
+  if (entry.variadic_tail && entry.params.empty()) {
+    return false;
+  }
+  for (const auto& param : entry.params) {
+    if (!is_well_formed(param)) {
+      return false;
+    }
+  }
+  const auto type_params_in_range = [&](const auto& self, const RuntimeTypeCheck& check) -> bool {
+    if (check.kind == RuntimeTypeCheckKind::kTypeParam && check.type_param >= entry.type_params.size()) {
+      return false;
+    }
+    for (const auto& item : check.items) {
+      if (!self(self, item)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  for (const auto& param : entry.params) {
+    if (!type_params_in_range(type_params_in_range, param)) {
       return false;
     }
   }
@@ -127,6 +198,10 @@ struct RuntimeTypeCheck {
       return "RandomGenerator";
     case RuntimeTypeCheckKind::kTaskHandle:
       return "TaskHandle<Any>";
+    case RuntimeTypeCheckKind::kCallable:
+      return "a function";
+    case RuntimeTypeCheckKind::kTypeParam:
+      return check.items.empty() ? std::string{"Any"} : join(check.items, " | ", false);
   }
   return "<invalid>";
 }
