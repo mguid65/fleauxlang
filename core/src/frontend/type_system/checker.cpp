@@ -187,8 +187,10 @@ auto type_debug_name(const Type& type) -> std::string {
     case TypeKind::kNull:
       return "Null";
     case TypeKind::kNominal:
-    case TypeKind::kTypeVar:
       return type.nominal_name;
+    case TypeKind::kTypeVar:
+      // Open functions rename their type variables to `T'<id>`; show the source name.
+      return type.nominal_name.substr(0, type.nominal_name.find('\''));
     case TypeKind::kTuple: {
       std::string out = "Tuple<";
       append_joined_type_fragments(
@@ -281,6 +283,24 @@ auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t a
   }
   return hint + numeric_conversion_note(expected_type, bindings, actual) +
          any_cast_note(instantiate_generic_type(expected_type, bindings), actual);
+}
+
+// The hint for an open function argument whose parameter type it cannot be instantiated from.
+auto open_function_mismatch_hint(const std::string& full_name, const std::size_t arg_index, const Type& open,
+                                 const Type& expected) -> std::string {
+  std::string names;
+  for (const auto& param : open.function_generic_params) {
+    names += (names.empty() ? "" : ", ") + param.substr(0, param.find('\''));
+  }
+  if (expected.kind != TypeKind::kFunction) {
+    return std::format("{} could not infer generic callable type variable(s): {}. {} is generic and used as a value "
+                       "here (argument {} of {}), but {} is not a function type it can take its type arguments from.",
+                       open.open_function_name, names, open.open_function_name, arg_index, full_name,
+                       type_debug_name(expected));
+  }
+  return std::format("{} expects argument {} to be {}, but {} cannot take those parameter types: its type "
+                     "variable(s) {} are taken from them and must satisfy their bounds.",
+                     full_name, arg_index, type_debug_name(expected), open.open_function_name, names);
 }
 
 [[nodiscard]] auto make_error(const std::string& message, const std::optional<std::string>& hint,
@@ -1750,7 +1770,14 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
   TypeBindings generic_bindings = std::move(*explicit_bindings);
   const bool is_generic_call = !sig.generic_params.empty();
 
+  // A generic function passed as a value without type arguments (an open function) is instantiated from its
+  // parameter's function type, so it is bound after the other arguments have fixed that type's type variables.
+  std::vector<std::size_t> open_args;
   for (std::size_t i = 0; i < fixed_count; ++i) {
+    if (is_generic_call && is_open_function(args[i])) {
+      open_args.push_back(i);
+      continue;
+    }
     if (is_generic_call) {
       if (!bind_generic_type(sig.params[i].type, args[i], generic_bindings)) {
         return tl::unexpected(make_error(
@@ -1769,8 +1796,10 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
 
     if (!is_consistent(sig.params[i].type, args[i])) {
       return tl::unexpected(make_error("Type mismatch in call target arguments.",
-                                       std::format("{} expects argument {} to match declared type.{}", full_name, i,
-                                                   any_cast_note(sig.params[i].type, args[i])),
+                                       is_open_function(args[i])
+                                           ? open_function_mismatch_hint(full_name, i, args[i], sig.params[i].type)
+                                           : std::format("{} expects argument {} to match declared type.{}", full_name,
+                                                         i, any_cast_note(sig.params[i].type, args[i])),
                                        span));
     }
   }
@@ -1778,6 +1807,10 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
   if (has_variadic) {
     const Type& variadic_type = sig.params.back().type;
     for (std::size_t i = fixed_count; i < args.size(); ++i) {
+      if (is_generic_call && is_open_function(args[i])) {
+        open_args.push_back(i);
+        continue;
+      }
       if (is_generic_call) {
         if (!bind_generic_type(variadic_type, args[i], generic_bindings)) {
           return tl::unexpected(make_error(
@@ -1800,6 +1833,17 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
                                    any_cast_note(variadic_type, args[i])),
                        span));
       }
+    }
+  }
+
+  for (const std::size_t i : open_args) {
+    const bool variadic_arg = i >= fixed_count;
+    const Type& param_type = variadic_arg ? sig.params.back().type : sig.params[i].type;
+    const Type expected = instantiate_generic_type(param_type, generic_bindings);
+    const auto instantiated = instantiate_open_function(args[i], expected);
+    if (!instantiated.has_value() || !bind_generic_type(param_type, *instantiated, generic_bindings)) {
+      return tl::unexpected(make_error("Type mismatch in call target arguments.",
+                                       open_function_mismatch_hint(full_name, i, args[i], expected), span));
     }
   }
 

@@ -1,0 +1,25 @@
+import Std;
+
+// A generic function can be passed as a value without type arguments. Its type arguments come from the function
+// type of the parameter it is passed to, and must satisfy its bounds.
+
+let SumWith<T>(xs: Tuple<T...>, zero: T, add: (T, T) => T): T = (xs, zero, add) -> Std.Tuple.Reduce;
+let Twice<T: Numeric>(x: T): T = (x, x) -> +;
+
+((1, 2, 3), 0, Std.Add) -> SumWith -> Std.Println;               // 6, Std.Add at Int64
+((1.5, 2.5), 0.0, Std.Add) -> SumWith -> Std.Println;            // 4, Std.Add at Float64
+((1, 2), Twice) -> Std.Tuple.Map -> Std.Println;                 // 2 4
+
+// Generic closures work the same way.
+(("a", "b"), <T>(x: T): Tuple<T, T> = (x, x)) -> Std.Tuple.Map -> Std.Println;   // (a, a) (b, b)
+
+// A declared function type also supplies the type arguments.
+let AddInts: (Int64, Int64) => Int64 = Std.Add;
+
+// Inside a generic body, the type arguments may be the body's own type parameters.
+let Total<T: Numeric>(xs: Tuple<T...>, zero: T): T = (xs, zero, Std.Add) -> SumWith;
+((4, 5), 0) -> Total -> Std.Println;                             // 9
+
+// Not allowed:
+//   (("a", "b"), "", Std.Add) -> SumWith    String does not satisfy Std.Add's Numeric bound
+//   Std.Add -> Std.Println                  Any is not a function type to take type arguments from

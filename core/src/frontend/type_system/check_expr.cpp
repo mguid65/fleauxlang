@@ -1,6 +1,8 @@
 #include "fleaux/frontend/type_system/detail/checker_internal.hpp"
 
+#include <algorithm>
 #include <format>
+#include <unordered_set>
 
 #include "fleaux/common/overloaded.hpp"
 
@@ -154,6 +156,20 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   }
 
   const auto& sig = *filtered->front();
+  // Without type arguments, a generic function used as a value is an open function: its type arguments come from
+  // the function type it is passed as.
+  // Every type parameter must appear in a parameter type, since that is where its type argument comes from.
+  if (explicit_type_args.empty() && !sig.generic_params.empty() && !sig.params.empty()) {
+    std::unordered_set<std::string> param_type_vars;
+    for (const auto& param : sig.params) {
+      collect_type_vars(param.type, param_type_vars);
+    }
+    if (std::ranges::all_of(sig.generic_params,
+                            [&](const std::string& param) { return param_type_vars.contains(param); })) {
+      name_ref.resolved_symbol_key = sig.resolved_symbol_key;
+      return make_open_function_type(function_type_from_sig(sig), sig.generic_params, full_name);
+    }
+  }
   auto bindings = explicit_type_arg_bindings_for_sig(full_name, name_ref.span, sig, explicit_type_args);
   if (!bindings) {
     return tl::unexpected(bindings.error());
@@ -343,6 +359,10 @@ auto infer_closure_expr(ir::IRClosureExprBox& closure_box, const FunctionIndex& 
         closure.span));
   }
 
+  // A generic closure is an open function, instantiated from the function type it is passed as.
+  if (!closure.generic_params.empty()) {
+    return make_open_function_type(function_type_from_sig(closure_sig), closure.generic_params, "closure");
+  }
   return function_type_from_sig(closure_sig);
 }
 

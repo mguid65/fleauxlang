@@ -452,7 +452,7 @@ TEST_CASE("Type checker accepts user generic let body with higher-order closure 
 
 TEST_CASE("Type checker accepts prefix-generic inline closure with local type variable",
           "[typecheck][generics][closures]") {
-  const std::string src = "let MakeInlineGeneric(): Any = <T>(x: T): T = x;\n";
+  const std::string src = "let MakeInlineGeneric(): (String) => String = <T>(x: T): T = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "typecheck_prefix_generic_closure_ok.fleaux");
@@ -6463,7 +6463,7 @@ TEST_CASE("Type checker checks bounded type parameters inside generic bodies", "
   }
 
   SECTION("Closure bodies see the bounds of their generic parameters") {
-    REQUIRE(lower_and_check(decls + "let F: Any = <T: Int64>(x: T): T = (x, x) -> Std.Add;\n",
+    REQUIRE(lower_and_check(decls + "let F: (Int64) => Int64 = <T: Int64>(x: T): T = (x, x) -> Std.Add;\n",
                             "closure_bound.fleaux")
                 .has_value());
     const auto lowered =
@@ -7001,5 +7001,65 @@ TEST_CASE("Operators call user operator functions of strong operand types", "[ty
                                          "user_operators_alias.fleaux");
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().hint->find("tried") == std::string::npos);
+  }
+}
+
+TEST_CASE("Generic functions passed as values take type arguments from the parameter type",
+          "[typecheck][generics][open_functions]") {
+  const std::string decls =
+      "import Std;\n"
+      "let SumWith<T>(xs: Tuple<T...>, zero: T, add: (T, T) => T): T = (xs, zero, add) -> Std.Tuple.Reduce;\n"
+      "let Twice<T: Numeric>(x: T): T = (x, x) -> +;\n";
+
+  SECTION("Builtin, user, and closure generics are inferred") {
+    REQUIRE(lower_and_check(decls + "let A(): Int64 = ((1, 2), 0, Std.Add) -> SumWith;\n"
+                                    "let B(): Float64 = ((1.5, 2.5), 0.0, Std.Add) -> SumWith;\n"
+                                    "let C(): Tuple<Int64...> = ((1, 2), Twice) -> Std.Tuple.Map;\n"
+                                    "let D(): Tuple<Tuple<String, String>...> =\n"
+                                    "  ((\"a\", \"b\"), <T>(x: T): Tuple<T, T> = (x, x)) -> Std.Tuple.Map;\n",
+                            "open_functions_inferred.fleaux")
+                .has_value());
+  }
+
+  SECTION("The inferred return type flows on") {
+    const auto lowered =
+        lower_and_check(decls + "let Bad(): String = ((1, 2), Twice) -> Std.Tuple.Map;\n", "open_functions_return.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Bad declares return type String but its body has type Tuple<Int64...>") !=
+            std::string::npos);
+  }
+
+  SECTION("A declared function type supplies the type arguments") {
+    REQUIRE(lower_and_check(decls + "let AddInts: (Int64, Int64) => Int64 = Std.Add;\n", "open_functions_let.fleaux")
+                .has_value());
+    REQUIRE_FALSE(
+        lower_and_check(decls + "let AddStrings: (String, String) => String = Std.Add;\n", "open_functions_let_bad.fleaux")
+            .has_value());
+  }
+
+  SECTION("Inferred type arguments must satisfy the bounds") {
+    const auto lowered = lower_and_check(decls + "let Bad(): String = ((\"a\", \"b\"), \"\", Std.Add) -> SumWith;\n",
+                                         "open_functions_bound.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("SumWith expects argument 2 to be (String, String) => String, but Std.Add "
+                                       "cannot take those parameter types") != std::string::npos);
+  }
+
+  SECTION("Type parameters of the enclosing generic body can be the type arguments") {
+    REQUIRE(lower_and_check(decls + "let Total<T: Numeric>(xs: Tuple<T...>, zero: T): T = (xs, zero, Std.Add) -> SumWith;\n",
+                            "open_functions_generic_body.fleaux")
+                .has_value());
+    const auto unbounded = lower_and_check(
+        decls + "let Total<T>(xs: Tuple<T...>, zero: T): T = (xs, zero, Std.Add) -> SumWith;\n",
+        "open_functions_generic_body_unbounded.fleaux");
+    REQUIRE_FALSE(unbounded.has_value());
+  }
+
+  SECTION("Any is not a function type to take type arguments from") {
+    const auto lowered = lower_and_check(decls + "let Bad(): Any = Std.Add -> Std.Type;\n", "open_functions_any.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Std.Add could not infer generic callable type variable(s): T") !=
+            std::string::npos);
+    REQUIRE(lowered.error().hint->find("Any is not a function type") != std::string::npos);
   }
 }

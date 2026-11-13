@@ -304,7 +304,7 @@ TEST_CASE("Lowerer emits closure IR with captured lexical names", "[lowering]") 
 }
 
 TEST_CASE("Lowerer preserves prefix-generic closure parameters in IR", "[lowering][generics]") {
-  const std::string src = "let MakeIdentity(): Any = <T>(x: T): T = x;\n";
+  const std::string src = "let MakeIdentity(): (Int64) => Int64 = <T>(x: T): T = x;\n";
 
   const fleaux::frontend::parse::Parser parser;
   const auto parsed = parser.parse_program(src, "closure_generic_params_lowering.fleaux");

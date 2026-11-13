@@ -1,6 +1,11 @@
 #include "fleaux/frontend/type_system/type.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <format>
+#include <optional>
+#include <unordered_map>
 
 #include "fleaux/frontend/type_system/detail/type_format.hpp"
 
@@ -188,6 +193,171 @@ auto param_local_type(const Type& declared, const bool variadic) -> Type {
   return normalize_type(std::move(tuple));
 }
 
+namespace {
+
+using TypeVarNames = std::unordered_map<std::string, std::string>;
+using TypeVarBindings = std::unordered_map<std::string, Type>;
+
+template <typename Visit>
+auto map_type_children(Type out, Visit&& visit) -> Type {
+  for (auto& item : out.items) {
+    const bool variadic = item.variadic;
+    item = visit(item);
+    item.variadic = variadic;
+  }
+  for (auto& member : out.union_members) {
+    member = visit(member);
+  }
+  for (auto& arg : out.applied_args) {
+    arg = visit(arg);
+  }
+  for (auto& param : out.function_params) {
+    const bool variadic = param.variadic;
+    param = visit(param);
+    param.variadic = variadic;
+  }
+  if (out.function_return.has_value()) {
+    out.function_return = common::make_indirect_optional<Type>(visit(*out.function_return));
+  }
+  return out;
+}
+
+auto rename_type_vars(const Type& type, const TypeVarNames& names) -> Type {
+  if (type.kind == TypeKind::kTypeVar) {
+    Type renamed = type;
+    if (const auto it = names.find(type.nominal_name); it != names.end()) {
+      renamed.nominal_name = it->second;
+    }
+    return renamed;
+  }
+  return map_type_children(type, [&](const Type& child) { return rename_type_vars(child, names); });
+}
+
+auto substitute_type_vars(const Type& type, const TypeVarBindings& bindings) -> Type {
+  if (type.kind == TypeKind::kTypeVar) {
+    if (const auto it = bindings.find(type.nominal_name); it != bindings.end()) {
+      Type bound = it->second;
+      bound.variadic = type.variadic;
+      return bound;
+    }
+    return type;
+  }
+  return normalize_type(map_type_children(type, [&](const Type& child) { return substitute_type_vars(child, bindings); }));
+}
+
+auto find_type_var_bound(const Type& type, const std::string& name) -> std::optional<Type> {
+  if (type.kind == TypeKind::kTypeVar && type.nominal_name == name) {
+    return type.type_var_bound.has_value() ? std::optional<Type>{*type.type_var_bound} : std::nullopt;
+  }
+  const auto search = [&](const std::vector<Type>& children) -> std::optional<Type> {
+    for (const auto& child : children) {
+      if (auto found = find_type_var_bound(child, name)) {
+        return found;
+      }
+    }
+    return std::nullopt;
+  };
+  if (auto found = search(type.items)) return found;
+  if (auto found = search(type.union_members)) return found;
+  if (auto found = search(type.applied_args)) return found;
+  if (auto found = search(type.function_params)) return found;
+  if (type.function_return.has_value()) {
+    return find_type_var_bound(*type.function_return, name);
+  }
+  return std::nullopt;
+}
+
+// Collects bindings for the open type variables in `pattern` from the matching parts of `concrete`. Parts that do
+// not line up are left alone: the consistency check on the instantiated type decides whether they fit.
+auto collect_open_bindings(const Type& pattern, const Type& concrete, const std::vector<std::string>& open,
+                           TypeVarBindings& bindings) -> bool {
+  if (pattern.kind == TypeKind::kTypeVar && std::ranges::find(open, pattern.nominal_name) != open.end()) {
+    Type value = concrete;
+    value.variadic = false;
+    if (const auto it = bindings.find(pattern.nominal_name); it != bindings.end()) {
+      return is_consistent(it->second, value) && is_consistent(value, it->second);
+    }
+    bindings.insert_or_assign(pattern.nominal_name, std::move(value));
+    return true;
+  }
+  if (pattern.kind != concrete.kind) {
+    return true;
+  }
+  const auto pairwise = [&](const std::vector<Type>& lhs, const std::vector<Type>& rhs) -> bool {
+    for (std::size_t index = 0; index < std::min(lhs.size(), rhs.size()); ++index) {
+      if (!collect_open_bindings(lhs[index], rhs[index], open, bindings)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (!pairwise(pattern.items, concrete.items) || !pairwise(pattern.applied_args, concrete.applied_args) ||
+      !pairwise(pattern.function_params, concrete.function_params)) {
+    return false;
+  }
+  if (pattern.union_members.size() == concrete.union_members.size() &&
+      !pairwise(pattern.union_members, concrete.union_members)) {
+    return false;
+  }
+  if (pattern.function_return.has_value() && concrete.function_return.has_value()) {
+    return collect_open_bindings(*pattern.function_return, *concrete.function_return, open, bindings);
+  }
+  return true;
+}
+
+}  // namespace
+
+auto make_open_function_type(const Type& function_type, const std::vector<std::string>& generic_params,
+                             std::string name) -> Type {
+  static std::atomic<std::uint64_t> next_open_id{0};
+  const auto open_id = next_open_id.fetch_add(1U, std::memory_order_relaxed);
+  TypeVarNames names;
+  Type open = function_type;
+  open.function_generic_params.clear();
+  for (const auto& param : generic_params) {
+    // The quote cannot appear in a source identifier, so a fresh name never clashes with a declared one.
+    const std::string fresh = std::format("{}'{}", param, open_id);
+    names.insert_or_assign(param, fresh);
+    open.function_generic_params.push_back(fresh);
+  }
+  auto generic_params_of_open = open.function_generic_params;
+  open = rename_type_vars(open, names);
+  open.function_generic_params = std::move(generic_params_of_open);
+  open.open_function_name = std::move(name);
+  return open;
+}
+
+auto instantiate_open_function(const Type& open, const Type& expected) -> std::optional<Type> {
+  if (expected.kind != TypeKind::kFunction || !expected.function_return.has_value() || !open.function_return.has_value() ||
+      expected.function_params.size() != open.function_params.size()) {
+    return std::nullopt;
+  }
+
+  // Type variables are taken from the parameters: the expected type says what the function will be called with.
+  TypeVarBindings bindings;
+  for (std::size_t index = 0; index < open.function_params.size(); ++index) {
+    if (!collect_open_bindings(open.function_params[index], expected.function_params[index],
+                               open.function_generic_params, bindings)) {
+      return std::nullopt;
+    }
+  }
+  for (const auto& name : open.function_generic_params) {
+    const auto binding = bindings.find(name);
+    if (binding == bindings.end()) {
+      return std::nullopt;
+    }
+    if (const auto bound = find_type_var_bound(open, name); bound.has_value() &&
+                                                            !satisfies_generic_bound(binding->second, *bound)) {
+      return std::nullopt;
+    }
+  }
+
+  Type instantiated = substitute_type_vars(open, bindings);
+  instantiated.function_generic_params.clear();
+  instantiated.open_function_name.clear();
+  return instantiated;
+}
+
 auto from_ir_type(const ir::IRSimpleType& type) -> Type {
   if (!type.alternative_types.empty() || !type.alternatives.empty()) {
     Type out;
@@ -347,6 +517,10 @@ auto are_function_types_consistent(const Type& expected, const Type& actual) -> 
   if (actual.kind != TypeKind::kFunction) {
     return false;
   }
+  if (is_open_function(actual)) {
+    const auto instantiated = instantiate_open_function(actual, expected);
+    return instantiated.has_value() && are_function_types_consistent(expected, *instantiated);
+  }
 
   if (!expected.function_return.has_value() || !actual.function_return.has_value()) {
     return true;
@@ -416,6 +590,10 @@ auto satisfies_generic_bound(const Type& actual, const Type& bound) -> bool {
 auto is_consistent(const Type& expected, const Type& actual) -> bool {
   if (actual.kind == TypeKind::kNever) {
     return true;
+  }
+  // An open function has no type until it is instantiated from a function type, so even Any cannot take it.
+  if (is_open_function(actual) && expected.kind != TypeKind::kFunction && expected.kind != TypeKind::kUnion) {
+    return false;
   }
   // Any is the top type: every value fits an Any slot, but an Any value fits only an Any slot. Using it as
   // anything more specific needs Std.Cast, which is checked at runtime.
