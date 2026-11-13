@@ -22,7 +22,40 @@ using KnownTypes = std::unordered_map<std::string, std::size_t>;
 struct ResolvedInvocation {
   Type return_type;
   std::string resolved_symbol_key{};
+  // The generic bindings of the call and the callee's operator requirements, for passing hidden operator arguments.
+  TypeBindings bindings{};
+  std::vector<OperatorRequirement> operator_requirements{};
 };
+
+// The generic let body being checked. An operator on one of its type parameters whose bound contains a strong type
+// becomes an operator requirement of the let, called through a hidden leading parameter.
+struct GenericBodyContext {
+  std::vector<std::string> generic_params;
+  std::vector<OperatorRequirement> requirements;
+};
+
+[[nodiscard]] auto current_generic_body_context() -> GenericBodyContext*;
+
+class ScopedGenericBodyContext {
+public:
+  explicit ScopedGenericBodyContext(GenericBodyContext* context);
+  ~ScopedGenericBodyContext();
+  ScopedGenericBodyContext(const ScopedGenericBodyContext&) = delete;
+  auto operator=(const ScopedGenericBodyContext&) -> ScopedGenericBodyContext& = delete;
+
+private:
+  GenericBodyContext* previous_;
+};
+
+[[nodiscard]] auto same_operator_requirements(const std::vector<OperatorRequirement>& lhs,
+                                              const std::vector<OperatorRequirement>& rhs) -> bool;
+// The index of the requirement in the context, adding it when it is new.
+[[nodiscard]] auto operator_requirement_index(GenericBodyContext& context, OperatorRequirement requirement)
+    -> std::size_t;
+// The name of the hidden parameter for requirement `index`. The quote keeps it apart from source identifiers.
+[[nodiscard]] auto hidden_operator_param_name(std::size_t index) -> std::string;
+// True when the bound lists a declared strong type (not a builtin type).
+[[nodiscard]] auto bound_has_strong_type(const Type& bound, const StrongTypeIndex& type_index) -> bool;
 
 // The runtime check for a cast from Any to `target`. Strong types are checked by their underlying type, and
 // builtin types by their runtime tag. Function types, TaskHandle<T> with T other than Any, and unresolved generic
@@ -165,7 +198,7 @@ auto try_bind_union_option(const Type& expected_option, const Type& actual_membe
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
                       const std::vector<Type>& args, const StrongTypeIndex& type_index,
                       const GenericScope& allowed_unbound,
-                      const std::vector<Type>& explicit_type_args = {})
+                      const std::vector<Type>& explicit_type_args = {}, TypeBindings* out_bindings = nullptr)
     -> tl::expected<Type, type_check::AnalysisError>;
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                                  const FunctionOverloadSet& overloads, const std::vector<Type>& args,

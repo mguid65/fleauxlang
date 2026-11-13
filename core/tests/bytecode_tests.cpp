@@ -6589,3 +6589,18 @@ TEST_CASE("Operators find user operator functions from imported modules", "[byte
   REQUIRE(runtime.execute(*linked, output).has_value());
   REQUIRE(output.str() == "10\n");
 }
+
+TEST_CASE("Functions with hidden operator parameters are not exported yet", "[bytecode][host_entry][operator_requirements]") {
+  const auto module = compile_host_module(
+      "import Std;\n"
+      "type Money = Int64;\n"
+      "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+      "Std.Cast<Money>;\n"
+      "let Add2<T: Int64 | Money>(a: T, b: T): T = (a, b) -> +;\n"
+      "let AddInts(a: Int64, b: Int64): Int64 = (a, b) -> Add2;\n",
+      "hidden_operator_exports.fleaux");
+  REQUIRE(std::ranges::none_of(module.exports, [](const auto& symbol) { return symbol.name == "Add2"; }));
+  REQUIRE(host_call(module, "AddInts", fleaux::runtime::make_tuple(fleaux::runtime::make_int(2),
+                                                                     fleaux::runtime::make_int(3)))
+              .value() == fleaux::runtime::make_int(5));
+}

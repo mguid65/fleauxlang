@@ -372,6 +372,9 @@ struct IRLet {
   bool is_builtin{false};
   // Set by the type checker: the runtime check of an argument the host passes when it calls this function.
   std::optional<common::HostEntryCheck> host_entry_check{std::nullopt};
+  // Set by the type checker: the number of hidden leading parameters in `params` that carry operator
+  // implementations for type parameters bounded by strong types (see the type checker's OperatorRequirement).
+  std::size_t hidden_operator_params{0};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 

@@ -7063,3 +7063,128 @@ TEST_CASE("Generic functions passed as values take type arguments from the param
     REQUIRE(lowered.error().hint->find("Any is not a function type") != std::string::npos);
   }
 }
+
+namespace {
+
+auto find_let(const fleaux::frontend::ir::IRProgram& program, const std::string_view name)
+    -> const fleaux::frontend::ir::IRLet& {
+  for (const auto& let : program.lets) {
+    if (let.name == name) {
+      return let;
+    }
+  }
+  FAIL("let not found: " << name);
+  return program.lets.front();
+}
+
+const std::string kMoneyOperators =
+    "import Std;\n"
+    "type Money = Int64;\n"
+    "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+    "Std.Cast<Money>;\n"
+    "let M(x: Int64): Money = x -> Std.Cast<Money>;\n"
+    "alias Summable = Int64 | Money;\n";
+
+}  // namespace
+
+TEST_CASE("Generic functions take operators of strong-bounded type parameters as hidden arguments",
+          "[typecheck][operators][operator_requirements]") {
+  using fleaux::frontend::ir::IRFlowExpr;
+  using fleaux::frontend::ir::IRNameRef;
+  using fleaux::frontend::ir::IRTupleExpr;
+
+  SECTION("The operator becomes a call through a hidden leading parameter") {
+    const auto lowered =
+        lower_and_check(kMoneyOperators + "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n", "req_body.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& add2 = find_let(*lowered, "Add2");
+    REQUIRE(add2.hidden_operator_params == 1U);
+    REQUIRE(add2.params.size() == 3U);
+    REQUIRE(add2.params[0].name == "'op0");
+    const auto& flow = std::get<IRFlowExpr>(add2.body->node);
+    REQUIRE(std::get<IRNameRef>(flow.rhs).name == "Apply");
+  }
+
+  SECTION("Callers pass the function for the type the parameter binds to") {
+    const auto lowered = lower_and_check(kMoneyOperators + "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n"
+                                                           "let OnMoney(a: Money, b: Money): Money = (a, b) -> Add2;\n"
+                                                           "let OnInts(a: Int64, b: Int64): Int64 = (a, b) -> Add2;\n",
+                                         "req_callers.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto hidden_arg = [&](const std::string& let_name) {
+      const auto& flow = std::get<IRFlowExpr>(find_let(*lowered, let_name).body->node);
+      const auto& args = std::get<IRTupleExpr>(flow.lhs->node);
+      REQUIRE(args.items.size() == 3U);
+      return std::get<IRNameRef>(args.items.front()->node);
+    };
+    const auto money = hidden_arg("OnMoney");
+    REQUIRE(money.qualifier == std::optional<std::string>{"Money"});
+    REQUIRE(money.name == "Add");
+    const auto ints = hidden_arg("OnInts");
+    REQUIRE(ints.qualifier == std::optional<std::string>{"Std"});
+    REQUIRE(ints.name == "Add");
+  }
+
+  SECTION("Generic callers inherit the requirement and pass their own hidden parameter") {
+    const auto lowered = lower_and_check(kMoneyOperators + "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n"
+                                                           "let Twice<T: Summable>(x: T): T = (x, x) -> Add2;\n",
+                                         "req_inherit.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& twice = find_let(*lowered, "Twice");
+    REQUIRE(twice.hidden_operator_params == 1U);
+    const auto& flow = std::get<IRFlowExpr>(twice.body->node);
+    const auto& args = std::get<IRTupleExpr>(flow.lhs->node);
+    REQUIRE(std::get<IRNameRef>(args.items.front()->node).name == "'op0");
+  }
+
+  SECTION("Closures in the body capture the hidden parameter") {
+    const auto lowered = lower_and_check(
+        kMoneyOperators + "let Total<T: Summable>(xs: Tuple<T...>, zero: T): T =\n"
+                          "  (xs, zero, (acc: T, x: T): T = (acc, x) -> +) -> Std.Tuple.Reduce;\n",
+        "req_closure.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& total = find_let(*lowered, "Total");
+    const auto& flow = std::get<IRFlowExpr>(total.body->node);
+    const auto& args = std::get<IRTupleExpr>(flow.lhs->node);
+    const auto& closure = *std::get<fleaux::frontend::ir::IRClosureExprBox>(args.items.back()->node);
+    REQUIRE(std::ranges::find(closure.captures, "'op0") != closure.captures.end());
+  }
+
+  SECTION("Bounds made only of builtin types need no hidden parameters") {
+    const auto lowered =
+        lower_and_check("import Std;\nlet Twice<T: Numeric>(x: T): T = (x, x) -> +;\n", "req_builtin_bound.fleaux");
+    REQUIRE(lowered.has_value());
+    REQUIRE(find_let(*lowered, "Twice").hidden_operator_params == 0U);
+  }
+
+  const auto rejected = [](const std::string& body, const std::string& name) {
+    auto lowered = lower_and_check(kMoneyOperators + body, name);
+    REQUIRE_FALSE(lowered.has_value());
+    return lowered.error();
+  };
+
+  SECTION("Every alternative of the bound needs a function") {
+    const auto error = rejected("let Bad<T: Summable>(a: T, b: T): T = (a, b) -> *;\n", "req_missing.fleaux");
+    REQUIRE(error.hint->find("Operator '*' on T needs a function for every alternative of its bound; for Money") !=
+            std::string::npos);
+  }
+
+  SECTION("Functions with requirements cannot be used as values yet") {
+    const auto error = rejected("let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n"
+                                "let F: (Int64, Int64) => Int64 = Add2;\n",
+                                "req_value.fleaux");
+    REQUIRE(error.message.find("Unsupported function reference") != std::string::npos);
+  }
+
+  SECTION("One operator may use at most one strong-bounded type parameter") {
+    const auto error =
+        rejected("let Mix<T: Summable, U: Summable>(a: T, b: U): T = (a, b) -> +;\n", "req_two_params.fleaux");
+    REQUIRE(error.hint->find("more than one type parameter") != std::string::npos);
+  }
+
+  SECTION("Generic closures cannot use operators of strong-bounded type parameters") {
+    const auto error =
+        rejected("let F(): (Int64) => Int64 = <T: Summable>(x: T): T = (x, x) -> +;\n", "req_closure_param.fleaux");
+    REQUIRE(error.hint->find("a type parameter of a generic closure") != std::string::npos);
+  }
+}

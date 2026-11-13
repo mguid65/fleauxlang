@@ -18,6 +18,15 @@ struct ParamSig {
   bool variadic = false;
 };
 
+// An operator that a generic function applies to a type parameter whose bound contains a strong type, such as `+`
+// on `T: Int64 | Money`. The implementation depends on the type the parameter binds to (Std.Add or Money.Add), and
+// strong types do not exist at runtime, so the function takes it as a hidden leading argument from its callers.
+struct OperatorRequirement {
+  std::string op;          // The operator symbol, such as "+".
+  std::string type_param;  // The function's own type parameter the operator is applied to.
+  Type signature;          // The operator's function type, in terms of the function's own type parameters.
+};
+
 struct FunctionSig {
   std::string resolved_symbol_key;
   std::vector<std::string> generic_params;
@@ -26,6 +35,8 @@ struct FunctionSig {
   std::vector<ParamSig> params;
   Type return_type;
   bool is_builtin = false;
+  // Hidden leading arguments, in order; see OperatorRequirement.
+  std::vector<OperatorRequirement> operator_requirements;
 };
 
 struct StrongTypeDecl {
@@ -60,6 +71,10 @@ public:
   [[nodiscard]] auto has_unqualified_symbol(const std::string& name) const -> bool;
   [[nodiscard]] auto has_qualified_symbol(const std::optional<std::string>& qualifier, const std::string& name) const
       -> bool;
+
+  // Records the operator requirements of the function with this symbol key, found while checking its body.
+  void set_operator_requirements(const std::string& resolved_symbol_key,
+                                 const std::vector<OperatorRequirement>& requirements);
 
 private:
   std::unordered_map<std::string, FunctionOverloadSet> symbols_;

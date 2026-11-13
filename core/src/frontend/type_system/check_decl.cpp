@@ -1,12 +1,22 @@
 #include "fleaux/frontend/type_system/detail/checker_internal.hpp"
 
 #include <format>
+#include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
 
+#include "fleaux/common/overloaded.hpp"
 #include "fleaux/frontend/operators.hpp"
 
 namespace fleaux::frontend::type_system {
 
 namespace {
+
+using detail::bound_has_strong_type;
+using detail::GenericBodyContext;
+using detail::hidden_operator_param_name;
+using detail::same_operator_requirements;
+using detail::ScopedGenericBodyContext;
 
 auto validate_program_declarations(const ir::IRProgram& program,
                                    const std::vector<ir::IRLet>& imported_typed_lets,
@@ -131,13 +141,25 @@ auto validate_operator_functions(const ir::IRProgram& program, const FunctionInd
   return {};
 }
 
-auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                      const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
-  for (auto& let : program.lets) {
-    if (!let.body.has_value()) {
-      continue;
-    }
+using OperatorRequirementsByLet = std::unordered_map<std::string, std::vector<OperatorRequirement>>;
 
+[[nodiscard]] auto let_symbol_key(const ir::IRLet& let) -> std::string {
+  if (!let.symbol_key.empty()) {
+    return let.symbol_key;
+  }
+  return let.qualifier.has_value() ? *let.qualifier + "." + let.name : let.name;
+}
+
+// Type-checks one let body. Operators on its strong-bounded type parameters, and calls passing them to functions with
+// operator requirements, add to `context.requirements`.
+auto infer_let_body(ir::IRLet& let, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                    const AliasIndex& alias_index, GenericBodyContext& context)
+    -> tl::expected<void, type_check::AnalysisError> {
+  const ScopedGenericBodyContext scope(&context);
+  if (!let.body.has_value()) {
+    return {};
+  }
+  {
     auto generic_scope =
         detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
     if (!generic_scope) {
@@ -175,8 +197,168 @@ auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const 
   return {};
 }
 
+auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                      const AliasIndex& alias_index, const OperatorRequirementsByLet& requirements)
+    -> tl::expected<void, type_check::AnalysisError> {
+  for (auto& let : program.lets) {
+    if (!let.body.has_value()) {
+      continue;
+    }
+    const auto key = let_symbol_key(let);
+    const auto known = requirements.find(key);
+    GenericBodyContext context{.generic_params = let.generic_params,
+                               .requirements = known != requirements.end() ? known->second
+                                                                           : std::vector<OperatorRequirement>{}};
+    if (auto inferred = infer_let_body(let, index, type_index, alias_index, context); !inferred) {
+      return tl::unexpected(inferred.error());
+    }
+    if (!same_operator_requirements(context.requirements,
+                                    known != requirements.end() ? known->second : std::vector<OperatorRequirement>{})) {
+      return tl::unexpected(detail::make_error(
+          "Internal error.", std::format("Operator requirements of {} changed after discovery.", let.name), let.span));
+    }
+  }
+  return {};
+}
+
+// True when some generic parameter of the let is bounded by a strong type, so its body can have operator
+// requirements or inherit them from the functions it calls.
+[[nodiscard]] auto has_strong_bounded_param(const ir::IRLet& let, const StrongTypeIndex& type_index,
+                                            const AliasIndex& alias_index) -> bool {
+  auto scope = detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+  if (!scope) {
+    return false;
+  }
+  for (const auto& name : let.generic_params) {
+    const Type param = detail::rewrite_generic_type(make_nominal_type(name), *scope);
+    if (param.kind == TypeKind::kTypeVar && param.type_var_bound.has_value() &&
+        bound_has_strong_type(*param.type_var_bound, type_index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Finds the operator requirements of every generic let. A let's requirements come from its own operators and from
+// the requirements of the generic functions it calls with its type parameters, so this repeats over copies of the
+// bodies until nothing changes; recursion is covered because a let's call to itself uses its previous requirements.
+auto discover_operator_requirements(const ir::IRProgram& program, const std::unordered_set<std::string>& imported_symbols,
+                                    const StrongTypeIndex& type_index, const AliasIndex& alias_index,
+                                    const std::vector<ir::IRLet>& imported_typed_lets)
+    -> tl::expected<OperatorRequirementsByLet, type_check::AnalysisError> {
+  OperatorRequirementsByLet requirements;
+  std::vector<const ir::IRLet*> candidates;
+  for (const auto& let : program.lets) {
+    if (let.body.has_value() && has_strong_bounded_param(let, type_index, alias_index)) {
+      candidates.push_back(&let);
+    }
+  }
+  if (candidates.empty()) {
+    return requirements;
+  }
+
+  for (bool changed = true; changed;) {
+    changed = false;
+    FunctionIndex index(program, imported_symbols, type_index, alias_index, imported_typed_lets);
+    for (const auto& [key, found] : requirements) {
+      index.set_operator_requirements(key, found);
+    }
+    for (const auto* let : candidates) {
+      const auto key = let_symbol_key(*let);
+      ir::IRLet copy = *let;
+      GenericBodyContext context{.generic_params = let->generic_params, .requirements = requirements[key]};
+      if (auto inferred = infer_let_body(copy, index, type_index, alias_index, context); !inferred) {
+        return tl::unexpected(inferred.error());
+      }
+      if (!same_operator_requirements(context.requirements, requirements[key])) {
+        requirements[key] = std::move(context.requirements);
+        changed = true;
+      }
+    }
+  }
+  std::erase_if(requirements, [](const auto& entry) { return entry.second.empty(); });
+  return requirements;
+}
+
+// The hidden parameter names a subtree uses. Every closure that uses one captures it from the enclosing body.
+auto capture_hidden_operator_params(ir::IRExpr& expr) -> std::unordered_set<std::string>;
+
+auto capture_hidden_operator_params_in(ir::IRExprBox& box) -> std::unordered_set<std::string> {
+  return box.has_value() ? capture_hidden_operator_params(*box) : std::unordered_set<std::string>{};
+}
+
+auto capture_hidden_operator_params(ir::IRExpr& expr) -> std::unordered_set<std::string> {
+  std::unordered_set<std::string> used;
+  const auto merge = [&](std::unordered_set<std::string> names) { used.insert(names.begin(), names.end()); };
+  std::visit(common::overloaded{
+                 [&](ir::IRNameRef& name_ref) {
+                   if (!name_ref.qualifier.has_value() && name_ref.name.starts_with("'op")) {
+                     used.insert(name_ref.name);
+                   }
+                 },
+                 [&](ir::IRFlowExpr& flow) { merge(capture_hidden_operator_params_in(flow.lhs)); },
+                 [&](ir::IRTupleExpr& tuple) {
+                   for (auto& item : tuple.items) {
+                     merge(capture_hidden_operator_params_in(item));
+                   }
+                 },
+                 [&](ir::IRConstant&) {},
+                 [&](ir::IRClosureExprBox& closure_box) {
+                   auto& closure = *closure_box;
+                   const auto inner = capture_hidden_operator_params_in(closure.body);
+                   for (const auto& name : inner) {
+                     if (std::ranges::find(closure.captures, name) == closure.captures.end()) {
+                       closure.captures.push_back(name);
+                     }
+                   }
+                   merge(inner);
+                 },
+                 [&](ir::IRBlockExprBox& block_box) {
+                   auto& block = *block_box;
+                   for (auto& item : block.items) {
+                     std::visit(common::overloaded{
+                                    [&](ir::IRLocalLet& local) { merge(capture_hidden_operator_params_in(local.expr)); },
+                                    [&](ir::IRBlockExprStatement& statement) {
+                                      merge(capture_hidden_operator_params_in(statement.expr));
+                                    }},
+                                item);
+                   }
+                   merge(capture_hidden_operator_params_in(block.result));
+                 }},
+             expr.node);
+  return used;
+}
+
+// Adds the hidden operator parameters in front of the declared parameters of each let with operator requirements,
+// and captures them in the closures of its body that use them.
+void add_hidden_operator_params(ir::IRProgram& program, const OperatorRequirementsByLet& requirements) {
+  for (auto& let : program.lets) {
+    const auto found = requirements.find(let_symbol_key(let));
+    if (found == requirements.end()) {
+      continue;
+    }
+    std::vector<ir::IRParam> params;
+    params.reserve(found->second.size() + let.params.size());
+    for (std::size_t index = 0; index < found->second.size(); ++index) {
+      params.push_back(ir::IRParam{.name = hidden_operator_param_name(index),
+                                   .type = ir::IRSimpleType{.name = "Any"},
+                                   .span = let.span});
+    }
+    for (auto& param : let.params) {
+      params.push_back(std::move(param));
+    }
+    let.params = std::move(params);
+    let.hidden_operator_params = found->second.size();
+    if (let.body.has_value()) {
+      std::ignore = capture_hidden_operator_params(*let.body);
+    }
+  }
+}
+
 auto infer_top_level_expressions(ir::IRProgram& program, const FunctionIndex& index, const StrongTypeIndex& type_index,
                                  const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
+  GenericBodyContext context;
+  const ScopedGenericBodyContext scope(&context);
   for (auto& [expr, span] : program.expressions) {
     (void)span;
     detail::LocalTypes empty_locals;
@@ -211,12 +393,22 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
     return tl::unexpected(signature_validation.error());
   }
 
-  const FunctionIndex index(annotated_program, imported_symbols, type_index, *alias_index, imported_typed_lets);
+  auto requirements =
+      discover_operator_requirements(annotated_program, imported_symbols, type_index, *alias_index, imported_typed_lets);
+  if (!requirements) {
+    return tl::unexpected(requirements.error());
+  }
+
+  FunctionIndex index(annotated_program, imported_symbols, type_index, *alias_index, imported_typed_lets);
+  for (const auto& [key, found] : *requirements) {
+    index.set_operator_requirements(key, found);
+  }
   if (auto operator_functions = validate_operator_functions(annotated_program, index, type_index, *alias_index);
       !operator_functions) {
     return tl::unexpected(operator_functions.error());
   }
-  if (auto inferred_lets = infer_let_bodies(annotated_program, index, type_index, *alias_index); !inferred_lets) {
+  if (auto inferred_lets = infer_let_bodies(annotated_program, index, type_index, *alias_index, *requirements);
+      !inferred_lets) {
     return tl::unexpected(inferred_lets.error());
   }
 
@@ -224,6 +416,8 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
       !inferred_expressions) {
     return tl::unexpected(inferred_expressions.error());
   }
+
+  add_hidden_operator_params(annotated_program, *requirements);
 
   return annotated_program;
 }

@@ -456,7 +456,9 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
 void register_user_function_export(Module& bytecode_module, const IRLet& let, const CompileOptions& options,
                                    const std::string& full_name, const std::string& link_name,
                                    const std::uint32_t function_index) {
-  if (!let_belongs_to_module(let, options)) {
+  // Callers of a function with hidden operator parameters must pass them, which only checked Fleaux callers in the
+  // same module do for now; such functions are not exported to the host or to importing modules.
+  if (!let_belongs_to_module(let, options) || let.hidden_operator_params > 0U) {
     return;
   }
   bytecode_module.exports.push_back(ExportedSymbol{

@@ -156,6 +156,14 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   }
 
   const auto& sig = *filtered->front();
+  if (!sig.operator_requirements.empty()) {
+    return tl::unexpected(make_error(
+        "Unsupported function reference.",
+        std::format("{} applies operators to type parameters bounded by strong types, so its callers pass those "
+                    "operators as hidden arguments. It can only be called directly for now, not used as a value.",
+                    full_name),
+        name_ref.span));
+  }
   // Without type arguments, a generic function used as a value is an open function: its type arguments come from
   // the function type it is passed as.
   // Every type parameter must appear in a parameter type, since that is where its type argument comes from.

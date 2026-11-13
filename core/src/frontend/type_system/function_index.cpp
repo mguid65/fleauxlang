@@ -1,5 +1,7 @@
 #include "fleaux/frontend/type_system/function_index.hpp"
 
+#include <ranges>
+
 #include <stdexcept>
 
 #include "fleaux/frontend/type_system/detail/checker_internal.hpp"
@@ -134,6 +136,17 @@ auto FunctionIndex::resolve_name(const std::optional<std::string>& qualifier, co
 
 auto FunctionIndex::has_unqualified_symbol(const std::string& name) const -> bool {
   return unqualified_symbols_.contains(name);
+}
+
+void FunctionIndex::set_operator_requirements(const std::string& resolved_symbol_key,
+                                              const std::vector<OperatorRequirement>& requirements) {
+  for (auto& overloads : symbols_ | std::views::values) {
+    for (auto& sig : overloads) {
+      if (sig.resolved_symbol_key == resolved_symbol_key) {
+        sig.operator_requirements = requirements;
+      }
+    }
+  }
 }
 
 auto FunctionIndex::has_qualified_symbol(const std::optional<std::string>& qualifier, const std::string& name) const

@@ -1741,7 +1741,8 @@ auto check_generic_bounds(const std::string& full_name, const std::optional<diag
 auto check_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span, const FunctionSig& sig,
                       const std::vector<Type>& args, const StrongTypeIndex& type_index,
                       const GenericScope& allowed_unbound,
-                      const std::vector<Type>& explicit_type_args) -> tl::expected<Type, type_check::AnalysisError> {
+                      const std::vector<Type>& explicit_type_args, TypeBindings* out_bindings)
+    -> tl::expected<Type, type_check::AnalysisError> {
   std::size_t fixed_count = sig.params.size();
   bool has_variadic = false;
   if (!sig.params.empty() && sig.params.back().variadic) {
@@ -1913,9 +1914,59 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
                                                    join_sorted_type_var_names(unbound)),
                                        span));
     }
+    if (out_bindings != nullptr) {
+      *out_bindings = generic_bindings;
+    }
     return instantiate_generic_type(sig.return_type, generic_bindings);
   }
   return sig.return_type;
+}
+
+namespace {
+thread_local GenericBodyContext* active_generic_body_context = nullptr;
+}  // namespace
+
+auto current_generic_body_context() -> GenericBodyContext* { return active_generic_body_context; }
+
+ScopedGenericBodyContext::ScopedGenericBodyContext(GenericBodyContext* context)
+    : previous_(active_generic_body_context) {
+  active_generic_body_context = context;
+}
+
+ScopedGenericBodyContext::~ScopedGenericBodyContext() { active_generic_body_context = previous_; }
+
+auto same_operator_requirements(const std::vector<OperatorRequirement>& lhs,
+                                const std::vector<OperatorRequirement>& rhs) -> bool {
+  return std::ranges::equal(lhs, rhs, [](const OperatorRequirement& a, const OperatorRequirement& b) {
+    return a.op == b.op && a.type_param == b.type_param &&
+           type_debug_name(a.signature) == type_debug_name(b.signature);
+  });
+}
+
+auto operator_requirement_index(GenericBodyContext& context, OperatorRequirement requirement) -> std::size_t {
+  for (std::size_t index = 0; index < context.requirements.size(); ++index) {
+    if (same_operator_requirements({context.requirements[index]}, {requirement})) {
+      return index;
+    }
+  }
+  context.requirements.push_back(std::move(requirement));
+  return context.requirements.size() - 1U;
+}
+
+auto hidden_operator_param_name(const std::size_t index) -> std::string { return std::format("'op{}", index); }
+
+auto bound_has_strong_type(const Type& bound, const StrongTypeIndex& type_index) -> bool {
+  const auto is_strong = [&](const Type& alternative) {
+    if (alternative.kind != TypeKind::kNominal && alternative.kind != TypeKind::kApplied) {
+      return false;
+    }
+    const std::string& name = alternative.kind == TypeKind::kNominal ? alternative.nominal_name : alternative.applied_name;
+    return type_index.resolve_name(name).has_value() && !type_index.is_builtin_type(alternative);
+  };
+  if (bound.kind == TypeKind::kUnion) {
+    return std::ranges::any_of(bound.union_members, is_strong);
+  }
+  return is_strong(bound);
 }
 
 auto resolve_overload_invocation(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
@@ -1983,9 +2034,15 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
   }
 
   if (matched_returns.size() == 1U && matched_symbol_key.has_value()) {
+    const FunctionSig& matched = *matched_overloads.front();
+    TypeBindings bindings;
+    std::ignore =
+        check_invocation(full_name, span, matched, args, type_index, allowed_unbound, explicit_type_args, &bindings);
     return ResolvedInvocation{
         .return_type = matched_returns.front(),
         .resolved_symbol_key = *matched_symbol_key,
+        .bindings = std::move(bindings),
+        .operator_requirements = matched.operator_requirements,
     };
   }
 
