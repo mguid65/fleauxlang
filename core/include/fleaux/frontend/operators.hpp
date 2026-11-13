@@ -6,6 +6,10 @@
 
 namespace fleaux::frontend {
 
+// An operator stands for a named function. It calls the Std builtin of that name when the builtin accepts the
+// operands; otherwise, for each operand whose type is a strong type `Name`, it tries the user function `Name.<name>`
+// (for example `Money.Add` for `+`).
+
 // Qualifier shared by every builtin an operator stands for.
 inline constexpr std::string_view kOperatorBuiltinQualifier = "Std";
 
@@ -78,6 +82,22 @@ struct OperatorBuiltin {
   }
   if (op == "||") {
     return kOr;
+  }
+  return {};
+}
+
+// The operator symbols, so their function names can be listed.
+inline constexpr std::array<std::string_view, 15> kOperatorSymbols{"+",  "-", "*",  "/",  "%",  "^",  "==", "!=",
+                                                                   "<",  ">", "<=", ">=", "!",  "&&", "||"};
+
+// The operator a function name stands for when it is declared on a strong type (`Money.Add` is `+`), if any.
+[[nodiscard]] inline auto operator_for_function_name(const std::string_view name) -> std::string_view {
+  for (const auto symbol : kOperatorSymbols) {
+    for (const auto& builtin : operator_builtins(symbol)) {
+      if (builtin.name == name) {
+        return symbol;
+      }
+    }
   }
   return {};
 }

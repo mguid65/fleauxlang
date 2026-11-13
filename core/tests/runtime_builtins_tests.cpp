@@ -1004,7 +1004,7 @@ TEST_CASE("Runtime value formatting helpers cover all runtime value kinds", "[ru
   REQUIRE(format_value_plain(make_int(42)) == "42");
   REQUIRE(format_value_plain(make_float(3.5)) == "3.5");
   REQUIRE(format_value_plain(make_string("hello")) == "hello");
-  REQUIRE(format_value_plain(make_null()) == "Null");
+  REQUIRE(format_value_plain(make_null()) == "null");
   REQUIRE(format_value_plain(make_tuple(make_int(1), make_int(2))) == "(1, 2)");
 
   Value dict{Object{}};
@@ -1013,7 +1013,7 @@ TEST_CASE("Runtime value formatting helpers cover all runtime value kinds", "[ru
   Value generic{mguid::NodeTypeTag::Generic};
   REQUIRE(format_value_plain(generic) == "<generic>");
 
-  REQUIRE(format_value_with_spec(make_null(), ">6") == "  Null");
+  REQUIRE(format_value_with_spec(make_null(), ">6") == "  null");
   REQUIRE(format_value_with_spec(make_tuple(make_int(1), make_int(2)), ">8") == "  (1, 2)");
   REQUIRE(format_value_with_spec(dict, "^4") == " {} ");
   REQUIRE(format_value_with_spec(generic, "<10") == "<generic> ");

@@ -2,6 +2,8 @@
 
 #include <format>
 
+#include "fleaux/frontend/operators.hpp"
+
 namespace fleaux::frontend::type_system {
 
 namespace {
@@ -78,6 +80,55 @@ auto make_let_local_types(const ir::IRLet& let, const StrongTypeIndex& type_inde
     locals.insert_or_assign(name, param_local_type(*expanded_param, type.variadic));
   }
   return locals;
+}
+
+// A function `Name.Op` on a strong type `Name` is an operator function (`Money.Add` is `+` for Money). The Std builtin
+// always wins, so an operator function the Std builtin already accepts could never be called by its operator; that is
+// an error rather than a silent no-op. In practice this rejects `Name.Equal` and `Name.NotEqual`.
+auto validate_operator_functions(const ir::IRProgram& program, const FunctionIndex& index,
+                                 const StrongTypeIndex& type_index, const AliasIndex& alias_index)
+    -> tl::expected<void, type_check::AnalysisError> {
+  for (const auto& let : program.lets) {
+    if (!let.qualifier.has_value()) {
+      continue;
+    }
+    const auto op = operator_for_function_name(let.name);
+    const auto type_decl = type_index.resolve_name(*let.qualifier);
+    if (op.empty() || !type_decl.has_value() || type_decl->get().is_builtin) {
+      continue;
+    }
+    const auto std_overloads = index.resolve_name(std::optional<std::string>{"Std"}, let.name);
+    if (!std_overloads.has_value()) {
+      continue;
+    }
+
+    auto generic_scope =
+        detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+    if (!generic_scope) {
+      return tl::unexpected(generic_scope.error());
+    }
+    std::vector<Type> param_types;
+    param_types.reserve(let.params.size());
+    for (const auto& param : let.params) {
+      const Type param_type = detail::rewrite_generic_type(from_ir_type(param.type), *generic_scope);
+      auto expanded = detail::expand_aliases_in_type(param_type, type_index, alias_index, *generic_scope, param.span);
+      if (!expanded) {
+        return tl::unexpected(expanded.error());
+      }
+      param_types.push_back(std::move(*expanded));
+    }
+
+    const std::string std_name = "Std." + let.name;
+    if (detail::resolve_overload_invocation(std_name, let.span, std_overloads->get(), param_types, type_index,
+                                            *generic_scope, {})) {
+      return tl::unexpected(detail::make_error(
+          "Operator function redefines a builtin operator.",
+          std::format("'{}' on {} is provided by {} and cannot be redefined, so {}.{} would never be called by '{}'.",
+                      op, *let.qualifier, std_name, *let.qualifier, let.name, op),
+          let.span));
+    }
+  }
+  return {};
 }
 
 auto infer_let_bodies(ir::IRProgram& program, const FunctionIndex& index, const StrongTypeIndex& type_index,
@@ -161,6 +212,10 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
   }
 
   const FunctionIndex index(annotated_program, imported_symbols, type_index, *alias_index, imported_typed_lets);
+  if (auto operator_functions = validate_operator_functions(annotated_program, index, type_index, *alias_index);
+      !operator_functions) {
+    return tl::unexpected(operator_functions.error());
+  }
   if (auto inferred_lets = infer_let_bodies(annotated_program, index, type_index, *alias_index); !inferred_lets) {
     return tl::unexpected(inferred_lets.error());
   }

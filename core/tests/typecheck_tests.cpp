@@ -6925,3 +6925,81 @@ TEST_CASE("Builtin contracts do not let Any through", "[typecheck][strict_any][c
     REQUIRE(lowered.error().message.find("Invalid Std.Match reference") != std::string::npos);
   }
 }
+
+TEST_CASE("Operators call user operator functions of strong operand types", "[typecheck][operators][user_operators]") {
+  const std::string money =
+      "import Std;\n"
+      "type Money = Int64;\n"
+      "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+      "Std.Cast<Money>;\n"
+      "let Money.Multiply(m: Money, k: Int64): Money = ((m -> Std.Cast<Int64>, k) -> *) -> Std.Cast<Money>;\n";
+
+  const auto rhs_of = [](const fleaux::frontend::ir::IRProgram& program, const std::string& let_name) {
+    for (const auto& let : program.lets) {
+      if (let.name == let_name && let.body.has_value()) {
+        const auto& flow = std::get<fleaux::frontend::ir::IRFlowExpr>(let.body->node);
+        return std::get<fleaux::frontend::ir::IRNameRef>(flow.rhs);
+      }
+    }
+    FAIL("let not found");
+    return fleaux::frontend::ir::IRNameRef{};
+  };
+
+  SECTION("The operator is replaced by the user function") {
+    const auto lowered = lower_and_check(money + "let Sum(a: Money, b: Money): Money = (a, b) -> +;\n"
+                                                 "let Scale(a: Money): Money = (a, 3) -> *;\n"
+                                                 "let Plain(a: Int64): Int64 = (a, 1) -> +;\n",
+                                         "user_operators_resolve.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto sum = rhs_of(*lowered, "Sum");
+    REQUIRE(sum.qualifier == std::optional<std::string>{"Money"});
+    REQUIRE(sum.name == "Add");
+    REQUIRE(rhs_of(*lowered, "Scale").name == "Multiply");
+    REQUIRE(rhs_of(*lowered, "Plain").qualifier == std::optional<std::string>{"Std"});
+  }
+
+  SECTION("Operand order is not swapped") {
+    const auto lowered =
+        lower_and_check(money + "let Bad(a: Money): Money = (3, a) -> *;\n", "user_operators_order.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("tried Money.Multiply") != std::string::npos);
+  }
+
+  SECTION("A missing operator function reports the Std builtin") {
+    const auto lowered =
+        lower_and_check(money + "let Bad(a: Money, b: Money): Money = (a, b) -> /;\n", "user_operators_missing.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("Operator '/' calls Std.Divide") != std::string::npos);
+  }
+
+  SECTION("Two matching operator functions are ambiguous") {
+    const auto lowered = lower_and_check("import Std;\n"
+                                         "type A = Int64;\n"
+                                         "type B = Int64;\n"
+                                         "let A.Add(a: A, b: B): A = a;\n"
+                                         "let B.Add(a: A, b: B): B = b;\n"
+                                         "let Bad(a: A, b: B): A = (a, b) -> +;\n",
+                                         "user_operators_ambiguous.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Ambiguous operator") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("A.Add, B.Add") != std::string::npos);
+  }
+
+  SECTION("Operator functions that Std already covers are rejected") {
+    const auto lowered = lower_and_check(money + "let Money.Equal(a: Money, b: Money): Bool = True;\n",
+                                         "user_operators_redefine.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Operator function redefines a builtin operator") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("'==' on Money is provided by Std.Equal") != std::string::npos);
+  }
+
+  SECTION("Builtin types and aliases do not get user operators") {
+    const auto lowered = lower_and_check("import Std;\n"
+                                         "alias Cents = Int64;\n"
+                                         "let Cents.Add(a: String, b: String): String = a;\n"
+                                         "let Bad(a: String, b: String): String = (a, b) -> +;\n",
+                                         "user_operators_alias.fleaux");
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().hint->find("tried") == std::string::npos);
+  }
+}

@@ -1,0 +1,43 @@
+import Std;
+
+// An operator stands for a named function: '+' is Add, '*' is Multiply, '<' is LessThan, unary '-' is UnaryMinus.
+// When the Std builtin does not accept the operands, an operator calls the function of that name declared on the
+// operand's strong type. So for a strong type Money, '+' calls Money.Add.
+
+type Money = Int64;
+type Vec2 = Tuple<Float64, Float64>;
+
+let Money.Add(a: Money, b: Money): Money =
+  ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> Std.Cast<Money>;
+
+// Operands may have different types: Money times Int64.
+let Money.Multiply(m: Money, k: Int64): Money =
+  ((m -> Std.Cast<Int64>, k) -> *) -> Std.Cast<Money>;
+
+let Money.LessThan(a: Money, b: Money): Bool =
+  (a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> <;
+
+let Money.UnaryMinus(m: Money): Money =
+  (m -> Std.Cast<Int64> -> -) -> Std.Cast<Money>;
+
+let Vec2.Add(a: Vec2, b: Vec2): Vec2 = {
+  let x: Tuple<Float64, Float64> = a -> Std.Cast<Tuple<Float64, Float64>>;
+  let y: Tuple<Float64, Float64> = b -> Std.Cast<Tuple<Float64, Float64>>;
+  let sx: Float64 = (x -> Std.First, y -> Std.First) -> +;
+  let sy: Float64 = (x -> Std.Second, y -> Std.Second) -> +;
+  (sx, sy) -> Std.Cast<Vec2>;
+};
+
+let Price: Money = 5 -> Std.Cast<Money>;
+let Tax: Money = 2 -> Std.Cast<Money>;
+
+(Price, Tax) -> + -> Std.Println;                    // 7
+(Price, Tax) -> Money.Add -> Std.Println;            // 7, the same call written out
+(Price, 3) -> * -> Std.Println;                      // 15
+(Tax, Price) -> < -> Std.Println;                    // True
+Price -> - -> Std.Println;                           // -5
+
+// Std builtins always win: '==' on Money is Std.Equal, and declaring Money.Equal is an error.
+(Price, Tax) -> == -> Std.Println;                   // False
+
+((1.0, 2.0) -> Std.Cast<Vec2>, (0.5, 0.5) -> Std.Cast<Vec2>) -> + -> Std.Println;   // 1.5 2.5

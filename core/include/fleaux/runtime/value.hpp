@@ -1484,7 +1484,7 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
       },
       [&](const Generic& /*gen*/) -> void { os << "<generic>"; },
       [&](const ValueNode& vn) -> void {
-        vn.Visit([&](const Null&) -> void { os << "Null"; },
+        vn.Visit([&](const Null&) -> void { os << "null"; },
                  [&](const Bool val) -> void { os << (val ? "True" : "False"); },
                  [&](const Number& val) -> void { os << format_number(val); },
                  [&](const String& val) -> void { os << val; });

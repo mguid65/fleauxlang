@@ -6559,3 +6559,33 @@ TEST_CASE("Bytecode serialization round-trips host entry checks", "[bytecode][se
   REQUIRE(bad_bytes.has_value());
   REQUIRE_FALSE(fleaux::bytecode::deserialize_module(*bad_bytes).has_value());
 }
+
+TEST_CASE("Operators find user operator functions from imported modules", "[bytecode][loader][user_operators]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_user_operator_import";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  {
+    std::ofstream lib(temp_dir / "money.fleaux");
+    lib << "import Std;\n"
+           "type Money = Int64;\n"
+           "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+           "Std.Cast<Money>;\n"
+           "let Money.From(x: Int64): Money = x -> Std.Cast<Money>;\n";
+  }
+  {
+    std::ofstream main(temp_dir / "shop.fleaux");
+    main << "import Std;\n"
+            "import money;\n"
+            "(4 -> Money.From, 6 -> Money.From) -> + -> Std.Println;\n";
+  }
+
+  const auto linked = fleaux::bytecode::load_linked_module(temp_dir / "shop.fleaux");
+  if (!linked.has_value()) {
+    INFO(linked.error().message);
+  }
+  REQUIRE(linked.has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(*linked, output).has_value());
+  REQUIRE(output.str() == "10\n");
+}

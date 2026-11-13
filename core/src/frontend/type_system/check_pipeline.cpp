@@ -133,9 +133,28 @@ auto describe_operator_builtins(const std::span<const OperatorBuiltin> builtins)
   return out;
 }
 
-// Operators are shorthand for Std builtins. This resolves the operator to the builtin selected by the argument
-// count, type-checks the call exactly like a named call to that builtin, and then replaces the operator target with
-// a reference to the resolved builtin so later stages only see ordinary builtin calls.
+// The declared strong types (not builtin types, not aliases) among the operand types, in order, without repeats.
+// These are the types whose `Name.Op` functions an operator may call.
+auto strong_operand_type_names(const std::vector<Type>& args, const StrongTypeIndex& type_index)
+    -> std::vector<std::string> {
+  std::vector<std::string> names;
+  for (const auto& arg : args) {
+    const bool is_named = arg.kind == TypeKind::kNominal || arg.kind == TypeKind::kApplied;
+    if (!is_named || type_index.is_builtin_type(arg)) {
+      continue;
+    }
+    const std::string& name = arg.kind == TypeKind::kNominal ? arg.nominal_name : arg.applied_name;
+    if (type_index.resolve_name(name).has_value() && std::ranges::find(names, name) == names.end()) {
+      names.push_back(name);
+    }
+  }
+  return names;
+}
+
+// Operators are shorthand for named functions. This resolves the operator to the Std builtin selected by the argument
+// count and type-checks the call exactly like a named call to that builtin. When the builtin rejects the operands, it
+// tries the user operator functions of the strong operand types instead (`Money.Add` for `+`). The operator target is
+// then replaced with a reference to the chosen function, so later stages only see ordinary calls.
 auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_ref, const FunctionIndex& index,
                               const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                               const LocalTypes& locals, const GenericScope& generic_params)
@@ -187,17 +206,64 @@ auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_
     return tl::unexpected(make_unresolved_symbol_error(full_name, op_span));
   }
 
+  std::optional<std::string> resolved_qualifier = qualifier;
   auto checked =
       resolve_overload_invocation(full_name, flow.span, overloads->get(), args, type_index, generic_params, {});
   if (!checked) {
-    auto error = checked.error();
-    const std::string context = std::format("Operator '{}' calls {}.", op, full_name);
-    error.hint = error.hint.has_value() ? context + " " + *error.hint : context;
-    return tl::unexpected(std::move(error));
+    // The Std builtin rejects the operands: try the operator functions of the strong operand types.
+    struct UserMatch {
+      std::string qualifier;
+      std::string name;
+      ResolvedInvocation invocation;
+    };
+    std::vector<UserMatch> matches;
+    std::vector<std::string> tried;
+    for (const auto& type_name : strong_operand_type_names(args, type_index)) {
+      for (const auto& builtin : builtins) {
+        const std::string function_name{builtin.name};
+        const auto user_overloads = index.resolve_name(std::optional<std::string>{type_name}, function_name);
+        if (!user_overloads.has_value()) {
+          continue;
+        }
+        const std::string user_full_name = std::format("{}.{}", type_name, function_name);
+        tried.push_back(user_full_name);
+        if (auto user_checked = resolve_overload_invocation(user_full_name, flow.span, user_overloads->get(), args,
+                                                            type_index, generic_params, {})) {
+          matches.push_back(UserMatch{.qualifier = type_name, .name = function_name, .invocation = *user_checked});
+        }
+      }
+    }
+
+    if (matches.size() > 1U) {
+      std::string names;
+      for (const auto& match : matches) {
+        names += (names.empty() ? "" : ", ") + match.qualifier + "." + match.name;
+      }
+      return tl::unexpected(make_error(
+          "Ambiguous operator.",
+          std::format("Operator '{}' matches more than one user operator function: {}.", op, names), op_span));
+    }
+    if (matches.empty()) {
+      auto error = checked.error();
+      std::string context = std::format("Operator '{}' calls {}.", op, full_name);
+      if (!tried.empty()) {
+        std::string names;
+        for (const auto& name : tried) {
+          names += (names.empty() ? "" : ", ") + name;
+        }
+        context += std::format(" No user operator function accepts these operands either (tried {}).", names);
+      }
+      error.hint = error.hint.has_value() ? context + " " + *error.hint : context;
+      return tl::unexpected(std::move(error));
+    }
+
+    resolved_qualifier = matches.front().qualifier;
+    builtin_name = matches.front().name;
+    checked = std::move(matches.front().invocation);
   }
 
   flow.rhs = ir::IRNameRef{
-      .qualifier = qualifier,
+      .qualifier = resolved_qualifier,
       .name = builtin_name,
       .explicit_type_args = {},
       .resolved_symbol_key = checked->resolved_symbol_key,
