@@ -6,19 +6,14 @@
 namespace fleaux::runtime {
 // Dictionary builtins
 
-// Keys are stored as type-prefixed strings to avoid collisions between types
-// that have the same serialized form (e.g. integer 1 vs string "1").
-//  string     -> "s:<value>"
-//  numeric    -> "n:<value>"  (Int64/UInt64/Float64)
-//  bool       -> "b:<true|false>"
-//  null       -> "z:"
+// Keys are stored as type-prefixed strings; see encode_number_dict_key in value.hpp for the encoding.
 [[nodiscard]] inline auto dict_key_from_validated_value(const Value& key_val, const std::string_view builtin_name)
     -> std::string {
   switch (sort_tag_of(key_val)) {
     case SortTag::kString:
       return "s:" + as_string(key_val);
     case SortTag::kNumber:
-      return "n:" + to_string(key_val);
+      return encode_number_dict_key(as_number(key_val));
     case SortTag::kBool:
       return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
     case SortTag::kNull:
@@ -53,25 +48,10 @@ namespace fleaux::runtime {
 // Strips the type prefix added by dict_key_from_validated_value and converts back to a
 // Fleaux Value so callers (DictKeys, DictEntries) expose the original key type.
 [[nodiscard]] inline auto dict_key_to_value(const std::string& internal_key) -> Value {
-  if (internal_key.size() >= 2 && internal_key[1] == ':') {
-    const char tag = internal_key[0];
-    const std::string payload = internal_key.substr(2);
-    if (tag == 's')
-      return make_string(payload);
-    if (tag == 'b')
-      return make_bool(payload == "true");
-    if (tag == 'z')
-      return make_null();
-    if (tag == 'n') {
-      // parse as number
-      std::size_t consumed = 0;
-      const double parsed_number = std::stod(payload, &consumed);
-      if (consumed == payload.size())
-        return num_result(parsed_number);
-    }
+  if (auto key = decode_dict_key(internal_key)) {
+    return std::move(*key);
   }
-  // Fallback: return as-is (handles any legacy unadorned string keys)
-  return make_string(internal_key);
+  throw std::logic_error("Dict invariant violated: unrecognised internal key '" + internal_key + "'");
 }
 
 [[nodiscard]] inline auto merge_dict_objects(Object base, const Object& overlay) -> Object {

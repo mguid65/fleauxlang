@@ -14,8 +14,10 @@
 // because their function arguments are C++ callables, not Values.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <concepts>
 #include <cstdlib>
@@ -1382,6 +1384,61 @@ auto make_tuple(Values&&... vals) -> Value {
 }
 
 // Print a Value as a scalar/tuple repr for the C++ runtime.
+// Dictionary keys are stored as strings with a one-letter type prefix, so keys of different types never collide and
+// every key decodes back to a value of its original type:
+//   "s:" String, "i:" Int64, "u:" UInt64, "f:" Float64 (shortest round-trip text), "b:" Bool, "z:" Null.
+[[nodiscard]] inline auto encode_number_dict_key(const Number& number) -> std::string {
+  return number.Visit([](const Int value) -> std::string { return "i:" + std::to_string(value); },
+                      [](const UInt value) -> std::string { return "u:" + std::to_string(value); },
+                      [](const Float value) -> std::string {
+                        std::array<char, 32> buffer{};
+                        const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+                        (void)error;
+                        return "f:" + std::string(buffer.data(), end);
+                      });
+}
+
+// The key value an internal dictionary key stands for, or nullopt when the key has no known prefix.
+[[nodiscard]] inline auto decode_dict_key(const std::string& internal_key) -> std::optional<Value> {
+  if (internal_key.size() < 2U || internal_key[1] != ':') {
+    return std::nullopt;
+  }
+  const std::string_view payload = std::string_view{internal_key}.substr(2);
+  const auto parse = [&]<typename T>(T value) -> std::optional<T> {
+    const auto* const end = payload.data() + payload.size();
+    const auto [ptr, error] = std::from_chars(payload.data(), end, value);
+    if (error != std::errc{} || ptr != end) {
+      return std::nullopt;
+    }
+    return value;
+  };
+  switch (internal_key[0]) {
+    case 's':
+      return Value{String{payload}};
+    case 'b':
+      return Value{payload == "true"};
+    case 'z':
+      return Value{Null{}};
+    case 'i':
+      if (const auto value = parse(Int{0})) {
+        return Value{*value};
+      }
+      return std::nullopt;
+    case 'u':
+      if (const auto value = parse(UInt{0})) {
+        return Value{*value};
+      }
+      return std::nullopt;
+    case 'f':
+      if (const auto value = parse(Float{0.0})) {
+        return Value{*value};
+      }
+      return std::nullopt;
+    default:
+      return std::nullopt;
+  }
+}
+
 inline void print_value_repr(std::ostream& os, const Value& value) {
   value.Visit(
       [&](const Array& arr) -> void {
@@ -1399,7 +1456,7 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
       },
       [&](const Object& obj) -> void {
         // Objects are the backing store for Fleaux dicts.
-        // Keys carry a type prefix ("s:", "n:", "b:", "z:") so that
+        // Keys carry a type prefix (see encode_number_dict_key) so that
         // different key types never collide (e.g. int 1 vs string "1").
         os << '{';
         // Collect and sort internal keys so output is deterministic.
@@ -1413,18 +1470,11 @@ inline void print_value_repr(std::ostream& os, const Value& value) {
           if (!first)
             os << ", ";
           first = false;
-          // Strip the type prefix and render the original key value.
-          if (ikey.size() >= 2 && ikey[1] == ':') {
-            const char tag = ikey[0];
-            const auto& payload = ikey.substr(2);
-            if (tag == 'b')
-              os << (payload == "true" ? "True" : "False");
-            else if (tag == 'z')
-              os << "Null";
-            else
-              os << payload;  // 'n' (number) or unknown
+          // Render the original key value.
+          if (const auto key = decode_dict_key(ikey)) {
+            print_value_repr(os, *key);
           } else {
-            os << ikey;  // legacy key without a prefix
+            os << ikey;
           }
           os << ": ";
           if (const auto got = obj.TryGet(ikey))

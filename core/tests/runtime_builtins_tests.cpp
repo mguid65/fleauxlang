@@ -1695,14 +1695,15 @@ TEST_CASE("Runtime type checks follow the runtime value representation", "[runti
     REQUIRE(value_matches_type_check(make_tuple(make_int(1), make_string("a")), tuple_of_any));
   }
 
-  SECTION("Numeric dictionary keys match by their text") {
+  SECTION("Numeric dictionary keys keep their exact type") {
     const Value dict = DictSet(make_tuple(Value{Object{}}, make_int(3), make_string("three")));
     const auto dict_of = [&](const RuntimeTypeCheckKind key_kind) {
       return RuntimeTypeCheck{.kind = RuntimeTypeCheckKind::kDict,
                               .items = {leaf(key_kind), leaf(RuntimeTypeCheckKind::kString)}};
     };
     REQUIRE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kInt64)));
-    REQUIRE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kFloat64)));
+    REQUIRE_FALSE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kUInt64)));
+    REQUIRE_FALSE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kFloat64)));
     REQUIRE_FALSE(value_matches_type_check(dict, dict_of(RuntimeTypeCheckKind::kString)));
   }
 
@@ -1730,4 +1731,33 @@ TEST_CASE("RandomGenerator checks validate the whole token", "[runtime][cast]") 
   REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_uint(2U), make_uint(5U)), check));
   REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_uint(1U), make_int(5)), check));
   REQUIRE_FALSE(value_matches_type_check(make_tuple(make_string("__fleaux_rng__"), make_int(1), make_uint(5U)), check));
+}
+
+TEST_CASE("Dictionary keys decode back to their original numeric type", "[runtime][dict]") {
+  const auto keys_of = [](const Value& key) {
+    const Value dict = DictSet(make_tuple(Value{Object{}}, key, make_string("v")));
+    return *as_array(DictKeys(dict)).TryGet(0);
+  };
+
+  REQUIRE(as_string(Type(keys_of(make_uint(18446744073709551615ULL)))) == "UInt64");
+  REQUIRE(keys_of(make_uint(18446744073709551615ULL)) == make_uint(18446744073709551615ULL));
+  REQUIRE(as_string(Type(keys_of(make_int(-3)))) == "Int64");
+  REQUIRE(as_string(Type(keys_of(make_float(2.0)))) == "Float64");
+  REQUIRE(keys_of(make_float(0.1)) == make_float(0.1));
+
+  // Keys of different numeric types are different keys.
+  Value dict = DictSet(make_tuple(Value{Object{}}, make_int(1), make_string("int")));
+  dict = DictSet(make_tuple(dict, make_float(1.0), make_string("float")));
+  REQUIRE(as_int_value(DictLength(dict)) == 2);
+}
+
+TEST_CASE("Bit shifts of 64 or more bits are runtime errors", "[runtime][bitwise]") {
+  REQUIRE(BitShiftLeft(make_tuple(make_int(1), make_uint(62U))) == make_int(Int{1} << 62));
+  REQUIRE(BitShiftLeft(make_tuple(make_int(-1), make_uint(4U))) == make_int(-16));
+  REQUIRE(BitShiftRight(make_tuple(make_int(-16), make_uint(2U))) == make_int(-4));
+  REQUIRE(BitShiftRight(make_tuple(make_int(5), make_uint(63U))) == make_int(0));
+
+  REQUIRE_THROWS_WITH(BitShiftLeft(make_tuple(make_int(1), make_uint(64U))),
+                      "BitShiftLeft: shift count 64 is out of range for Int64 (0 to 63)");
+  REQUIRE_THROWS_AS(BitShiftRight(make_tuple(make_int(1), make_uint(1000U))), std::out_of_range);
 }

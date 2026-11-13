@@ -342,9 +342,18 @@ template <typename IntegerOp>
   return make_int(~int64_value(unwrap_singleton_arg(std::move(arg))));
 }
 
+// Shifting an Int64 by 64 or more bits has no defined result in C++, so it is a runtime error. Shifts of negative
+// values follow C++20: left shifts are two's complement and right shifts are arithmetic.
+inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
+  if (shift >= static_cast<UInt>(std::numeric_limits<Int>::digits + 1)) {
+    throw std::out_of_range{std::format("{}: shift count {} is out of range for Int64 (0 to 63)", op_name, shift)};
+  }
+}
+
 [[nodiscard]] inline auto BitShiftLeftBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = int64_value(lhs);
-  const std::size_t shift = uint64_index(rhs);
+  const UInt shift = uint64_value(rhs);
+  require_valid_shift(shift, "BitShiftLeft");
   return make_int(value << shift);
 }
 
@@ -354,7 +363,8 @@ template <typename IntegerOp>
 
 [[nodiscard]] inline auto BitShiftRightBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = int64_value(lhs);
-  const std::size_t shift = uint64_index(rhs);
+  const UInt shift = uint64_value(rhs);
+  require_valid_shift(shift, "BitShiftRight");
   return make_int(value >> shift);
 }
 

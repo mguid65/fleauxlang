@@ -6,13 +6,10 @@
 // - Strong types are checked by their underlying type; nominal identity is not stored with values.
 // - A Result is stored as a (Bool, payload) tuple, so a two-item tuple whose first item is a Bool also passes as a
 //   Result, and a Result also passes as such a tuple.
-// - Numeric Dict keys share one encoding, so a numeric key passes an integer key type when its text is an integer
-//   of that type, and passes Float64 whenever it is numeric.
 // - FileHandle and TaskHandle are checked by their runtime tag; RandomGenerator by its whole token.
 // - Callables (host entry checks only) are checked by their tag: parameter and return types are not stored.
 
 #include <algorithm>
-#include <charconv>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -72,14 +69,6 @@ using TypeParamCandidates = std::vector<std::uint64_t>;
 
 [[nodiscard]] inline auto matches(const Value& value, const common::RuntimeTypeCheck& check,
                                   TypeParamCandidates* candidates) -> bool;
-
-template <typename Integer>
-[[nodiscard]] auto parses_as_integer(const std::string_view text) -> bool {
-  Integer parsed{};
-  const auto* const end = text.data() + text.size();
-  const auto [ptr, error] = std::from_chars(text.data(), end, parsed);
-  return error == std::errc{} && ptr == end;
-}
 
 // Dict keys are stored with a type prefix (see dict_key_from_validated_value).
 [[nodiscard]] inline auto dict_key_matches(const std::string& internal_key, const common::RuntimeTypeCheck& check,
@@ -143,7 +132,6 @@ template <typename MatchesMember>
   if (internal_key.size() < 2U || internal_key[1] != ':') {
     return false;
   }
-  const std::string_view payload = std::string_view{internal_key}.substr(2);
   switch (internal_key[0]) {
     case 's':
       return check.kind == RuntimeTypeCheckKind::kString;
@@ -151,17 +139,12 @@ template <typename MatchesMember>
       return check.kind == RuntimeTypeCheckKind::kBool;
     case 'z':
       return check.kind == RuntimeTypeCheckKind::kNull;
-    case 'n':
-      switch (check.kind) {
-        case RuntimeTypeCheckKind::kInt64:
-          return parses_as_integer<Int>(payload);
-        case RuntimeTypeCheckKind::kUInt64:
-          return parses_as_integer<UInt>(payload);
-        case RuntimeTypeCheckKind::kFloat64:
-          return true;
-        default:
-          return false;
-      }
+    case 'i':
+      return check.kind == RuntimeTypeCheckKind::kInt64;
+    case 'u':
+      return check.kind == RuntimeTypeCheckKind::kUInt64;
+    case 'f':
+      return check.kind == RuntimeTypeCheckKind::kFloat64;
     default:
       return false;
   }
