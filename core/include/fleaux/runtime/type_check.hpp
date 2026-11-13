@@ -10,6 +10,7 @@
 // - Callables (host entry checks only) are checked by their tag: parameter and return types are not stored.
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -282,9 +283,22 @@ inline auto collect_type_param_names(const common::RuntimeTypeCheck& check, cons
 // Checks the argument the host passes to an exported function against the function's declared parameter types,
 // following the same argument layout the VM uses to bind parameters. Returns an error message when it does not
 // match. Every use of a bounded generic parameter must match one alternative of its bound common to all uses.
+// When `chosen_alternatives` is given, it receives for each generic parameter the index of a bound alternative that
+// every use matched (the first such one), for passing the operator functions of that alternative.
 [[nodiscard]] inline auto check_host_argument(const Value& arg, const common::HostEntryCheck& entry,
-                                              const std::string_view function_name) -> std::optional<std::string> {
+                                              const std::string_view function_name,
+                                              std::vector<std::size_t>* chosen_alternatives = nullptr)
+    -> std::optional<std::string> {
   detail::TypeParamCandidates candidates(entry.type_params.size(), ~std::uint64_t{0});
+  const auto finish = [&](std::optional<std::string> error) -> std::optional<std::string> {
+    if (!error.has_value() && chosen_alternatives != nullptr) {
+      chosen_alternatives->clear();
+      for (const auto remaining : candidates) {
+        chosen_alternatives->push_back(static_cast<std::size_t>(std::countr_zero(remaining)));
+      }
+    }
+    return error;
+  };
 
   const auto check_one = [&](const Value& value, const common::RuntimeTypeCheck& check,
                              const std::size_t index) -> std::optional<std::string> {
@@ -309,34 +323,34 @@ inline auto collect_type_param_names(const common::RuntimeTypeCheck& check, cons
 
   const std::size_t param_count = entry.params.size();
   if (param_count == 0U) {
-    return std::nullopt;
+    return finish(std::nullopt);
   }
 
   if (!entry.variadic_tail) {
     if (param_count == 1U) {
-      return check_one(arg, entry.params.front(), 0U);
+      return finish(check_one(arg, entry.params.front(), 0U));
     }
     const auto& array = arg.TryGetArray();
     if (!array || is_tagged_runtime_token(arg) || array->Size() != param_count) {
-      return std::format("{}: expected a tuple of {} arguments", function_name, param_count);
+      return finish(std::format("{}: expected a tuple of {} arguments", function_name, param_count));
     }
     for (std::size_t index = 0; index < param_count; ++index) {
       if (auto error = check_one(*array->TryGet(index), entry.params[index], index)) {
-        return error;
+        return finish(std::move(error));
       }
     }
-    return std::nullopt;
+    return finish(std::nullopt);
   }
 
   // Variadic: the VM binds a single variadic parameter to the whole tuple, or to a 1-tuple of a non-tuple value.
   const std::size_t fixed_count = param_count - 1U;
   const auto& tail_check = entry.params.back();
   if (fixed_count == 0U && !arg.HasArray()) {
-    return check_one(arg, tail_check, 0U);
+    return finish(check_one(arg, tail_check, 0U));
   }
   const auto& array = arg.TryGetArray();
   if (!array || array->Size() < fixed_count) {
-    return std::format("{}: expected a tuple of at least {} arguments", function_name, fixed_count);
+    return finish(std::format("{}: expected a tuple of at least {} arguments", function_name, fixed_count));
   }
   for (std::size_t index = 0; index < array->Size(); ++index) {
     if (auto error =
@@ -344,7 +358,7 @@ inline auto collect_type_param_names(const common::RuntimeTypeCheck& check, cons
       return error;
     }
   }
-  return std::nullopt;
+  return finish(std::nullopt);
 }
 
 }  // namespace fleaux::runtime

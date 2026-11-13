@@ -53,6 +53,17 @@ struct ConstValue {
     std::variant<std::monostate, std::int64_t, std::uint64_t, double, bool, std::string> data;
 };
 
+// An operator a generic function applies to a type parameter bounded by strong types; the function takes the
+// operator's implementation as a hidden leading argument. See the type checker's OperatorRequirement.
+struct OperatorRequirementRecord {
+  std::string op{};
+  std::string type_param{};
+  // The operator's function type in canonical source syntax, in terms of the function's type parameters.
+  std::string signature{};
+  // The symbol key of the function serving each alternative of the parameter's bound, in bound order, for host calls.
+  std::vector<std::string> alternative_functions{};
+};
+
 // A compiled user-defined function.
 struct FunctionDef {
   std::string name{};                // qualified name (e.g. "MyMath.Square")
@@ -87,6 +98,24 @@ struct FunctionDef {
   bool return_type_is_task_handle{false};
   bool return_type_is_random_generator{false};
   bool return_type_is_file_handle{false};
+
+  // Hidden leading parameters (counted in `arity`) that carry operator implementations, one per requirement.
+  std::uint32_t hidden_operator_params{0};
+  std::vector<OperatorRequirementRecord> operator_requirements{};
+};
+
+// A type or alias declaration of the module, kept so that a module importing it from bytecode alone knows its
+// types. Types are in canonical source syntax.
+struct TypeDeclRecord {
+  std::string name{};
+  std::vector<std::string> generic_params{};
+  bool is_builtin{false};
+  std::string target{};  // Empty for a builtin type.
+};
+
+struct AliasDeclRecord {
+  std::string name{};
+  std::string target{};
 };
 
 struct ClosureDef {
@@ -172,6 +201,10 @@ struct Module {
 
   // Runtime type checks for casts from Any: indexed by kCheckType and kTryCheckType operands.
   std::vector<common::RuntimeTypeCheck> type_checks{};
+
+  // The module's own type and alias declarations, for importers that only have the bytecode.
+  std::vector<TypeDeclRecord> type_decls{};
+  std::vector<AliasDeclRecord> alias_decls{};
 
   // One record per emitted kCallBuiltin instruction. This metadata is used by
   // loader-side verification and is intentionally kept parallel to the runtime

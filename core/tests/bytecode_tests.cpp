@@ -6590,17 +6590,162 @@ TEST_CASE("Operators find user operator functions from imported modules", "[byte
   REQUIRE(output.str() == "10\n");
 }
 
-TEST_CASE("Functions with hidden operator parameters are not exported yet", "[bytecode][host_entry][operator_requirements]") {
+TEST_CASE("Host calls pass the operator functions for the bound alternative", "[bytecode][host_entry][operator_requirements]") {
+  using fleaux::runtime::make_float;
+  using fleaux::runtime::make_int;
+  using fleaux::runtime::make_tuple;
+  // Money.Add adds 100 so the test can tell which function ran.
+  const auto module = compile_host_module(
+      "import Std;\n"
+      "type Money = Int64;\n"
+      "let Money.Add(a: Money, b: Money): Money =\n"
+      "  (((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +, 100) -> +) -> Std.Cast<Money>;\n"
+      "let Add2<T: Float64 | Money>(a: T, b: T): T = (a, b) -> +;\n"
+      "let Total<T: Float64 | Money>(xs: Tuple<T...>, zero: T): T =\n"
+      "  (xs, zero, (acc: T, x: T): T = (acc, x) -> +) -> Std.Tuple.Reduce;\n",
+      "host_operator_args.fleaux");
+
+  REQUIRE(host_call(module, "Add2", make_tuple(make_int(1), make_int(2))).value() == make_int(103));
+  REQUIRE(host_call(module, "Add2", make_tuple(make_float(1.5), make_float(2.0))).value() == make_float(3.5));
+  REQUIRE(host_call(module, "Total", make_tuple(make_tuple(make_float(1.0), make_float(2.0)), make_float(0.0))).value() ==
+          make_float(3.0));
+
+  const auto mixed = host_call(module, "Add2", make_tuple(make_int(1), make_float(2.0)));
+  REQUIRE_FALSE(mixed.has_value());
+}
+
+TEST_CASE("Bytecode keeps operator requirements of functions", "[bytecode][serialization][operator_requirements]") {
   const auto module = compile_host_module(
       "import Std;\n"
       "type Money = Int64;\n"
       "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
       "Std.Cast<Money>;\n"
-      "let Add2<T: Int64 | Money>(a: T, b: T): T = (a, b) -> +;\n"
-      "let AddInts(a: Int64, b: Int64): Int64 = (a, b) -> Add2;\n",
-      "hidden_operator_exports.fleaux");
-  REQUIRE(std::ranges::none_of(module.exports, [](const auto& symbol) { return symbol.name == "Add2"; }));
-  REQUIRE(host_call(module, "AddInts", fleaux::runtime::make_tuple(fleaux::runtime::make_int(2),
-                                                                     fleaux::runtime::make_int(3)))
-              .value() == fleaux::runtime::make_int(5));
+      "let Add2<T: Int64 | Money>(a: T, b: T): T = (a, b) -> +;\n",
+      "operator_requirements_bytecode.fleaux");
+  const auto add2 = std::ranges::find_if(module.functions, [](const auto& fn) { return fn.name == "Add2#0"; });
+  REQUIRE(add2 != module.functions.end());
+  REQUIRE(add2->hidden_operator_params == 1U);
+  REQUIRE(add2->arity == 3U);
+  REQUIRE(add2->operator_requirements.size() == 1U);
+  REQUIRE(add2->operator_requirements.front().op == "+");
+  REQUIRE(add2->operator_requirements.front().alternative_functions.size() == 2U);
+
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  const auto read_back = std::ranges::find_if(deserialized->functions, [](const auto& fn) { return fn.name == "Add2#0"; });
+  REQUIRE(read_back->hidden_operator_params == 1U);
+  REQUIRE(read_back->operator_requirements.front().signature == add2->operator_requirements.front().signature);
+  REQUIRE(read_back->operator_requirements.front().alternative_functions ==
+          add2->operator_requirements.front().alternative_functions);
+}
+
+TEST_CASE("Importing modules pass operator functions to imported generic functions",
+          "[bytecode][loader][operator_requirements]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_operator_import";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  {
+    std::ofstream lib(temp_dir / "money.fleaux");
+    lib << "import Std;\n"
+           "type Money = Int64;\n"
+           "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+           "Std.Cast<Money>;\n"
+           "let Money.From(x: Int64): Money = x -> Std.Cast<Money>;\n"
+           "alias Summable = Int64 | Money;\n"
+           "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n";
+  }
+  {
+    std::ofstream main(temp_dir / "shop.fleaux");
+    main << "import Std;\n"
+            "import money;\n"
+            "(2, 3) -> Add2 -> Std.Println;\n"
+            "(2 -> Money.From, 3 -> Money.From) -> Add2 -> Std.Println;\n"
+            "let Twice<T: Summable>(x: T): T = (x, x) -> Add2;\n"
+            "(4 -> Money.From) -> Twice -> Std.Println;\n"
+            "let SumWith<T>(xs: Tuple<T...>, zero: T, add: (T, T) => T): T = (xs, zero, add) -> Std.Tuple.Reduce;\n"
+            "((1 -> Money.From, 5 -> Money.From), 0 -> Money.From, Add2<Money>) -> SumWith -> Std.Println;\n";
+  }
+
+  const auto linked = fleaux::bytecode::load_linked_module(temp_dir / "shop.fleaux");
+  if (!linked.has_value()) {
+    INFO(linked.error().message);
+  }
+  REQUIRE(linked.has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(*linked, output).has_value());
+  REQUIRE(output.str() == "5\n5\n8\n6\n");
+}
+
+TEST_CASE("Bytecode keeps the module's type and alias declarations", "[bytecode][serialization][imports]") {
+  const auto module = compile_host_module("import Std;\n"
+                                          "type Money = Int64;\n"
+                                          "type Id<T> = Int64;\n"
+                                          "type Opaque :: __builtin__;\n"
+                                          "alias Summable = Int64 | Money;\n",
+                                          "type_decls_bytecode.fleaux");
+  REQUIRE(module.type_decls.size() == 3U);
+  REQUIRE(module.alias_decls.size() == 1U);
+
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->type_decls.size() == 3U);
+  const auto find_type = [&](const std::string& name) {
+    return *std::ranges::find_if(deserialized->type_decls, [&](const auto& record) { return record.name == name; });
+  };
+  REQUIRE(find_type("Money").target == "Int64");
+  REQUIRE(find_type("Id").generic_params == std::vector<std::string>{"T"});
+  REQUIRE(find_type("Opaque").is_builtin);
+  REQUIRE(deserialized->alias_decls.front().name == "Summable");
+  REQUIRE(deserialized->alias_decls.front().target == "Int64 | Money");
+}
+
+TEST_CASE("Bytecode-only imports know the imported module's types, aliases, and operators",
+          "[bytecode][loader][imports][operator_requirements]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_bytecode_only_types";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto lib_path = temp_dir / "money.fleaux";
+  const auto main_path = temp_dir / "shop.fleaux";
+  {
+    std::ofstream lib(lib_path);
+    lib << "import Std;\n"
+           "type Money = Int64;\n"
+           "let Money.Add(a: Money, b: Money): Money = ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> "
+           "Std.Cast<Money>;\n"
+           "let Money.From(x: Int64): Money = x -> Std.Cast<Money>;\n"
+           "alias Summable = Int64 | Money;\n"
+           "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n";
+  }
+  {
+    std::ofstream main(main_path);
+    main << "import Std;\nimport money;\n(1, 2) -> Add2 -> Std.Println;\n";
+  }
+  REQUIRE(fleaux::bytecode::load_linked_module(main_path).has_value());
+  REQUIRE(std::filesystem::exists(temp_dir / "money.fleaux.bc"));
+  std::filesystem::remove(lib_path);
+  std::filesystem::remove(temp_dir / "shop.fleaux.bc");
+
+  {
+    std::ofstream main(main_path, std::ios::trunc);
+    main << "import Std;\n"
+            "import money;\n"
+            "let Twice<T: Summable>(x: T): T = (x, x) -> Add2;\n"
+            "let Price: Money = 4 -> Money.From;\n"
+            "Price -> Twice -> Std.Println;\n"
+            "(Price, 1 -> Money.From) -> + -> Std.Println;\n";
+  }
+  const auto linked = fleaux::bytecode::load_linked_module(main_path);
+  if (!linked.has_value()) {
+    INFO(linked.error().message);
+  }
+  REQUIRE(linked.has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(*linked, output).has_value());
+  REQUIRE(output.str() == "8\n5\n");
 }

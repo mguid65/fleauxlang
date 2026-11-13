@@ -450,15 +450,22 @@ auto make_function_def(const IRLet& let, const std::string& link_name) -> Functi
   for (const auto& param : let.params) {
     fn_def.param_type_names.push_back(frontend::lowering::format_type_text(param.type));
   }
+  fn_def.hidden_operator_params = static_cast<std::uint32_t>(let.hidden_operator_params);
+  for (const auto& requirement : let.operator_requirements) {
+    fn_def.operator_requirements.push_back(OperatorRequirementRecord{
+        .op = requirement.op,
+        .type_param = requirement.type_param,
+        .signature = frontend::lowering::format_type_text(requirement.signature),
+        .alternative_functions = requirement.alternative_functions,
+    });
+  }
   return fn_def;
 }
 
 void register_user_function_export(Module& bytecode_module, const IRLet& let, const CompileOptions& options,
                                    const std::string& full_name, const std::string& link_name,
                                    const std::uint32_t function_index) {
-  // Callers of a function with hidden operator parameters must pass them, which only checked Fleaux callers in the
-  // same module do for now; such functions are not exported to the host or to importing modules.
-  if (!let_belongs_to_module(let, options) || let.hidden_operator_params > 0U) {
+  if (!let_belongs_to_module(let, options)) {
     return;
   }
   bytecode_module.exports.push_back(ExportedSymbol{
@@ -515,6 +522,8 @@ void seed_imported_exports(Module& bytecode_module, CompileState& state, const C
       imported_placeholder.return_type_is_task_handle = imported_fn.return_type_is_task_handle;
       imported_placeholder.return_type_is_random_generator = imported_fn.return_type_is_random_generator;
       imported_placeholder.return_type_is_file_handle = imported_fn.return_type_is_file_handle;
+      imported_placeholder.hidden_operator_params = imported_fn.hidden_operator_params;
+      imported_placeholder.operator_requirements = imported_fn.operator_requirements;
       bytecode_module.functions.push_back(std::move(imported_placeholder));
       state.function_idx[link_name] = fn_idx;
       state.register_public_function_name(name, fn_idx);
@@ -559,6 +568,35 @@ void seed_program_dependencies(Module& bytecode_module, const IRProgram& program
     bytecode_module.dependencies.push_back(ModuleDependency{
         .module_name = module_name,
         .is_symbolic = is_symbolic_import(module_name),
+    });
+  }
+}
+
+// True when a declaration was written in the module being compiled rather than seeded from an import.
+auto declared_in_module(const std::optional<frontend::diag::SourceSpan>& span, const CompileOptions& options) -> bool {
+  return !options.source_path.has_value() || !span.has_value() ||
+         span->source_name == options.source_path->string();
+}
+
+void record_type_declarations(Module& bytecode_module, const IRProgram& program, const CompileOptions& options) {
+  for (const auto& type_decl : program.type_decls) {
+    if (!declared_in_module(type_decl.span, options)) {
+      continue;
+    }
+    bytecode_module.type_decls.push_back(TypeDeclRecord{
+        .name = type_decl.name,
+        .generic_params = type_decl.generic_params,
+        .is_builtin = type_decl.is_builtin,
+        .target = type_decl.is_builtin ? std::string{} : frontend::lowering::format_type_text(type_decl.target),
+    });
+  }
+  for (const auto& alias_decl : program.alias_decls) {
+    if (!declared_in_module(alias_decl.span, options)) {
+      continue;
+    }
+    bytecode_module.alias_decls.push_back(AliasDeclRecord{
+        .name = alias_decl.name,
+        .target = frontend::lowering::format_type_text(alias_decl.target),
     });
   }
 }
@@ -1526,7 +1564,7 @@ auto try_emit_experimental_builtin_reduction(const IRFlowExpr& flow, const std::
 }
 
 auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out, const LocalSlots& locals,
-                        const CompileState& state, Module& bytecode_module) -> EmitResult {
+                        CompileState& state, Module& bytecode_module) -> EmitResult {
   const std::string full_name = common::full_symbol_name(name_ref.qualifier, name_ref.name);
   const std::string target_name = target_symbol_name(name_ref);
 
@@ -1579,6 +1617,24 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
   }
 
   if (const auto fn_it = state.function_idx.find(target_name); fn_it != state.function_idx.end()) {
+    if (!name_ref.bound_operator_args.empty()) {
+      // A value of a function with hidden operator parameters binds them in front, like a closure's captures.
+      for (const auto& bound : name_ref.bound_operator_args) {
+        if (auto emitted = emit_expr(*bound, out, locals, state, bytecode_module); !emitted) {
+          return emitted;
+        }
+      }
+      const auto bound_count = static_cast<std::uint32_t>(name_ref.bound_operator_args.size());
+      const auto& function = bytecode_module.functions[fn_it->second];
+      const auto closure_idx = static_cast<std::int64_t>(bytecode_module.closures.size());
+      bytecode_module.closures.push_back(ClosureDef{.function_index = fn_it->second,
+                                                    .capture_count = bound_count,
+                                                    .declared_arity = function.arity - bound_count,
+                                                    .declared_has_variadic_tail = function.has_variadic_tail});
+      out.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(bound_count)});
+      out.push_back(Instruction{.opcode = Opcode::kMakeClosureRef, .operand = closure_idx});
+      return {};
+    }
     out.push_back(Instruction{.opcode = Opcode::kMakeUserFuncRef, .operand = static_cast<std::int64_t>(fn_it->second)});
     return {};
   }
@@ -1937,6 +1993,7 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   CompileState state;
   initialize_module_header(bytecode_module, state, options);
   seed_program_dependencies(bytecode_module, program);
+  record_type_declarations(bytecode_module, program, options);
 
   seed_imported_exports(bytecode_module, state, options);
   register_let_definitions(bytecode_module, state, program, options);

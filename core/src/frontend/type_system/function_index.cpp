@@ -70,7 +70,16 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
 
     sig.return_type = rewrite_signature_type(let.return_type);
     sig.params.reserve(let.params.size());
-    for (const auto& param : let.params) {
+    // Hidden operator parameters (present in imported lets) are passed by the checker, not written by callers.
+    for (const auto& requirement : let.operator_requirements) {
+      sig.operator_requirements.push_back(OperatorRequirement{
+          .op = requirement.op,
+          .type_param = requirement.type_param,
+          .signature = rewrite_signature_type(requirement.signature),
+      });
+    }
+    for (std::size_t position = let.hidden_operator_params; position < let.params.size(); ++position) {
+      const auto& param = let.params[position];
       sig.params.push_back(ParamSig{
           .name = param.name,
           .type = rewrite_signature_type(param.type),

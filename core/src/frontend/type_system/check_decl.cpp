@@ -295,6 +295,9 @@ auto capture_hidden_operator_params(ir::IRExpr& expr) -> std::unordered_set<std:
                    if (!name_ref.qualifier.has_value() && name_ref.name.starts_with("'op")) {
                      used.insert(name_ref.name);
                    }
+                   for (auto& bound : name_ref.bound_operator_args) {
+                     merge(capture_hidden_operator_params_in(bound));
+                   }
                  },
                  [&](ir::IRFlowExpr& flow) { merge(capture_hidden_operator_params_in(flow.lhs)); },
                  [&](ir::IRTupleExpr& tuple) {
@@ -330,18 +333,44 @@ auto capture_hidden_operator_params(ir::IRExpr& expr) -> std::unordered_set<std:
 }
 
 // Adds the hidden operator parameters in front of the declared parameters of each let with operator requirements,
-// and captures them in the closures of its body that use them.
-void add_hidden_operator_params(ir::IRProgram& program, const OperatorRequirementsByLet& requirements) {
+// records the requirements on the let (with the function serving each alternative of the bound, for host calls),
+// and captures the hidden parameters in the closures of its body that use them.
+auto add_hidden_operator_params(ir::IRProgram& program, const OperatorRequirementsByLet& requirements,
+                                const FunctionIndex& index, const StrongTypeIndex& type_index,
+                                const AliasIndex& alias_index) -> tl::expected<void, type_check::AnalysisError> {
   for (auto& let : program.lets) {
     const auto found = requirements.find(let_symbol_key(let));
     if (found == requirements.end()) {
       continue;
     }
+    auto scope = detail::make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+    if (!scope) {
+      return tl::unexpected(scope.error());
+    }
     std::vector<ir::IRParam> params;
     params.reserve(found->second.size() + let.params.size());
-    for (std::size_t index = 0; index < found->second.size(); ++index) {
-      params.push_back(ir::IRParam{.name = hidden_operator_param_name(index),
-                                   .type = ir::IRSimpleType{.name = "Any"},
+    let.operator_requirements.clear();
+    for (std::size_t position = 0; position < found->second.size(); ++position) {
+      const auto& requirement = found->second[position];
+      const Type param = detail::rewrite_generic_type(make_nominal_type(requirement.type_param), *scope);
+      ir::IROperatorRequirement recorded{.op = requirement.op,
+                                         .type_param = requirement.type_param,
+                                         .signature = to_ir_type(requirement.signature)};
+      if (param.type_var_bound.has_value()) {
+        const Type& bound = *param.type_var_bound;
+        for (const auto& alternative : bound.kind == TypeKind::kUnion ? bound.union_members : std::vector{bound}) {
+          const Type signature = detail::substitute_type_param(requirement.signature, requirement.type_param, alternative);
+          auto function = detail::resolve_operator_function(requirement.op, signature.function_params, let.span, index,
+                                                            type_index, *scope);
+          if (!function) {
+            return tl::unexpected(function.error());
+          }
+          recorded.alternative_functions.push_back(function->resolved_symbol_key.value_or(function->name));
+        }
+      }
+      let.operator_requirements.push_back(std::move(recorded));
+      params.push_back(ir::IRParam{.name = hidden_operator_param_name(position),
+                                   .type = to_ir_type(requirement.signature),
                                    .span = let.span});
     }
     for (auto& param : let.params) {
@@ -353,6 +382,7 @@ void add_hidden_operator_params(ir::IRProgram& program, const OperatorRequiremen
       std::ignore = capture_hidden_operator_params(*let.body);
     }
   }
+  return {};
 }
 
 auto infer_top_level_expressions(ir::IRProgram& program, const FunctionIndex& index, const StrongTypeIndex& type_index,
@@ -417,7 +447,10 @@ auto Checker::analyze(const ir::IRProgram& program, const std::unordered_set<std
     return tl::unexpected(inferred_expressions.error());
   }
 
-  add_hidden_operator_params(annotated_program, *requirements);
+  if (auto hidden = add_hidden_operator_params(annotated_program, *requirements, index, type_index, *alias_index);
+      !hidden) {
+    return tl::unexpected(hidden.error());
+  }
 
   return annotated_program;
 }

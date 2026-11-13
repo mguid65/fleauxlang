@@ -1919,6 +1919,95 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, const RuntimeInvo
   return ExecutionResult{0};
 }
 
+namespace {
+
+// A callable value for a compiled function, as kMakeUserFuncRef creates it.
+auto make_user_function_value(const bytecode::Module& bytecode_module, const bytecode::FunctionDef& function,
+                              std::ostream& output) -> Value {
+  const auto operand_stack_capacity = suggested_operand_stack_capacity(function.instructions.size());
+  const auto frame_stack_capacity = suggested_frame_stack_capacity(bytecode_module.functions.size());
+  RegisteredCallable callable;
+  callable.unary = [&bytecode_module, &function, operand_stack_capacity, frame_stack_capacity,
+                    &output](Value call_arg) -> Value {
+    auto run_result = run_user_function_cached(bytecode_module, function, operand_stack_capacity, frame_stack_capacity,
+                                               std::move(call_arg), output);
+    if (!run_result) {
+      throw std::runtime_error(run_result.error().message);
+    }
+    return std::move(*run_result);
+  };
+  return runtime::make_callable_ref(std::move(callable));
+}
+
+// A callable value for a builtin, as kMakeBuiltinFuncRef creates it.
+auto make_builtin_function_value(const BuiltinId builtin_id) -> Value {
+  RegisteredCallable callable;
+  callable.unary = [builtin_id, builtin_shape = builtin_callable_call_shape(builtin_id)](Value arg) -> Value {
+    auto result = dispatch_builtin(builtin_id, builtin_shape, std::move(arg));
+    if (!result) {
+      throw std::runtime_error(result.error().message);
+    }
+    return std::move(*result);
+  };
+  callable.binary = builtin_binary_specialization(builtin_id);
+  return runtime::make_callable_ref(std::move(callable));
+}
+
+}  // namespace
+
+// A host call to a function with hidden operator parameters: the host entry check found which alternative each
+// bounded type parameter takes, and this passes the operator functions recorded for those alternatives in front of
+// the host's arguments.
+auto prepend_host_operator_args(const bytecode::Module& bytecode_module, const bytecode::FunctionDef& function,
+                                const bytecode::ExportedSymbol& exported, Value arg, std::ostream& output)
+    -> tl::expected<Value, RuntimeError> {
+  if (!exported.host_entry_check.has_value()) {
+    return tl::unexpected(make_runtime_error("'" + exported.name + "' has no host entry check for its operators"));
+  }
+  const auto& entry = *exported.host_entry_check;
+  std::vector<std::size_t> chosen;
+  if (auto mismatch = runtime::check_host_argument(arg, entry, exported.name, &chosen)) {
+    return tl::unexpected(make_runtime_error(*mismatch));
+  }
+
+  Array arguments;
+  for (const auto& requirement : function.operator_requirements) {
+    const auto param_it = std::ranges::find(entry.type_params, requirement.type_param);
+    const auto param_index = static_cast<std::size_t>(std::distance(entry.type_params.begin(), param_it));
+    const auto alternative = param_index < chosen.size() ? chosen[param_index] : 0U;
+    if (alternative >= requirement.alternative_functions.size()) {
+      return tl::unexpected(make_runtime_error("'" + exported.name + "' has no function for '" + requirement.op +
+                                               "' on " + requirement.type_param));
+    }
+    const auto& key = requirement.alternative_functions[alternative];
+    if (const auto builtin_id = builtin_id_from_symbol_key(key); builtin_id.has_value()) {
+      arguments.EmplaceBack(make_builtin_function_value(*builtin_id));
+      continue;
+    }
+    const auto function_it = std::ranges::find_if(
+        bytecode_module.functions, [&](const bytecode::FunctionDef& candidate) { return candidate.name == key; });
+    if (function_it == bytecode_module.functions.end()) {
+      return tl::unexpected(make_runtime_error("Operator function '" + key + "' is not in the module"));
+    }
+    arguments.EmplaceBack(make_user_function_value(bytecode_module, *function_it, output));
+  }
+
+  // The declared arguments follow, laid out as the VM binds them.
+  const auto declared = function.arity - function.hidden_operator_params;
+  if (declared == 1U && !function.has_variadic_tail) {
+    arguments.EmplaceBack(std::move(arg));
+  } else if (declared > 0U) {
+    if (const auto& items = arg.TryGetArray(); items) {
+      for (std::size_t index = 0; index < items->Size(); ++index) {
+        arguments.EmplaceBack(*items->TryGet(index));
+      }
+    } else {
+      arguments.EmplaceBack(std::move(arg));
+    }
+  }
+  return Value{std::move(arguments)};
+}
+
 auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::string_view qualified_symbol,
                             runtime::Value arg) const -> RuntimeValueResult {
   return invoke_symbol(bytecode_module, qualified_symbol, std::move(arg),
@@ -1969,6 +2058,15 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
   }
 
   const auto function_index = static_cast<std::size_t>(exported_symbol->index);
+  if (function_index < bytecode_module.functions.size() &&
+      bytecode_module.functions[function_index].hidden_operator_params > 0U) {
+    auto prepared = prepend_host_operator_args(bytecode_module, bytecode_module.functions[function_index],
+                                               *exported_symbol, std::move(arg), output);
+    if (!prepared) {
+      return tl::unexpected(prepared.error());
+    }
+    arg = std::move(*prepared);
+  }
   auto called = run_user_function(bytecode_module, function_index, std::move(arg), output);
   if (!called) {
     return tl::unexpected(called.error());

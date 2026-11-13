@@ -283,6 +283,9 @@ struct IRNameRef {
   // Set by the type checker on a Std.Cast or Std.TryCast whose argument has static type Any: the VM checks the
   // value against this description.
   std::optional<common::RuntimeTypeCheck> runtime_type_check{std::nullopt};
+  // Set by the type checker on a function value whose function takes hidden operator arguments (`Total<Money>`):
+  // the operator functions to bind in front of the call's own arguments.
+  std::vector<IRExprBox> bound_operator_args{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -356,6 +359,16 @@ struct IRClosureExpr {
   return IRClosureExprBox(std::in_place, std::move(value));
 }
 
+// An operator requirement of a generic let, kept with the let so that importing modules and the host can pass its
+// hidden operator arguments. See the type checker's OperatorRequirement.
+struct IROperatorRequirement {
+  std::string op{};
+  std::string type_param{};
+  IRSimpleType signature{};
+  // The symbol key of the function serving each alternative of the parameter's bound, in bound order, for host calls.
+  std::vector<std::string> alternative_functions{};
+};
+
 struct IRLet {
   std::optional<std::string> qualifier{std::nullopt};
   std::string name{};
@@ -375,6 +388,7 @@ struct IRLet {
   // Set by the type checker: the number of hidden leading parameters in `params` that carry operator
   // implementations for type parameters bounded by strong types (see the type checker's OperatorRequirement).
   std::size_t hidden_operator_params{0};
+  std::vector<IROperatorRequirement> operator_requirements{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 

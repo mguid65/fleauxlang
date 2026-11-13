@@ -7169,11 +7169,20 @@ TEST_CASE("Generic functions take operators of strong-bounded type parameters as
             std::string::npos);
   }
 
-  SECTION("Functions with requirements cannot be used as values yet") {
+  SECTION("A value of a function with requirements needs explicit type arguments") {
     const auto error = rejected("let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n"
                                 "let F: (Int64, Int64) => Int64 = Add2;\n",
                                 "req_value.fleaux");
-    REQUIRE(error.message.find("Unsupported function reference") != std::string::npos);
+    REQUIRE(error.message.find("Missing type arguments") != std::string::npos);
+    REQUIRE(error.hint->find("such as 'Add2<T>'") != std::string::npos);
+
+    const auto lowered = lower_and_check(kMoneyOperators + "let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;\n"
+                                                           "let F: (Money, Money) => Money = Add2<Money>;\n",
+                                         "req_value_explicit.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& value = std::get<IRNameRef>(find_let(*lowered, "F").body->node);
+    REQUIRE(value.bound_operator_args.size() == 1U);
+    REQUIRE(std::get<IRNameRef>(value.bound_operator_args.front()->node).qualifier == std::optional<std::string>{"Money"});
   }
 
   SECTION("One operator may use at most one strong-bounded type parameter") {

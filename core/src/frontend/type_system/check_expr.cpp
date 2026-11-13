@@ -127,6 +127,7 @@ auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const 
 }
 
 auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSet& overloads,
+                               const FunctionIndex& index, const StrongTypeIndex& type_index,
                                const GenericScope& generic_params,
                                const std::vector<Type>& explicit_type_args)
     -> tl::expected<Type, type_check::AnalysisError> {
@@ -156,12 +157,12 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   }
 
   const auto& sig = *filtered->front();
-  if (!sig.operator_requirements.empty()) {
+  if (!sig.operator_requirements.empty() && explicit_type_args.empty()) {
     return tl::unexpected(make_error(
-        "Unsupported function reference.",
-        std::format("{} applies operators to type parameters bounded by strong types, so its callers pass those "
-                    "operators as hidden arguments. It can only be called directly for now, not used as a value.",
-                    full_name),
+        "Missing type arguments.",
+        std::format("{} applies operators to type parameters bounded by strong types, so a value of it must say which "
+                    "types it is for. Write its type arguments, such as '{}<{}>'.",
+                    full_name, full_name, sig.generic_params.empty() ? std::string{"T"} : sig.generic_params.front()),
         name_ref.span));
   }
   // Without type arguments, a generic function used as a value is an open function: its type arguments come from
@@ -184,6 +185,21 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   }
   if (auto bounds_ok = check_generic_bounds(full_name, name_ref.span, sig, *bindings); !bounds_ok) {
     return tl::unexpected(bounds_ok.error());
+  }
+  // A value of a function with operator requirements binds the operator functions for its type arguments.
+  if (!sig.operator_requirements.empty()) {
+    const ResolvedInvocation invocation{.return_type = sig.return_type,
+                                        .resolved_symbol_key = sig.resolved_symbol_key,
+                                        .bindings = *bindings,
+                                        .operator_requirements = sig.operator_requirements};
+    auto hidden = operator_args_for_call(full_name, invocation, name_ref.span, index, type_index, generic_params);
+    if (!hidden) {
+      return tl::unexpected(hidden.error());
+    }
+    name_ref.bound_operator_args.clear();
+    for (auto& arg : *hidden) {
+      name_ref.bound_operator_args.emplace_back(std::in_place, std::move(arg));
+    }
   }
 
   const auto instantiated = instantiate_function_sig(sig, *bindings);
@@ -229,7 +245,8 @@ auto infer_name_ref_expr(ir::IRNameRef& name_ref, const FunctionIndex& index, co
 
   if (const auto overloads = resolve_name_or_symbolic_builtin(index, name_ref.qualifier, name_ref.name);
       overloads.has_value()) {
-    return infer_overloaded_name_ref(name_ref, overloads->get(), generic_params, *explicit_type_args);
+    return infer_overloaded_name_ref(name_ref, overloads->get(), index, type_index, generic_params,
+                                     *explicit_type_args);
   }
 
   if (name_ref.qualifier.has_value()) {

@@ -442,11 +442,37 @@ auto make_typed_import_stub(const ExportedSymbol& exported,
     stub.params.push_back(std::move(param));
   }
   stub.return_type = type_from_bytecode_text(fn.return_type_name);
+  stub.hidden_operator_params = fn.hidden_operator_params;
+  for (const auto& requirement : fn.operator_requirements) {
+    stub.operator_requirements.push_back(frontend::ir::IROperatorRequirement{
+        .op = requirement.op,
+        .type_param = requirement.type_param,
+        .signature = type_from_bytecode_text(requirement.signature),
+        .alternative_functions = requirement.alternative_functions,
+    });
+  }
   return stub;
 }
 
 void seed_imports_from_bytecode_module(const Module& imported_module,
-                                       std::unordered_set<std::string>& imported_typed_let_keys, ImportSeeds& seeds) {
+                                       std::unordered_set<std::string>& imported_typed_let_keys,
+                                       std::unordered_set<std::string>& imported_alias_decl_keys, ImportSeeds& seeds) {
+  // Type and alias declarations first: the function signatures below are written in terms of them.
+  for (const auto& record : imported_module.type_decls) {
+    seeds.type_decls.push_back(frontend::ir::IRTypeDecl{
+        .name = record.name,
+        .generic_params = record.generic_params,
+        .is_builtin = record.is_builtin,
+        .target = record.is_builtin ? frontend::ir::IRSimpleType{} : type_from_bytecode_text(record.target),
+    });
+  }
+  for (const auto& record : imported_module.alias_decls) {
+    frontend::ir::IRAliasDecl alias{.name = record.name, .target = type_from_bytecode_text(record.target)};
+    if (imported_alias_decl_keys.insert(frontend::source_loader::alias_decl_identity_key(alias)).second) {
+      seeds.alias_decls.push_back(std::move(alias));
+    }
+  }
+
   std::unordered_map<std::string, const FunctionDef*> fn_by_link_name;
   for (const auto& fn : imported_module.functions) {
     fn_by_link_name.emplace(fn.name, &fn);
@@ -544,7 +570,7 @@ auto seed_imports(const LoadedImports& loaded_imports) -> tl::expected<ImportSee
     const auto& [source, bytecode] = loaded_imports.paths[idx];
     (void)bytecode;
     if (!source.has_value()) {
-      seed_imports_from_bytecode_module(imported_module, imported_typed_let_keys, seeds);
+      seed_imports_from_bytecode_module(imported_module, imported_typed_let_keys, imported_alias_decl_keys, seeds);
       continue;
     }
 

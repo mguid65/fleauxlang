@@ -38,5 +38,10 @@ let Repeat<T: Summable>(n: Int64, x: T): T =
 (3, 5 -> M) -> Repeat -> Std.Println;                      // 15
 (4, 2) -> Repeat -> Std.Println;                           // 8
 
-// For now such functions can only be called directly from Fleaux code in the same module: they cannot be passed as
-// values, called by the host, or imported. The operators of one call may use at most one such type parameter.
+// As a value, such a function needs its type arguments, which select the operator functions it uses.
+let SumWith<T>(xs: Tuple<T...>, zero: T, add: (T, T) => T): T = (xs, zero, add) -> Std.Tuple.Reduce;
+let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;
+((1 -> M, 5 -> M), 0 -> M, Add2<Money>) -> SumWith -> Std.Println;   // 6
+
+// Limits: one operator may use at most one such type parameter, and a generic closure cannot use operators of its
+// own strong-bounded type parameters.

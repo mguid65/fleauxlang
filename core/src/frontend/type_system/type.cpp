@@ -418,6 +418,71 @@ auto from_ir_type(const ir::IRSimpleType& type) -> Type {
   return normalize_type(std::move(out));
 }
 
+auto to_ir_type(const Type& type) -> ir::IRSimpleType {
+  ir::IRSimpleType out;
+  out.variadic = type.variadic;
+  const auto convert_all = [](const std::vector<Type>& types) {
+    std::vector<ir::IRSimpleType> converted;
+    converted.reserve(types.size());
+    for (const auto& item : types) {
+      converted.push_back(to_ir_type(item));
+    }
+    return converted;
+  };
+  switch (type.kind) {
+    case TypeKind::kInt64:
+      out.name = "Int64";
+      break;
+    case TypeKind::kUInt64:
+      out.name = "UInt64";
+      break;
+    case TypeKind::kFloat64:
+      out.name = "Float64";
+      break;
+    case TypeKind::kString:
+      out.name = "String";
+      break;
+    case TypeKind::kBool:
+      out.name = "Bool";
+      break;
+    case TypeKind::kNull:
+      out.name = "Null";
+      break;
+    case TypeKind::kNever:
+      out.name = "Never";
+      break;
+    case TypeKind::kNominal:
+    case TypeKind::kTypeVar:
+      out.name = type.nominal_name;
+      break;
+    case TypeKind::kTuple:
+      out.name = "Tuple";
+      out.tuple_items = convert_all(type.items);
+      break;
+    case TypeKind::kUnion:
+      out.alternative_types = convert_all(type.union_members);
+      out.name = out.alternative_types.empty() ? std::string{} : out.alternative_types.front().name;
+      break;
+    case TypeKind::kApplied:
+      out.name = type.applied_name;
+      out.type_args = convert_all(type.applied_args);
+      break;
+    case TypeKind::kFunction: {
+      ir::IRSimpleType::FunctionSignature signature;
+      signature.param_types = convert_all(type.function_params);
+      signature.return_type = type.function_return.has_value()
+                                  ? ir::IRSimpleTypeBox(std::in_place, to_ir_type(*type.function_return))
+                                  : ir::IRSimpleTypeBox(std::in_place, ir::IRSimpleType{.name = "Any"});
+      out.function_sig = std::move(signature);
+      break;
+    }
+    default:
+      out.name = "Any";
+      break;
+  }
+  return out;
+}
+
 auto is_integer_like(const Type& type) -> bool {
   return type.kind == TypeKind::kInt64 || type.kind == TypeKind::kUInt64;
 }

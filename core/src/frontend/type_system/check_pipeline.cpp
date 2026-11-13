@@ -205,6 +205,8 @@ auto resolve_operator(const std::string& op, const std::vector<Type>& args, cons
   return std::move(matches.front());
 }
 
+}  // namespace
+
 auto substitute_type_param(const Type& type, const std::string& name, const Type& replacement) -> Type {
   if (type.kind == TypeKind::kTypeVar && type.nominal_name == name) {
     Type out = replacement;
@@ -227,6 +229,8 @@ auto substitute_type_param(const Type& type, const std::string& name, const Type
   }
   return normalize_type(std::move(out));
 }
+
+namespace {
 
 auto bound_alternatives_of(const Type& bound) -> std::vector<Type> {
   return bound.kind == TypeKind::kUnion ? bound.union_members : std::vector<Type>{bound};
@@ -573,6 +577,27 @@ auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_
 }
 
 }  // namespace
+
+auto resolve_operator_function(const std::string& op, const std::vector<Type>& args,
+                               const std::optional<diag::SourceSpan>& span, const FunctionIndex& index,
+                               const StrongTypeIndex& type_index, const GenericScope& generic_params)
+    -> tl::expected<ir::IRNameRef, type_check::AnalysisError> {
+  auto resolved = resolve_operator(op, args, span, index, type_index, generic_params);
+  if (!resolved) {
+    return tl::unexpected(resolved.error());
+  }
+  return ir::IRNameRef{.qualifier = resolved->qualifier,
+                       .name = resolved->name,
+                       .resolved_symbol_key = resolved->invocation.resolved_symbol_key,
+                       .span = span};
+}
+
+auto operator_args_for_call(const std::string& callee, const ResolvedInvocation& invocation,
+                            const std::optional<diag::SourceSpan>& span, const FunctionIndex& index,
+                            const StrongTypeIndex& type_index, const GenericScope& generic_params)
+    -> tl::expected<std::vector<ir::IRExpr>, type_check::AnalysisError> {
+  return hidden_operator_args(callee, invocation, span, index, type_index, generic_params);
+}
 
 auto is_std_match_target(const ir::IRCallTarget& target) -> bool {
   const auto* name_ref = std::get_if<ir::IRNameRef>(&target);

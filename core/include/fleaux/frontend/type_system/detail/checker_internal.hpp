@@ -54,6 +54,17 @@ private:
     -> std::size_t;
 // The name of the hidden parameter for requirement `index`. The quote keeps it apart from source identifiers.
 [[nodiscard]] auto hidden_operator_param_name(std::size_t index) -> std::string;
+// The function an operator calls for these operand types, as a reference to it.
+[[nodiscard]] auto resolve_operator_function(const std::string& op, const std::vector<Type>& args,
+                                             const std::optional<diag::SourceSpan>& span, const FunctionIndex& index,
+                                             const StrongTypeIndex& type_index, const GenericScope& generic_params)
+    -> tl::expected<ir::IRNameRef, type_check::AnalysisError>;
+// The hidden operator arguments for a call (or a function value) with these bindings; see OperatorRequirement.
+[[nodiscard]] auto operator_args_for_call(const std::string& callee, const ResolvedInvocation& invocation,
+                                          const std::optional<diag::SourceSpan>& span, const FunctionIndex& index,
+                                          const StrongTypeIndex& type_index, const GenericScope& generic_params)
+    -> tl::expected<std::vector<ir::IRExpr>, type_check::AnalysisError>;
+[[nodiscard]] auto substitute_type_param(const Type& type, const std::string& name, const Type& replacement) -> Type;
 // True when the bound lists a declared strong type (not a builtin type).
 [[nodiscard]] auto bound_has_strong_type(const Type& bound, const StrongTypeIndex& type_index) -> bool;
 

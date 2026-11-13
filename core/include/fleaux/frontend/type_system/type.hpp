@@ -68,6 +68,9 @@ struct Type {
 
 [[nodiscard]] auto from_ir_type(const ir::IRSimpleType& type) -> Type;
 
+// The IR form of a type, so that types the checker derives can be recorded in the IR and in bytecode.
+[[nodiscard]] auto to_ir_type(const Type& type) -> ir::IRSimpleType;
+
 // The open function value of generic function type `function_type` with type parameters `generic_params`: each type
 // parameter is renamed to a fresh type variable (keeping its bound) and listed in function_generic_params. `name` is
 // used in diagnostics.

@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 26;
+constexpr std::uint32_t BYTECODE_VERSION = 28;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -577,7 +577,8 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
                       generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                       return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
-                      return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
+                      return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
+                      operator_requirements] : module.functions) {
       write_string(buffer, name);
       write_pod(buffer, arity);
       write_pod(buffer, has_variadic_tail);
@@ -593,6 +594,14 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
       write_pod(buffer, return_type_is_task_handle);
       write_pod(buffer, return_type_is_random_generator);
       write_pod(buffer, return_type_is_file_handle);
+      write_pod(buffer, hidden_operator_params);
+      write_pod(buffer, static_cast<std::uint32_t>(operator_requirements.size()));
+      for (const auto& requirement : operator_requirements) {
+        write_string(buffer, requirement.op);
+        write_string(buffer, requirement.type_param);
+        write_string(buffer, requirement.signature);
+        write_string_list(buffer, requirement.alternative_functions);
+      }
     }
   }
 
@@ -621,6 +630,19 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     for (const auto& check : module.type_checks) {
       write_type_check(buffer, check);
     }
+  }
+
+  write_pod(buffer, static_cast<std::uint32_t>(module.type_decls.size()));
+  for (const auto& [name, generic_params, is_builtin, target] : module.type_decls) {
+    write_string(buffer, name);
+    write_string_list(buffer, generic_params);
+    write_pod(buffer, is_builtin);
+    write_string(buffer, target);
+  }
+  write_pod(buffer, static_cast<std::uint32_t>(module.alias_decls.size()));
+  for (const auto& [name, target] : module.alias_decls) {
+    write_string(buffer, name);
+    write_string(buffer, target);
   }
 
   const auto checksum = checksum_bytes(buffer, kPayloadOffset);
@@ -730,6 +752,19 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           !read_pod(buffer, offset, fn.return_type_is_file_handle)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
+      std::uint32_t requirement_count = 0;
+      if (!read_pod(buffer, offset, fn.hidden_operator_params) || !read_pod(buffer, offset, requirement_count) ||
+          requirement_count > buffer.size() - offset || fn.hidden_operator_params > fn.arity) {
+        return tl::unexpected(SerializationError{.message = "Cannot read function operator requirements"});
+      }
+      fn.operator_requirements.resize(requirement_count);
+      for (auto& requirement : fn.operator_requirements) {
+        if (!read_string(buffer, offset, requirement.op) || !read_string(buffer, offset, requirement.type_param) ||
+            !read_string(buffer, offset, requirement.signature) ||
+            !read_string_list(buffer, offset, requirement.alternative_functions)) {
+          return tl::unexpected(SerializationError{.message = "Cannot read function operator requirements"});
+        }
+      }
       deserialized.functions.push_back(std::move(fn));
     }
   }
@@ -776,6 +811,29 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
       if (!read_type_check(buffer, offset, check, 0U) || !common::is_well_formed(check) ||
           !common::is_cast_check(check)) {
         return tl::unexpected(SerializationError{.message = "Cannot read type check"});
+      }
+    }
+  }
+
+  {
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+      return tl::unexpected(SerializationError{.message = "Cannot read type declarations"});
+    }
+    deserialized.type_decls.resize(count);
+    for (auto& record : deserialized.type_decls) {
+      if (!read_string(buffer, offset, record.name) || !read_string_list(buffer, offset, record.generic_params) ||
+          !read_pod(buffer, offset, record.is_builtin) || !read_string(buffer, offset, record.target)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read type declarations"});
+      }
+    }
+    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+      return tl::unexpected(SerializationError{.message = "Cannot read alias declarations"});
+    }
+    deserialized.alias_decls.resize(count);
+    for (auto& record : deserialized.alias_decls) {
+      if (!read_string(buffer, offset, record.name) || !read_string(buffer, offset, record.target)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read alias declarations"});
       }
     }
   }
@@ -862,7 +920,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
                     generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                     return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
-                    return_type_is_random_generator, return_type_is_file_handle] : module.functions) {
+                    return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
+                    operator_requirements] : module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
@@ -889,6 +948,13 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         }
       }
       out << "\n";
+    }
+    for (const auto& requirement : operator_requirements) {
+      out << std::format("    operator_requirement: '{}' on {} as {}\n", requirement.op, requirement.type_param,
+                         requirement.signature);
+    }
+    if (hidden_operator_params > 0U) {
+      out << std::format("    hidden_operator_params: {}\n", hidden_operator_params);
     }
     if (!param_type_names.empty()) {
       out << "    param_type_names:";
@@ -921,6 +987,20 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         closure_index, function_index, capture_count, declared_arity, declared_has_variadic_tail);
 
     closure_index++;
+  }
+
+  out << "TypeDecls:\n";
+  for (const auto& [name, generic_params, is_builtin, target] : module.type_decls) {
+    std::string params;
+    for (const auto& param : generic_params) {
+      params += (params.empty() ? "" : ", ") + param;
+    }
+    out << std::format("  type {}{} {}\n", name, params.empty() ? "" : "<" + params + ">",
+                       is_builtin ? std::string{":: __builtin__"} : "= " + target);
+  }
+  out << "AliasDecls:\n";
+  for (const auto& [name, target] : module.alias_decls) {
+    out << std::format("  alias {} = {}\n", name, target);
   }
 
   out << "TypeChecks:\n";
