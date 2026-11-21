@@ -73,7 +73,8 @@ Pipeline invariant (parameter lists):
 - Do not flatten singleton tuple types or unwrap runtime tuple values: a one-item tuple is a real value, including
   when passed through a callable (`resolve_callable_ref`).
 - Function value calls are `(arguments, function) -> Std.Apply` flows with `IRFlowExpr::calls_function_value` set.
-  Lowering produces them for closure stages (`try_apply_closure_stage`); the checker rewrites a target naming a local,
+  Lowering produces them for closure stages, including a closure after a tuple template stage, whose replaced
+  template is the closure's parameter list (`try_apply_closure_stage`, `lower_flow`); the checker rewrites a target naming a local,
   a parameter, or a value let (`FunctionSig::is_value_binding`) into one (`infer_function_value_call`). The checker
   types the arguments against the function type and shapes `arguments` into the value Std.Apply passes
   (`infer_function_value_apply`, `check_function_value_call`), so the compiler emits an ordinary Std.Apply call. A

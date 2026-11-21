@@ -495,6 +495,10 @@ A closure used as a pipeline target takes its arguments from the left side by th
 
     (3.0, 4.0) -> (a: Float64, b: Float64): Float64 = (a, b) -> Std.Multiply;
 
+A tuple template can supply those arguments, as for any call target:
+
+    10.0 -> (_, 2.0) -> (a: Float64, b: Float64): Float64 = (a, b) -> Std.Divide;
+
 Zero-argument closures are also allowed:
 
     () -> (): Any = ("Empty Closure") -> Std.Println;

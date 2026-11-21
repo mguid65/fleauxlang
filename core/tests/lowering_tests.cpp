@@ -840,3 +840,27 @@ TEST_CASE("Lowerer records trailing commas and spread items", "[lowering][parame
     REQUIRE(tuple_value.error().hint->find("trailing comma") != std::string::npos);
   }
 }
+
+TEST_CASE("Lowerer passes a tuple template to a following closure as its arguments", "[lowering]") {
+  const std::string src = "import Std;\n3 -> (_, 1) -> (a: Int64, b: Int64): Int64 = (a, b) -> +;\n";
+
+  constexpr fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, "template_closure_stage.fleaux");
+  REQUIRE(parsed.has_value());
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto lowered = lowerer.lower_only(parsed.value());
+  REQUIRE(lowered.has_value());
+  REQUIRE(lowered->expressions.size() == 1);
+
+  const auto& apply_flow = std::get<fleaux::frontend::ir::IRFlowExpr>(lowered->expressions[0].expr.node);
+  REQUIRE(apply_flow.calls_function_value);
+  REQUIRE(std::get<fleaux::frontend::ir::IRNameRef>(apply_flow.rhs).name == "Apply");
+  const auto& apply_args = std::get<fleaux::frontend::ir::IRTupleExpr>(apply_flow.lhs->node);
+  REQUIRE(apply_args.items.size() == 2U);
+  // The template with '_' replaced is the closure's parameter list: (3, 1).
+  const auto& arguments = std::get<fleaux::frontend::ir::IRTupleExpr>(apply_args.items[0]->node);
+  REQUIRE_FALSE(arguments.trailing_comma);
+  REQUIRE(arguments.items.size() == 2U);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRClosureExprBox>(apply_args.items[1]->node));
+}

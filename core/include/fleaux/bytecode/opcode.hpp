@@ -57,7 +57,7 @@ enum class Opcode {
 
   // Unconditional jump:
   // Set ip to the absolute instruction index given by operand (within the
-  // current instruction list — top-level or function body).
+  // current instruction list: top-level or function body).
   kJump,
 
   // Conditional jump (on truthy top-of-stack):

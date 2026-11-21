@@ -876,6 +876,28 @@ auto lower_flow(const model::FlowExpression& flow, const LoweringContext& contex
                                           .span = flow.rhs[stage_index].span});
     }
 
+    // A template followed by a closure is the closure's parameter list, as for any call target.
+    if (const auto& next_primary = flow.rhs[stage_index + 1];
+        std::holds_alternative<model::ClosureExpressionBox>(next_primary.base.value)) {
+      if (std::get_if<ir::IRTupleExpr>(&stage_expr->node) == nullptr) {
+        return tl::unexpected(
+            LoweringError{.message = "Invalid pipeline stage shape: non-call stages must be tuple templates.",
+                          .hint = "Use a call target like '-> Std.Add' or a tuple template like '-> (_, 2) -> Std.Add'.",
+                          .span = flow.rhs[stage_index].span});
+      }
+      auto arguments = replace_placeholder(*stage_expr, *result);
+      if (!arguments) {
+        return tl::unexpected(arguments.error());
+      }
+      auto closure = lower_primary(next_primary, context, false);
+      if (!closure) {
+        return tl::unexpected(closure.error());
+      }
+      result = std::move(*try_apply_closure_stage(*arguments, next_primary, *closure));
+      stage_index += 2;
+      continue;
+    }
+
     if (auto applied_template = apply_template_stage(*result, flow.span, flow.rhs[stage_index], stage_expr.value(),
                                                      flow.rhs[stage_index + 1]);
         !applied_template) {

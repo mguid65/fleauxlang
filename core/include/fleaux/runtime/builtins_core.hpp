@@ -573,7 +573,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 // Control flow (templated: functions remain concrete C++ callables)
 
 [[nodiscard]] inline auto Select(Value arg) -> Value {
-  // arg = [condition, true_val, false_val] — all Values
+  // arg = [condition, true_val, false_val], all Values
   return as_bool(array_at(arg, 0)) ? array_at(arg, 1) : array_at(arg, 2);
 }
 

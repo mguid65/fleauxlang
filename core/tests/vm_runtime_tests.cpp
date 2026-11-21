@@ -5513,7 +5513,7 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
 
   bytecode_module.instructions = {
-      // Std.Length: pass the 3-tuple directly (Option B — no 1-element wrapper).
+      // Std.Length: pass the 3-tuple directly (no 1-element wrapper).
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c30},
@@ -7044,4 +7044,53 @@ TEST_CASE("RuntimeSession generic variadic closure stages bind their type argume
   }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "3\n3\n(4, 4)\n1\n");
+}
+
+TEST_CASE("RuntimeSession tuple templates can be followed by closures", "[vm][repl][closures]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let P: Tuple<Int64, Int64> = (4, 5);\n"
+      "((5, 6) -> Std.Add -> (_, 1) -> (a: Int64, b: Int64): Int64 = (a, b) -> -) -> Std.Println;\n"
+      "(7 -> (_, 2, _) -> (a: Int64, b: Int64, c: Int64): Int64 = ((a, b) -> +, c) -> *) -> Std.Println;\n"
+      "(3 -> (_,) -> (t: Tuple<Int64>): Int64 = t -> Std.Length) -> Std.Println;\n"
+      "(P -> (_..., 1) -> (a: Int64, b: Int64, c: Int64): Int64 = ((a, b) -> +, c) -> +) -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "10\n63\n1\n10\n");
+}
+
+TEST_CASE("RuntimeSession spreads reach overloads and function values in generic bodies",
+          "[vm][repl][parameter-lists][function-values]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Combine(a: Int64, b: Int64): Int64 = (a, b) -> +;\n"
+      "let Combine(a: String, b: String): String = (\"{}{}\", a, b) -> Std.String.Format;\n"
+      "let Ints: Tuple<Int64, Int64> = (2, 3);\n"
+      "let Strs: Tuple<String, String> = (\"a\", \"b\");\n"
+      "let ApplyTo<T, U>(f: (T) => U, x: T): U = x -> f;\n"
+      "let Fold<T>(f: (T, T) => T, pair: Tuple<T, T>): T = (pair...) -> f;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> +;\n"
+      "(Ints...) -> Combine -> Std.Println;\n"
+      "(Strs...) -> Combine -> Std.Println;\n"
+      "(Inc, 4) -> ApplyTo -> Std.Println;\n"
+      "(Std.Multiply, (6, 7)) -> Fold -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "5\nab\n5\n42\n");
 }
