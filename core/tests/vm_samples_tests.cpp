@@ -337,7 +337,7 @@ TEST_CASE("VM loader reports imported type mismatches", "[vm][imports][contract]
   const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
   REQUIRE_FALSE(vm_load_result.has_value());
   REQUIRE(vm_load_result.error().message.find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(vm_load_result.error().hint.value().find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(vm_load_result.error().hint.value().find("Add4 expects argument 1") != std::string::npos);
 }
 
 TEST_CASE("VM loader enforces direct import visibility", "[vm][imports][contract][types]") {
@@ -933,13 +933,13 @@ TEST_CASE("VM widened opaque handle params reject non-handle arguments during an
            "type TaskHandle<T> :: __builtin__;\n"
            "let Std.Task.Await<T>(task: TaskHandle<T>): Result<T, String> :: __builtin__;\n"
            "1 -> Std.Task.Await;\n",
-           "Std.Task.Await expects argument 0");
+           "Std.Task.Await expects argument 1");
 
   run_case("task_cancel_non_handle_rejects.fleaux",
            "type TaskHandle<T> :: __builtin__;\n"
            "let Std.Task.Cancel<T>(task: TaskHandle<T>): Bool :: __builtin__;\n"
            "1 -> Std.Task.Cancel;\n",
-           "Std.Task.Cancel expects argument 0");
+           "Std.Task.Cancel expects argument 1");
 
   run_case("task_awaitall_non_handle_tuple_rejects.fleaux",
            "type Result<T, E> :: __builtin__;\n"
@@ -947,14 +947,14 @@ TEST_CASE("VM widened opaque handle params reject non-handle arguments during an
            "let Std.Task.AwaitAll<T>(tasks: Tuple<TaskHandle<T>...>): Result<Tuple<T...>, Tuple<Int64, String>> :: "
            "__builtin__;\n"
            "((1, 2)) -> Std.Task.AwaitAll;\n",
-           "Std.Task.AwaitAll expects argument 0");
+           "Std.Task.AwaitAll expects argument 1");
 
   run_case("task_timeout_non_handle_rejects.fleaux",
            "type Result<T, E> :: __builtin__;\n"
            "type TaskHandle<T> :: __builtin__;\n"
            "let Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: UInt64): Result<T, String> :: __builtin__;\n"
            "(1, 50u64) -> Std.Task.WithTimeout;\n",
-           "Std.Task.WithTimeout expects argument 0");
+           "Std.Task.WithTimeout expects argument 1");
 
 }
 
@@ -1373,7 +1373,7 @@ TEST_CASE("VM Std.Task.WithTimeout negative timeout is rejected during analysis"
   const auto analyzed = load_ir_program(source_path);
   REQUIRE_FALSE(analyzed.has_value());
   REQUIRE(analyzed.error().find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(analyzed.error().find("Std.Task.WithTimeout expects argument 1") != std::string::npos);
+  REQUIRE(analyzed.error().find("Std.Task.WithTimeout expects argument 2") != std::string::npos);
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \

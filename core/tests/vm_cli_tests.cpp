@@ -682,7 +682,7 @@ TEST_CASE("CLI vm mode reports loader failures with actionable hints", "[vm][cli
     REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("3 | (1) -> Add4 -> Std.Println;"));
     REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("^"));
     REQUIRE_THAT(result.stderr_text,
-                 Catch::Matchers::ContainsSubstring("Add4 expects argument 0 to match declared type."));
+                 Catch::Matchers::ContainsSubstring("Add4 expects argument 1 to be"));
   }
 }
 

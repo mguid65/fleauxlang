@@ -321,7 +321,7 @@ TEST_CASE("RuntimeSession preserves strong type declarations across snippets", "
   REQUIRE_FALSE(mismatch_result.has_value());
   REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
   REQUIRE(mismatch_result.error().hint.has_value());
-  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("Wrap expects argument 0"));
+  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("Wrap expects argument 1"));
 }
 
 TEST_CASE("RuntimeSession preserves transparent aliases across snippets", "[vm][repl][type][aliases]") {
@@ -411,7 +411,7 @@ TEST_CASE("RuntimeSession type-checks later snippets against prior lets", "[vm][
   REQUIRE_FALSE(mismatch_result.has_value());
   REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
   REQUIRE(mismatch_result.error().hint.has_value());
-  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 0"));
+  REQUIRE_THAT(*mismatch_result.error().hint, Catch::Matchers::ContainsSubstring("AddOne expects argument 1"));
 }
 
 TEST_CASE("RuntimeSession executes zero-arg inline closure pipeline sugar", "[vm][repl][closure]") {
@@ -545,7 +545,7 @@ TEST_CASE("RuntimeSession type-checks Std imports using canonical stdlib declara
   REQUIRE(mismatch_result.error().message == "Type mismatch in call target arguments.");
   REQUIRE(mismatch_result.error().hint.has_value());
   REQUIRE_THAT(*mismatch_result.error().hint,
-               Catch::Matchers::ContainsSubstring("Std.Array.GetAt expects argument 1 to match declared type"));
+               Catch::Matchers::ContainsSubstring("Std.Array.GetAt expects argument 2 to be UInt64, but got Float64."));
 }
 
 TEST_CASE("RuntimeSession resolves Std.String parse builtins from canonical stdlib declarations",

@@ -773,7 +773,7 @@ TEST_CASE("Type checker reports conflicting user generic type-variable names in 
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
   REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("type variable(s): T") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Int64") != std::string::npos);
 }
 
 TEST_CASE("Type checker reports conflicting user generic variadic type-variable names in argument diagnostics",
@@ -792,7 +792,7 @@ TEST_CASE("Type checker reports conflicting user generic variadic type-variable 
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
   REQUIRE(lowered.error().hint->find("expects variadic argument") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("type variable(s): T") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Int64") != std::string::npos);
 }
 
 TEST_CASE("Type checker reports user generic fixed-argument binding detail in diagnostics",
@@ -810,8 +810,8 @@ TEST_CASE("Type checker reports user generic fixed-argument binding detail in di
   REQUIRE_FALSE(lowered.has_value());
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
-  REQUIRE(lowered.error().hint->find("type variable(s): T") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("T bound as Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("KeepFirst expects argument 2 to be Int64, but got String") != std::string::npos);
   REQUIRE(lowered.error().hint->find("got String") != std::string::npos);
 }
 
@@ -831,8 +831,8 @@ TEST_CASE("Type checker reports user generic variadic binding detail in diagnost
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
   REQUIRE(lowered.error().hint->find("expects variadic argument") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("type variable(s): T") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("T bound as Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("FirstOf expects variadic argument 2 to be Int64, but got String") != std::string::npos);
   REQUIRE(lowered.error().hint->find("got String") != std::string::npos);
 }
 
@@ -912,8 +912,8 @@ TEST_CASE("Type checker rejects builtin generic callable mismatch", "[typecheck]
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
   REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("type variable(s): T, U") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("T bound as Float64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Std.Apply expects argument 2 to be (Float64) => U, but got (Int64) => Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Float64") != std::string::npos);
   REQUIRE(lowered.error().hint->find("got (Int64) => Int64") != std::string::npos);
 }
 
@@ -952,8 +952,8 @@ TEST_CASE("Type checker enforces generic callable return compatibility", "[typec
   REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(lowered.error().hint.has_value());
   REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("type variable(s): T") != std::string::npos);
-  REQUIRE(lowered.error().hint->find("T bound as Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("Here T is Int64") != std::string::npos);
+  REQUIRE(lowered.error().hint->find("but got (Int64) => Float64") != std::string::npos);
   REQUIRE(lowered.error().hint->find("got (Int64) => Float64") != std::string::npos);
 }
 
@@ -2717,7 +2717,7 @@ TEST_CASE("Type checker matrix: Stage-4e generic and union inference hardening",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 2") != std::string::npos);
   }
 }
 
@@ -2941,7 +2941,7 @@ TEST_CASE("Type checker matrix: Stage-4c Std.Exit surface contract", "[typecheck
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Exit rejects more than one argument") {
@@ -3172,7 +3172,7 @@ TEST_CASE("Type checker rejects negative string and file bounds before runtime",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.String.CharAt expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.String.CharAt expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.String.Slice rejects negative bounds") {
@@ -3189,7 +3189,7 @@ TEST_CASE("Type checker rejects negative string and file bounds before runtime",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.String.Slice expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.String.Slice expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.String.Find rejects negative start indices") {
@@ -3206,7 +3206,7 @@ TEST_CASE("Type checker rejects negative string and file bounds before runtime",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.String.Find expects argument 2") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.String.Find expects argument 3") != std::string::npos);
   }
 
   SECTION("Std.File.ReadChunk rejects negative nbytes") {
@@ -3225,7 +3225,7 @@ TEST_CASE("Type checker rejects negative string and file bounds before runtime",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.File.ReadChunk expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.File.ReadChunk expects argument 2") != std::string::npos);
   }
 }
 
@@ -3247,7 +3247,7 @@ TEST_CASE("Type checker matrix: Stage-4o opaque handle builtin contracts",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Task.Await expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Task.Await expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.AwaitAll rejects non-task tuples through its typed Tuple<TaskHandle<T>...> signature") {
@@ -3267,7 +3267,7 @@ TEST_CASE("Type checker matrix: Stage-4o opaque handle builtin contracts",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Task.AwaitAll expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Task.AwaitAll expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.AwaitAll rejects tasks with different result types") {
@@ -3306,7 +3306,7 @@ TEST_CASE("Type checker matrix: Stage-4o opaque handle builtin contracts",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Task.WithTimeout expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Task.WithTimeout expects argument 1") != std::string::npos);
   }
 
 }
@@ -3364,7 +3364,7 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.WithTimeout propagates Result<Any, String>") {
@@ -3399,7 +3399,7 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.AwaitAll propagates Result<Tuple<Any...>, Tuple<Int64, String>>") {
@@ -3436,7 +3436,7 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.Cancel returns Bool for TaskHandle input") {
@@ -3471,7 +3471,7 @@ TEST_CASE("Type checker matrix: Stage-3r Std.Task result-shape tightening", "[ty
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Task.AwaitAll rejects downstream error-shape mismatch") {
@@ -3633,7 +3633,7 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Try expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Try expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Try propagates String error channel") {
@@ -3712,7 +3712,7 @@ TEST_CASE("Type checker matrix: Stage-3t Result and Parallel error-channel tight
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("NeedsWrongErr expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("NeedsWrongErr expects argument 1") != std::string::npos);
   }
 }
 
@@ -3884,7 +3884,7 @@ TEST_CASE("Type checker matrix: Stage-3w Std.OS.Env nullable-string tightening",
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("NeedsString expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("NeedsString expects argument 1") != std::string::npos);
   }
 }
 
@@ -4260,7 +4260,7 @@ TEST_CASE("Type checker matrix: Stage-4g typed imported signature seeding", "[ty
     REQUIRE_FALSE(analyzed.has_value());
     REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(analyzed.error().hint.has_value());
-    REQUIRE(analyzed.error().hint->find("Foo.Add4 expects argument 0") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("Foo.Add4 expects argument 1") != std::string::npos);
   }
 
   SECTION("Typed imported signature resolves matching argument and return flow") {
@@ -4395,7 +4395,7 @@ TEST_CASE("Type checker validates strong type environments across local and impo
     REQUIRE_FALSE(analyzed.has_value());
     REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(analyzed.error().hint.has_value());
-    REQUIRE(analyzed.error().hint->find("Echo expects argument 0") != std::string::npos);
+    REQUIRE(analyzed.error().hint->find("Echo expects argument 1") != std::string::npos);
   }
 }
 
@@ -4861,7 +4861,7 @@ TEST_CASE("Type checker rejects invalid builtin opaque random invocations before
   REQUIRE_FALSE(analyzed.has_value());
   REQUIRE(analyzed.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(analyzed.error().hint.has_value());
-  REQUIRE(analyzed.error().hint->find("Std.Random.NextUInt64 expects argument 0") != std::string::npos);
+  REQUIRE(analyzed.error().hint->find("Std.Random.NextUInt64 expects argument 1") != std::string::npos);
 }
 
 TEST_CASE("Type checker matrix: Stage-3y Std.Random handle ownership", "[typecheck][stage3y][random]") {
@@ -4896,7 +4896,7 @@ TEST_CASE("Type checker matrix: Stage-3y Std.Random handle ownership", "[typeche
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Random.Create expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Random.Create expects argument 1") != std::string::npos);
   }
 
   SECTION("Std.Random.NextUInt64 propagates Tuple<UInt64, RandomGenerator>") {
@@ -5018,7 +5018,7 @@ TEST_CASE("Type checker rejects invalid bit shift counts before runtime", "[type
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftLeft expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftLeft expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Bit.ShiftRight rejects fractional shift counts") {
@@ -5035,7 +5035,7 @@ TEST_CASE("Type checker rejects invalid bit shift counts before runtime", "[type
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftRight expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Bit.ShiftRight expects argument 2") != std::string::npos);
   }
 }
 
@@ -5367,7 +5367,7 @@ TEST_CASE("Type checker rejects negative array indices and dimensions before run
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Array.GetAt expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Array.GetAt expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Array.Shape produces UInt64 shape tuples") {
@@ -5419,7 +5419,7 @@ TEST_CASE("Type checker rejects negative core sequence indices and counts before
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.ElementAt expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.ElementAt expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Take rejects negative counts") {
@@ -5436,7 +5436,7 @@ TEST_CASE("Type checker rejects negative core sequence indices and counts before
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Take expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Take expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Drop rejects negative counts") {
@@ -5453,7 +5453,7 @@ TEST_CASE("Type checker rejects negative core sequence indices and counts before
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Drop expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Drop expects argument 2") != std::string::npos);
   }
 
   SECTION("Std.Slice rejects negative stops") {
@@ -5470,7 +5470,7 @@ TEST_CASE("Type checker rejects negative core sequence indices and counts before
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Slice expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Slice expects argument 2") != std::string::npos);
   }
 }
 
@@ -5492,7 +5492,7 @@ TEST_CASE("Type checker rejects negative loop and task bounds before runtime", "
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.LoopN expects argument 3") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.LoopN expects argument 4") != std::string::npos);
   }
 
   SECTION("Std.Task.WithTimeout rejects negative timeout") {
@@ -5510,7 +5510,7 @@ TEST_CASE("Type checker rejects negative loop and task bounds before runtime", "
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Task.WithTimeout expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Task.WithTimeout expects argument 2") != std::string::npos);
   }
 }
 
@@ -6561,7 +6561,7 @@ TEST_CASE("Type checker types Result constructors with Never for the unknown sid
                                          "(True, (1) -> Std.Result.Ok, (\"a\") -> Std.Result.Ok) -> Std.Select;\n",
                                          "result_join_conflict.fleaux");
     REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Select expects argument 2") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Select expects argument 3") != std::string::npos);
   }
 
   SECTION("Payload of an Ok value is the success type") {
@@ -6610,7 +6610,7 @@ TEST_CASE("Type checker passes callbacks whose parameters are wider than expecte
                                          "callback_wide_return.fleaux");
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Apply expects argument 0") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Apply expects argument 1") != std::string::npos);
   }
 }
 
@@ -6679,21 +6679,21 @@ TEST_CASE("Std signatures reject mistyped builtin arguments without builtin cont
     const char* expected_hint;
   };
   const std::vector<Case> cases = {
-      {"String parameter", "(1) -> Std.Path.Basename;", "Std.Path.Basename expects argument 0"},
-      {"String parameters of a two-argument builtin", "(\"a\", 1) -> Std.OS.SetEnv;", "Std.OS.SetEnv expects argument 1"},
-      {"Variadic String parameters", "(\"a\", \"b\", 3) -> Std.Path.Join;", "Std.Path.Join expects variadic argument 2"},
-      {"UInt64 index rejects Int64", "((1, 2, 3), 1) -> Std.Array.GetAt;", "Std.Array.GetAt expects argument 1"},
-      {"UInt64 index rejects Float64", "((1, 2, 3), 1.0) -> Std.Take;", "Std.Take expects argument 1"},
-      {"UInt64 bit shift count", "(1, 2) -> Std.Bit.ShiftLeft;", "Std.Bit.ShiftLeft expects argument 1"},
-      {"UInt64 tuple of ND indices", "(((1, 2), (3, 4)), (0, 1)) -> Std.Array.GetAtND;", "Std.Array.GetAtND expects argument 1"},
-      {"UInt64 seed", "(5) -> Std.Random.Create;", "Std.Random.Create expects argument 0"},
+      {"String parameter", "(1) -> Std.Path.Basename;", "Std.Path.Basename expects argument 1"},
+      {"String parameters of a two-argument builtin", "(\"a\", 1) -> Std.OS.SetEnv;", "Std.OS.SetEnv expects argument 2"},
+      {"Variadic String parameters", "(\"a\", \"b\", 3) -> Std.Path.Join;", "Std.Path.Join expects variadic argument 3"},
+      {"UInt64 index rejects Int64", "((1, 2, 3), 1) -> Std.Array.GetAt;", "Std.Array.GetAt expects argument 2"},
+      {"UInt64 index rejects Float64", "((1, 2, 3), 1.0) -> Std.Take;", "Std.Take expects argument 2"},
+      {"UInt64 bit shift count", "(1, 2) -> Std.Bit.ShiftLeft;", "Std.Bit.ShiftLeft expects argument 2"},
+      {"UInt64 tuple of ND indices", "(((1, 2), (3, 4)), (0, 1)) -> Std.Array.GetAtND;", "Std.Array.GetAtND expects argument 2"},
+      {"UInt64 seed", "(5) -> Std.Random.Create;", "Std.Random.Create expects argument 1"},
       {"Int64 exit code", "(1u64) -> Std.Exit;", "Std.Exit"},
       {"Int64 range bounds", "(0u64, 3u64) -> Std.Tuple.Range;", "Std.Tuple.Range"},
-      {"FileHandle parameter", "(1) -> Std.File.ReadLine;", "Std.File.ReadLine expects argument 0"},
-      {"RandomGenerator parameter", "(1) -> Std.Random.NextInt64;", "Std.Random.NextInt64 expects argument 0"},
-      {"UInt64 loop limit", "(1.0, (x: Float64): Bool = True, (x: Float64): Float64 = x, 5) -> Std.LoopN;", "Std.LoopN expects argument 3"},
-      {"Callable arity", "((1, 2), (a: Int64, b: Int64): Int64 = a) -> Std.Tuple.Map;", "Std.Tuple.Map expects argument 1"},
-      {"Non-callable callback", "((1, 2), 3) -> Std.Tuple.Filter;", "Std.Tuple.Filter expects argument 1"},
+      {"FileHandle parameter", "(1) -> Std.File.ReadLine;", "Std.File.ReadLine expects argument 1"},
+      {"RandomGenerator parameter", "(1) -> Std.Random.NextInt64;", "Std.Random.NextInt64 expects argument 1"},
+      {"UInt64 loop limit", "(1.0, (x: Float64): Bool = True, (x: Float64): Float64 = x, 5) -> Std.LoopN;", "Std.LoopN expects argument 4"},
+      {"Callable arity", "((1, 2), (a: Int64, b: Int64): Int64 = a) -> Std.Tuple.Map;", "Std.Tuple.Map expects argument 2"},
+      {"Non-callable callback", "((1, 2), 3) -> Std.Tuple.Filter;", "Std.Tuple.Filter expects argument 2"},
   };
 
   for (const auto& [name, call, expected_hint] : cases) {
@@ -6827,7 +6827,7 @@ TEST_CASE("Type checker treats Any as a strict top type", "[typecheck][strict_an
 
   SECTION("An Any argument does not match a specific parameter") {
     const auto error = rejected("let Bad(x: Any): String = x -> Std.String.Upper;", "strict_any_argument.fleaux");
-    REQUIRE(error.hint->find("Std.String.Upper expects argument 0") != std::string::npos);
+    REQUIRE(error.hint->find("Std.String.Upper expects argument 1") != std::string::npos);
     REQUIRE(error.hint->find("Std.Cast<String>") != std::string::npos);
   }
 
@@ -6881,7 +6881,7 @@ TEST_CASE("Generic binding widens to a covering type and checks every argument a
                                          "widen_recheck_callback.fleaux");
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().hint.has_value());
-    REQUIRE(lowered.error().hint->find("Std.Combine expects argument 1") != std::string::npos);
+    REQUIRE(lowered.error().hint->find("Std.Combine expects argument 2") != std::string::npos);
   }
 
   SECTION("Explicit type arguments are never widened") {
@@ -7041,7 +7041,7 @@ TEST_CASE("Generic functions passed as values take type arguments from the param
     const auto lowered = lower_and_check(decls + "let Bad(): String = ((\"a\", \"b\"), \"\", Std.Add) -> SumWith;\n",
                                          "open_functions_bound.fleaux");
     REQUIRE_FALSE(lowered.has_value());
-    REQUIRE(lowered.error().hint->find("SumWith expects argument 2 to be (String, String) => String, but Std.Add "
+    REQUIRE(lowered.error().hint->find("SumWith expects argument 3 to be (String, String) => String, but Std.Add "
                                        "cannot take those parameter types") != std::string::npos);
   }
 
@@ -7341,5 +7341,56 @@ TEST_CASE("Type checker checks closure stage arguments", "[typecheck][function-v
   SECTION("Argument types are checked against the closure's parameters") {
     REQUIRE(lower_error("(1, \"a\") -> (a: Int64, b: Int64): Int64 = a;\n").message.find("Type mismatch") !=
             std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker argument mismatch hints name the types and suggest fixes", "[typecheck][diagnostics]") {
+  const std::string prelude =
+      "import Std;\n"
+      "let Pair(a: Int64, b: Int64): Int64 = (a, b) -> +;\n"
+      "let Whole(t: Tuple<Int64, Int64>): Int64 = t -> Std.Length;\n"
+      "let P: Tuple<Int64, Int64> = (1, 2);\n";
+
+  const auto hint_of = [&](const std::string& body) -> std::string {
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(prelude + body, "typecheck_mismatch_hints.fleaux");
+    REQUIRE(parsed.has_value());
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    REQUIRE(lowered.error().message.find("Type mismatch in call target arguments") != std::string::npos);
+    return lowered.error().hint.value_or("");
+  };
+
+  SECTION("Arguments are counted from 1 and both types are named") {
+    REQUIRE(hint_of("(1, \"a\") -> Pair;\n") == "Pair expects argument 2 to be Int64, but got String.");
+  }
+
+  SECTION("A tuple of fixed length where a scalar is expected suggests a spread") {
+    const auto hint = hint_of("(P, 3) -> Pair;\n");
+    REQUIRE(hint.find("Pair expects argument 1 to be Int64, but got Tuple<Int64, Int64>.") != std::string::npos);
+    REQUIRE(hint.find("spread it: '(x...)'") != std::string::npos);
+  }
+
+  SECTION("A tuple of unknown length gets no spread suggestion") {
+    const auto hint = hint_of("let Many: Tuple<Int64...> = (1, 2);\n(Many, 3) -> Pair;\n");
+    REQUIRE(hint.find("but got Tuple<Int64...>.") != std::string::npos);
+    REQUIRE(hint.find("spread") == std::string::npos);
+  }
+
+  SECTION("A function of several parameters where a tuple function is expected") {
+    const auto hint = hint_of("((1, 2,), Pair) -> Std.Apply;\n");
+    REQUIRE(hint.find("Std.Apply expects argument 2 to be (Tuple<Int64, Int64>) => U, but got (Int64, Int64) => "
+                      "Int64.") != std::string::npos);
+    REQUIRE(hint.find("Here T is Tuple<Int64, Int64>.") != std::string::npos);
+    REQUIRE(hint.find("A function of 2 parameters does not take one tuple") != std::string::npos);
+  }
+
+  SECTION("A tuple function where a function of several parameters is expected") {
+    const auto hint =
+        hint_of("let Use(f: (Int64, Int64) => Int64): Int64 = (1, 2) -> f;\nWhole -> Use;\n");
+    REQUIRE(hint.find("Use expects argument 1 to be (Int64, Int64) => Int64, but got (Tuple<Int64, Int64>) => "
+                      "Int64.") != std::string::npos);
+    REQUIRE(hint.find("A function of one tuple parameter does not take 2 separate arguments.") != std::string::npos);
   }
 }

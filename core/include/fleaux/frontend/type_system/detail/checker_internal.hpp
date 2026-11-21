@@ -143,12 +143,12 @@ auto collect_unresolved_return_type_vars(const Type& return_type, const TypeBind
 auto collect_unbound_type_vars(const Type& type, const TypeBindings& bindings, std::unordered_set<std::string>& out)
     -> void;
 auto join_sorted_type_var_names(const std::unordered_set<std::string>& names) -> std::string;
-auto generic_var_suffix_for_type(const Type& type) -> std::string;
 auto type_debug_name(const Type& type) -> std::string;
-auto generic_binding_detail_for_type(const Type& expected_type, const TypeBindings& bindings, const Type& actual)
-    -> std::string;
-auto generic_arg_mismatch_hint(const std::string& full_name, std::size_t arg_index, const Type& expected_type,
-                               bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string;
+// Substitutes the bound type variables of `type` and keeps the unbound ones as type variables.
+auto instantiate_type_preserving_unbound(const Type& type, const TypeBindings& bindings) -> Type;
+// The hint for an argument whose type does not fit its parameter. `arg_index` counts from 0; the hint counts from 1.
+auto arg_mismatch_hint(const std::string& full_name, std::size_t arg_index, const Type& param_type, bool variadic,
+                       const TypeBindings& bindings, const Type& actual) -> std::string;
 auto format_signature_debug_name(const std::string& full_name, const FunctionSig& sig) -> std::string;
 auto overload_candidate_list(const std::string& full_name, const FunctionOverloadSet& overloads) -> std::string;
 auto overload_candidate_list(const std::string& full_name, const std::vector<const FunctionSig*>& overloads)

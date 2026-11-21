@@ -8,8 +8,6 @@
 
 namespace fleaux::frontend::type_system::detail {
 
-namespace {
-
 auto instantiate_type_preserving_unbound(const Type& type, const TypeBindings& bindings) -> Type {
   if (type.kind == TypeKind::kTypeVar) {
     if (const auto it = bindings.find(type.nominal_name); it != bindings.end()) {
@@ -41,6 +39,8 @@ auto instantiate_type_preserving_unbound(const Type& type, const TypeBindings& b
   }
   return normalize_type(std::move(out));
 }
+
+namespace {
 
 auto instantiate_function_sig(const FunctionSig& sig, const TypeBindings& bindings) -> FunctionSig {
   FunctionSig instantiated = sig;

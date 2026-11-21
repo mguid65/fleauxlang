@@ -246,7 +246,7 @@ TEST_CASE("VM import boundary matrix", "[vm][boundary][imports][contract]") {
               },
           },
           .expected_token = "Type mismatch in call target arguments",
-          .expected_detail = "Add4 expects argument 0",
+          .expected_detail = "Add4 expects argument 1",
       },
   });
 

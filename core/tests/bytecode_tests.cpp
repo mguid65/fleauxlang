@@ -5381,7 +5381,7 @@ TEST_CASE("Bytecode module loader enforces typed imported signatures during anal
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().hint.has_value());
-  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 1") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader propagates imported transparent aliases into entry analysis",
@@ -5468,7 +5468,7 @@ TEST_CASE("Bytecode module loader revalidates typed import seeds when entry cach
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().hint.has_value());
-  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 1") != std::string::npos);
   REQUIRE(loaded.error().message.find("Module source and bytecode were both unavailable") == std::string::npos);
   REQUIRE(loaded.error().message.find("Failed to resolve imported module") == std::string::npos);
 }
@@ -5563,7 +5563,7 @@ TEST_CASE("Bytecode module loader enforces typed signatures for qualified import
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().hint.has_value());
-  REQUIRE(loaded.error().hint->find("expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint->find("expects argument 1") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader accepts qualified imported exports when typed signatures match",
@@ -5691,7 +5691,7 @@ TEST_CASE("Bytecode module loader reconstructs nongeneric typed import seeds fro
   REQUIRE_FALSE(loaded.has_value());
   REQUIRE(loaded.error().message.find("Type mismatch in call target arguments") != std::string::npos);
   REQUIRE(loaded.error().hint.has_value());
-  REQUIRE(loaded.error().hint->find("Add4 expects argument 0") != std::string::npos);
+  REQUIRE(loaded.error().hint->find("Add4 expects argument 1") != std::string::npos);
 }
 
 TEST_CASE("Bytecode module loader reconstructs structured typed import seeds from cached bytecode",

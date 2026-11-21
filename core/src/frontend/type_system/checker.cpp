@@ -156,16 +156,6 @@ auto join_sorted_type_var_names(const std::unordered_set<std::string>& names) ->
   return joined;
 }
 
-auto generic_var_suffix_for_type(const Type& type) -> std::string {
-  const TypeBindings empty_bindings;
-  std::unordered_set<std::string> vars;
-  collect_unbound_type_vars(type, empty_bindings, vars);
-  if (vars.empty()) {
-    return {};
-  }
-  return std::format(" for type variable(s): {}.", join_sorted_type_var_names(vars));
-}
-
 auto type_debug_name(const Type& type) -> std::string {
   switch (type.kind) {
     case TypeKind::kUnknown:
@@ -225,35 +215,6 @@ auto type_debug_name(const Type& type) -> std::string {
   }
 }
 
-auto generic_binding_detail_for_type(const Type& expected_type, const TypeBindings& bindings, const Type& actual)
-    -> std::string {
-  const TypeBindings empty_bindings;
-  std::unordered_set<std::string> vars;
-  collect_unbound_type_vars(expected_type, empty_bindings, vars);
-  if (vars.empty()) {
-    return {};
-  }
-
-  std::vector<std::string> ordered(vars.begin(), vars.end());
-  std::ranges::sort(ordered);
-
-  std::vector<std::string> details;
-  details.reserve(ordered.size());
-  for (const auto& var : ordered) {
-    if (const auto it = bindings.find(var); it != bindings.end()) {
-      details.push_back(std::format("{} bound as {}", var, type_debug_name(it->second)));
-    }
-  }
-  if (details.empty()) {
-    return {};
-  }
-
-  std::string joined;
-  append_joined_fragments(joined, details, "; ",
-                          [](const std::string& detail) -> const std::string& { return detail; });
-  return std::format("Binding detail: {}. got {}.", joined, type_debug_name(actual));
-}
-
 auto is_numeric_scalar_type(const Type& type) -> bool {
   return type.kind == TypeKind::kInt64 || type.kind == TypeKind::kUInt64 || type.kind == TypeKind::kFloat64;
 }
@@ -271,18 +232,84 @@ auto numeric_conversion_note(const Type& expected_type, const TypeBindings& bind
   return " Numbers are not converted implicitly; use Std.ToInt64, Std.ToUInt64, or Std.ToFloat64.";
 }
 
-auto generic_arg_mismatch_hint(const std::string& full_name, const std::size_t arg_index, const Type& expected_type,
-                               const bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string {
-  const auto var_suffix = generic_var_suffix_for_type(expected_type);
-  std::string hint = variadic ? std::format("{} expects variadic argument {} to match declared type{}", full_name,
-                                            arg_index, var_suffix)
-                              : std::format("{} expects argument {} to match declared type{}", full_name, arg_index,
-                                            var_suffix);
-  if (const auto detail = generic_binding_detail_for_type(expected_type, bindings, actual); !detail.empty()) {
-    hint += " " + detail;
+auto is_scalar_type(const Type& type) -> bool {
+  return is_numeric_scalar_type(type) || type.kind == TypeKind::kString || type.kind == TypeKind::kBool ||
+         type.kind == TypeKind::kNull;
+}
+
+// Says what the type variables of a parameter are bound to at the failing argument, so the expected type can be traced
+// back to the arguments that fixed it.
+auto bound_type_var_note(const Type& param_type, const TypeBindings& bindings) -> std::string {
+  const TypeBindings no_bindings;
+  std::unordered_set<std::string> vars;
+  collect_unbound_type_vars(param_type, no_bindings, vars);
+  std::vector<std::string> ordered(vars.begin(), vars.end());
+  std::ranges::sort(ordered);
+  std::vector<std::string> details;
+  for (const auto& var : ordered) {
+    if (const auto it = bindings.find(var); it != bindings.end()) {
+      details.push_back(std::format("{} is {}", var.substr(0, var.find('\'')), type_debug_name(it->second)));
+    }
   }
-  return hint + numeric_conversion_note(expected_type, bindings, actual) +
-         any_cast_note(instantiate_generic_type(expected_type, bindings), actual);
+  if (details.empty()) {
+    return {};
+  }
+  std::string joined;
+  append_joined_fragments(joined, details, ", ", [](const std::string& detail) -> const std::string& { return detail; });
+  return std::format(" Here {}.", joined);
+}
+
+// A tuple of fixed length passed where a single value is expected is often a tuple meant to be spread into separate
+// arguments.
+auto spread_note(const Type& expected, const Type& actual) -> std::string {
+  if (actual.kind != TypeKind::kTuple || !is_scalar_type(expected) ||
+      std::ranges::any_of(actual.items, [](const Type& item) -> bool { return item.variadic; })) {
+    return {};
+  }
+  return " The argument is one tuple value; to pass its items as separate arguments, spread it: '(x...)'.";
+}
+
+// The number of parameters of a function type whose only parameter is a tuple of fixed length, the tuple's length;
+// nullopt for any other type.
+auto single_tuple_param_length(const Type& type) -> std::optional<std::size_t> {
+  if (type.kind != TypeKind::kFunction || type.function_params.size() != 1U) {
+    return std::nullopt;
+  }
+  const Type& param = type.function_params.front();
+  if (param.variadic || param.kind != TypeKind::kTuple ||
+      std::ranges::any_of(param.items, [](const Type& item) -> bool { return item.variadic; })) {
+    return std::nullopt;
+  }
+  return param.items.size();
+}
+
+// A function of several parameters and a function of one tuple parameter are different types; say which form was
+// expected when the two only differ in that.
+auto function_form_note(const Type& expected, const Type& actual) -> std::string {
+  if (expected.kind != TypeKind::kFunction || actual.kind != TypeKind::kFunction) {
+    return {};
+  }
+  if (const auto length = single_tuple_param_length(expected);
+      length.has_value() && *length > 1U && actual.function_params.size() == *length) {
+    return std::format(" A function of {} parameters does not take one tuple; call it with the tuple spread instead, "
+                       "such as '(pair...) -> f'.",
+                       *length);
+  }
+  if (const auto length = single_tuple_param_length(actual);
+      length.has_value() && *length > 1U && expected.function_params.size() == *length) {
+    return std::format(" A function of one tuple parameter does not take {} separate arguments.", *length);
+  }
+  return {};
+}
+
+auto arg_mismatch_hint(const std::string& full_name, const std::size_t arg_index, const Type& param_type,
+                       const bool variadic, const TypeBindings& bindings, const Type& actual) -> std::string {
+  const Type expected = instantiate_type_preserving_unbound(param_type, bindings);
+  return std::format("{} expects {}argument {} to be {}, but got {}.", full_name, variadic ? "variadic " : "",
+                     arg_index + 1U, type_debug_name(expected), type_debug_name(actual)) +
+         bound_type_var_note(param_type, bindings) + spread_note(expected, actual) +
+         function_form_note(expected, actual) + numeric_conversion_note(param_type, bindings, actual) +
+         any_cast_note(expected, actual);
 }
 
 // The hint for an open function argument whose parameter type it cannot be instantiated from.
@@ -295,12 +322,12 @@ auto open_function_mismatch_hint(const std::string& full_name, const std::size_t
   if (expected.kind != TypeKind::kFunction) {
     return std::format("{} could not infer generic callable type variable(s): {}. {} is generic and used as a value "
                        "here (argument {} of {}), but {} is not a function type it can take its type arguments from.",
-                       open.open_function_name, names, open.open_function_name, arg_index, full_name,
+                       open.open_function_name, names, open.open_function_name, arg_index + 1U, full_name,
                        type_debug_name(expected));
   }
   return std::format("{} expects argument {} to be {}, but {} cannot take those parameter types: its type "
                      "variable(s) {} are taken from them and must satisfy their bounds.",
-                     full_name, arg_index, type_debug_name(expected), open.open_function_name, names);
+                     full_name, arg_index + 1U, type_debug_name(expected), open.open_function_name, names);
 }
 
 [[nodiscard]] auto make_error(const std::string& message, const std::optional<std::string>& hint,
@@ -1808,14 +1835,14 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
       if (!bind_generic_type(sig.params[i].type, args[i], generic_bindings)) {
         return tl::unexpected(make_error(
             "Type mismatch in call target arguments.",
-            generic_arg_mismatch_hint(full_name, i, sig.params[i].type, false, generic_bindings, args[i]), span));
+            arg_mismatch_hint(full_name, i, sig.params[i].type, false, generic_bindings, args[i]), span));
       }
 
       if (const Type instantiated = instantiate_generic_type(sig.params[i].type, generic_bindings);
           !is_consistent(instantiated, args[i])) {
         return tl::unexpected(make_error(
             "Type mismatch in call target arguments.",
-            generic_arg_mismatch_hint(full_name, i, sig.params[i].type, false, generic_bindings, args[i]), span));
+            arg_mismatch_hint(full_name, i, sig.params[i].type, false, generic_bindings, args[i]), span));
       }
       continue;
     }
@@ -1824,8 +1851,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
       return tl::unexpected(make_error("Type mismatch in call target arguments.",
                                        is_open_function(args[i])
                                            ? open_function_mismatch_hint(full_name, i, args[i], sig.params[i].type)
-                                           : std::format("{} expects argument {} to match declared type.{}", full_name,
-                                                         i, any_cast_note(sig.params[i].type, args[i])),
+                                           : arg_mismatch_hint(full_name, i, sig.params[i].type, false, {}, args[i]),
                                        span));
     }
   }
@@ -1841,13 +1867,13 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
         if (!bind_generic_type(variadic_type, args[i], generic_bindings)) {
           return tl::unexpected(make_error(
               "Type mismatch in call target arguments.",
-              generic_arg_mismatch_hint(full_name, i, variadic_type, true, generic_bindings, args[i]), span));
+              arg_mismatch_hint(full_name, i, variadic_type, true, generic_bindings, args[i]), span));
         }
         if (const Type instantiated = instantiate_generic_type(variadic_type, generic_bindings);
             !is_consistent(instantiated, args[i])) {
           return tl::unexpected(make_error(
               "Type mismatch in call target arguments.",
-              generic_arg_mismatch_hint(full_name, i, variadic_type, true, generic_bindings, args[i]), span));
+              arg_mismatch_hint(full_name, i, variadic_type, true, generic_bindings, args[i]), span));
         }
         continue;
       }
@@ -1855,8 +1881,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
       if (!is_consistent(variadic_type, args[i])) {
         return tl::unexpected(
             make_error("Type mismatch in call target arguments.",
-                       std::format("{} expects variadic argument {} to match declared type.{}", full_name, i,
-                                   any_cast_note(variadic_type, args[i])),
+                       arg_mismatch_hint(full_name, i, variadic_type, true, {}, args[i]),
                        span));
       }
     }
@@ -1892,7 +1917,7 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
       if (!is_consistent(instantiate_generic_type(param_type, generic_bindings), args[i])) {
         return tl::unexpected(
             make_error("Type mismatch in call target arguments.",
-                       generic_arg_mismatch_hint(full_name, i, param_type, variadic_arg, generic_bindings, args[i]),
+                       arg_mismatch_hint(full_name, i, param_type, variadic_arg, generic_bindings, args[i]),
                        span));
       }
     }

@@ -69,7 +69,7 @@ TEST_CASE("VM import contract fixtures match expected loader outcomes", "[vm][im
               },
           },
           .expected_outcome = fleaux::tests::ImportContractOutcomeClass::kTypeMismatch,
-          .expected_fragments = {"Add4 expects argument 0"},
+          .expected_fragments = {"Add4 expects argument 1"},
       },
       fleaux::tests::ImportContractCase{
           .name = "direct_import_visibility",
