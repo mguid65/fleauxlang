@@ -112,6 +112,11 @@ auto infer_tuple_expr(ir::IRTupleExpr& tuple, const FunctionIndex& index, const 
                       const AliasIndex& alias_index, const LocalTypes& locals,
                       const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
+  if (tuple.has_spread()) {
+    return tl::unexpected(make_error("Spreading is not supported yet.",
+                                     std::optional<std::string>{"'x...' in a parameter list is not type-checked yet."},
+                                     tuple.span));
+  }
 
   Type out;
   out.kind = TypeKind::kTuple;

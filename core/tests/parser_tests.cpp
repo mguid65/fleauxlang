@@ -661,3 +661,14 @@ TEST_CASE("Parser dump_ast keeps multiline indentation aligned", "[parser][dump_
   REQUIRE(dumped.find("      expr: Expression {\n        flow: FlowExpression {") != std::string::npos);
 }
 
+
+TEST_CASE("Parser accepts trailing commas and spread items in parentheses", "[parser][parameter_lists]") {
+  const fleaux::frontend::parse::Parser parser;
+  REQUIRE(parser.parse_program("(5,) -> F;\n", "trailing_comma_single.fleaux").has_value());
+  REQUIRE(parser.parse_program("(1, 2,) -> F;\n", "trailing_comma_pair.fleaux").has_value());
+  REQUIRE(parser.parse_program("(pair...) -> F;\n", "spread_single.fleaux").has_value());
+  REQUIRE(parser.parse_program("(a, rest..., b) -> F;\n", "spread_mixed.fleaux").has_value());
+  REQUIRE(parser.parse_program("x -> (_..., 3) -> F;\n", "spread_template.fleaux").has_value());
+  REQUIRE_FALSE(parser.parse_program("(,) -> F;\n", "comma_only.fleaux").has_value());
+  REQUIRE_FALSE(parser.parse_program("(1,,) -> F;\n", "double_comma.fleaux").has_value());
+}

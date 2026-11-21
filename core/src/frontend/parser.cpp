@@ -884,7 +884,13 @@ private:
     while (true) {
       FLEAUX_TRY_ASSIGN(item_expr, expr());
       inner.items.emplace_back(std::move(item_expr));
+      inner.spread_items.push_back(match_symbol("..."));
       if (!match_symbol(",")) {
+        break;
+      }
+      // A comma before ')' is a trailing comma: the parentheses build one tuple value.
+      if (is_symbol(")")) {
+        inner.trailing_comma = true;
         break;
       }
     }
@@ -1675,8 +1681,16 @@ private:
               return format_boxed_or_null(delimited, [&](const model::DelimitedExpression& inner) -> std::string {
                 const auto items = collect_formatted_items(
                     inner.items, [&](const auto& item) { return format_nullable_expression(item, level + 2); });
-                return format_block("DelimitedExpression", {std::format("items: {}", format_list(items, level + 1))},
-                                    level);
+                std::vector<std::string> fields{std::format("items: {}", format_list(items, level + 1))};
+                if (inner.trailing_comma) {
+                  fields.emplace_back("trailing_comma: true");
+                }
+                for (std::size_t index = 0; index < inner.spread_items.size(); ++index) {
+                  if (inner.spread_items[index]) {
+                    fields.push_back(std::format("spread_item: {}", index));
+                  }
+                }
+                return format_block("DelimitedExpression", fields, level);
               });
             },
             [&](const model::ClosureExpressionBox& closure) -> std::string {

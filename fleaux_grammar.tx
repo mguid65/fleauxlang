@@ -144,8 +144,14 @@ Operator:
   '&&' |
   '||';
 
+// Parentheses directly left of '->' (or a tuple template stage) are a parameter list: each item is one argument,
+// and 'x...' spreads a tuple's items into it. A trailing comma, as in '(x,)' or '(a, b,)', makes the parentheses
+// one tuple value instead, which cannot contain spreads.
 DelimitedExpression:
-  items*=Expression[','];
+  items*=DelimitedItem[','] trailing_comma?=',';
+
+DelimitedItem:
+  value=Expression spread?='...';
 
 QualifiedId:
   qualifier=Qualifier id=NamespaceIdentifier;

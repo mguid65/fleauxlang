@@ -103,6 +103,10 @@ struct Constant {
 
 struct DelimitedExpression {
   std::vector<ExpressionBox> items{};
+  // Written with a trailing comma, `(x,)`: always one tuple value, never a parameter list.
+  bool trailing_comma{false};
+  // Parallel to `items`: the item is written `x...`, spreading a tuple's items into a parameter list.
+  std::vector<bool> spread_items{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -298,7 +302,23 @@ using IRCallTarget = std::variant<IRNameRef, IROperatorRef>;
 
 struct IRTupleExpr {
   std::vector<IRExprBox> items{};
+  // Written with a trailing comma, `(x,)`: always one tuple value, never a parameter list.
+  bool trailing_comma{false};
+  // Parallel to `items` (may be shorter when nothing is spread): the item is written `x...` inside a parameter list.
+  std::vector<bool> spread_items{};
   std::optional<diag::SourceSpan> span{std::nullopt};
+
+  [[nodiscard]] auto is_spread(const std::size_t index) const -> bool {
+    return index < spread_items.size() && spread_items[index];
+  }
+  [[nodiscard]] auto has_spread() const -> bool {
+    for (const bool spread : spread_items) {
+      if (spread) {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
 enum class IRFlowCallShape : std::uint8_t {

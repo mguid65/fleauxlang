@@ -379,6 +379,8 @@ auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacem
                          [&](const ir::IRTupleExpr& tuple_expr) -> ir::IRExpr {
                            ir::IRTupleExpr out_tuple;
                            out_tuple.span = tuple_expr.span;
+                           out_tuple.trailing_comma = tuple_expr.trailing_comma;
+                           out_tuple.spread_items = tuple_expr.spread_items;
                            for (const auto& item : tuple_expr.items) {
                               out_tuple.items.push_back(make_ir_expr_box(replace_placeholder_impl(*item, replacement)));
                            }
@@ -437,11 +439,28 @@ auto make_use_before_declaration_error(const std::string& symbol, const std::opt
                        .span = span};
 }
 
+// `parameter_list` is true when the parentheses are a parameter list: the left side of '->' or a tuple template
+// stage. Only there may an item be spread with `x...`.
 auto lower_delimited_atom(const model::DelimitedExpressionBox& inner, const LoweringContext& context,
-                          const std::optional<diag::SourceSpan>& expr_span)
+                          const std::optional<diag::SourceSpan>& expr_span, const bool parameter_list)
     -> tl::expected<ir::IRExpr, LoweringError> {
+  const bool has_spread = std::ranges::find(inner->spread_items, true) != inner->spread_items.end();
+  if (has_spread && (!parameter_list || inner->trailing_comma)) {
+    return tl::unexpected(LoweringError{
+        .message = "Invalid spread.",
+        .hint = inner->trailing_comma
+                    ? "A trailing comma makes the parentheses one tuple value, which cannot spread items. Remove the "
+                      "trailing comma to write a parameter list, such as '(pair...) -> F'."
+                    : "'x...' spreads a tuple into a parameter list, so it may only appear directly inside the "
+                      "parentheses on the left of '->', such as '(pair...) -> F'.",
+        .span = inner->span});
+  }
   ir::IRTupleExpr tuple;
   tuple.span = inner->span;
+  tuple.trailing_comma = inner->trailing_comma;
+  if (has_spread) {
+    tuple.spread_items = inner->spread_items;
+  }
   for (const auto& item : inner->items) {
     auto lowered_item = lower_expr(*item, context);
     if (!lowered_item) {
@@ -661,12 +680,12 @@ auto lower_named_target_atom(const model::NamedTargetBox& target, const Lowering
       target->target);
 }
 
-auto lower_atom(const model::Atom& atom, const LoweringContext& context)
+auto lower_atom(const model::Atom& atom, const LoweringContext& context, const bool parameter_list)
     -> tl::expected<ir::IRExpr, LoweringError> {
   return std::visit(
       common::overloaded{
           [&](const model::DelimitedExpressionBox& inner) -> tl::expected<ir::IRExpr, LoweringError> {
-            return lower_delimited_atom(inner, context, atom.span);
+            return lower_delimited_atom(inner, context, atom.span, parameter_list);
           },
           [&](const model::ClosureExpressionBox& closure) -> tl::expected<ir::IRExpr, LoweringError> {
             return lower_closure_atom(closure, context, atom.span);
@@ -704,9 +723,9 @@ auto lower_atom(const model::Atom& atom, const LoweringContext& context)
       atom.value);
 }
 
-auto lower_primary(const model::Primary& primary, const LoweringContext& context)
+auto lower_primary(const model::Primary& primary, const LoweringContext& context, const bool parameter_list)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  return lower_atom(primary.base, context);
+  return lower_atom(primary.base, context, parameter_list);
 }
 
 auto try_apply_direct_target_stage(const ir::IRExpr& current_value, const model::Primary& stage_primary,
@@ -793,7 +812,8 @@ auto apply_template_stage(const ir::IRExpr& current_value, const std::optional<d
 
 auto lower_flow(const model::FlowExpression& flow, const LoweringContext& context)
     -> tl::expected<ir::IRExpr, LoweringError> {
-  auto result = lower_primary(flow.lhs, context);
+  // Parentheses directly left of '->' are a parameter list.
+  auto result = lower_primary(flow.lhs, context, !flow.rhs.empty());
   if (!result) {
     return tl::unexpected(result.error());
   }
@@ -809,7 +829,8 @@ auto lower_flow(const model::FlowExpression& flow, const LoweringContext& contex
       continue;
     }
 
-    auto stage_expr = lower_primary(flow.rhs[stage_index], context);
+    // A tuple template stage such as '(_, 2)' is the parameter list of the target after it.
+    auto stage_expr = lower_primary(flow.rhs[stage_index], context, true);
     if (!stage_expr) {
       return tl::unexpected(stage_expr.error());
     }

@@ -412,12 +412,12 @@ TEST_CASE("Lowerer rewrites Std.Match wildcard pattern", "[lowering]") {
   REQUIRE(target.name == "Match");
 
   REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node));
-  const auto& [items_0, span_0] = std::get<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node);
+  const auto& items_0 = std::get<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node).items;
   REQUIRE(items_0.size() == 3);
 
   const auto& wildcard_case_expr = items_0[2];
   REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRTupleExpr>(wildcard_case_expr->node));
-  const auto& [items_2, span_2] = std::get<fleaux::frontend::ir::IRTupleExpr>(wildcard_case_expr->node);
+  const auto& items_2 = std::get<fleaux::frontend::ir::IRTupleExpr>(wildcard_case_expr->node).items;
   REQUIRE(items_2.size() == 2);
   REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRConstant>(items_2[0]->node));
   const auto& wildcard_pattern = std::get<fleaux::frontend::ir::IRConstant>(items_2[0]->node);
@@ -768,4 +768,66 @@ TEST_CASE("Lowerer preserves generic and builtin type declarations in IR", "[low
   REQUIRE(lowered->type_decls[1].name == "Result");
   REQUIRE(lowered->type_decls[1].generic_params == std::vector<std::string>{"T", "E"});
   REQUIRE(lowered->type_decls[1].is_builtin);
+}
+
+namespace {
+
+auto lower_source_only(const std::string& src, const std::string& name) {
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(src, name);
+  REQUIRE(parsed.has_value());
+  const fleaux::frontend::lowering::Lowerer lowerer;
+  return lowerer.lower_only(parsed.value());
+}
+
+auto lhs_tuple_of(const fleaux::frontend::ir::IRProgram& program) -> const fleaux::frontend::ir::IRTupleExpr& {
+  const auto& flow = std::get<fleaux::frontend::ir::IRFlowExpr>(program.expressions.front().expr.node);
+  return std::get<fleaux::frontend::ir::IRTupleExpr>(flow.lhs->node);
+}
+
+}  // namespace
+
+TEST_CASE("Lowerer records trailing commas and spread items", "[lowering][parameter_lists]") {
+  SECTION("A trailing comma marks one tuple value") {
+    const auto lowered = lower_source_only("(1, 2,) -> F;\n", "lower_trailing_comma.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& tuple = lhs_tuple_of(*lowered);
+    REQUIRE(tuple.trailing_comma);
+    REQUIRE(tuple.items.size() == 2U);
+    REQUIRE_FALSE(tuple.has_spread());
+  }
+
+  SECTION("Plain parentheses are not marked") {
+    const auto lowered = lower_source_only("(1, 2) -> F;\n", "lower_plain_parens.fleaux");
+    REQUIRE(lowered.has_value());
+    REQUIRE_FALSE(lhs_tuple_of(*lowered).trailing_comma);
+  }
+
+  SECTION("Spread items are recorded by position") {
+    const auto lowered = lower_source_only("(a, rest..., b) -> F;\n", "lower_spread_positions.fleaux");
+    REQUIRE(lowered.has_value());
+    const auto& tuple = lhs_tuple_of(*lowered);
+    REQUIRE_FALSE(tuple.is_spread(0));
+    REQUIRE(tuple.is_spread(1));
+    REQUIRE_FALSE(tuple.is_spread(2));
+  }
+
+  SECTION("Template stages keep their spread items") {
+    const auto lowered = lower_source_only("x -> (_..., 3) -> F;\n", "lower_spread_template.fleaux");
+    REQUIRE(lowered.has_value());
+    REQUIRE(lhs_tuple_of(*lowered).is_spread(0));
+  }
+
+  SECTION("A spread outside a parameter list is rejected") {
+    const auto outside = lower_source_only("let X: Tuple<Int64> = (pair...);\n", "lower_spread_outside.fleaux");
+    REQUIRE_FALSE(outside.has_value());
+    REQUIRE(outside.error().message == "Invalid spread.");
+
+    const auto nested = lower_source_only("((pair...)) -> F;\n", "lower_spread_nested.fleaux");
+    REQUIRE_FALSE(nested.has_value());
+
+    const auto tuple_value = lower_source_only("(pair..., 1,) -> F;\n", "lower_spread_trailing_comma.fleaux");
+    REQUIRE_FALSE(tuple_value.has_value());
+    REQUIRE(tuple_value.error().hint->find("trailing comma") != std::string::npos);
+  }
 }
