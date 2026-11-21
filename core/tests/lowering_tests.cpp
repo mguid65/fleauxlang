@@ -345,15 +345,24 @@ TEST_CASE("Lowerer desugars closure pipeline stage to Std.Apply", "[lowering]") 
   REQUIRE(outer_target.qualifier.value() == "Std");
   REQUIRE(outer_target.name == "Println");
 
-  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRFlowExpr>(outer.lhs->node));
-  const auto& apply_flow = std::get<fleaux::frontend::ir::IRFlowExpr>(outer.lhs->node);
+  // Std.Println is variadic, so its one argument, the closure call, travels in a one-item parameter list.
+  const auto* println_argument = fleaux::frontend::ir::single_parameter_list_item(*outer.lhs);
+  REQUIRE(println_argument != nullptr);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRFlowExpr>((*println_argument)->node));
+  const auto& apply_flow = std::get<fleaux::frontend::ir::IRFlowExpr>((*println_argument)->node);
+  REQUIRE(apply_flow.calls_function_value);
   REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRNameRef>(apply_flow.rhs));
   const auto& apply_target = std::get<fleaux::frontend::ir::IRNameRef>(apply_flow.rhs);
   REQUIRE(apply_target.qualifier.has_value());
   REQUIRE(apply_target.qualifier.value() == "Std");
   REQUIRE(apply_target.name == "Apply");
 
+  // `(value, closure)`: the closure takes one argument, so the value is the item of the parameter list `(10.0)`.
   REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRTupleExpr>(apply_flow.lhs->node));
+  const auto& apply_args = std::get<fleaux::frontend::ir::IRTupleExpr>(apply_flow.lhs->node);
+  REQUIRE(apply_args.items.size() == 2U);
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRConstant>(apply_args.items[0]->node));
+  REQUIRE(std::holds_alternative<fleaux::frontend::ir::IRClosureExprBox>(apply_args.items[1]->node));
 }
 
 TEST_CASE("Lowerer excludes shadowed outer names from closure captures", "[lowering]") {

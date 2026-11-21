@@ -4,13 +4,6 @@
 
 namespace fleaux::frontend::type_system {
 
-auto args_from_lhs_type(const Type& lhs_type) -> std::vector<Type> {
-  if (lhs_type.kind == TypeKind::kTuple) {
-    return lhs_type.items;
-  }
-  return {lhs_type};
-}
-
 auto is_deferred_callable_type(const Type& type) -> bool {
   return type.kind == TypeKind::kAny || type.kind == TypeKind::kUnknown;
 }

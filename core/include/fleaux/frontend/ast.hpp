@@ -332,13 +332,12 @@ struct IRFlowExpr {
   IRCallTarget rhs{};
   IRFlowCallShape call_shape{IRFlowCallShape::kImplicit};
   std::optional<diag::SourceSpan> span{std::nullopt};
-  // Set by the type checker when the target names a function value (a local, a parameter, or a value let of
-  // function type) rather than a function, or for a closure stage. The call passes its arguments to the value
-  // through Std.Apply; `call_shape` then says how the value takes them.
+  // A call of a function value: a closure written as a pipeline stage (set by lowering), or a target naming a local,
+  // a parameter, or a value let of function type (rewritten by the type checker). The left side is
+  // `(arguments, function)` and the target is Std.Apply. The type checker takes the arguments from `arguments` by
+  // the parameter-list rule and then shapes it into the value Std.Apply passes: the one argument of a one-parameter
+  // function, or the argument tuple otherwise.
   bool calls_function_value{false};
-  // Set by lowering for a closure written as a pipeline stage. The left side is `(arguments, closure)`, where
-  // `arguments` is the stage's left side as written, and the target is Std.Apply.
-  bool closure_stage{false};
 };
 
 struct IRBlockExprStatement {
@@ -369,6 +368,16 @@ struct IRExpr {
   std::variant<IRFlowExpr, IRTupleExpr, IRConstant, IRNameRef, IRClosureExprBox, IRBlockExprBox> node;
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
+
+// The item of a one-item parameter list `(x)`, written without a trailing comma and not spread; null for any other
+// expression.
+[[nodiscard]] inline auto single_parameter_list_item(const IRExpr& expr) -> const IRExprBox* {
+  const auto* tuple = std::get_if<IRTupleExpr>(&expr.node);
+  if (tuple == nullptr || tuple->trailing_comma || tuple->items.size() != 1U || tuple->has_spread()) {
+    return nullptr;
+  }
+  return &tuple->items.front();
+}
 
 struct IRClosureExpr {
   std::vector<std::string> generic_params{};

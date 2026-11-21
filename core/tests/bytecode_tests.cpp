@@ -1957,8 +1957,7 @@ TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and func
   REQUIRE(function_callsite.owner_index < module.functions.size());
   REQUIRE(function_callsite.instruction_index < module.functions[function_callsite.owner_index].instructions.size());
   REQUIRE(function_callsite.builtin_id == fleaux::vm::BuiltinId::Help);
-  // Std.Help takes its one argument from a one-item argument tuple.
-  REQUIRE(function_callsite.call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
+  REQUIRE(function_callsite.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
   REQUIRE(function_callsite.static_argument_count == 1U);
   REQUIRE(module.functions[function_callsite.owner_index].instructions[function_callsite.instruction_index].opcode ==
           fleaux::bytecode::Opcode::kCallBuiltin);

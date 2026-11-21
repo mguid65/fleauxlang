@@ -7333,8 +7333,9 @@ TEST_CASE("Type checker checks closure stage arguments", "[typecheck][function-v
   }
 
   SECTION("A generic closure's type arguments must satisfy its bounds") {
-    REQUIRE(full_text(lower_error("\"a\" -> <T: Numeric>(x: T): T = x;\n"))
-                .find("closure cannot take these arguments") != std::string::npos);
+    const auto text = full_text(lower_error("\"a\" -> <T: Numeric>(x: T): T = x;\n"));
+    REQUIRE(text.find("does not satisfy its bound") != std::string::npos);
+    REQUIRE(text.find("closure requires T: Int64 | UInt64 | Float64, but T is String") != std::string::npos);
   }
 
   SECTION("Argument types are checked against the closure's parameters") {

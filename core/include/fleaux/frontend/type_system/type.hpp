@@ -119,4 +119,15 @@ private:
   std::unordered_map<std::string, std::optional<Type>> params_;
 };
 
+// An open function as a generic signature, for calling it directly: its function type with its type variables
+// renamed back to their declared names, and those names with their bounds. A name already visible in `scope` keeps
+// its fresh name, so the two cannot be confused.
+struct OpenFunctionSignature {
+  Type type;
+  std::vector<std::string> generic_params;
+  std::unordered_map<std::string, Type> generic_bounds;
+};
+
+[[nodiscard]] auto open_function_signature(const Type& open, const GenericScope& scope) -> OpenFunctionSignature;
+
 }  // namespace fleaux::frontend::type_system

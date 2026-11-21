@@ -710,14 +710,20 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         if (operand < 0 || stack.size() < count) {
           return tl::unexpected(make_runtime_error("stack underflow on concat_tuples"));
         }
+        const std::size_t first = stack.size() - count;
+        std::size_t total = 0;
+        for (std::size_t position = first; position < stack.size(); ++position) {
+          total += runtime::as_array(stack[position]).Size();
+        }
         Array joined;
-        for (std::size_t position = stack.size() - count; position < stack.size(); ++position) {
-          const auto& piece = runtime::as_array(stack[position]);
+        joined.Reserve(total);
+        for (std::size_t position = first; position < stack.size(); ++position) {
+          auto& piece = runtime::as_array(stack[position]);
           for (std::size_t index = 0; index < piece.Size(); ++index) {
-            joined.EmplaceBack(*piece.TryGet(index));
+            joined.EmplaceBack(std::move(piece[index]));
           }
         }
-        stack.resize(stack.size() - count);
+        stack.resize(first);
         stack.emplace_back(std::move(joined));
         break;
       }

@@ -923,17 +923,14 @@ auto emit_tuple_items(const IRTupleExpr& tuple_expr, std::vector<Instruction>& o
   return {};
 }
 
+// A direct call passes the item of a one-item parameter list; a tuple-expanded call passes its parameter list as the
+// argument tuple.
 auto adapted_user_flow_lhs_expr(const IRFlowExpr& flow) -> const IRExpr& {
-  // A tuple written with a trailing comma is one tuple value, never a parameter list to unwrap.
-  const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node);
-  if (tuple == nullptr || tuple->items.size() != 1U || tuple->trailing_comma) {
-    return *flow.lhs;
+  if (flow.call_shape == IRFlowCallShape::kDirectValue) {
+    if (const auto* item = single_parameter_list_item(*flow.lhs); item != nullptr) {
+      return **item;
+    }
   }
-
-  if (flow.call_shape == IRFlowCallShape::kDirectValue || flow.call_shape == IRFlowCallShape::kTupleExpanded) {
-    return *tuple->items[0];
-  }
-
   return *flow.lhs;
 }
 
@@ -1086,19 +1083,11 @@ auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const vm::BuiltinId bu
 // recursive singleton flattening, because genuine singleton tuple results from earlier stages are
 // real values and must remain intact.
 auto adapted_builtin_flow_lhs_expr(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> const IRExpr& {
-  const auto* tuple = std::get_if<IRTupleExpr>(&flow.lhs->node);
-  if (tuple == nullptr || tuple->items.size() != 1U || tuple->trailing_comma) {
-    return *flow.lhs;
-  }
-
-  if (flow.call_shape == IRFlowCallShape::kTupleExpanded) {
-    return *tuple->items[0];
-  }
-
   if (flow.call_shape == IRFlowCallShape::kDirectValue && builtin_dispatch_contract_requires_direct_lhs_unwrap(builtin_id)) {
-    return *tuple->items[0];
+    if (const auto* item = single_parameter_list_item(*flow.lhs); item != nullptr) {
+      return **item;
+    }
   }
-
   return *flow.lhs;
 }
 
@@ -1886,15 +1875,10 @@ auto emit_checked_cast_flow(const IRFlowExpr& flow, const IRNameRef& name_ref, s
   return {};
 }
 
-// True when a call with one argument must pass it inside a one-item argument tuple: the callee is variadic (it
-// always receives its arguments as a tuple), or it is a one-parameter builtin that takes its argument from a
-// one-item tuple. Passing the value bare would let a value that is itself a tuple be taken for the argument tuple.
-auto single_argument_needs_tuple(const IRFlowExpr& flow, const CompileState& state, const Module& bytecode_module)
-    -> bool {
-  if (const auto user_fn_idx = user_function_index_from_target(flow.rhs, state); user_fn_idx.has_value()) {
-    return *user_fn_idx < bytecode_module.functions.size() &&
-           bytecode_module.functions[*user_fn_idx].has_variadic_tail;
-  }
+// True for a one-parameter builtin that takes its argument out of a one-item tuple (the builtin calling convention
+// for `unwrap_singleton_arg`). A direct call to one passes its argument in a one-item tuple, so that a value that is
+// itself a one-item tuple is not unwrapped. Which calls take an argument tuple at all is decided by the type checker.
+auto builtin_takes_singleton_tuple(const IRFlowExpr& flow, const CompileState& state) -> bool {
   const auto symbol_key = builtin_symbol_key_from_call_target(flow.rhs, state);
   if (!symbol_key.has_value()) {
     return false;
@@ -1904,9 +1888,6 @@ auto single_argument_needs_tuple(const IRFlowExpr& flow, const CompileState& sta
     return false;
   }
   const auto contract = vm::builtin_arity_contract(*builtin_id);
-  if (contract.kind == vm::BuiltinArityKind::kVariadicMinimum) {
-    return true;
-  }
   return contract.kind == vm::BuiltinArityKind::kExact && contract.primary == 1U &&
          !builtin_dispatch_contract_requires_direct_lhs_unwrap(*builtin_id) &&
          !unary_intrinsic_builtin_to_opcode(*symbol_key).has_value();
@@ -1929,50 +1910,8 @@ auto emit_spread_tuple(const IRTupleExpr& arguments, std::vector<Instruction>& o
   return {};
 }
 
-// A call of a function value, emitted as `(value, f) -> Std.Apply`. The value is the one argument of a direct call
-// (the item of a one-item parameter list), or the argument tuple of a tuple-expanded call. A named function value
-// has its arguments on the left; a closure stage has `(arguments, closure)` there.
-auto emit_function_value_call(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
-                              CompileState& state, Module& bytecode_module) -> EmitResult {
-  IRExprBox arguments = flow.lhs;
-  IRExprBox callee;
-  if (flow.closure_stage) {
-    const auto& stage = std::get<IRTupleExpr>(flow.lhs->node);
-    arguments = stage.items[0];
-    callee = stage.items[1];
-  } else {
-    const auto& name_ref = std::get<IRNameRef>(flow.rhs);
-    callee = IRExprBox(std::in_place, IRExpr{.node = name_ref, .span = name_ref.span});
-  }
-
-  const auto* written = std::get_if<IRTupleExpr>(&arguments->node);
-  IRExprBox value = arguments;
-  if (flow.call_shape == IRFlowCallShape::kDirectValue) {
-    if (written != nullptr && !written->trailing_comma && written->items.size() == 1U && !written->has_spread()) {
-      value = written->items.front();
-    }
-  } else if (written == nullptr) {
-    return tl::unexpected(make_err("internal error: a function value call with several arguments has no argument list."));
-  }
-
-  IRTupleExpr apply_args{.span = flow.span};
-  apply_args.items.push_back(std::move(value));
-  apply_args.items.push_back(std::move(callee));
-  const IRFlowExpr apply{
-      .lhs = IRExprBox(std::in_place, IRExpr{.node = std::move(apply_args), .span = flow.span}),
-      .rhs = IRNameRef{.qualifier = std::string{"Std"}, .name = "Apply", .span = flow.span},
-      .call_shape = IRFlowCallShape::kTupleExpanded,
-      .span = flow.span,
-  };
-  return emit_flow_expr(apply, out, locals, state, bytecode_module);
-}
-
 auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
                     CompileState& state, Module& bytecode_module) -> EmitResult {
-  if (flow.calls_function_value) {
-    return emit_function_value_call(flow, out, locals, state, bytecode_module);
-  }
-
   if (const auto* name_ref = std::get_if<IRNameRef>(&flow.rhs);
       name_ref != nullptr && name_ref->runtime_type_check.has_value()) {
     return emit_checked_cast_flow(flow, *name_ref, out, locals, state, bytecode_module);
@@ -1986,16 +1925,15 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
     return emit_call_target(flow.rhs, out, locals, state, bytecode_module);
   }
 
-  if (flow.call_shape == IRFlowCallShape::kDirectValue && single_argument_needs_tuple(flow, state, bytecode_module)) {
-    // Pass the one argument inside a one-item tuple value, unwrapping a one-item parameter list first.
-    const auto* written = std::get_if<IRTupleExpr>(&flow.lhs->node);
-    const bool parameter_list = written != nullptr && !written->trailing_comma && written->items.size() == 1U;
-    IRTupleExpr argument_tuple{.trailing_comma = true, .span = flow.lhs->span};
-    argument_tuple.items.push_back(parameter_list ? written->items.front() : flow.lhs);
+  if (flow.call_shape == IRFlowCallShape::kDirectValue && single_parameter_list_item(*flow.lhs) == nullptr &&
+      builtin_takes_singleton_tuple(flow, state)) {
+    // A bare argument: put it in a one-item parameter list, which the builtin receives as its one-item tuple.
+    IRTupleExpr argument_list{.span = flow.lhs->span};
+    argument_list.items.push_back(flow.lhs);
     const IRFlowExpr wrapped{
-        .lhs = IRExprBox(std::in_place, IRExpr{.node = std::move(argument_tuple), .span = flow.lhs->span}),
+        .lhs = IRExprBox(std::in_place, IRExpr{.node = std::move(argument_list), .span = flow.lhs->span}),
         .rhs = flow.rhs,
-        .call_shape = IRFlowCallShape::kTupleExpanded,
+        .call_shape = IRFlowCallShape::kDirectValue,
         .span = flow.span,
     };
     return emit_flow_expr(wrapped, out, locals, state, bytecode_module);

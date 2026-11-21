@@ -25,6 +25,8 @@ struct ResolvedInvocation {
   // The generic bindings of the call and the callee's operator requirements, for passing hidden operator arguments.
   TypeBindings bindings{};
   std::vector<OperatorRequirement> operator_requirements{};
+  // The matched overload ends in a variadic parameter, so it takes its arguments as a tuple.
+  bool variadic = false;
 };
 
 // The generic let body being checked. An operator on one of its type parameters whose bound contains a strong type

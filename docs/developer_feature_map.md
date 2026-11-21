@@ -64,18 +64,23 @@ Pipeline invariant (parameter lists):
   spreads a tuple's items; a `Tuple<T...>` may only be spread last, into a variadic parameter.
 - Anything else on the left is one argument: a name, a stage result, a tuple with a trailing comma `(a, b,)`, or a
   tuple nested inside a parameter list. `((1, 2))` is a parameter list holding one tuple.
-- `flow_args_from_lhs` and `apply_call_shape` in `check_pipeline.cpp` apply the rule and set `IRFlowExpr::call_shape`;
-  the compiler (`emit_flow_expr`, `emit_spread_call`, `single_argument_needs_tuple`) emits by it. Spreads are
-  joined at runtime with the `ConcatTuples` opcode.
+- `flow_args_from_lhs` and `apply_call_shape` in `check_pipeline.cpp` apply the rule and set `IRFlowExpr::call_shape`:
+  `kDirectValue` passes the one argument (the item of a one-item parameter list, `ir::single_parameter_list_item`),
+  `kTupleExpanded` passes the parameter list as the argument tuple. A variadic callee always takes the argument tuple.
+  The compiler emits by the shape (`emit_flow_expr`, `emit_spread_tuple`); its only own rule is the builtin calling
+  convention that one-parameter builtins using `unwrap_singleton_arg` get a one-item tuple
+  (`builtin_takes_singleton_tuple`). Spreads are joined at runtime with the `ConcatTuples` opcode.
 - Do not flatten singleton tuple types or unwrap runtime tuple values: a one-item tuple is a real value, including
   when passed through a callable (`resolve_callable_ref`).
-- A call target naming a local, a parameter, or a value let (`FunctionSig::is_value_binding`) calls the function value
-  it holds: `infer_function_value_call` types it against the value's function type and sets
-  `IRFlowExpr::calls_function_value`, and the compiler emits `(value, f) -> Std.Apply` (`emit_function_value_call`).
-  A local sharing a function's name in call position is an error.
-- A closure written as a pipeline stage lowers to `(arguments, closure) -> Std.Apply` with `IRFlowExpr::closure_stage`
-  set (`try_apply_closure_stage` in `lowering.cpp`); the checker types it as a call of the closure by the same rule
-  (`infer_closure_stage_call`), inferring a generic closure's type arguments from the argument types.
+- Function value calls are `(arguments, function) -> Std.Apply` flows with `IRFlowExpr::calls_function_value` set.
+  Lowering produces them for closure stages (`try_apply_closure_stage`); the checker rewrites a target naming a local,
+  a parameter, or a value let (`FunctionSig::is_value_binding`) into one (`infer_function_value_call`). The checker
+  types the arguments against the function type and shapes `arguments` into the value Std.Apply passes
+  (`infer_function_value_apply`, `check_function_value_call`), so the compiler emits an ordinary Std.Apply call. A
+  generic closure is checked as a generic signature (`open_function_signature`). A local sharing a function's name in
+  call position is an error.
+- Closure captures are the free names of the body (`collect_free_names_from_expr` in `lowering.cpp`), including names
+  used inside blocks and nested closures, minus what those scopes bind.
 
 Tests:
 - `core/tests/lowering_tests.cpp`

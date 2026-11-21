@@ -2068,6 +2068,7 @@ auto resolve_overload_invocation(const std::string& full_name, const std::option
         .resolved_symbol_key = *matched_symbol_key,
         .bindings = std::move(bindings),
         .operator_requirements = matched.operator_requirements,
+        .variadic = !matched.params.empty() && matched.params.back().variadic,
     };
   }
 

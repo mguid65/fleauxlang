@@ -263,44 +263,70 @@ auto rewrite_match_wildcards(ir::IRExpr& match_lhs, const std::optional<diag::So
   return {};
 }
 
-void collect_unqualified_names_from_expr(const model::Expression& expr, std::vector<std::string>& out,
-                                         std::unordered_set<std::string>& seen);
+// Collects the free unqualified names an expression uses, in first-use order. `bound` holds the names the
+// expression's own scopes bind (block lets in scope, parameters of nested closures); those are not free.
+void collect_free_names_from_expr(const model::Expression& expr, const std::unordered_set<std::string>& bound,
+                                  std::vector<std::string>& out, std::unordered_set<std::string>& seen);
 
-void collect_unqualified_names_from_atom(const model::Atom& atom, std::vector<std::string>& out,
-                                         std::unordered_set<std::string>& seen) {
+void collect_free_names_from_atom(const model::Atom& atom, const std::unordered_set<std::string>& bound,
+                                  std::vector<std::string>& out, std::unordered_set<std::string>& seen) {
+  const auto use = [&](const std::string& name) -> void {
+    if (!kOperators.contains(name) && !bound.contains(name) && seen.insert(name).second) {
+      out.push_back(name);
+    }
+  };
   std::visit(common::overloaded{
                  [](const std::monostate&) -> void {},
                  [](const model::Constant&) -> void {},
                  [](const model::QualifiedId&) -> void {},
                  [&](const model::NamedTargetBox& value) -> void {
-                   if (const auto* simple = std::get_if<std::string>(&value->target);
-                       simple != nullptr && !kOperators.contains(*simple) && seen.insert(*simple).second) {
-                     out.push_back(*simple);
+                   if (const auto* simple = std::get_if<std::string>(&value->target); simple != nullptr) {
+                     use(*simple);
                    }
                  },
-                 [&](const std::string& value) -> void {
-                   if (!kOperators.contains(value) && seen.insert(value).second) {
-                     out.push_back(value);
-                   }
-                 },
+                 [&](const std::string& value) -> void { use(value); },
                  [&](const model::DelimitedExpressionBox& value) -> void {
                    for (const auto& item : value->items) {
-                     collect_unqualified_names_from_expr(*item, out, seen);
+                     collect_free_names_from_expr(*item, bound, out, seen);
                    }
                  },
-                 [&](const model::BlockExpressionBox&) -> void {},
+                 [&](const model::BlockExpressionBox& value) -> void {
+                   // A local let is in scope after its declaration, so its own initializer sees the outer name.
+                   std::unordered_set<std::string> block_bound = bound;
+                   for (const auto& item : value->items) {
+                     std::visit(common::overloaded{
+                                    [&](const model::LocalLetBinding& let) -> void {
+                                      if (let.expr.has_value()) {
+                                        collect_free_names_from_expr(*let.expr, block_bound, out, seen);
+                                      }
+                                      block_bound.insert(let.name);
+                                    },
+                                    [&](const model::ExpressionStatement& statement) -> void {
+                                      collect_free_names_from_expr(statement.expr, block_bound, out, seen);
+                                    },
+                                },
+                                item);
+                   }
+                   if (value->result.has_value()) {
+                     collect_free_names_from_expr(*value->result, block_bound, out, seen);
+                   }
+                 },
                  [&](const model::ClosureExpressionBox& value) -> void {
-                   collect_unqualified_names_from_expr(*value->body, out, seen);
+                   std::unordered_set<std::string> closure_bound = bound;
+                   for (const auto& param : value->params.params) {
+                     closure_bound.insert(param.param_name);
+                   }
+                   collect_free_names_from_expr(*value->body, closure_bound, out, seen);
                  },
              },
              atom.value);
 }
 
-void collect_unqualified_names_from_expr(const model::Expression& expr, std::vector<std::string>& out,
-                                         std::unordered_set<std::string>& seen) {
-  collect_unqualified_names_from_atom(expr.expr.lhs.base, out, seen);
+void collect_free_names_from_expr(const model::Expression& expr, const std::unordered_set<std::string>& bound,
+                                  std::vector<std::string>& out, std::unordered_set<std::string>& seen) {
+  collect_free_names_from_atom(expr.expr.lhs.base, bound, out, seen);
   for (const auto& stage : expr.expr.rhs) {
-    collect_unqualified_names_from_atom(stage.base, out, seen);
+    collect_free_names_from_atom(stage.base, bound, out, seen);
   }
 }
 
@@ -394,7 +420,6 @@ auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacem
                                .call_shape = flow_expr.call_shape,
                                .span = flow_expr.span,
                                .calls_function_value = flow_expr.calls_function_value,
-                               .closure_stage = flow_expr.closure_stage,
                            };
                            return ir::IRExpr{.node = std::move(out_flow), .span = expr.span};
                          },
@@ -512,15 +537,12 @@ auto make_closure_bound_names(const std::unordered_set<std::string>& bound_names
 
 auto collect_closure_captures(const model::Expression& body, const std::unordered_set<std::string>& param_names,
                               const std::unordered_set<std::string>& bound_names) -> std::vector<std::string> {
-  std::vector<std::string> discovered_names;
+  std::vector<std::string> free_names;
   std::unordered_set<std::string> seen_names;
-  collect_unqualified_names_from_expr(body, discovered_names, seen_names);
+  collect_free_names_from_expr(body, param_names, free_names, seen_names);
 
   std::vector<std::string> captures;
-  for (const auto& candidate : discovered_names) {
-    if (param_names.contains(candidate)) {
-      continue;
-    }
+  for (const auto& candidate : free_names) {
     if (bound_names.contains(candidate)) {
       captures.push_back(candidate);
     }
@@ -781,7 +803,7 @@ auto try_apply_closure_stage(const ir::IRExpr& current_value, const model::Prima
               .span = stage_primary.span,
           },
       .span = stage_primary.span,
-      .closure_stage = true,
+      .calls_function_value = true,
   };
 
   return ir::IRExpr{.node = std::move(apply_flow), .span = stage_primary.span};

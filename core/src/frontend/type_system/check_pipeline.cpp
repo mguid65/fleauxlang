@@ -114,17 +114,57 @@ auto flow_args_from_lhs(const ir::IRExpr& lhs_expr, const Type& lhs_type)
   return out;
 }
 
-// Sets the call shape from the arguments. A parameter list whose spreads leave exactly one fixed argument becomes a
-// call with that one value, so the callee receives the value itself; spreads of empty tuples are dropped.
+using IRExprNode = decltype(ir::IRExpr{}.node);
+
+auto make_expr_box(ir::IRExpr expr) -> ir::IRExprBox { return ir::IRExprBox(std::in_place, std::move(expr)); }
+
+auto make_ir_expr(IRExprNode node, const std::optional<diag::SourceSpan>& span) -> ir::IRExpr {
+  return ir::IRExpr{.node = std::move(node), .span = span};
+}
+
+auto hidden_param_ref(const std::size_t index, const std::optional<diag::SourceSpan>& span) -> ir::IRExpr {
+  return make_ir_expr(ir::IRNameRef{.name = hidden_operator_param_name(index), .span = span}, span);
+}
+
+// The Std builtin `name`'s symbol key, for references the checker creates itself.
+auto std_symbol_key(const FunctionIndex& index, const std::string& name) -> std::string {
+  if (const auto overloads = index.resolve_name(std::optional<std::string>{"Std"}, name);
+      overloads.has_value() && !overloads->get().empty()) {
+    return overloads->get().front().resolved_symbol_key;
+  }
+  return "Std." + name;
+}
+
+// The hidden operator arguments for a call to a function with operator requirements. For each requirement, the type
+// its parameter binds to selects the function: a concrete type gets the operator's function for that type (Std.Add,
+// Money.Add); a type parameter of the enclosing generic body whose bound contains a strong type passes the body's
+// own hidden parameter, which makes it a requirement of the body too.
+// Sets the call shape from the arguments. A call with one argument passes the value itself, unless the callee is
+// variadic: a variadic callee takes its arguments as a tuple, so a single argument goes in a one-item parameter list.
+// A parameter list whose spreads leave exactly one fixed argument for a non-variadic callee becomes a call with that
+// one value; spreads of empty tuples are dropped.
 void apply_call_shape(ir::IRFlowExpr& flow, const FlowArgs& flow_args, const Type& lhs_type,
-                      const FunctionIndex& index) {
+                      const FunctionIndex& index, const bool variadic_callee) {
   if (!flow_args.spread) {
-    flow.call_shape =
-        flow_args.args.size() == 1U ? ir::IRFlowCallShape::kDirectValue : ir::IRFlowCallShape::kTupleExpanded;
+    if (flow_args.args.size() != 1U) {
+      flow.call_shape = ir::IRFlowCallShape::kTupleExpanded;
+      return;
+    }
+    if (!variadic_callee) {
+      flow.call_shape = ir::IRFlowCallShape::kDirectValue;
+      return;
+    }
+    if (ir::single_parameter_list_item(*flow.lhs) == nullptr) {
+      const auto span = flow.lhs->span;
+      ir::IRTupleExpr arguments{.span = span};
+      arguments.items.push_back(std::move(flow.lhs));
+      flow.lhs = make_expr_box(make_ir_expr(std::move(arguments), span));
+    }
+    flow.call_shape = ir::IRFlowCallShape::kTupleExpanded;
     return;
   }
   flow.call_shape = ir::IRFlowCallShape::kTupleExpanded;
-  if (flow_args.args.size() != 1U || flow_args.args.front().variadic) {
+  if (variadic_callee || flow_args.args.size() != 1U || flow_args.args.front().variadic) {
     return;
   }
 
@@ -143,11 +183,6 @@ void apply_call_shape(ir::IRFlowExpr& flow, const FlowArgs& flow_args, const Typ
     }
     // The spread of a one-item tuple: take the item out with Std.ElementAt.
     const auto span = tuple.span;
-    std::string element_at_key = "Std.ElementAt";
-    if (const auto overloads = index.resolve_name(std::optional<std::string>{"Std"}, "ElementAt");
-        overloads.has_value() && !overloads->get().empty()) {
-      element_at_key = overloads->get().front().resolved_symbol_key;
-    }
     ir::IRTupleExpr element_args{.span = span};
     element_args.items.push_back(std::move(item));
     element_args.items.emplace_back(
@@ -155,7 +190,7 @@ void apply_call_shape(ir::IRFlowExpr& flow, const FlowArgs& flow_args, const Typ
     ir::IRFlowExpr element{.lhs = ir::IRExprBox(std::in_place, ir::IRExpr{.node = std::move(element_args), .span = span}),
                            .rhs = ir::IRNameRef{.qualifier = std::string{"Std"},
                                                 .name = "ElementAt",
-                                                .resolved_symbol_key = element_at_key,
+                                                .resolved_symbol_key = std_symbol_key(index, "ElementAt"),
                                                 .span = span},
                            .call_shape = ir::IRFlowCallShape::kTupleExpanded,
                            .span = span};
@@ -311,31 +346,7 @@ auto bound_alternatives_of(const Type& bound) -> std::vector<Type> {
   return bound.kind == TypeKind::kUnion ? bound.union_members : std::vector<Type>{bound};
 }
 
-using IRExprNode = decltype(ir::IRExpr{}.node);
 
-auto make_expr_box(ir::IRExpr expr) -> ir::IRExprBox { return ir::IRExprBox(std::in_place, std::move(expr)); }
-
-auto make_ir_expr(IRExprNode node, const std::optional<diag::SourceSpan>& span) -> ir::IRExpr {
-  return ir::IRExpr{.node = std::move(node), .span = span};
-}
-
-auto hidden_param_ref(const std::size_t index, const std::optional<diag::SourceSpan>& span) -> ir::IRExpr {
-  return make_ir_expr(ir::IRNameRef{.name = hidden_operator_param_name(index), .span = span}, span);
-}
-
-// The Std builtin `name`'s symbol key, for references the checker creates itself.
-auto std_symbol_key(const FunctionIndex& index, const std::string& name) -> std::string {
-  if (const auto overloads = index.resolve_name(std::optional<std::string>{"Std"}, name);
-      overloads.has_value() && !overloads->get().empty()) {
-    return overloads->get().front().resolved_symbol_key;
-  }
-  return "Std." + name;
-}
-
-// The hidden operator arguments for a call to a function with operator requirements. For each requirement, the type
-// its parameter binds to selects the function: a concrete type gets the operator's function for that type (Std.Add,
-// Money.Add); a type parameter of the enclosing generic body whose bound contains a strong type passes the body's
-// own hidden parameter, which makes it a requirement of the body too.
 auto hidden_operator_args(const std::string& callee, const ResolvedInvocation& invocation,
                           const std::optional<diag::SourceSpan>& span, const FunctionIndex& index,
                           const StrongTypeIndex& type_index, const GenericScope& generic_params)
@@ -457,7 +468,7 @@ auto finalize_flow_resolution(ir::IRFlowExpr& flow, const FunctionOverloadSet& o
     prepend_hidden_args(flow, std::move(*hidden));
     return checked->return_type;
   }
-  apply_call_shape(flow, *flow_args, lhs_type, index);
+  apply_call_shape(flow, *flow_args, lhs_type, index, checked->variadic);
   return checked->return_type;
 }
 
@@ -629,7 +640,7 @@ auto infer_operator_flow_expr(ir::IRFlowExpr& flow, const ir::IROperatorRef& op_
       .materialize_as_value = false,
       .span = op_span,
   };
-  apply_call_shape(flow, *flow_args, *lhs_type, index);
+  apply_call_shape(flow, *flow_args, *lhs_type, index, resolved->invocation.variadic);
   return resolved->invocation.return_type;
 }
 
@@ -823,22 +834,19 @@ auto infer_std_apply_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, cons
   if (!value_type) {
     return tl::unexpected(value_type.error());
   }
-  // The value is one argument of the function: parentheses inside the parameter list are a tuple.
-  const Type& adapted_value_type = *value_type;
-
   auto func_type = infer_expr(*apply_args->items[1], index, type_index, alias_index, locals, generic_params);
   if (!func_type) {
     return tl::unexpected(func_type.error());
   }
 
-  if (const bool value_is_empty_tuple = adapted_value_type.kind == TypeKind::kTuple && adapted_value_type.items.empty();
+  if (const bool value_is_empty_tuple = value_type->kind == TypeKind::kTuple && value_type->items.empty();
       !value_is_empty_tuple) {
     if (is_deferred_callable_type(*func_type)) {
       return make_type(TypeKind::kAny);
     }
 
     if (func_type->kind == TypeKind::kFunction && callable_has_fixed_arity(*func_type, 1U) &&
-        callable_accepts_arg(*func_type, 0U, adapted_value_type) && func_type->function_return.has_value()) {
+        callable_accepts_arg(*func_type, 0U, *value_type) && func_type->function_return.has_value()) {
       return *func_type->function_return;
     }
 
@@ -884,11 +892,10 @@ auto is_function_value_target(const ir::IRCallTarget& target, const FunctionInde
   return overloads.has_value() && overloads->get().size() == 1U && overloads->get().front().is_value_binding;
 }
 
-// Types the call of a function value of type `callee_type` with the arguments `flow.lhs`, by the parameter-list rule,
-// and sets the call shape the compiler passes them by through Std.Apply. A one-parameter function takes its argument
-// as is; any other function takes its argument tuple, so a variadic function's single argument is put in a parameter
-// list. A generic closure takes its type arguments from the argument types.
-auto check_function_value_call(ir::IRFlowExpr& flow, const std::string& callee, Type callee_type,
+// Types the call of a function value of type `callee_type` with the arguments `call.lhs`, by the parameter-list rule,
+// and shapes `call.lhs` into the value Std.Apply passes: the one argument of a direct call, or the argument tuple of
+// any other call. A generic closure takes its type arguments from the argument types.
+auto check_function_value_call(ir::IRFlowExpr& call, const std::string& callee, Type callee_type,
                                const std::optional<diag::SourceSpan>& callee_span, const FunctionIndex& index,
                                const StrongTypeIndex& type_index, const AliasIndex& alias_index,
                                const LocalTypes& locals, const GenericScope& generic_params)
@@ -901,60 +908,75 @@ auto check_function_value_call(ir::IRFlowExpr& flow, const std::string& callee, 
         callee_span));
   }
 
-  auto lhs_type = infer_expr(*flow.lhs, index, type_index, alias_index, locals, generic_params);
+  auto lhs_type = infer_expr(*call.lhs, index, type_index, alias_index, locals, generic_params);
   if (!lhs_type) {
     return tl::unexpected(lhs_type.error());
   }
-  auto flow_args = flow_args_from_lhs(*flow.lhs, *lhs_type);
+  auto flow_args = flow_args_from_lhs(*call.lhs, *lhs_type);
   if (!flow_args) {
     return tl::unexpected(flow_args.error());
   }
 
-  if (!callee_type.function_generic_params.empty() && flow_args->args.size() == callee_type.function_params.size() &&
-      std::ranges::none_of(flow_args->args, [](const Type& arg) -> bool { return arg.variadic; })) {
-    Type expected = make_type(TypeKind::kFunction);
-    expected.function_params = flow_args->args;
-    expected.function_return = make_type(TypeKind::kAny);
-    auto instantiated = instantiate_open_function(callee_type, expected);
-    if (!instantiated) {
-      return tl::unexpected(make_error(
-          "Type mismatch in call target arguments.",
-          std::format("{} cannot take these arguments: its type variable(s) are taken from the argument types and "
-                      "must satisfy their bounds.",
-                      callee),
-          flow.span));
-    }
-    callee_type = std::move(*instantiated);
-  }
-
+  // A generic closure is called like a generic function: its type arguments are bound from the arguments.
   FunctionSig sig;
+  if (is_open_function(callee_type)) {
+    auto open = open_function_signature(callee_type, generic_params);
+    callee_type = std::move(open.type);
+    sig.generic_params = std::move(open.generic_params);
+    sig.generic_bounds = std::move(open.generic_bounds);
+  }
   sig.return_type = *callee_type.function_return;
   sig.params.reserve(callee_type.function_params.size());
   for (const auto& param : callee_type.function_params) {
     sig.params.push_back(ParamSig{.name = {}, .type = param, .variadic = param.variadic});
   }
-  auto result = check_invocation(callee, flow.span, sig, flow_args->args, type_index, generic_params);
+  auto result = check_invocation(callee, call.span, sig, flow_args->args, type_index, generic_params);
   if (!result) {
     return tl::unexpected(result.error());
   }
 
-  apply_call_shape(flow, *flow_args, *lhs_type, index);
-  if (const bool variadic = !sig.params.empty() && sig.params.back().variadic;
-      variadic && flow.call_shape == ir::IRFlowCallShape::kDirectValue) {
-    const auto* written = std::get_if<ir::IRTupleExpr>(&flow.lhs->node);
-    if (written == nullptr || written->trailing_comma || written->items.size() != 1U) {
-      const auto span = flow.lhs->span;
-      ir::IRTupleExpr arguments{.span = span};
-      arguments.items.push_back(std::move(flow.lhs));
-      flow.lhs = make_expr_box(make_ir_expr(std::move(arguments), span));
+  apply_call_shape(call, *flow_args, *lhs_type, index, !sig.params.empty() && sig.params.back().variadic);
+  if (call.call_shape == ir::IRFlowCallShape::kDirectValue) {
+    // The value is the one argument. A tuple taken out of a parameter list is a tuple value from here on, so that
+    // checking the call again reads it the same way.
+    if (const auto* item = ir::single_parameter_list_item(*call.lhs); item != nullptr) {
+      ir::IRExprBox value = *item;
+      if (auto* tuple = std::get_if<ir::IRTupleExpr>(&value->node); tuple != nullptr) {
+        tuple->trailing_comma = true;
+      }
+      call.lhs = std::move(value);
     }
-    flow.call_shape = ir::IRFlowCallShape::kTupleExpanded;
   }
-  flow.calls_function_value = true;
   return *result;
 }
 
-// A call whose target names a function value.
+// A call of a function value, `(arguments, function) -> Std.Apply` (see IRFlowExpr::calls_function_value).
+auto infer_function_value_apply(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
+                                const AliasIndex& alias_index, const LocalTypes& locals,
+                                const GenericScope& generic_params)
+    -> tl::expected<Type, type_check::AnalysisError> {
+  auto& apply_args = std::get<ir::IRTupleExpr>(flow.lhs->node);
+  auto& function = *apply_args.items[1];
+  auto function_type = infer_expr(function, index, type_index, alias_index, locals, generic_params);
+  if (!function_type) {
+    return tl::unexpected(function_type.error());
+  }
+  const auto* name_ref = std::get_if<ir::IRNameRef>(&function.node);
+  const std::string callee =
+      name_ref != nullptr ? qualified_symbol_name(name_ref->qualifier, name_ref->name) : std::string{"closure"};
+
+  ir::IRFlowExpr call{.lhs = std::move(apply_args.items[0]), .rhs = flow.rhs, .span = flow.span};
+  auto result = check_function_value_call(call, callee, std::move(*function_type), function.span, index, type_index,
+                                          alias_index, locals, generic_params);
+  apply_args.items[0] = std::move(call.lhs);
+  if (!result) {
+    return tl::unexpected(result.error());
+  }
+  flow.call_shape = ir::IRFlowCallShape::kTupleExpanded;
+  return *result;
+}
+
+// A call whose target names a function value: rewritten to `(arguments, function) -> Std.Apply` and checked as such.
 auto infer_function_value_call(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
                                const AliasIndex& alias_index, const LocalTypes& locals,
                                const GenericScope& generic_params)
@@ -976,38 +998,17 @@ auto infer_function_value_call(ir::IRFlowExpr& flow, const FunctionIndex& index,
         std::format("{} is a function value and does not accept explicit type arguments.", callee), name_ref.span));
   }
 
-  // Type the target as a value; this also resolves a value let to the function that computes it.
-  const auto callee_span = name_ref.span;
-  ir::IRExpr callee_expr = make_ir_expr(name_ref, callee_span);
-  auto callee_type = infer_expr(callee_expr, index, type_index, alias_index, locals, generic_params);
-  if (!callee_type) {
-    return tl::unexpected(callee_type.error());
-  }
-  flow.rhs = std::get<ir::IRNameRef>(callee_expr.node);
-  return check_function_value_call(flow, callee, std::move(*callee_type), callee_span, index, type_index,
-                                   alias_index, locals, generic_params);
-}
-
-// A closure written as a pipeline stage: `(arguments, closure) -> Std.Apply`, typed as a call of the closure.
-auto infer_closure_stage_call(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
-                              const AliasIndex& alias_index, const LocalTypes& locals,
-                              const GenericScope& generic_params)
-    -> tl::expected<Type, type_check::AnalysisError> {
-  auto& stage = std::get<ir::IRTupleExpr>(flow.lhs->node);
-  auto closure_type = infer_expr(*stage.items[1], index, type_index, alias_index, locals, generic_params);
-  if (!closure_type) {
-    return tl::unexpected(closure_type.error());
-  }
-  ir::IRFlowExpr call{.lhs = std::move(stage.items[0]), .rhs = flow.rhs, .span = flow.span};
-  auto result = check_function_value_call(call, "closure", std::move(*closure_type), stage.items[1]->span, index,
-                                          type_index, alias_index, locals, generic_params);
-  stage.items[0] = std::move(call.lhs);
-  if (!result) {
-    return tl::unexpected(result.error());
-  }
-  flow.call_shape = call.call_shape;
+  const auto span = flow.span;
+  ir::IRTupleExpr apply_args{.span = span};
+  apply_args.items.push_back(std::move(flow.lhs));
+  apply_args.items.push_back(make_expr_box(make_ir_expr(name_ref, name_ref.span)));
+  flow.lhs = make_expr_box(make_ir_expr(std::move(apply_args), span));
+  flow.rhs = ir::IRNameRef{.qualifier = std::string{"Std"},
+                           .name = "Apply",
+                           .resolved_symbol_key = std_symbol_key(index, "Apply"),
+                           .span = name_ref.span};
   flow.calls_function_value = true;
-  return *result;
+  return infer_function_value_apply(flow, index, type_index, alias_index, locals, generic_params);
 }
 
 auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const StrongTypeIndex& type_index,
@@ -1018,8 +1019,8 @@ auto infer_flow_expr(ir::IRFlowExpr& flow, const FunctionIndex& index, const Str
     return infer_operator_flow_expr(flow, *op_ref, index, type_index, alias_index, locals, generic_params);
   }
 
-  if (flow.closure_stage) {
-    return infer_closure_stage_call(flow, index, type_index, alias_index, locals, generic_params);
+  if (flow.calls_function_value) {
+    return infer_function_value_apply(flow, index, type_index, alias_index, locals, generic_params);
   }
 
   if (is_function_value_target(flow.rhs, index, locals)) {

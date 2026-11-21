@@ -358,6 +358,24 @@ auto instantiate_open_function(const Type& open, const Type& expected) -> std::o
   return instantiated;
 }
 
+auto open_function_signature(const Type& open, const GenericScope& scope) -> OpenFunctionSignature {
+  OpenFunctionSignature signature;
+  TypeVarNames names;
+  for (const auto& fresh : open.function_generic_params) {
+    const std::string declared = fresh.substr(0, fresh.find('\''));
+    const std::string& name = scope.contains(declared) ? fresh : declared;
+    names.insert_or_assign(fresh, name);
+    signature.generic_params.push_back(name);
+    if (auto bound = find_type_var_bound(open, fresh); bound.has_value()) {
+      signature.generic_bounds.insert_or_assign(name, std::move(*bound));
+    }
+  }
+  signature.type = rename_type_vars(open, names);
+  signature.type.function_generic_params.clear();
+  signature.type.open_function_name.clear();
+  return signature;
+}
+
 auto from_ir_type(const ir::IRSimpleType& type) -> Type {
   if (!type.alternative_types.empty() || !type.alternatives.empty()) {
     Type out;

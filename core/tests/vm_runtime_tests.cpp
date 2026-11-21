@@ -6999,3 +6999,49 @@ TEST_CASE("RuntimeSession closure stages take their arguments by the parameter-l
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "3\n12\n6\n6\n2\n2\n7\n3\n1\n(5, 5)\n(a, 1)\n");
 }
+
+TEST_CASE("RuntimeSession closures with block bodies capture outer values", "[vm][repl][closures]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> +;\n"
+      "let CallsCaptured(f: (Int64) => Int64): Int64 = 5 -> (x: Int64): Int64 = { let y: Int64 = x -> f; (y, 1) -> +; };\n"
+      "let ShadowedInBlock(n: Int64): Int64 = 1 -> (x: Int64): Int64 = { let n: Int64 = 10; (x, n) -> +; };\n"
+      "let OuterBeforeShadow(n: Int64): Int64 = 1 -> (x: Int64): Int64 = { let m: Int64 = (n, 1) -> +; let n: Int64 = 100; (m, n) -> +; };\n"
+      "Inc -> CallsCaptured -> Std.Println;\n"
+      "3 -> ShadowedInBlock -> Std.Println;\n"
+      "3 -> OuterBeforeShadow -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "7\n11\n104\n");
+}
+
+TEST_CASE("RuntimeSession generic variadic closure stages bind their type arguments", "[vm][repl][closures]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Many: Tuple<Int64...> = (1, 2, 3);\n"
+      "let Twice<T>(x: T): Tuple<T, T> = x -> <T>(y: T): Tuple<T, T> = (y, y);\n"
+      "((1, 2, 3) -> <T>(xs: T...): Int64 = xs -> Std.Length) -> Std.Println;\n"
+      "((Many...) -> <T>(xs: T...): Int64 = xs -> Std.Length) -> Std.Println;\n"
+      "(4 -> Twice) -> Std.Println;\n"
+      "let Pair: Tuple<Int64, Int64> = (1, 2);\n"
+      "(Pair -> <T>(xs: T...): Int64 = xs -> Std.Length) -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "3\n3\n(4, 4)\n1\n");
+}
