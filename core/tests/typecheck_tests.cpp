@@ -2117,7 +2117,7 @@ TEST_CASE("Type checker matrix: Stage-3qc Std.Result accessor family ownership",
   SECTION("Std.Result.Tag rejects non-result tuple inputs during type checking") {
     const std::string src =
         "let Std.Result.Tag<T, E>(result: Result<T, E>): Bool :: __builtin__;\n"
-        "(1, 2) -> Std.Result.Tag;\n" "type Result<T, E> :: __builtin__;\n";
+        "(1, 2,) -> Std.Result.Tag;\n" "type Result<T, E> :: __builtin__;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3qc_result_tag_non_result_tuple_reject.fleaux");
@@ -2172,7 +2172,7 @@ TEST_CASE("Type checker matrix: Stage-3qb Std.First and Std.Second pair-shape ow
     const std::string src =
         "let Std.First<A, B>(pair: Tuple<A, B>): A :: __builtin__;\n"
         "let NeedsInt(x: Int64): Int64 = x;\n"
-        "(1, \"two\") -> Std.First -> NeedsInt;\n";
+        "(1, \"two\",) -> Std.First -> NeedsInt;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3qb_first_type_propagation.fleaux");
@@ -2187,7 +2187,7 @@ TEST_CASE("Type checker matrix: Stage-3qb Std.First and Std.Second pair-shape ow
     const std::string src =
         "let Std.Second<A, B>(pair: Tuple<A, B>): B :: __builtin__;\n"
         "let NeedsString(x: String): String = x;\n"
-        "(1, \"two\") -> Std.Second -> NeedsString;\n";
+        "(1, \"two\",) -> Std.Second -> NeedsString;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3qb_second_type_propagation.fleaux");
@@ -2201,7 +2201,7 @@ TEST_CASE("Type checker matrix: Stage-3qb Std.First and Std.Second pair-shape ow
   SECTION("Std.First rejects non-pair tuple inputs during type checking") {
     const std::string src =
         "let Std.First<A, B>(pair: Tuple<A, B>): A :: __builtin__;\n"
-        "(1, 2, 3) -> Std.First;\n";
+        "(1, 2, 3,) -> Std.First;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3qb_first_non_pair_tuple_reject.fleaux");
@@ -3568,7 +3568,7 @@ TEST_CASE("Type checker matrix: Stage-3s Std.Array 2-D generic tightening", "[ty
     const std::string src =
         "let Std.Array.Transpose2D<T>(grid: Tuple<Tuple<T...>...>): Tuple<Tuple<T...>...> :: __builtin__;\n"
         "let NeedsGrid(g: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> = g;\n"
-        "((1, 2), (3, 4)) -> Std.Array.Transpose2D -> NeedsGrid;\n";
+        "((1, 2), (3, 4),) -> Std.Array.Transpose2D -> NeedsGrid;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3s_array_transpose2d_grid_type_propagation.fleaux");
@@ -3583,7 +3583,7 @@ TEST_CASE("Type checker matrix: Stage-3s Std.Array 2-D generic tightening", "[ty
     const std::string src =
         "let Std.Array.Transpose2D<T>(grid: Tuple<Tuple<T...>...>): Tuple<Tuple<T...>...> :: __builtin__;\n"
         "let NeedsIntGrid(g: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> = g;\n"
-        "((\"a\", \"b\"), (\"c\", \"d\")) -> Std.Array.Transpose2D -> NeedsIntGrid;\n";
+        "((\"a\", \"b\"), (\"c\", \"d\"),) -> Std.Array.Transpose2D -> NeedsIntGrid;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage3s_array_transpose2d_output_mismatch.fleaux");
@@ -4423,7 +4423,7 @@ TEST_CASE("Type checker expands transparent local aliases before structural comp
         "alias CounterPair = Pair;\n"
         "let Echo(x: CounterPair): Pair = x;\n"
         "let NeedsPair(x: Pair): Pair = x;\n"
-        "(1, 2) -> Echo -> NeedsPair;\n";
+        "(1, 2,) -> Echo -> NeedsPair;\n";
 
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_alias_chain_tuple_transparent.fleaux");
@@ -5650,10 +5650,10 @@ TEST_CASE("Type checker matrix: user function call typing", "[typecheck][stage2]
     REQUIRE(lowered.error().hint->find("expects argument") != std::string::npos);
   }
 
-  SECTION("Single-parameter callable receives whole tuple value") {
+  SECTION("Single-parameter callable receives a tuple written with a trailing comma") {
     const std::string src =
         "let AcceptPair(pair: Tuple<Float64, Float64>): Float64 = 0.0;\n"
-        "(1.0, 2.0) -> AcceptPair;\n";
+        "(1.0, 2.0,) -> AcceptPair;\n";
     const fleaux::frontend::parse::Parser parser;
     const auto parsed = parser.parse_program(src, "typecheck_stage2_single_param_tuple_shape.fleaux");
     REQUIRE(parsed.has_value());
@@ -6241,8 +6241,8 @@ TEST_CASE("Type checker keeps generic strong type instantiations distinct", "[ty
     const auto lowered = lower_and_check(
         "let Std.Cast<T>(value: Any): T :: __builtin__;\n"
         "type Pair<A, B> = Tuple<A, B>;\n"
-        "let MakePair(a: Int64, b: String): Pair<Int64, String> = (a, b) -> Std.Cast<Pair<Int64, String>>;\n"
-        "let Wrong(a: Int64, b: String): Pair<String, Int64> = (a, b) -> Std.Cast<Pair<String, Int64>>;\n",
+        "let MakePair(a: Int64, b: String): Pair<Int64, String> = (a, b,) -> Std.Cast<Pair<Int64, String>>;\n"
+        "let Wrong(a: Int64, b: String): Pair<String, Int64> = (a, b,) -> Std.Cast<Pair<String, Int64>>;\n",
         "generic_pair_cast.fleaux");
     REQUIRE_FALSE(lowered.has_value());
     REQUIRE(lowered.error().message.find("Invalid Std.Cast invocation") != std::string::npos);
@@ -6366,9 +6366,9 @@ TEST_CASE("Type checker selects unary or binary minus from the operand type", "[
     REQUIRE(name_ref.resolved_symbol_key.has_value());
   }
 
-  SECTION("A tuple-typed value is binary subtraction") {
+  SECTION("A spread tuple value is binary subtraction") {
     const auto lowered = lower_and_check(
-        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\nlet Diff(): Int64 = P -> -;\nP -> -;\n",
+        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\nlet Diff(): Int64 = (P...) -> -;\n(P...) -> -;\n",
         "operator_tuple_value_minus.fleaux");
     REQUIRE(lowered.has_value());
     REQUIRE(rhs_of_last_expression(*lowered).name == "Subtract");
@@ -7195,5 +7195,150 @@ TEST_CASE("Generic functions take operators of strong-bounded type parameters as
     const auto error =
         rejected("let F(): (Int64) => Int64 = <T: Summable>(x: T): T = (x, x) -> +;\n", "req_closure_param.fleaux");
     REQUIRE(error.hint->find("a type parameter of a generic closure") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker parameter lists report argument shape errors with fixes", "[typecheck][parameter-lists]") {
+  const std::string prelude =
+      "import Std;\n"
+      "let Pair(a: Int64, b: Int64): Int64 = (a, b) -> +;\n"
+      "let Whole(t: Tuple<Int64, Int64>): Int64 = t -> Std.Length;\n"
+      "let V(xs: Int64...): Int64 = xs -> Std.Length;\n"
+      "let P: Tuple<Int64, Int64> = (1, 2);\n"
+      "let Many: Tuple<Int64...> = (1, 2, 3);\n"
+      "let N: Int64 = 5;\n";
+
+  const auto lower_error = [&](const std::string& body) {
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(prelude + body, "typecheck_parameter_lists.fleaux");
+    REQUIRE(parsed.has_value());
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    return lowered.error();
+  };
+  const auto full_text = [](const auto& error) -> std::string {
+    return error.message + " " + error.hint.value_or("");
+  };
+
+  SECTION("A tuple value passed to a two-parameter function suggests a spread") {
+    const auto text = full_text(lower_error("P -> Pair;\n"));
+    REQUIRE(text.find("expects 2 argument(s) but got 1") != std::string::npos);
+    REQUIRE(text.find("spread it: '(x...)'") != std::string::npos);
+  }
+
+  SECTION("A parameter list passed to a one-parameter function suggests a trailing comma") {
+    const auto text = full_text(lower_error("(1, 2) -> Whole;\n"));
+    REQUIRE(text.find("expects 1 argument(s) but got 2") != std::string::npos);
+    REQUIRE(text.find("trailing comma") != std::string::npos);
+  }
+
+  SECTION("A spread of unknown length can only fill a variadic tail") {
+    REQUIRE(full_text(lower_error("(Many...) -> Pair;\n")).find("spread tuple of unknown length") != std::string::npos);
+    REQUIRE(full_text(lower_error("(Many..., 9) -> V;\n")).find("can only be spread as the last argument") !=
+            std::string::npos);
+  }
+
+  SECTION("Only tuples can be spread") {
+    const auto error = lower_error("(N...) -> V;\n");
+    REQUIRE(error.message.find("Invalid spread") != std::string::npos);
+    REQUIRE(full_text(error).find("this value has type Int64") != std::string::npos);
+  }
+
+  SECTION("A spread is only valid in a parameter list") {
+    REQUIRE(lower_error("let Q: Tuple<Int64, Int64> = (P...);\n").message.find("Invalid spread") != std::string::npos);
+    REQUIRE(full_text(lower_error("(P...,) -> Whole;\n")).find("trailing comma") != std::string::npos);
+  }
+
+  SECTION("Multi-parameter and tuple-parameter function types stay distinct") {
+    REQUIRE(full_text(lower_error("let F: (Tuple<Int64, Int64>) => Int64 = Pair;\n")).find("(Int64, Int64) => Int64") !=
+            std::string::npos);
+    REQUIRE(full_text(lower_error("let G: (Int64, Int64) => Int64 = Whole;\n"))
+                .find("(Tuple<Int64, Int64>) => Int64") != std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker checks calls of function values", "[typecheck][function-values]") {
+  const std::string prelude =
+      "import Std;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> +;\n"
+      "let N: Int64 = 5;\n";
+
+  const auto lower_error = [&](const std::string& body) {
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed = parser.parse_program(prelude + body, "typecheck_function_values.fleaux");
+    REQUIRE(parsed.has_value());
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    return lowered.error();
+  };
+  const auto full_text = [](const auto& error) -> std::string { return error.message + " " + error.hint.value_or(""); };
+
+  SECTION("A local sharing a function's name cannot be a call target") {
+    const auto text = full_text(lower_error("let Use(Inc: (Int64) => Int64): Int64 = 5 -> Inc;\n"));
+    REQUIRE(text.find("Ambiguous call target") != std::string::npos);
+    REQUIRE(text.find("'Inc' names both a local value and a function") != std::string::npos);
+  }
+
+  SECTION("Only values of function type can be called") {
+    REQUIRE(full_text(lower_error("let Use(x: Int64): Int64 = 3 -> x;\n"))
+                .find("'x' is a value of type Int64, not a function") != std::string::npos);
+    REQUIRE(full_text(lower_error("3 -> N;\n")).find("'N' is a value of type Int64, not a function") !=
+            std::string::npos);
+  }
+
+  SECTION("Arguments follow the parameter-list rule") {
+    const auto text = full_text(lower_error("let Use(f: (Int64) => Int64): Int64 = (1, 2) -> f;\n"));
+    REQUIRE(text.find("f expects 1 argument(s) but got 2") != std::string::npos);
+    REQUIRE(text.find("trailing comma") != std::string::npos);
+    REQUIRE(full_text(lower_error("let Use(f: (Int64) => Int64): Int64 = \"a\" -> f;\n")).find("Type mismatch") !=
+            std::string::npos);
+  }
+
+  SECTION("A function value takes no explicit type arguments") {
+    REQUIRE(full_text(lower_error("let Use(f: (Int64) => Int64): Int64 = 5 -> f<Int64>;\n"))
+                .find("is a function value and does not accept explicit type arguments") != std::string::npos);
+  }
+
+  SECTION("The call returns the function type's return type") {
+    REQUIRE(lower_error("let Use(f: (Int64) => Int64): String = 5 -> f;\n").message.find("Type mismatch") !=
+            std::string::npos);
+  }
+}
+
+TEST_CASE("Type checker checks closure stage arguments", "[typecheck][function-values][closures]") {
+  const auto lower_error = [](const std::string& body) {
+    const fleaux::frontend::parse::Parser parser;
+    const auto parsed =
+        parser.parse_program("import Std;\nlet P: Tuple<Int64, Int64> = (3, 4);\n" + body, "typecheck_closure_stage.fleaux");
+    REQUIRE(parsed.has_value());
+    const fleaux::frontend::lowering::Lowerer lowerer;
+    const auto lowered = lowerer.lower(parsed.value());
+    REQUIRE_FALSE(lowered.has_value());
+    return lowered.error();
+  };
+  const auto full_text = [](const auto& error) -> std::string { return error.message + " " + error.hint.value_or(""); };
+
+  SECTION("A parameter list passed to a one-parameter closure suggests a trailing comma") {
+    const auto text = full_text(lower_error("(1, 2) -> (a: Int64): Int64 = a;\n"));
+    REQUIRE(text.find("closure expects 1 argument(s) but got 2") != std::string::npos);
+    REQUIRE(text.find("trailing comma") != std::string::npos);
+  }
+
+  SECTION("A tuple value passed to a two-parameter closure suggests a spread") {
+    const auto text = full_text(lower_error("P -> (a: Int64, b: Int64): Int64 = a;\n"));
+    REQUIRE(text.find("closure expects 2 argument(s) but got 1") != std::string::npos);
+    REQUIRE(text.find("spread it") != std::string::npos);
+  }
+
+  SECTION("A generic closure's type arguments must satisfy its bounds") {
+    REQUIRE(full_text(lower_error("\"a\" -> <T: Numeric>(x: T): T = x;\n"))
+                .find("closure cannot take these arguments") != std::string::npos);
+  }
+
+  SECTION("Argument types are checked against the closure's parameters") {
+    REQUIRE(lower_error("(1, \"a\") -> (a: Int64, b: Int64): Int64 = a;\n").message.find("Type mismatch") !=
+            std::string::npos);
   }
 }

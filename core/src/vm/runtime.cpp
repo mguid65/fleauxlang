@@ -705,6 +705,23 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         break;
       }
 
+      case bytecode::Opcode::kConcatTuples: {
+        const auto count = static_cast<std::size_t>(operand);
+        if (operand < 0 || stack.size() < count) {
+          return tl::unexpected(make_runtime_error("stack underflow on concat_tuples"));
+        }
+        Array joined;
+        for (std::size_t position = stack.size() - count; position < stack.size(); ++position) {
+          const auto& piece = runtime::as_array(stack[position]);
+          for (std::size_t index = 0; index < piece.Size(); ++index) {
+            joined.EmplaceBack(*piece.TryGet(index));
+          }
+        }
+        stack.resize(stack.size() - count);
+        stack.emplace_back(std::move(joined));
+        break;
+      }
+
       case bytecode::Opcode::kCheckType:
       case bytecode::Opcode::kTryCheckType: {
         const auto idx = static_cast<std::size_t>(operand);

@@ -17,8 +17,8 @@ let Increment(x: Any): Int64 = (x -> Std.Cast<Int64>, 1) -> Std.Add;
 
 // Unions, tuples, and dictionaries are checked structurally.
 7 -> Forget -> Std.TryCast<Int64 | String> -> Std.Result.IsOk -> Std.Println;                    // True
-(1, "a", "b") -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println; // True
-(1, 2) -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println;        // False
+(1, "a", "b",) -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println; // True
+(1, 2,) -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println;        // False
 
 let Scores(): Dict<String, Int64> =
   () -> Std.Dict.Create -> (_, "ada", 3) -> Std.Dict.Set -> (_, "lin", 5) -> Std.Dict.Set;

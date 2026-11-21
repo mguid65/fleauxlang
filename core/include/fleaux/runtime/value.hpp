@@ -1052,7 +1052,7 @@ struct HandleId {
   if (!unary) {
     throw std::runtime_error{"Unknown callable reference"};
   }
-  return [unary = unary](Value arg) -> Value { return unary(unwrap_singleton_arg(std::move(arg))); };
+  return [unary = unary](Value arg) -> Value { return unary(std::move(arg)); };
 }
 
 [[nodiscard]] inline auto invoke_binary_callable(const RegisteredCallable& callable, Value lhs, Value rhs) -> Value {

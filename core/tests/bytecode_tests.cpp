@@ -1922,21 +1922,19 @@ TEST_CASE("Bytecode compiler emits pipeline with native Std.Add lowering", "[byt
   REQUIRE(result.has_value());
 
   const auto& instr = result->instructions;
-  REQUIRE(instr.size() == 6);
-
+  REQUIRE(instr.size() == 7);
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[0].operand)).data) == 4);
-
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
-
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kAdd);
-
-  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
-
-  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
-  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
+  // Println is variadic: its one argument travels in a one-item argument tuple.
+  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kBuildTuple);
+  REQUIRE(instr[3].operand == 1);
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[4].operand)) == "Std.Println");
+  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[6].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
 TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and function streams",
@@ -1959,7 +1957,8 @@ TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and func
   REQUIRE(function_callsite.owner_index < module.functions.size());
   REQUIRE(function_callsite.instruction_index < module.functions[function_callsite.owner_index].instructions.size());
   REQUIRE(function_callsite.builtin_id == fleaux::vm::BuiltinId::Help);
-  REQUIRE(function_callsite.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  // Std.Help takes its one argument from a one-item argument tuple.
+  REQUIRE(function_callsite.call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
   REQUIRE(function_callsite.static_argument_count == 1U);
   REQUIRE(module.functions[function_callsite.owner_index].instructions[function_callsite.instruction_index].opcode ==
           fleaux::bytecode::Opcode::kCallBuiltin);
@@ -1969,7 +1968,7 @@ TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and func
   REQUIRE(module_callsite.owner_index == 0U);
   REQUIRE(module_callsite.instruction_index < module.instructions.size());
   REQUIRE(module_callsite.builtin_id == fleaux::vm::BuiltinId::Println);
-  REQUIRE(module_callsite.call_shape == fleaux::vm::BuiltinCallShape::kDirectValue);
+  REQUIRE(module_callsite.call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
   REQUIRE(module_callsite.static_argument_count == 1U);
   REQUIRE(module.instructions[module_callsite.instruction_index].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
 
@@ -2224,16 +2223,19 @@ TEST_CASE("Bytecode compiler emits native opcode for binary operator shorthand",
   REQUIRE(result.has_value());
 
   const auto& instr = result->instructions;
-  REQUIRE(instr.size() == 6);
+  REQUIRE(instr.size() == 7);
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[0].operand)).data) == 4);
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(std::get<std::int64_t>(result->constants.at(static_cast<std::size_t>(instr[1].operand)).data) == 5);
   REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kAdd);
-  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
-  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
-  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
+  // Println is variadic: its one argument travels in a one-item argument tuple.
+  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kBuildTuple);
+  REQUIRE(instr[3].operand == 1);
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[4].operand)) == "Std.Println");
+  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[6].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
 TEST_CASE("Bytecode compiler rejects explicit Std.Ref and Std.Deref without catalog entries", "[bytecode][value_ref]") {
@@ -3002,13 +3004,15 @@ TEST_CASE("Bytecode compiler emits native opcode for unary operator shorthand", 
   REQUIRE(result.has_value());
 
   const auto& instr = result->instructions;
-  REQUIRE(instr.size() == 5);
+  REQUIRE(instr.size() == 6);
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kNot);
-  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[2].operand)) == "Std.Println");
-  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kPop);
-  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
+  // Println is variadic: its one argument travels in a one-item argument tuple.
+  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kBuildTuple);
+  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
 TEST_CASE("Bytecode compiler emits native opcode for non-tuple unary operator shorthand", "[bytecode]") {
@@ -3020,13 +3024,15 @@ TEST_CASE("Bytecode compiler emits native opcode for non-tuple unary operator sh
   REQUIRE(result.has_value());
 
   const auto& instr = result->instructions;
-  REQUIRE(instr.size() == 5);
+  REQUIRE(instr.size() == 6);
   REQUIRE(instr[0].opcode == fleaux::bytecode::Opcode::kPushConst);
   REQUIRE(instr[1].opcode == fleaux::bytecode::Opcode::kNot);
-  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
-  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[2].operand)) == "Std.Println");
-  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kPop);
-  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kHalt);
+  // Println is variadic: its one argument travels in a one-item argument tuple.
+  REQUIRE(instr[2].opcode == fleaux::bytecode::Opcode::kBuildTuple);
+  REQUIRE(instr[3].opcode == fleaux::bytecode::Opcode::kCallBuiltin);
+  REQUIRE(fleaux::vm::builtin_name(*fleaux::vm::builtin_id_from_operand(instr[3].operand)) == "Std.Println");
+  REQUIRE(instr[4].opcode == fleaux::bytecode::Opcode::kPop);
+  REQUIRE(instr[5].opcode == fleaux::bytecode::Opcode::kHalt);
 }
 
 TEST_CASE("Bytecode compiler emits type-checked operators as their resolved Std builtins", "[bytecode]") {
@@ -3066,9 +3072,9 @@ TEST_CASE("Bytecode compiler emits type-checked operators as their resolved Std 
     REQUIRE_FALSE(contains(opcodes, fleaux::bytecode::Opcode::kSub));
   }
 
-  SECTION("A tuple-typed value selects binary subtraction from its type, not its syntax") {
+  SECTION("A spread tuple value is binary subtraction") {
     const auto ir_program = lower_source_to_ir(
-        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\nP -> - -> Std.Println;\n", "operator_tuple_value.fleaux");
+        "import Std;\nlet P(): Tuple<Int64, Int64> = (5, 2);\n(P...) -> - -> Std.Println;\n", "operator_tuple_value.fleaux");
     const auto result = compiler.compile(ir_program);
     REQUIRE(result.has_value());
     const auto [opcodes, builtin_names] = collect(*result);
@@ -3157,7 +3163,7 @@ TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to eq
       "\"  hello  \" -> Std.String.TrimStart -> Std.String.TrimEnd;\n"
       "1 -> Std.Result.Ok -> Std.Result.Tag -> Std.Not;\n"
       "1 -> Std.Result.Ok -> Std.Result.Tag;\n"
-      "((1, 2), (3, 4)) -> Std.Array.Shape -> Std.Length;\n"
+      "((1, 2), (3, 4),) -> Std.Array.Shape -> Std.Length;\n"
       "(\"abc\", \"b\", 0u64) -> Std.String.Find -> (_, -1) -> Std.NotEqual;\n"
       "(\"abc\", \"b\") -> Std.String.Regex.Find -> (_, -1) -> Std.NotEqual;\n",
       "builtin_reductions.fleaux");
@@ -4472,7 +4478,24 @@ TEST_CASE("Bytecode serialization handles functions", "[bytecode][serialization]
   REQUIRE(restored.functions[0].name == "MyFunc");
   REQUIRE(restored.functions[0].arity == 2);
   REQUIRE_FALSE(restored.functions[0].has_variadic_tail);
+  REQUIRE_FALSE(restored.functions[0].is_value_binding);
   REQUIRE(restored.functions[0].instructions.size() == 4);
+}
+
+TEST_CASE("Bytecode serialization keeps value lets", "[bytecode][serialization][function-values]") {
+  fleaux::bytecode::Module original;
+  fleaux::bytecode::FunctionDef fn;
+  fn.name = "Twice";
+  fn.is_value_binding = true;
+  fn.instructions = {{fleaux::bytecode::Opcode::kReturn, 0}};
+  original.functions.push_back(std::move(fn));
+
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(serialized.value());
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->functions.size() == 1U);
+  REQUIRE(deserialized->functions[0].is_value_binding);
 }
 
 TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[bytecode][serialization][verification]") {

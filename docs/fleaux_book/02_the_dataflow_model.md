@@ -59,6 +59,15 @@ Examples:
 
 Because the language uses pipelines heavily, tuples effectively become the shape language for function input.
 
+One distinction matters at every call. Parentheses written directly before -> are a parameter list, and each item
+is one argument. Anything else, such as a name holding a tuple or a tuple written with a trailing comma, is one
+argument. To pass the items of a tuple value as separate arguments, spread it:
+
+    let Pair: Tuple<Int64, Int64> = (3, 4);
+    (3, 4) -> Std.Add;       // two arguments
+    (Pair...) -> Std.Add;    // the same two arguments, spread from a tuple
+    (3, 4,) -> Std.Length;   // one argument, a tuple value
+
 ## Stages can be named functions, builtins, operators, or closures
 
 A pipeline stage is not limited to one kind of target.
@@ -182,10 +191,11 @@ It can be passed around as data.
 Examples:
 
     let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
-    let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 =
-        (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
+    let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 = x -> f -> f;
 
     (3.0, Double) -> ApplyTwice -> Std.Println;
+
+A parameter of function type is called by naming it as a stage, just like a named function.
 
 This is one reason the pipeline model works so well: callables and ordinary values fit into the same left-to-right flow.
 

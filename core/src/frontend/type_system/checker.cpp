@@ -791,6 +791,7 @@ auto function_sig_from_let(const ir::IRLet& let) -> FunctionSig {
   sig.resolved_symbol_key = let.symbol_key.empty() ? declaration_symbol_key(let) : let.symbol_key;
   sig.generic_params = let.generic_params;
   sig.is_builtin = let.is_builtin;
+  sig.is_value_binding = let.is_value_binding;
   sig.return_type = from_ir_type(let.return_type);
   sig.params.reserve(let.params.size());
   for (const auto& param : let.params) {
@@ -1750,16 +1751,40 @@ auto check_invocation(const std::string& full_name, const std::optional<diag::So
     fixed_count = sig.params.size() - 1U;
   }
 
-  if (has_variadic) {
-    if (args.size() < fixed_count) {
-      return tl::unexpected(make_error("Type mismatch in call target arguments.",
-                                       std::format("{} requires at least {} argument(s).", full_name, fixed_count),
-                                       span));
-    }
-  } else if (args.size() != sig.params.size()) {
+  // A spread of a tuple of unknown length is one final argument standing for zero or more values: it can only fill
+  // a variadic parameter, after every fixed parameter has an argument.
+  if (!args.empty() && args.back().variadic && (!has_variadic || args.size() - 1U < fixed_count)) {
     return tl::unexpected(make_error(
         "Type mismatch in call target arguments.",
-        std::format("{} expects {} argument(s) but got {}.", full_name, sig.params.size(), args.size()), span));
+        std::format("{} cannot take a spread tuple of unknown length here: such a spread can only fill a variadic "
+                    "parameter after all fixed arguments.",
+                    full_name),
+        span));
+  }
+
+  // Argument count errors suggest the parameter-list fix: spread a tuple whose items are the arguments, or write a
+  // trailing comma to pass several values as one tuple.
+  const auto count_note = [&]() -> std::string {
+    if (args.size() == 1U && args.front().kind == TypeKind::kTuple && !args.front().variadic &&
+        args.front().items.size() == sig.params.size() && sig.params.size() > 1U) {
+      return " The argument is one tuple; to pass its items as the arguments, spread it: '(x...)'.";
+    }
+    if (sig.params.size() == 1U && !has_variadic && args.size() > 1U) {
+      return " To pass the values as one tuple, write a trailing comma: '(a, b,)'.";
+    }
+    return {};
+  };
+  if (has_variadic) {
+    if (args.size() < fixed_count) {
+      return tl::unexpected(
+          make_error("Type mismatch in call target arguments.",
+                     std::format("{} requires at least {} argument(s).{}", full_name, fixed_count, count_note()), span));
+    }
+  } else if (args.size() != sig.params.size()) {
+    return tl::unexpected(make_error("Type mismatch in call target arguments.",
+                                     std::format("{} expects {} argument(s) but got {}.{}", full_name,
+                                                 sig.params.size(), args.size(), count_note()),
+                                     span));
   }
 
   auto explicit_bindings = explicit_type_arg_bindings_for_sig(full_name, span, sig, explicit_type_args);

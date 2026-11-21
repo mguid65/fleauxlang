@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 59> kExpectedSamples = {
+constexpr std::array<std::string_view, 60> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -177,6 +177,7 @@ constexpr std::array<std::string_view, 59> kExpectedSamples = {
     "57_user_operators.fleaux",
     "58_generic_function_values.fleaux",
     "59_generic_user_operators.fleaux",
+    "60_function_values.fleaux",
 };
 
 }  // namespace
@@ -619,7 +620,7 @@ TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][prin
       INFO("bytecode error: " << runtime_result.error().message);
     }
     REQUIRE(runtime_result.has_value());
-    REQUIRE(output.str() == "x\nString\n");
+    REQUIRE(output.str() == "x\nTuple\n");
   }
 }
 
@@ -750,7 +751,7 @@ TEST_CASE("User variadic tail captures remaining args", "[vm][samples][variadic]
            "let Collect(rest: Any...): Tuple<Any...> = rest;\n"
            "let HeadTail(head: Float64, rest: Any...): Tuple<Any...> = rest;\n"
            "(1) -> Collect -> Std.Length -> Std.Println;\n"
-           "((10.0, 20.0, 30.0)) -> HeadTail -> Std.Length -> Std.Println;\n";
+           "(10.0, 20.0, 30.0) -> HeadTail -> Std.Length -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -1211,7 +1212,7 @@ TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][sampl
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "0 Parallel.WithOptions: max_workers must be > 0\n");
+  REQUIRE(output.str() == "(0, Parallel.WithOptions: max_workers must be > 0)\n");
 }
 
 TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict<String, Any> options during analysis",
@@ -1264,15 +1265,15 @@ TEST_CASE("VM checks casts from Any at runtime", "[vm][samples][cast]") {
                                       "import Std;\n"
                                       "let Forget(x: Any): Any = x;\n"
                                       "(41 -> Forget -> Std.Cast<Int64>, 1) -> Std.Add -> Std.Println;\n"
-                                      "(\"a\", 1) -> Forget -> Std.TryCast<Tuple<String, Int64>> -> Std.Println;\n"
-                                      "(1, 2) -> Forget -> Std.TryCast<Tuple<String...>> -> Std.Println;\n"
+                                      "(\"a\", 1,) -> Forget -> Std.TryCast<Tuple<String, Int64>> -> Std.Println;\n"
+                                      "(1, 2,) -> Forget -> Std.TryCast<Tuple<String...>> -> Std.Println;\n"
                                       "1.5 -> Forget -> Std.TryCast<Int64 | Float64> -> Std.Println;\n");
     REQUIRE(result.has_value());
     REQUIRE(output ==
             "42\n"
-            "True (a, 1)\n"
-            "False Std.TryCast: expected Tuple<String...>, got Tuple\n"
-            "True 1.5\n");
+            "(True, (a, 1))\n"
+            "(False, Std.TryCast: expected Tuple<String...>, got Tuple)\n"
+            "(True, 1.5)\n");
   }
 
   SECTION("A Std.Cast mismatch is a runtime error naming both types") {
@@ -1316,7 +1317,7 @@ TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][para
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "3 Result.Unwrap expected Ok (true), got Err (false)\n");
+  REQUIRE(output.str() == "(3, Result.Unwrap expected Ok (true), got Err (false))\n");
 }
 
 TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
@@ -1353,7 +1354,7 @@ TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "1 Result.Unwrap expected Ok (true), got Err (false)\n");
+  REQUIRE(output.str() == "(1, Result.Unwrap expected Ok (true), got Err (false))\n");
 }
 
 TEST_CASE("VM Std.Task.WithTimeout negative timeout is rejected during analysis", "[vm][samples][task]") {
@@ -1441,6 +1442,7 @@ FLEAUX_VM_SAMPLE_TEST("56_checked_casts.fleaux")
 FLEAUX_VM_SAMPLE_TEST("57_user_operators.fleaux")
 FLEAUX_VM_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_SAMPLE_TEST("59_generic_user_operators.fleaux")
+FLEAUX_VM_SAMPLE_TEST("60_function_values.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1500,6 +1502,43 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("56_checked_casts.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("57_user_operators.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("59_generic_user_operators.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("60_function_values.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST
+
+TEST_CASE("VM loader calls imported value lets of function type", "[vm][imports][function-values]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_import_function_value_let";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto dependency_path = temp_dir / "function_value_dep.fleaux";
+  const auto entry_path = temp_dir / "function_value_entry.fleaux";
+  {
+    std::ofstream out(dependency_path);
+    out << "import Std;\n"
+           "let Add2(a: Int64, b: Int64): Int64 = (a, b) -> Std.Add;\n"
+           "let Ops.Sum: (Int64, Int64) => Int64 = Add2;\n";
+  }
+  {
+    std::ofstream out(entry_path);
+    out << "import Std;\n"
+           "import function_value_dep;\n"
+           "(2, 3) -> Ops.Sum -> Std.Println;\n";
+  }
+
+  const auto vm_load_result = fleaux::bytecode::load_linked_module(entry_path);
+  if (!vm_load_result) {
+    INFO("vm load error: " << vm_load_result.error().message);
+  }
+  REQUIRE(vm_load_result.has_value());
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto runtime_result = runtime.execute(*vm_load_result, output);
+  if (!runtime_result) {
+    INFO("runtime error: " << runtime_result.error().message);
+  }
+  REQUIRE(runtime_result.has_value());
+  REQUIRE(output.str() == "5\n");
+}

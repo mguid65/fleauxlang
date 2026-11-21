@@ -77,12 +77,13 @@ A function can be passed around like any other value.
 
 Example:
 
-    let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 =
-        (x, f) -> Std.Apply -> (_, f) -> Std.Apply;
+    let ApplyTwice(x: Float64, f: (Float64) => Float64): Float64 = x -> f -> f;
 
     (3.0, Square) -> ApplyTwice -> Std.Println;
 
 This works because function types are part of the normal type system and named functions are values at expression level.
+A parameter, local, or value let of function type is called by naming it as a stage, with the same argument rules as
+a named function. A local that shares a function's name cannot be used as a call target.
 
 ## Closures
 
@@ -119,6 +120,9 @@ Example:
     (10.0) -> (x: Float64): Float64 = (x, 10.0) -> Std.Add;
 
 This is a compact and expressive style when the closure is only used once.
+The left side is the closure's argument list, exactly as for a named function:
+
+    (3.0, 4.0) -> (a: Float64, b: Float64): Float64 = (a, b) -> Std.Multiply;
 
 ## Capturing outer values
 
@@ -240,7 +244,8 @@ That means this style is current and idiomatic:
 
     let Process(x: Float64): Float64 = {
       let bias: Float64 = 2.0;
-      ((x), (y: Float64): Float64 = (y, bias) -> Std.Add) -> Std.Apply;
+      let addBias: (Float64) => Float64 = (y: Float64): Float64 = (y, bias) -> Std.Add;
+      x -> addBias;
     };
 
 ## Ungrouped closure stages and readability

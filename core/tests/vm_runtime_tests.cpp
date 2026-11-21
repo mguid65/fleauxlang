@@ -632,8 +632,8 @@ TEST_CASE("RuntimeSession Std.Apply preserves parenthesized singleton lhs for us
   const auto result = session.run_snippet(
       "import Std;\n"
       "let Inspect(x: Tuple<Int64>): Int64 = x -> Std.Length;\n"
-      "(((1)), Inspect) -> Std.Apply -> Std.Println;\n"
-      "(((1)), (x: Tuple<Int64>): Int64 = x -> Std.Length) -> Std.Apply -> Std.Println;\n",
+      "((1,), Inspect) -> Std.Apply -> Std.Println;\n"
+      "((1,), (x: Tuple<Int64>): Int64 = x -> Std.Length) -> Std.Apply -> Std.Println;\n",
       output);
 
   if (!result.has_value()) {
@@ -6896,4 +6896,106 @@ TEST_CASE("VM kCallBuiltin executes Std.Tuple and Std.Dict helpers through prima
   }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "1 2 3\n0 1 2\nTrue\n(1, 3) (2, 4)\n9\n1\nk\n9\n42\n");
+}
+
+TEST_CASE("RuntimeSession parameter lists pass items as arguments and tuple values as one argument",
+          "[vm][repl][parameter-lists]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Pair(a: Int64, b: Int64): Int64 = (a, b) -> +;\n"
+      "let Whole(t: Tuple<Int64, Int64>): Int64 = t -> Std.Length;\n"
+      "let V(xs: Int64...): Int64 = xs -> Std.Length;\n"
+      "let P: Tuple<Int64, Int64> = (1, 2);\n"
+      "let Many: Tuple<Int64...> = (1, 2, 3);\n"
+      "let T: Tuple<Int64> = (7,);\n"
+      "(1, 2) -> Pair -> Std.Println;\n"
+      "(P...) -> Pair -> Std.Println;\n"
+      "P -> Whole -> Std.Println;\n"
+      "(1, 2,) -> Whole -> Std.Println;\n"
+      "((1, 2)) -> Whole -> Std.Println;\n"
+      "5 -> V -> Std.Println;\n"
+      "(Many...) -> V -> Std.Println;\n"
+      "(9, Many...) -> V -> Std.Println;\n"
+      "(P..., Many...) -> V -> Std.Println;\n"
+      "(5,) -> Std.Println;\n"
+      "T -> Std.Type -> Std.Println;\n"
+      "((1, 2,), Whole) -> Std.Apply -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "3\n3\n2\n2\n2\n1\n3\n4\n5\n(5,)\nTuple\n2\n");
+}
+
+TEST_CASE("RuntimeSession calls function values named as call targets", "[vm][repl][function-values]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Inc(x: Int64): Int64 = (x, 1) -> +;\n"
+      "let Add2(a: Int64, b: Int64): Int64 = (a, b) -> +;\n"
+      "let Count(xs: Int64...): Int64 = xs -> Std.Length;\n"
+      "let Whole(t: Tuple<Int64, Int64>): Int64 = t -> Std.Length;\n"
+      "let P: Tuple<Int64, Int64> = (3, 4);\n"
+      "let OnFive(f: (Int64) => Int64): Int64 = 5 -> f;\n"
+      "let OnPair(f: (Int64, Int64) => Int64): Int64 = (3, 4) -> f;\n"
+      "let OnSpread(f: (Int64, Int64) => Int64): Int64 = (P...) -> f;\n"
+      "let OnTuple(f: (Tuple<Int64, Int64>) => Int64): Int64 = (1, 2,) -> f;\n"
+      "let OnMany(f: (Int64...) => Int64): Tuple<Int64, Int64, Int64> = (5 -> f, (1, 2, 3) -> f, () -> f);\n"
+      "let InBlock(x: Int64): Int64 = { let f: (Int64) => Int64 = Inc; x -> f -> f; };\n"
+      "let InClosure(f: (Int64) => Int64): Int64 = 5 -> (x: Int64): Int64 = x -> f;\n"
+      "let Twice: (Int64, Int64) => Int64 = Add2;\n"
+      "Inc -> OnFive -> Std.Println;\n"
+      "Add2 -> OnPair -> Std.Println;\n"
+      "Std.Add -> OnPair -> Std.Println;\n"
+      "Add2 -> OnSpread -> Std.Println;\n"
+      "Whole -> OnTuple -> Std.Println;\n"
+      "Count -> OnMany -> Std.Println;\n"
+      "5 -> InBlock -> Std.Println;\n"
+      "Inc -> InClosure -> Std.Println;\n"
+      "(10, 20) -> Twice -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "6\n7\n7\n7\n2\n(1, 3, 0)\n7\n6\n30\n");
+}
+
+TEST_CASE("RuntimeSession closure stages take their arguments by the parameter-list rule",
+          "[vm][repl][function-values][closures]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let P: Tuple<Int64, Int64> = (3, 4);\n"
+      "((1, 2) -> (a: Int64, b: Int64): Int64 = (a, b) -> +) -> Std.Println;\n"
+      "((P...) -> (a: Int64, b: Int64): Int64 = (a, b) -> *) -> Std.Println;\n"
+      "(5 -> (x: Int64): Int64 = (x, 1) -> +) -> Std.Println;\n"
+      "((5) -> (x: Int64): Int64 = (x, 1) -> +) -> Std.Println;\n"
+      "(P -> (t: Tuple<Int64, Int64>): Int64 = t -> Std.Length) -> Std.Println;\n"
+      "((1, 2,) -> (t: Tuple<Int64, Int64>): Int64 = t -> Std.Length) -> Std.Println;\n"
+      "(() -> (): Int64 = 7) -> Std.Println;\n"
+      "((1, 2, 3) -> (xs: Int64...): Int64 = xs -> Std.Length) -> Std.Println;\n"
+      "(4 -> (xs: Int64...): Int64 = xs -> Std.Length) -> Std.Println;\n"
+      "(5 -> <T>(x: T): Tuple<T, T> = (x, x)) -> Std.Println;\n"
+      "((1, \"a\") -> <A, B>(a: A, b: B): Tuple<B, A> = (b, a)) -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "3\n12\n6\n6\n2\n2\n7\n3\n1\n(5, 5)\n(a, 1)\n");
 }

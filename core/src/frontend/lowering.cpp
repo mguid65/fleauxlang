@@ -391,7 +391,10 @@ auto replace_placeholder_impl(const ir::IRExpr& expr, const ir::IRExpr& replacem
                            ir::IRFlowExpr out_flow{
                                 .lhs = make_ir_expr_box(replace_placeholder_impl(*flow_expr.lhs, replacement)),
                                .rhs = flow_expr.rhs,
+                               .call_shape = flow_expr.call_shape,
                                .span = flow_expr.span,
+                               .calls_function_value = flow_expr.calls_function_value,
+                               .closure_stage = flow_expr.closure_stage,
                            };
                            return ir::IRExpr{.node = std::move(out_flow), .span = expr.span};
                          },
@@ -758,6 +761,8 @@ auto try_apply_closure_stage(const ir::IRExpr& current_value, const model::Prima
     return std::nullopt;
   }
 
+  // The stage's left side stays as written: the type checker takes the closure's arguments from it by the
+  // parameter-list rule, as for any call.
   ir::IRTupleExpr apply_args;
   apply_args.span = stage_primary.span;
   apply_args.items.push_back(make_ir_expr_box(current_value));
@@ -776,6 +781,7 @@ auto try_apply_closure_stage(const ir::IRExpr& current_value, const model::Prima
               .span = stage_primary.span,
           },
       .span = stage_primary.span,
+      .closure_stage = true,
   };
 
   return ir::IRExpr{.node = std::move(apply_flow), .span = stage_primary.span};

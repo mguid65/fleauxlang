@@ -40,6 +40,7 @@ FunctionIndex::FunctionIndex(const ir::IRProgram& program, const std::unordered_
     sig.resolved_symbol_key = let.symbol_key.empty() ? symbol_key(let.qualifier, let.name) : let.symbol_key;
     sig.generic_params = let.generic_params;
     sig.is_builtin = let.is_builtin;
+    sig.is_value_binding = let.is_value_binding;
 
     // An invalid bound is reported by signature validation; here the parameter is treated as unbounded.
     auto generic_scope = detail::make_generic_scope(let.generic_params, let.generic_bounds, known_strong_type_names,

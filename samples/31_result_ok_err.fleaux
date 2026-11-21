@@ -1,7 +1,7 @@
 import Std;
 
 let ToErr(_vals: Tuple<Float64, Float64>): Result<Float64, String> = ("division by zero") -> Std.Result.Err;
-let ToOkDiv(vals: Tuple<Float64, Float64>): Result<Float64, String> = (vals) -> Std.Divide -> Std.Result.Ok;
+let ToOkDiv(vals: Tuple<Float64, Float64>): Result<Float64, String> = (vals...) -> Std.Divide -> Std.Result.Ok;
 
 let SafeDiv(lhs: Float64, rhs: Float64): Result<Float64, String> =
   ((rhs, 0.0) -> Std.Equal, ToErr, ToOkDiv) -> Std.Select -> ((lhs, rhs), _) -> Std.Apply;

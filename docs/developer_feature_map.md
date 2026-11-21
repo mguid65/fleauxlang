@@ -59,12 +59,23 @@ Touch:
 - `core/include/fleaux/frontend/ast.hpp` (if IR fields change)
 - `core/src/frontend/type_system/check_pipeline.cpp` (if typing rules change)
 
-Pipeline invariant:
-- The singleton unwrap rule is per pipeline expression, not a general tuple simplification rule.
-- For each lhs -> target boundary, only the outermost lhs layer may be unwrapped once when adapting arguments.
-- Nested pipeline expressions each get their own one-level lhs adaptation.
-- Do not flatten singleton tuple types or globally unwrap runtime tuple values.
-- Keep valid parenthesized singleton lhs forms working in nested pipelines.
+Pipeline invariant (parameter lists):
+- Parentheses written directly left of `->` are a parameter list: each item is one argument. `(x...)` inside it
+  spreads a tuple's items; a `Tuple<T...>` may only be spread last, into a variadic parameter.
+- Anything else on the left is one argument: a name, a stage result, a tuple with a trailing comma `(a, b,)`, or a
+  tuple nested inside a parameter list. `((1, 2))` is a parameter list holding one tuple.
+- `flow_args_from_lhs` and `apply_call_shape` in `check_pipeline.cpp` apply the rule and set `IRFlowExpr::call_shape`;
+  the compiler (`emit_flow_expr`, `emit_spread_call`, `single_argument_needs_tuple`) emits by it. Spreads are
+  joined at runtime with the `ConcatTuples` opcode.
+- Do not flatten singleton tuple types or unwrap runtime tuple values: a one-item tuple is a real value, including
+  when passed through a callable (`resolve_callable_ref`).
+- A call target naming a local, a parameter, or a value let (`FunctionSig::is_value_binding`) calls the function value
+  it holds: `infer_function_value_call` types it against the value's function type and sets
+  `IRFlowExpr::calls_function_value`, and the compiler emits `(value, f) -> Std.Apply` (`emit_function_value_call`).
+  A local sharing a function's name in call position is an error.
+- A closure written as a pipeline stage lowers to `(arguments, closure) -> Std.Apply` with `IRFlowExpr::closure_stage`
+  set (`try_apply_closure_stage` in `lowering.cpp`); the checker types it as a call of the closure by the same rule
+  (`infer_closure_stage_call`), inferring a generic closure's type arguments from the argument types.
 
 Tests:
 - `core/tests/lowering_tests.cpp`

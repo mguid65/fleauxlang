@@ -102,6 +102,9 @@ struct FunctionDef {
   // Hidden leading parameters (counted in `arity`) that carry operator implementations, one per requirement.
   std::uint32_t hidden_operator_params{0};
   std::vector<OperatorRequirementRecord> operator_requirements{};
+
+  // True for a value let (`let X: T = ...`), whose name as a call target calls its value.
+  bool is_value_binding{false};
 };
 
 // A type or alias declaration of the module, kept so that a module importing it from bytecode alone knows its

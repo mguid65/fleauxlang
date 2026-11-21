@@ -332,6 +332,13 @@ struct IRFlowExpr {
   IRCallTarget rhs{};
   IRFlowCallShape call_shape{IRFlowCallShape::kImplicit};
   std::optional<diag::SourceSpan> span{std::nullopt};
+  // Set by the type checker when the target names a function value (a local, a parameter, or a value let of
+  // function type) rather than a function, or for a closure stage. The call passes its arguments to the value
+  // through Std.Apply; `call_shape` then says how the value takes them.
+  bool calls_function_value{false};
+  // Set by lowering for a closure written as a pipeline stage. The left side is `(arguments, closure)`, where
+  // `arguments` is the stage's left side as written, and the target is Std.Apply.
+  bool closure_stage{false};
 };
 
 struct IRBlockExprStatement {

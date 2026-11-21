@@ -138,6 +138,10 @@ enum class Opcode {
   kCheckType,
   // kTryCheckType pops TOS and pushes Ok(value) when it matches the check, otherwise Err(message).
   kTryCheckType,
+
+  // Concatenation of argument pieces for a parameter list with spreads: pops N tuples (bottom-first) and pushes one
+  // tuple of all their items in order. operand = N.
+  kConcatTuples,
 };
 
 inline constexpr std::array opcode_names{
@@ -182,7 +186,8 @@ inline constexpr std::array opcode_names{
   std::string_view{"StoreLocal"},
   std::string_view{"CallUserFuncBinary"},
   std::string_view{"CheckType"},
-  std::string_view{"TryCheckType"}
+  std::string_view{"TryCheckType"},
+  std::string_view{"ConcatTuples"}
 };
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {

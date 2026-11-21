@@ -442,6 +442,7 @@ auto make_typed_import_stub(const ExportedSymbol& exported,
     stub.params.push_back(std::move(param));
   }
   stub.return_type = type_from_bytecode_text(fn.return_type_name);
+  stub.is_value_binding = fn.is_value_binding;
   stub.hidden_operator_params = fn.hidden_operator_params;
   for (const auto& requirement : fn.operator_requirements) {
     stub.operator_requirements.push_back(frontend::ir::IROperatorRequirement{

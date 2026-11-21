@@ -35,6 +35,8 @@ struct FunctionSig {
   std::vector<ParamSig> params;
   Type return_type;
   bool is_builtin = false;
+  // A value let (`let X: T = ...`): its name stands for its value, so naming it as a call target calls that value.
+  bool is_value_binding = false;
   // Hidden leading arguments, in order; see OperatorRequirement.
   std::vector<OperatorRequirement> operator_requirements;
 };

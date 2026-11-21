@@ -185,6 +185,12 @@ Tuple values are written with comma-separated expressions in parentheses:
     ("name", 42)
     ()
 
+A trailing comma always makes a tuple value, at any length. It is how a one-item tuple is written, and how a
+written tuple is passed as one argument (see Calling functions):
+
+    (5,)
+    (1, 2,)
+
 ### Applied named types
 
 Applied types look like a generic named type followed by type arguments in angle brackets:
@@ -206,6 +212,9 @@ Examples:
     (String) => Bool
     () => String
     (Float64, Float64) => Float64
+
+A function of two parameters and a function of one tuple parameter are different types:
+(Int64, Int64) => Int64 takes two arguments, while (Tuple<Int64, Int64>) => Int64 takes one.
 
 ### Union types
 
@@ -330,6 +339,7 @@ In practice, function calls are usually expressed with pipelines.
 
 Single argument:
 
+    6.0 -> MyMath.Square;
     (6.0) -> MyMath.Square;
 
 Multiple arguments:
@@ -340,12 +350,55 @@ Calling a zero-argument function:
 
     () -> Pi;
 
-Higher-order application uses Std.Apply:
+### Parameter lists
+
+Parentheses written directly to the left of -> are a parameter list: each item is one argument.
+Anything else on the left of -> is a single argument, including a name, the result of an earlier stage, a tuple
+written with a trailing comma, and a tuple nested inside a parameter list.
+A parameter list is not a tuple value; it only exists at the call.
+
+    let Sum(a: Int64, b: Int64): Int64 = (a, b) -> +;
+    let Whole(t: Tuple<Int64, Int64>): Int64 = t -> Std.Length;
+    let P: Tuple<Int64, Int64> = (1, 2);
+
+    (1, 2) -> Sum;        // two arguments
+    P -> Whole;           // one argument, a tuple
+    (1, 2,) -> Whole;     // a trailing comma makes one tuple value
+    ((1, 2)) -> Whole;    // a parameter list holding one tuple
+    (1, 2) -> Whole;      // error: two arguments, Whole takes one
+    P -> Sum;             // error: one argument, Sum takes two
+
+Inside a parameter list, x... spreads the items of the tuple x as separate arguments, and can be mixed with other
+arguments:
+
+    (P...) -> Sum;                         // 3
+    let Count(xs: Int64...): Int64 = xs -> Std.Length;
+    (9, P...) -> Count;                    // 3
+
+A tuple of unknown length, such as Tuple<Int64...>, can only be spread last, into a variadic parameter.
+The spread x... is only valid inside a parameter list, and not in a tuple written with a trailing comma.
+
+Argument count errors suggest the fix: spreading a tuple whose items are the arguments, or adding a trailing comma
+to pass several values as one tuple.
+
+### Calling function values
+
+A parameter, a local, or a value let of function type can be named as a call target. Its arguments follow the same
+parameter-list rule:
+
+    let OnPair(f: (Int64, Int64) => Int64): Int64 = (3, 4) -> f;
+    let Twice: (Int64, Int64) => Int64 = Sum;
+    (1, 2) -> Twice;
+
+A local whose name is also the name of a function cannot be a call target; rename the local. A value that is not
+of function type cannot be called.
+
+Std.Apply passes one value to a one-parameter function:
 
     (10.0, Double) -> Std.Apply;
 
 An inline closure can also be used directly as a pipeline target.
-That form behaves like applying the flowing value to the closure.
+It is called like any function value: the left side of -> is its argument list.
 
 ## Operators as callable stages
 
@@ -382,11 +435,11 @@ Each operator is shorthand for a Std builtin and is type-checked exactly like a 
 - ! is Std.Not, && is Std.And, || is Std.Or
 - - is Std.Subtract with two operands and Std.UnaryMinus (negation of an Int64 or Float64) with one
 
-The operand's type decides which form of - applies, so a tuple-typed value is still subtracted:
+A single operand is negated; two operands are subtracted. Spread a tuple to use its items as the operands:
 
     7 -> - -> Std.Println;                      // -7
-    let Pair(): Tuple<Int64, Int64> = (10, 4);
-    Pair -> - -> Std.Println;                   // 6
+    let Pair: Tuple<Int64, Int64> = (10, 4);
+    (Pair...) -> - -> Std.Println;              // 6
 
 ## Blocks and lexical scope
 
@@ -438,6 +491,10 @@ Examples:
 
     (10.0) -> (x: Float64): Float64 = (x, 10.0) -> Std.Add;
 
+A closure used as a pipeline target takes its arguments from the left side by the parameter-list rule:
+
+    (3.0, 4.0) -> (a: Float64, b: Float64): Float64 = (a, b) -> Std.Multiply;
+
 Zero-argument closures are also allowed:
 
     () -> (): Any = ("Empty Closure") -> Std.Println;
@@ -466,6 +523,8 @@ Examples:
 Behavior notes:
 
 - A scalar flowing into a variadic-only parameter is lifted into a one-element tuple
+- A tuple value is one argument too: P -> Collect gives a one-element tuple holding P, while (P...) -> Collect
+  passes its items
 - A fixed prefix can be followed by a variadic tail
 - The variadic tail may be empty
 
@@ -541,6 +600,7 @@ Example factorial:
 Functions and closures are first-class.
 You can:
 
+- call a function value held in a parameter or local, such as x -> f
 - return a function
 - store functions in dictionaries
 - pass functions to tuple, task, and branch helpers
@@ -581,7 +641,7 @@ Tuples are central to Fleaux.
 They serve as:
 
 - ordinary grouped values
-- multi-argument call payloads
+- argument sources for multi-parameter calls, through a spread such as (pair...) -> Add
 - loop state
 - variadic containers
 - lightweight collections

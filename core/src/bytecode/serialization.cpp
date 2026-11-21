@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 28;
+constexpr std::uint32_t BYTECODE_VERSION = 30;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -510,6 +510,8 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
       return std::format("local[{}]", instruction.operand);
     case Opcode::kBuildTuple:
       return std::format("tuple_size={}", instruction.operand);
+    case Opcode::kConcatTuples:
+      return std::format("pieces={}", instruction.operand);
     case Opcode::kJump:
     case Opcode::kJumpIf:
     case Opcode::kJumpIfNot: {
@@ -578,7 +580,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
                       generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                       return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
                       return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
-                      operator_requirements] : module.functions) {
+                      operator_requirements, is_value_binding] : module.functions) {
       write_string(buffer, name);
       write_pod(buffer, arity);
       write_pod(buffer, has_variadic_tail);
@@ -602,6 +604,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
         write_string(buffer, requirement.signature);
         write_string_list(buffer, requirement.alternative_functions);
       }
+      write_pod(buffer, is_value_binding);
     }
   }
 
@@ -765,6 +768,9 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           return tl::unexpected(SerializationError{.message = "Cannot read function operator requirements"});
         }
       }
+      if (!read_pod(buffer, offset, fn.is_value_binding)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read function"});
+      }
       deserialized.functions.push_back(std::move(fn));
     }
   }
@@ -921,7 +927,7 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
                     generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
                     return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
                     return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
-                    operator_requirements] : module.functions) {
+                    operator_requirements, is_value_binding] : module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
@@ -934,10 +940,11 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         "    return_type_is_exact_int64: {}\n"
         "    return_type_is_task_handle: {}\n"
         "    return_type_is_random_generator: {}\n"
-        "    return_type_is_file_handle: {}\n",
+        "    return_type_is_file_handle: {}\n"
+        "    is_value_binding: {}\n",
         func_index, name, arity, has_variadic_tail, is_import_placeholder, return_type_name,
         return_type_is_dict_string_any, return_type_is_exact_uint64, return_type_is_exact_int64,
-        return_type_is_task_handle, return_type_is_random_generator, return_type_is_file_handle);
+        return_type_is_task_handle, return_type_is_random_generator, return_type_is_file_handle, is_value_binding);
 
     if (!generic_params.empty()) {
       out << "    generic_params:";

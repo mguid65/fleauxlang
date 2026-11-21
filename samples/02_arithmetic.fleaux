@@ -27,7 +27,7 @@ import Std;
 
 // The operand's type decides the form: a tuple-typed value is still a binary call.
 let Pair(): Tuple<Int64, Int64> = (10, 4);
-Pair -> - -> Std.Println;                         // 6
+(Pair...) -> - -> Std.Println;                    // 6, the tuple's items are the two operands
 
 // -- Composing arithmetic in pipelines --
 

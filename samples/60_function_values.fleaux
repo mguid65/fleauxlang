@@ -1,0 +1,42 @@
+import Std;
+
+// A parameter, local, or value let of function type can be named as a call target. Its arguments follow the same
+// parameter-list rule as any call: parentheses written left of '->' hold the arguments.
+
+let Inc(x: Int64): Int64 = (x, 1) -> +;
+let Add2(a: Int64, b: Int64): Int64 = (a, b) -> +;
+let Count(xs: Int64...): Int64 = xs -> Std.Length;
+
+let OnFive(f: (Int64) => Int64): Int64 = 5 -> f;
+let OnPair(f: (Int64, Int64) => Int64): Int64 = (3, 4) -> f;
+
+Inc -> OnFive -> Std.Println;                        // 6
+Add2 -> OnPair -> Std.Println;                       // 7
+Std.Multiply -> OnPair -> Std.Println;               // 12
+
+// A tuple value is spread into the parameters with 'x...'.
+let Point: Tuple<Int64, Int64> = (10, 20);
+let OnPoint(f: (Int64, Int64) => Int64): Int64 = (Point...) -> f;
+Add2 -> OnPoint -> Std.Println;                      // 30
+
+// Variadic function values take any number of arguments.
+let Sizes(f: (Int64...) => Int64): Tuple<Int64, Int64> = ((1, 2, 3) -> f, () -> f);
+Count -> Sizes -> Std.Println;                       // (3, 0)
+
+// Locals and value lets work the same way, and closures capture the function values they call.
+let Twice(x: Int64): Int64 = {
+  let step: (Int64) => Int64 = Inc;
+  x -> step -> step;
+};
+5 -> Twice -> Std.Println;                           // 7
+
+let Sum: (Int64, Int64) => Int64 = Add2;
+(1, 2) -> Sum -> Std.Println;                        // 3
+
+let Compose(f: (Int64) => Int64, g: (Int64) => Int64): (Int64) => Int64 = (x: Int64): Int64 = x -> f -> g;
+let IncTwice: (Int64) => Int64 = (Inc, Inc) -> Compose;
+40 -> IncTwice -> Std.Println;                       // 42
+
+// Not allowed:
+//   let Use(Inc: (Int64) => Int64): Int64 = 5 -> Inc;   'Inc' names both a local and a function
+//   let Use(x: Int64): Int64 = 3 -> x;                  x is not a function
