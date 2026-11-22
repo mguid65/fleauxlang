@@ -7,6 +7,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -200,6 +201,28 @@ auto framebuffer_size(const BindingContext&, const VmValue&) -> NativeInvokeResu
     int height = 0;
     glfwGetFramebufferSize(gl_state().window, &width, &height);
     return rt::make_tuple(rt::make_int(width), rt::make_int(height));
+  });
+}
+
+// The cursor over the window, each coordinate scaled to 0..1 from the top left corner, so that it does not depend on
+// the window's size or the display's scaling.
+auto cursor_position(const BindingContext&, const VmValue&) -> NativeInvokeResult {
+  return with_window("GL.CursorPosition", [] {
+    double x = 0.0;
+    double y = 0.0;
+    int width = 0;
+    int height = 0;
+    glfwGetCursorPos(gl_state().window, &x, &y);
+    glfwGetWindowSize(gl_state().window, &width, &height);
+    const double scale_x = width > 0 ? 1.0 / static_cast<double>(width) : 0.0;
+    const double scale_y = height > 0 ? 1.0 / static_cast<double>(height) : 0.0;
+    return rt::make_tuple(rt::make_float(x * scale_x), rt::make_float(y * scale_y));
+  });
+}
+
+auto mouse_button_down(const BindingContext&, const VmValue& args) -> NativeInvokeResult {
+  return with_window("GL.MouseButtonDown", [&] {
+    return rt::make_bool(glfwGetMouseButton(gl_state().window, static_cast<int>(int_arg(args, 0))) == GLFW_PRESS);
   });
 }
 
@@ -415,6 +438,47 @@ auto draw_arrays(const BindingContext&, const VmValue& args) -> NativeInvokeResu
   });
 }
 
+// Textures
+
+// A width x height texture of one 8-bit channel, read without filtering, so that each texel stays one flat cell.
+auto create_texture(const BindingContext&, const VmValue& args) -> NativeInvokeResult {
+  return with_window("GL.CreateTexture", [&] {
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, gl_sizei(int_arg(args, 0)), gl_sizei(int_arg(args, 1)), 0, GL_RED,
+                 GL_UNSIGNED_BYTE, nullptr);
+    return rt::make_int(static_cast<rt::Int>(texture));
+  });
+}
+
+auto update_texture(const BindingContext&, const VmValue& args) -> NativeInvokeResult {
+  return with_window("GL.UpdateTexture", [&]() -> NativeInvokeResult {
+    const std::int64_t width = int_arg(args, 1);
+    const std::int64_t height = int_arg(args, 2);
+    const auto& values = rt::as_array(arg(args, 3));
+    if (width < 0 || height < 0 || values.Size() != static_cast<std::size_t>(width * height)) {
+      return fail(std::format("GL.UpdateTexture: a {} x {} texture takes {} values, but {} were given", width, height,
+                              width * height, values.Size()));
+    }
+    std::vector<std::uint8_t> texels;
+    texels.reserve(values.Size());
+    for (const VmValue& value : values) {
+      texels.push_back(static_cast<std::uint8_t>(std::min<std::uint64_t>(rt::uint64_value(value), 255U)));
+    }
+    glBindTexture(GL_TEXTURE_2D, gl_uint(int_arg(args, 0)));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, gl_sizei(width), gl_sizei(height), GL_RED, GL_UNSIGNED_BYTE,
+                    texels.data());
+    return null_result();
+  });
+}
+
 auto draw_elements(const BindingContext&, const VmValue& args) -> NativeInvokeResult {
   return with_window("GL.DrawElements", [&] {
     glDrawElements(gl_enum(int_arg(args, 0)), gl_sizei(int_arg(args, 1)), GL_UNSIGNED_INT, nullptr);
@@ -436,6 +500,8 @@ constexpr Binding kBindings[] = {
     {"GL.Time", time},
     {"GL.KeyDown", key_down},
     {"GL.FramebufferSize", framebuffer_size},
+    {"GL.CursorPosition", cursor_position},
+    {"GL.MouseButtonDown", mouse_button_down},
     {"GL.Viewport", viewport},
     {"GL.ClearColor", clear_color},
     {"GL.Clear", clear},
@@ -455,6 +521,8 @@ constexpr Binding kBindings[] = {
     {"GL.VertexAttribute", vertex_attribute},
     {"GL.DrawArrays", draw_arrays},
     {"GL.DrawElements", draw_elements},
+    {"GL.CreateTexture", create_texture},
+    {"GL.UpdateTexture", update_texture},
 };
 
 auto register_bindings(const fleaux::embed::BindingPluginHostApi* host_api, const char** error_message)

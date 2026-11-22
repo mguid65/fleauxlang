@@ -6485,10 +6485,10 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(array_value) == 20.0);
 
   fleaux::runtime::Value base{fleaux::runtime::Object{}};
-  fleaux::runtime::as_object(base)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
+  fleaux::runtime::mutable_object(base)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
       fleaux::runtime::make_int(1);
   fleaux::runtime::Value overlay{fleaux::runtime::Object{}};
-  fleaux::runtime::as_object(overlay)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
+  fleaux::runtime::mutable_object(overlay)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
       fleaux::runtime::make_int(2);
 
   const auto merged = fleaux::runtime::DictMerge(fleaux::runtime::make_tuple(base, overlay));

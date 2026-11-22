@@ -358,7 +358,8 @@ auto VmHost::run_source(const std::string_view module_name, const std::string_vi
         [](const std::string& message, const std::optional<std::string>& hint,
            const std::optional<frontend::diag::SourceSpan>& span) -> HostError {
           return make_error(HostErrorCategory::kAnalysis, message, hint, span);
-        });
+        },
+        {}, {}, {}, {}, "Cyclic import detected.", std::nullopt, impl_->config.import_roots);
     if (!analyzed) {
       return tl::unexpected(analyzed.error());
     }

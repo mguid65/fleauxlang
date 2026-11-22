@@ -7,12 +7,14 @@
 #ifndef DATATREE_TREE_NODE_HPP
 #define DATATREE_TREE_NODE_HPP
 
+#include <atomic>
 #include <concepts>
 #include <memory>
 #include <optional>
 #include <queue>
 #include <ranges>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 #include "data_tree/common/common.hpp"
@@ -79,7 +81,7 @@ class TreeNode {
      */
     template <typename TRequestedType>
     [[nodiscard]] auto Get() const -> const TRequestedType& {
-      return std::get<TRequestedType>(*m_node_ref.m_data_impl);
+      return std::get<TRequestedType>(m_node_ref.Data());
     }
 
     /**
@@ -92,7 +94,7 @@ class TreeNode {
      */
     template <typename TRequestedType>
     [[nodiscard]] auto Get() -> TRequestedType& {
-      return std::get<TRequestedType>(*m_node_ref.m_data_impl);
+      return std::get<TRequestedType>(m_node_ref.MutableData());
     }
 
     /**
@@ -236,12 +238,12 @@ class TreeNode {
         -> const UnsafeProxyType<true> {
       return UnsafeProxyType<true>{key_or_idx.Visit(
           [&](const StringKeyType& key) -> const TreeNode& {
-            return std::as_const(std::get<ObjectNodeType>(*m_node_ref.m_data_impl))
+            return std::as_const(std::get<ObjectNodeType>(m_node_ref.Data()))
                 .ConstUnsafe(
                     [&key](const auto&& unsafe) -> decltype(auto) { return unsafe.At(key); });
           },
           [&](const IntegerKeyType& idx) -> const TreeNode& {
-            return std::as_const(std::get<ArrayNodeType>(*m_node_ref.m_data_impl))
+            return std::as_const(std::get<ArrayNodeType>(m_node_ref.Data()))
                 .ConstUnsafe(
                     [&idx](const auto&& unsafe) -> decltype(auto) { return unsafe.At(idx); });
           })};
@@ -259,11 +261,11 @@ class TreeNode {
     [[nodiscard]] auto operator[](const KeyOrIdxType& key_or_idx) -> UnsafeProxyType<false> {
       return UnsafeProxyType<false>{key_or_idx.Visit(
           [&](const StringKeyType& key) -> const TreeNode& {
-            return std::get<ObjectNodeType>(*m_node_ref.m_data_impl)
+            return std::get<ObjectNodeType>(m_node_ref.MutableData())
                 .Unsafe([&key](auto&& unsafe) -> decltype(auto) { return unsafe.At(key); });
           },
           [&](const IntegerKeyType& idx) -> const TreeNode& {
-            return std::get<ArrayNodeType>(*m_node_ref.m_data_impl)
+            return std::get<ArrayNodeType>(m_node_ref.MutableData())
                 .Unsafe([&idx](auto&& unsafe) -> decltype(auto) { return unsafe.At(idx); });
           })};
     }
@@ -867,7 +869,32 @@ private:
   template <NodeTypeTag TTag>
   [[nodiscard]] static inline auto FromTagTemplate();
 
-  std::unique_ptr<NodeType> m_data_impl;
+  /**
+   * @brief The node data, for reading
+   * @return a reference to the node data, which TreeNodes copied from one another share
+   */
+  [[nodiscard]] inline auto Data() const noexcept -> const NodeType&;
+
+  /**
+   * @brief The node data, for writing
+   *
+   * When other TreeNodes share the data, this node first takes its own copy, so that a write never shows through a
+   * copy. Every path that hands out a mutable reference into the data goes through here. A mutable reference must not
+   * be used after the node is copied: the copy shares what the reference points into.
+   *
+   * @return a reference to node data that only this node holds
+   */
+  [[nodiscard]] inline auto MutableData() -> NodeType&;
+
+  /**
+   * @brief Replace the node data, without copying the old data first when other TreeNodes share it
+   * @param node_data the new node data
+   */
+  template <typename TNodeData>
+  void ReplaceData(TNodeData&& node_data);
+
+  // Shared by the TreeNodes copied from one another, and copied on the first write through any of them.
+  std::shared_ptr<NodeType> m_data_impl;
 };
 
 }  // namespace mguid
@@ -876,6 +903,28 @@ private:
 #include "data_tree/node_types/node_types.inc"
 
 namespace mguid {
+
+inline auto TreeNode::Data() const noexcept -> const NodeType& { return *m_data_impl; }
+
+inline auto TreeNode::MutableData() -> NodeType& {
+  if (m_data_impl.use_count() > 1) {
+    m_data_impl = std::make_shared<NodeType>(*m_data_impl);
+  } else {
+    // The other owners released the data with release decrements; acquire their writes before writing in place.
+    std::atomic_thread_fence(std::memory_order_acquire);
+  }
+  return *m_data_impl;
+}
+
+template <typename TNodeData>
+void TreeNode::ReplaceData(TNodeData&& node_data) {
+  if (m_data_impl.use_count() > 1) {
+    m_data_impl = std::make_shared<NodeType>(std::forward<TNodeData>(node_data));
+  } else {
+    std::atomic_thread_fence(std::memory_order_acquire);
+    *m_data_impl = std::forward<TNodeData>(node_data);
+  }
+}
 
 template <typename TFunc>
   requires(std::is_invocable_v<TFunc, decltype(std::declval<TreeNode::UnsafeProxy>()), TreeNode&> &&
@@ -922,7 +971,7 @@ auto TreeNode::ConstUnsafe(TFunc&& func) const
 
 template <ValidValueNodeTypeValueType TValueType>
 TreeNode::TreeNode(TValueType&& value)
-    : m_data_impl{std::make_unique<NodeType>(ValueNodeType{std::forward<TValueType>(value)})} {}
+    : m_data_impl{std::make_shared<NodeType>(ValueNodeType{std::forward<TValueType>(value)})} {}
 
 template <ValidValueNodeTypeValueType TValueType>
 TreeNode& TreeNode::operator=(TValueType&& value) {
@@ -941,12 +990,12 @@ auto TreeNode::Has() const noexcept -> bool {
 template <typename TRequestedType>
   requires(!ValidValueNodeTypeValueType<TRequestedType>)
 auto TreeNode::Has() const noexcept -> bool {
-  return std::holds_alternative<TRequestedType>(*m_data_impl);
+  return std::holds_alternative<TRequestedType>(Data());
 }
 
 template <typename TRequestedType>
 auto TreeNode::TryGet() const -> RefExpected<const TRequestedType, Error> {
-  if (auto* result = std::get_if<TRequestedType>(&(*m_data_impl)); result != nullptr) {
+  if (const auto* result = std::get_if<TRequestedType>(&Data()); result != nullptr) {
     return *result;
   }
   return make_unexpected(Error{.category = Error::Category::BadAccess});
@@ -954,40 +1003,41 @@ auto TreeNode::TryGet() const -> RefExpected<const TRequestedType, Error> {
 
 template <typename TRequestedType>
 auto TreeNode::TryGet() -> RefExpected<TRequestedType, Error> {
-  if (auto* result = std::get_if<TRequestedType>(&(*m_data_impl)); result != nullptr) {
-    return *result;
+  // A failed lookup leaves shared data shared.
+  if (!std::holds_alternative<TRequestedType>(Data())) {
+    return make_unexpected(Error{.category = Error::Category::BadAccess});
   }
-  return make_unexpected(Error{.category = Error::Category::BadAccess});
+  return std::get<TRequestedType>(MutableData());
 }
 
 template <typename TNodeType>
 void TreeNode::Set(TNodeType&& node_data) {
-  *m_data_impl = std::forward<TNodeType>(node_data);
+  ReplaceData(std::forward<TNodeType>(node_data));
 }
 
 template <NodeTypeTag TTag>
   requires(static_cast<std::uint8_t>(TTag) < 4)
 void TreeNode::Reset() {
-  *m_data_impl = FromTagTemplate<TTag>();
+  ReplaceData(FromTagTemplate<TTag>());
 }
 
 template <typename... TCallables>
 decltype(auto) TreeNode::Visit(TCallables&&... callables) {
   auto overload_set = Overload{std::forward<TCallables>(callables)...};
-  return std::visit(overload_set, *m_data_impl);
+  return std::visit(overload_set, MutableData());
 }
 
 template <typename... TCallables>
 decltype(auto) TreeNode::Visit(TCallables&&... callables) const {
   auto overload_set = Overload{std::forward<TCallables>(callables)...};
-  return std::visit(overload_set, *m_data_impl);
+  return std::visit(overload_set, Data());
 }
 
 template <typename TCallable>
 void TreeNode::RecursiveVisitHelper<TCallable>::Visit(const TreeNode& node,
                                                       std::size_t depth) const {
   if (depth == 1024) { throw std::runtime_error{"Recursion depth exceeded"}; }
-  std::visit(visitor, *node.m_data_impl);
+  std::visit(visitor, node.Data());
   node.Visit(
       [this, depth](const ObjectNodeType& obj) mutable {
         for (auto& kv : obj) { Visit(kv.second, ++depth); }
@@ -1005,7 +1055,7 @@ template <typename TCallable>
 void TreeNode::RecursiveVisitHelper<TCallable>::Visit(TreeNode& node, std::size_t depth) {
   std::queue<std::reference_wrapper<TreeNode>> to_visit;
   if (depth == 1024) { throw std::runtime_error{"Recursion depth exceeded"}; }
-  std::visit(visitor, *node.m_data_impl);
+  std::visit(visitor, node.MutableData());
   node.Visit(
       [this, depth](ObjectNodeType& obj) mutable {
         for (auto& kv : obj) { Visit(kv.second, ++depth); }
@@ -1045,89 +1095,86 @@ template <NodeTypeTag TTag>
   }
 }
 
-inline TreeNode::TreeNode() : m_data_impl{std::make_unique<NodeType>(ObjectNodeType{})} {}
+inline TreeNode::TreeNode() : m_data_impl{std::make_shared<NodeType>(ObjectNodeType{})} {}
 
-inline TreeNode::TreeNode(const TreeNode& other)
-    : m_data_impl{std::make_unique<NodeType>(*other.m_data_impl)} {}
+// A copy shares the node data; the first write through either node gives that node its own copy.
+inline TreeNode::TreeNode(const TreeNode& other) = default;
 
-inline TreeNode& TreeNode::operator=(const TreeNode& other) {
-  if (&other != this) { m_data_impl = std::make_unique<NodeType>(*other.m_data_impl); }
-  return *this;
-}
+inline TreeNode& TreeNode::operator=(const TreeNode& other) = default;
 
 inline TreeNode::TreeNode(TreeNode&&) noexcept = default;
 
 inline TreeNode& TreeNode::operator=(TreeNode&&) noexcept = default;
 
 inline TreeNode::TreeNode(const ObjectNodeType& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(node_data)} {}
 
 inline TreeNode::TreeNode(ObjectNodeType&& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(std::move(node_data))} {}
 
 inline TreeNode::TreeNode(const ArrayNodeType& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(node_data)} {}
 
 inline TreeNode::TreeNode(ArrayNodeType&& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(std::move(node_data))} {}
 
 inline TreeNode::TreeNode(const ValueNodeType& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(node_data)} {}
 
 inline TreeNode::TreeNode(ValueNodeType&& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(std::move(node_data))} {}
 
 inline TreeNode::TreeNode(const GenericNodeType& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(node_data)} {}
 
 inline TreeNode::TreeNode(GenericNodeType&& node_data)
-    : m_data_impl{std::make_unique<NodeType>(node_data)} {}
+    : m_data_impl{std::make_shared<NodeType>(std::move(node_data))} {}
 
 inline TreeNode& TreeNode::operator=(const ObjectNodeType& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(node_data);
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(ObjectNodeType&& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(std::move(node_data));
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(const ArrayNodeType& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(node_data);
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(ArrayNodeType&& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(std::move(node_data));
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(const ValueNodeType& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(node_data);
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(ValueNodeType&& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(std::move(node_data));
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(const GenericNodeType& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(node_data);
   return *this;
 }
 
 inline TreeNode& TreeNode::operator=(GenericNodeType&& node_data) {
-  *m_data_impl = node_data;
+  ReplaceData(std::move(node_data));
   return *this;
 }
 
 inline TreeNode::TreeNode(NodeTypeTag tag)
-    : m_data_impl{std::make_unique<NodeType>(FromTag(tag))} {}
+    : m_data_impl{std::make_shared<NodeType>(FromTag(tag))} {}
 
 inline NodeTypeTag TreeNode::Tag() const noexcept {
-  switch (m_data_impl->index()) {
+  switch (Data().index()) {
     case 0:
       return NodeTypeTag::Object;
     case 1:
@@ -1338,17 +1385,17 @@ inline auto TreeNode::TryGetString() -> RefExpected<StringType, Error> {
   return Unsafe([](auto&& unsafe) { return unsafe.GetValue().TryGetString(); });
 }
 
-inline void TreeNode::Reset(NodeTypeTag tag) { *m_data_impl = FromTag(tag); }
+inline void TreeNode::Reset(NodeTypeTag tag) { ReplaceData(FromTag(tag)); }
 
 inline auto TreeNode::operator[](const KeyOrIdxType& key_or_idx) -> TreeNode& {
   if (const auto* key_ptr = std::get_if<StringKeyType>(&key_or_idx); key_ptr != nullptr) {
     const auto& key = *key_ptr;
-    if (!HasObject()) { *m_data_impl = ObjectNodeType{}; }
-    return std::get<ObjectNodeType>(*m_data_impl)[key];
+    if (!HasObject()) { ReplaceData(ObjectNodeType{}); }
+    return std::get<ObjectNodeType>(MutableData())[key];
   } else {
     const auto& idx = std::get<IntegerKeyType>(key_or_idx);
-    if (!HasArray()) { *m_data_impl = ArrayNodeType{}; }
-    return std::get<ArrayNodeType>(*m_data_impl)[idx];
+    if (!HasArray()) { ReplaceData(ArrayNodeType{}); }
+    return std::get<ArrayNodeType>(MutableData())[idx];
   }
 }
 
@@ -1356,20 +1403,21 @@ inline bool TreeNode::Erase(const KeyOrIdxType& key_or_idx) {
   if (const auto* key_ptr = std::get_if<StringKeyType>(&key_or_idx); key_ptr != nullptr) {
     const auto& key = *key_ptr;
     if (!HasObject()) { return false; }
-    auto& obj = std::get<ObjectNodeType>(*m_data_impl);
+    auto& obj = std::get<ObjectNodeType>(MutableData());
     return static_cast<bool>(obj.Erase(key));
   } else {
     const auto& idx = std::get<IntegerKeyType>(key_or_idx);
     if (!HasArray()) { return false; }
-    auto& arr = std::get<ArrayNodeType>(*m_data_impl);
-    if (idx >= arr.Size()) { return false; }
+    if (idx >= std::get<ArrayNodeType>(Data()).Size()) { return false; }
+    auto& arr = std::get<ArrayNodeType>(MutableData());
     arr.Erase(std::next(arr.Begin(), static_cast<ArrayNodeType::DifferenceType>(idx)));
     return true;
   }
 }
 
 inline bool TreeNode::operator==(const TreeNode& other) const noexcept {
-  return *m_data_impl == *other.m_data_impl;
+  // Shared data is not equal to itself when it holds a NaN, so equality always compares.
+  return Data() == other.Data();
 }
 
 [[nodiscard]] inline TreeNode TreeNode::operator-() const {

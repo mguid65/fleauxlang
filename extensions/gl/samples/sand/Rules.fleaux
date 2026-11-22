@@ -1,0 +1,108 @@
+// The materials and how they move.
+//
+// The grid steps as a block cellular automaton: every step splits it into 2 x 2 blocks and replaces
+// each block by  what one rule makes of it. The blocks are independent, so the rule sees only four
+// cells, and successive steps shift  the blocks by one cell so that material crosses block borders.
+// Every block that can occur has its result computed  once, in a table, so a step looks blocks up
+// instead of working them out.
+
+import Std;
+
+// A material is its weight: a heavier cell sinks through a lighter one. Rock never moves.
+alias Material = UInt64;
+
+let Rules.Empty: Material = 0u64;
+let Rules.Water: Material = 1u64;
+let Rules.Sand: Material = 2u64;
+let Rules.Rock: Material = 3u64;
+
+// A block's four cells: top left, top right, bottom left, bottom right. Gravity pulls from top to
+// bottom.
+alias Cells = Tuple<Material, Material, Material, Material>;
+
+// A block as its two rows, the shape a step slices the grid into.
+alias Block = Tuple<Tuple<Material, Material>, Tuple<Material, Material>>;
+
+// The result for every block, at a + 4 b + 16 c + 64 d for cells (a, b, c, d), plus 256 for the
+// second coin side.
+alias BlockTable = Tuple<Block...>;
+
+// Whether the upper of two cells sinks into the lower: it moves, it is heavier, and the lower one
+// is not rock.
+let Rules.Sinks(upper: Material, lower: Material): Bool =
+  (((upper, Rules.Rock) -> <, (upper, lower) -> >) -> &&, (lower, Rules.Rock) -> <) -> &&;
+
+// Each column falls on its own.
+let Rules.Fall(a: Material, b: Material, c: Material, d: Material): Cells = {
+  let left: Bool = (a, c) -> Rules.Sinks;
+  let right: Bool = (b, d) -> Rules.Sinks;
+  (
+    (left, c, a) -> Std.Select,
+    (right, d, b) -> Std.Select,
+    (left, a, c) -> Std.Select,
+    (right, b, d) -> Std.Select
+  );
+};
+
+// A cell that cannot fall straight down slides to the free cell diagonally below it, unless rock
+// stands beside it.  Sand piles up at 45 degrees this way. When both top cells could slide, the
+// coin picks one.
+let Rules.Slide(a: Material, b: Material, c: Material, d: Material, coin: UInt64): Cells = {
+  let left: Bool =
+    (((a, d) -> Rules.Sinks, (a, c) -> Rules.Sinks -> Std.Not) -> &&, (b, Rules.Rock) -> <) -> &&;
+  let right: Bool =
+    (((b, c) -> Rules.Sinks, (b, d) -> Rules.Sinks -> Std.Not) -> &&, (a, Rules.Rock) -> <) -> &&;
+  let slide_left: Bool = (left, ((coin, 0u64) -> ==, right -> Std.Not) -> ||) -> &&;
+  let slide_right: Bool = (right, slide_left -> Std.Not) -> &&;
+  (
+    (slide_left, d, a) -> Std.Select,
+    (slide_right, c, b) -> Std.Select,
+    (slide_right, b, c) -> Std.Select,
+    (slide_left, a, d) -> Std.Select
+  );
+};
+
+// Whether two cells side by side swap: one is water, the other is empty, and the water has nothing
+// to sink into.
+let Rules.Flows(water: Material, empty: Material, below: Material): Bool =
+  (
+    ((water, Rules.Water) -> ==, (empty, Rules.Empty) -> ==) -> &&,
+    (water, below) -> Rules.Sinks -> Std.Not
+  ) -> &&;
+
+// Water spreads sideways, so that it levels out. Where it has room on both sides it moves on every
+// step, and the  shifting blocks send it left and right in turn, so a thin film shimmers.
+let Rules.Flow(a: Material, b: Material, c: Material, d: Material): Cells = {
+  let top: Bool = ((a, b, c) -> Rules.Flows, (b, a, d) -> Rules.Flows) -> ||;
+  let bottom: Bool = ((c, d, Rules.Rock) -> Rules.Flows, (d, c, Rules.Rock) -> Rules.Flows) -> ||;
+  (
+    (top, b, a) -> Std.Select,
+    (top, a, b) -> Std.Select,
+    (bottom, d, c) -> Std.Select,
+    (bottom, c, d) -> Std.Select
+  );
+};
+
+let Rules.Settle(a: Material, b: Material, c: Material, d: Material, coin: UInt64): Cells = {
+  let fallen: Cells = (a, b, c, d) -> Rules.Fall;
+  let slid: Cells = (fallen..., coin) -> Rules.Slide;
+  (slid...) -> Rules.Flow;
+};
+
+let Rules.AsBlock(a: Material, b: Material, c: Material, d: Material): Block = ((a, b), (c, d));
+
+let Rules.ForCode(code: UInt64): Block = {
+  let a: Material = (code, 4u64) -> Std.Mod;
+  let b: Material = ((code, 4u64) -> /, 4u64) -> Std.Mod;
+  let c: Material = ((code, 16u64) -> /, 4u64) -> Std.Mod;
+  let d: Material = ((code, 64u64) -> /, 4u64) -> Std.Mod;
+  let coin: UInt64 = (code, 256u64) -> /;
+  let settled: Cells = (a, b, c, d, coin) -> Rules.Settle;
+  (settled...) -> Rules.AsBlock;
+};
+
+// Computes the table. Build it once and keep it: a top-level value would be computed again at every
+// use.
+let Rules.BuildTable(): BlockTable =
+  (512 -> Std.Tuple.Range, (code: Int64): Block = code -> Std.ToUInt64 -> Rules.ForCode)
+    -> Std.Tuple.Map;

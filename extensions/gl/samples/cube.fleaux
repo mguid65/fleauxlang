@@ -1,5 +1,5 @@
-// A spinning cube in perspective, drawn with the OpenGL extension: an index buffer, a depth buffer, and matrices
-// computed in Fleaux. Close the window or press Escape to stop.
+// A spinning cube in perspective, drawn with the OpenGL extension: an index buffer, a depth buffer,
+// and matrices computed in Fleaux. Close the window or press Escape to stop.
 //
 //   fleaux --extension <directory of the built extension> extensions/gl/samples/cube.fleaux
 
@@ -28,7 +28,8 @@ let FragmentSource: String = """
   }
   """;
 
-// Joins spread tuples into one: GL takes vertex data, indices, and matrices as flat lists of numbers.
+// Joins spread tuples into one: GL takes vertex data, indices, and matrices as flat lists of
+// numbers.
 let Floats(values: Float64...): Tuple<Float64...> = values;
 let Ints(values: Int64...): Tuple<Int64...> = values;
 
@@ -72,7 +73,8 @@ let Projection(width: Int64, height: Int64): Tuple<Float64...> = {
   (x_axis..., y_axis..., z_axis..., w_axis...) -> Floats;
 };
 
-// The cube turned by `yaw` about the y axis and then `pitch` about the x axis, three units in front of the camera.
+// The cube turned by `yaw` about the y axis and then `pitch` about the x axis, three units in front
+// of the camera.
 let ModelView(yaw: Float64, pitch: Float64): Tuple<Float64...> = {
   let cos_yaw: Float64 = yaw -> Std.Math.Cos;
   let sin_yaw: Float64 = yaw -> Std.Math.Sin;
@@ -86,7 +88,8 @@ let ModelView(yaw: Float64, pitch: Float64): Tuple<Float64...> = {
   (x_axis..., y_axis..., z_axis..., w_axis...) -> Floats;
 };
 
-// Opens the window and uploads the cube. The result is the shader program and the locations of its two matrices.
+// Opens the window and uploads the cube. The result is the shader program and the locations of its
+// two matrices.
 let Setup(): Tuple<Int64, Int64, Int64> = {
   ("Fleaux: a spinning cube", 800, 600) -> GL.OpenWindow;
   GL.DepthTest -> GL.Enable;

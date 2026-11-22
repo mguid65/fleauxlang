@@ -1,4 +1,5 @@
-// A rotating, colored triangle drawn with the OpenGL extension. Close the window or press Escape to stop.
+// A rotating, colored triangle drawn with the OpenGL extension. Close the window or press Escape to
+// stop.
 //
 //   fleaux --extension <directory of the built extension> extensions/gl/samples/triangle.fleaux
 
@@ -32,7 +33,8 @@ let FragmentSource: String = """
 let Vertices: Tuple<Float64...> =
   (0.0, 0.6, 1.0, 0.25, 0.2, -0.52, -0.3, 0.2, 0.9, 0.3, 0.52, -0.3, 0.25, 0.4, 1.0);
 
-// Opens the window and uploads the triangle. The result is the shader program and the location of its angle uniform.
+// Opens the window and uploads the triangle. The result is the shader program and the location of
+// its angle uniform.
 let Setup(): Tuple<Int64, Int64> = {
   ("Fleaux: a rotating triangle", 800, 600) -> GL.OpenWindow;
   let program: Int64 = (VertexSource, FragmentSource) -> GL.CompileProgram -> Std.Result.Unwrap;

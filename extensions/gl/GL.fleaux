@@ -1,13 +1,14 @@
 // The OpenGL extension: OpenGL 3.3 core, with a window and keyboard input from GLFW.
 //
 // Build it with the core: configure with -DFLEAUX_BUILD_GL_EXTENSION=ON, and give Conan the option
-// '-o &:build_gl_extension=True'. The build puts the extension's library and this file in one directory. Run a
-// program with:
+// '-o &:build_gl_extension=True'. The build puts the extension's library and this file in one
+// directory. Run a  program with:
 //
 //   fleaux --extension <that directory> program.fleaux
 //
-// and 'import GL;' in the program. GL object names (programs, buffers, vertex arrays, uniform locations) are Int64.
-// Every function except GL.OpenWindow and GL.Time needs the window that GL.OpenWindow opens.
+// and 'import GL;' in the program. GL object names (programs, buffers, vertex arrays, uniform
+// locations) are Int64.  Every function except GL.OpenWindow and GL.Time needs the window that
+// GL.OpenWindow opens.
 
 import Std;
 
@@ -26,8 +27,14 @@ let GL.SwapBuffers(): Null :: __native__;
 let GL.Time(): Float64 :: __native__;
 // Whether a key is held down; `key` is one of the GL.Key constants.
 let GL.KeyDown(key: Int64): Bool :: __native__;
-// The size of the window's drawing area in pixels, (width, height). The viewport follows it on its own.
+// The size of the window's drawing area in pixels, (width, height). The viewport follows it on its
+// own.
 let GL.FramebufferSize(): Tuple<Int64, Int64> :: __native__;
+// The cursor over the window, each coordinate from 0 to 1: (0, 0) is the top left corner and (1, 1)
+// the bottom right.  The values leave that range while the cursor is outside the window.
+let GL.CursorPosition(): Tuple<Float64, Float64> :: __native__;
+// Whether a mouse button is held down; `button` is one of the GL.Mouse constants.
+let GL.MouseButtonDown(button: Int64): Bool :: __native__;
 
 // State and clearing
 
@@ -40,7 +47,8 @@ let GL.Disable(capability: Int64): Null :: __native__;
 
 // Shaders
 
-// Compiles and links a vertex and a fragment shader. Ok holds the program; Err holds the compiler or linker log.
+// Compiles and links a vertex and a fragment shader. Ok holds the program; Err holds the compiler
+// or linker log.
 let GL.CompileProgram(
   vertex_source: String,
   fragment_source: String
@@ -67,14 +75,29 @@ let GL.CreateVertexArray(): Int64 :: __native__;
 let GL.BindVertexArray(vertex_array: Int64): Null :: __native__;
 // Creates an array buffer holding `data` as 32-bit floats, and binds it.
 let GL.CreateBuffer(data: Tuple<Float64...>): Int64 :: __native__;
-// Creates an index buffer holding `indices` as 32-bit unsigned integers, for the bound vertex array.
+// Creates an index buffer holding `indices` as 32-bit unsigned integers, for the bound vertex
+// array.
 let GL.CreateIndexBuffer(indices: Tuple<Int64...>): Int64 :: __native__;
-// Reads attribute `index` from the bound array buffer: `size` floats per vertex, starting `offset` floats into each
-// vertex of `stride` floats. Also enables the attribute.
+// Reads attribute `index` from the bound array buffer: `size` floats per vertex, starting `offset`
+// floats into each  vertex of `stride` floats. Also enables the attribute.
 let GL.VertexAttribute(index: Int64, size: Int64, stride: Int64, offset: Int64): Null :: __native__;
 let GL.DrawArrays(mode: Int64, first: Int64, count: Int64): Null :: __native__;
 // Draws `count` indices of the bound vertex array's index buffer.
 let GL.DrawElements(mode: Int64, count: Int64): Null :: __native__;
+
+// Textures
+
+// Creates a width x height texture of one 8-bit channel, sampled without filtering, and binds it. A
+// shader reads a  value back as value / 255, or exactly with texelFetch.
+let GL.CreateTexture(width: Int64, height: Int64): Int64 :: __native__;
+// Replaces a texture's contents with width x height values, row after row, each clamped to 255. The
+// first row is the  one texelFetch reads at y = 0.
+let GL.UpdateTexture(
+  texture: Int64,
+  width: Int64,
+  height: Int64,
+  values: Tuple<UInt64...>
+): Null :: __native__;
 
 // Constants
 
@@ -98,3 +121,20 @@ let GL.KeyArrowRight: Int64 = 262;
 let GL.KeyArrowLeft: Int64 = 263;
 let GL.KeyArrowDown: Int64 = 264;
 let GL.KeyArrowUp: Int64 = 265;
+let GL.KeyBackspace: Int64 = 259;
+// The digit keys above the letters are their characters, 48 to 57; letter keys are their capitals,
+// 65 to 90.
+let GL.Key0: Int64 = 48;
+let GL.Key1: Int64 = 49;
+let GL.Key2: Int64 = 50;
+let GL.Key3: Int64 = 51;
+let GL.Key4: Int64 = 52;
+let GL.Key5: Int64 = 53;
+let GL.Key6: Int64 = 54;
+let GL.Key7: Int64 = 55;
+let GL.Key8: Int64 = 56;
+let GL.Key9: Int64 = 57;
+
+let GL.MouseLeft: Int64 = 0;
+let GL.MouseRight: Int64 = 1;
+let GL.MouseMiddle: Int64 = 2;

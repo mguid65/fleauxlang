@@ -1127,6 +1127,10 @@ auto make_tuple(Values&&... vals) -> Value {
 }
 
 // Extraction helpers
+//
+// Values share their data until one of them is written (copy-on-write), so the as_* helpers only read: reading a
+// shared value never copies it. The mutable_* helpers give a reference for writing, and give the value its own copy of
+// shared data first.
 
 [[nodiscard]] inline auto as_array(const Value& value) -> const Array& {
   auto result = value.TryGetArray();
@@ -1135,7 +1139,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto as_array(Value& value) -> Array& {
+[[nodiscard]] inline auto mutable_array(Value& value) -> Array& {
   auto result = value.TryGetArray();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected Array"};
@@ -1149,7 +1153,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto as_number(Value& value) -> Number& {
+[[nodiscard]] inline auto mutable_number(Value& value) -> Number& {
   auto result = value.TryGetNumber();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
@@ -1163,7 +1167,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto as_bool(Value& value) -> Bool& {
+[[nodiscard]] inline auto mutable_bool(Value& value) -> Bool& {
   auto result = value.TryGetBool();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected Bool"};
@@ -1177,7 +1181,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto as_string(Value& value) -> String& {
+[[nodiscard]] inline auto mutable_string(Value& value) -> String& {
   auto result = value.TryGetString();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected String"};
@@ -1191,7 +1195,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto as_object(Value& value) -> Object& {
+[[nodiscard]] inline auto mutable_object(Value& value) -> Object& {
   auto result = value.TryGetObject();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected Object"};
@@ -1206,7 +1210,7 @@ auto make_tuple(Values&&... vals) -> Value {
   return *result;
 }
 
-[[nodiscard]] inline auto array_at(Value& value, const std::size_t index) -> Value& {
+[[nodiscard]] inline auto mutable_array_at(Value& value, const std::size_t index) -> Value& {
   auto result = value.TryGetArray();
   if (!result)
     throw std::runtime_error{"fleaux::runtime: expected Array"};
@@ -1363,8 +1367,8 @@ auto make_tuple(Values&&... vals) -> Value {
 // the scalar value instead of a 1-tuple wrapper.
 [[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value {
   if (val.HasArray()) {
-    if (auto& arr = as_array(val); arr.Size() == 1) {
-      return std::move(arr[0]);
+    if (const auto& arr = as_array(val); arr.Size() == 1) {
+      return *arr.TryGet(0);
     }
   }
   return val;

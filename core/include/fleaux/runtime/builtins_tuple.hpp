@@ -133,8 +133,8 @@ template <typename Predicate>
 
   Array out;
   out.Reserve(src.Size());
-  for (std::size_t index = 0; index < src.Size(); ++index) {
-    out.PushBack(function(std::move(src[index])));
+  for (const Value& item : src) {
+    out.PushBack(function(item));
   }
   return Value{std::move(out)};
 }
@@ -147,7 +147,7 @@ template <typename Predicate>
   Array out;
   out.Reserve(src.Size());
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    Value item = std::move(src[index]);
+    Value item = *src.TryGet(index);
     if (as_bool(predicate(item))) {
       out.PushBack(std::move(item));
     }
@@ -231,10 +231,10 @@ template <typename Predicate>
 // arg = [sequence, initial, func_ref]
 [[nodiscard]] inline auto TupleReduce(Value arg) -> Value {
   auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Reduce");
-  Value accumulator = std::move(array_at(arg, 1));
+  Value accumulator = std::move(mutable_array_at(arg, 1));
   const RegisteredCallable reducer_callable = validated_registered_callable_ref(array_at(arg, 2), "Std.Tuple.Reduce");
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    accumulator = invoke_binary_callable(reducer_callable, std::move(accumulator), std::move(src[index]));
+    accumulator = invoke_binary_callable(reducer_callable, std::move(accumulator), *src.TryGet(index));
   }
   return accumulator;
 }
@@ -244,7 +244,7 @@ template <typename Predicate>
   auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.FindIndex");
   const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.FindIndex");
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(predicate(std::move(src[index])))) {
+    if (as_bool(predicate(*src.TryGet(index)))) {
       return make_int(static_cast<Int>(index));
     }
   }
@@ -256,7 +256,7 @@ template <typename Predicate>
   auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.Any");
   const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.Any");
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (as_bool(predicate(std::move(src[index])))) {
+    if (as_bool(predicate(*src.TryGet(index)))) {
       return make_bool(true);
     }
   }
@@ -268,7 +268,7 @@ template <typename Predicate>
   auto& src = validated_tuple_value(array_at(arg, 0), "Std.Tuple.All");
   const RuntimeCallable predicate = validated_callable_ref(array_at(arg, 1), "Std.Tuple.All");
   for (std::size_t index = 0; index < src.Size(); ++index) {
-    if (!as_bool(predicate(std::move(src[index])))) {
+    if (!as_bool(predicate(*src.TryGet(index)))) {
       return make_bool(false);
     }
   }

@@ -1,0 +1,194 @@
+// The grid of materials, as one flat tuple, row after row from the top, inside a border of rock.
+
+import Std;
+import Rules;
+
+let Grid.Columns: UInt64 = 128u64;
+let Grid.Rows: UInt64 = 96u64;
+
+// A grid row, and two neighbouring rows.
+alias Row = Tuple<Material...>;
+alias RowPair = Tuple<Row, Row>;
+
+// Flattens nested rows of materials into one row. Std.Array.Flatten gives a Tuple<Any...>; the cast
+// checks that every  item is a material.
+let Grid.Flatten(nested: Any): Row = nested -> Std.Array.Flatten -> Grid.AsRow;
+let Grid.AsRow(items: Any): Row = items -> Std.Cast<Row>;
+
+// A row of empty cells between two rock walls.
+let Grid.InnerRow(): Row = {
+  let inner: Row =
+    (
+      (Grid.Columns, 2u64) -> - -> Std.ToInt64 -> Std.Tuple.Range,
+      (x: Int64): Material = Rules.Empty
+    ) -> Std.Tuple.Map;
+  ((inner, Rules.Rock) -> Std.Tuple.Prepend, Rules.Rock) -> Std.Tuple.Append;
+};
+
+// An empty grid inside a border of rock.
+let Grid.New(): Row = {
+  let wall: Row =
+    (Grid.Columns -> Std.ToInt64 -> Std.Tuple.Range, (x: Int64): Material = Rules.Rock)
+      -> Std.Tuple.Map;
+  let inner: Row = () -> Grid.InnerRow;
+  let middle: Tuple<Row...> =
+    ((Grid.Rows, 2u64) -> - -> Std.ToInt64 -> Std.Tuple.Range, (y: Int64): Row = inner)
+      -> Std.Tuple.Map;
+  (((middle, wall) -> Std.Tuple.Prepend, wall) -> Std.Tuple.Append) -> Grid.Flatten;
+};
+
+// Stepping
+
+let Grid.Lookup(
+  a: Material,
+  b: Material,
+  c: Material,
+  d: Material,
+  table: BlockTable,
+  side: UInt64
+): Block =
+  (table, ((((a, (b, 4u64) -> *) -> +, (c, 16u64) -> *) -> +, (d, 64u64) -> *) -> +, side) -> +)
+    -> Std.ElementAt;
+
+// One side of a coin for each pair of rows at each step, so that the rule's random choices differ
+// across the grid.
+let Grid.Coin(pair: Int64, step: Int64): UInt64 = {
+  let cycle: Int64 = (step, 1024) -> Std.Mod;
+  (((((pair, 1) -> +, ((cycle, 2) -> *, 1) -> +) -> *, 2654435761) -> *, 1024) -> /, 2)
+    -> Std.Mod
+    -> Std.ToUInt64;
+};
+
+// Keeps a row's first and last cells around its new middle, when the blocks start one cell in.
+let Grid.Rejoin(row: Row, middle: Row, offset: UInt64): Row =
+  (
+    (offset, 0u64) -> ==,
+    middle,
+    (
+      (middle, (row, 0u64) -> Std.ElementAt) -> Std.Tuple.Prepend,
+      (row, (Grid.Columns, 1u64) -> -) -> Std.ElementAt
+    ) -> Std.Tuple.Append
+  ) -> Std.Select;
+
+// Steps the blocks of two neighbouring rows. Each row is sliced into the even and the odd cells
+// from `offset` on, and  the four slices zip into the blocks.
+let Grid.StepRows(
+  top: Row,
+  bottom: Row,
+  pair: Int64,
+  table: BlockTable,
+  offset: UInt64,
+  step: Int64
+): RowPair = {
+  let side: UInt64 = ((pair, step) -> Grid.Coin, 256u64) -> *;
+  let stop: UInt64 = (Grid.Columns, offset) -> -;
+  let next: UInt64 = (offset, 1u64) -> +;
+  let blocks: Tuple<Block...> =
+    (
+      ((top, offset, stop, 2u64) -> Std.Slice, (top, next, stop, 2u64) -> Std.Slice)
+        -> Std.Tuple.Zip,
+      ((bottom, offset, stop, 2u64) -> Std.Slice, (bottom, next, stop, 2u64) -> Std.Slice)
+        -> Std.Tuple.Zip
+    ) -> Std.Tuple.Zip;
+  let settled: Tuple<Block...> =
+    (
+      blocks,
+      (block: Block): Block = {
+        let upper: Tuple<Material, Material> = block -> Std.First;
+        let lower: Tuple<Material, Material> = block -> Std.Second;
+        (upper..., lower..., table, side) -> Grid.Lookup;
+      }
+    ) -> Std.Tuple.Map;
+  let upper: Row =
+    (settled, (block: Block): Tuple<Material, Material> = block -> Std.First)
+      -> Std.Tuple.Map
+      -> Grid.Flatten;
+  let lower: Row =
+    (settled, (block: Block): Tuple<Material, Material> = block -> Std.Second)
+      -> Std.Tuple.Map
+      -> Grid.Flatten;
+  ((top, upper, offset) -> Grid.Rejoin, (bottom, lower, offset) -> Grid.Rejoin);
+};
+
+// One step of the automaton. The blocks start at the top left cell on even steps and one cell in on
+// odd steps, where  the border rows and columns stay as they are.
+let Grid.Step(cells: Row, table: BlockTable, step: Int64): Row = {
+  let offset: UInt64 = (step, 2) -> Std.Mod -> Std.ToUInt64;
+  let rows: Tuple<Row...> = (cells, Grid.Rows, Grid.Columns) -> Std.Array.Reshape;
+  let stop: UInt64 = (Grid.Rows, offset) -> -;
+  let pairs: Tuple<RowPair...> =
+    ((rows, offset, stop, 2u64) -> Std.Slice, (rows, (offset, 1u64) -> +, stop, 2u64) -> Std.Slice)
+      -> Std.Tuple.Zip;
+  let numbered: Tuple<Tuple<RowPair, Int64>...> =
+    (pairs, pairs -> Std.Length -> Std.Tuple.Range) -> Std.Tuple.Zip;
+  let stepped: Tuple<RowPair...> =
+    (
+      numbered,
+      (entry: Tuple<RowPair, Int64>): RowPair = {
+        let rows_of_pair: RowPair = entry -> Std.First;
+        (rows_of_pair..., entry -> Std.Second, table, offset, step) -> Grid.StepRows;
+      }
+    ) -> Std.Tuple.Map;
+  let middle: Row = stepped -> Grid.Flatten;
+  (
+    (offset, 0u64) -> ==,
+    middle,
+    (
+      ((rows, 0u64) -> Std.ElementAt, middle) -> Std.Array.Concat,
+      (rows, (Grid.Rows, 1u64) -> -) -> Std.ElementAt
+    ) -> Std.Array.Concat
+  ) -> Std.Select;
+};
+
+// Painting
+
+// Fills one row of a disc: the cells within `radius` of (center_x, center_y) on row center_y + dy,
+// inside the border.
+let Grid.FillSpan(
+  cells: Row,
+  center_x: Int64,
+  center_y: Int64,
+  dy: Int64,
+  radius: Int64,
+  material: Material
+): Row = {
+  let columns: Int64 = Grid.Columns -> Std.ToInt64;
+  let row: Int64 = (center_y, dy) -> +;
+  let half: Int64 =
+    (
+      ((radius, radius) -> *, (dy, dy) -> *)
+        -> -
+        -> Std.ToFloat64
+        -> Std.Math.Sqrt
+        -> Std.Math.Floor
+    ) -> Std.ToInt64;
+  let first: Int64 = ((center_x, half) -> -, 1,) -> Std.Tuple.Max;
+  let last: Int64 = ((center_x, half) -> +, (columns, 2) -> -,) -> Std.Tuple.Min;
+  let inside: Bool =
+    (((row, 1) -> >=, (row, (Grid.Rows -> Std.ToInt64, 2) -> -) -> <=) -> &&, (first, last) -> <=)
+      -> &&;
+  (
+    inside,
+    cells,
+    (grid: Row): Row =
+      (
+        grid,
+        (((row, columns) -> *, first) -> +) -> Std.ToUInt64,
+        (((last, first) -> -, 1) -> +) -> Std.ToUInt64,
+        material
+      ) -> Std.Array.Fill,
+    (grid: Row): Row = grid
+  ) -> Std.Branch;
+};
+
+// Fills a disc of `radius` cells with `material`. (x, y) is the center as fractions of the grid's
+// width and height  from the top left, as GL.CursorPosition gives the cursor.
+let Grid.Paint(cells: Row, x: Float64, y: Float64, radius: Int64, material: Material): Row = {
+  let center_x: Int64 = ((x, Grid.Columns -> Std.ToFloat64) -> * -> Std.Math.Floor) -> Std.ToInt64;
+  let center_y: Int64 = ((y, Grid.Rows -> Std.ToFloat64) -> * -> Std.Math.Floor) -> Std.ToInt64;
+  (
+    ((radius) -> -, (radius, 1) -> +) -> Std.Tuple.Range,
+    cells,
+    (grid: Row, dy: Int64): Row = (grid, center_x, center_y, dy, radius, material) -> Grid.FillSpan
+  ) -> Std.Tuple.Reduce;
+};

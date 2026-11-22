@@ -235,7 +235,7 @@ inline void flatten_into(const Value& value, Array& out) {
   }
 
   Value out_grid{Array{}};
-  auto& out_grid_array = as_array(out_grid);
+  auto& out_grid_array = mutable_array(out_grid);
   out_grid_array.Reserve(grid.Size());
   for (std::size_t row_index = 0; row_index < grid.Size(); ++row_index) {
     const auto& row_val = *grid.TryGet(row_index);
@@ -246,7 +246,7 @@ inline void flatten_into(const Value& value, Array& out) {
     }
 
     Value new_row{Array{}};
-    auto& new_row_array = as_array(new_row);
+    auto& new_row_array = mutable_array(new_row);
     new_row_array.Reserve(row.Size());
     for (std::size_t column_index = 0; column_index < row.Size(); ++column_index) {
       new_row_array.PushBack(column_index == col_idx ? new_val : *row.TryGet(column_index));

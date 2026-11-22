@@ -677,7 +677,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto Loop(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref]
-  Value state = std::move(array_at(arg, 0));
+  Value state = std::move(mutable_array_at(arg, 0));
   const Value& continue_func = array_at(arg, 1);
   const Value& step_func = array_at(arg, 2);
   const RuntimeCallable continue_callable = resolve_callable_ref(continue_func);
@@ -690,7 +690,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto LoopN(Value arg) -> Value {
   // arg = [state, continue_func_ref, step_func_ref, max_iters]
-  Value state = std::move(array_at(arg, 0));
+  Value state = std::move(mutable_array_at(arg, 0));
   const Value& continue_func = array_at(arg, 1);
   const Value& step_func = array_at(arg, 2);
   const std::size_t max_iters = uint64_index(array_at(arg, 3));

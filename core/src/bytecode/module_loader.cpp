@@ -509,10 +509,11 @@ void seed_imports_from_bytecode_module(const Module& imported_module,
   }
 }
 
-auto load_import_source_ir(const std::filesystem::path& source_path)
+auto load_import_source_ir(const std::filesystem::path& source_path,
+                           const std::span<const std::filesystem::path> search_paths)
     -> tl::expected<frontend::ir::IRProgram, ModuleLoadError> {
-  const auto imported_ir =
-      fleaux::frontend::source_loader::load_ir_program<ModuleLoadError>(source_path, make_parse_error);
+  const auto imported_ir = fleaux::frontend::source_loader::load_ir_program<ModuleLoadError>(
+      source_path, make_parse_error, "Cyclic import detected.", std::nullopt, search_paths);
   if (!imported_ir) {
     return tl::unexpected(make_error("Failed to seed typed imports from source: " + source_path.string(),
                                      imported_ir.error().hint.has_value()
@@ -525,10 +526,11 @@ auto load_import_source_ir(const std::filesystem::path& source_path)
 }
 
 auto seed_imports_from_source_module(const Module& imported_module, const std::filesystem::path& source_path,
+                                     const std::span<const std::filesystem::path> search_paths,
                                      std::unordered_set<std::string>& imported_typed_let_keys,
                                      std::unordered_set<std::string>& imported_alias_decl_keys, ImportSeeds& seeds)
     -> tl::expected<void, ModuleLoadError> {
-  const auto imported_ir = load_import_source_ir(source_path);
+  const auto imported_ir = load_import_source_ir(source_path, search_paths);
   if (!imported_ir) {
     return tl::unexpected(imported_ir.error());
   }
@@ -574,7 +576,9 @@ auto seed_imports_from_source_module(const Module& imported_module, const std::f
   return {};
 }
 
-auto seed_imports(const LoadedImports& loaded_imports) -> tl::expected<ImportSeeds, ModuleLoadError> {
+// `search_paths` are where an imported module's own imports are looked for, after the module's directory.
+auto seed_imports(const LoadedImports& loaded_imports, const std::span<const std::filesystem::path> search_paths)
+    -> tl::expected<ImportSeeds, ModuleLoadError> {
   ImportSeeds seeds;
   std::unordered_set<std::string> imported_typed_let_keys;
   std::unordered_set<std::string> imported_alias_decl_keys;
@@ -594,7 +598,7 @@ auto seed_imports(const LoadedImports& loaded_imports) -> tl::expected<ImportSee
       continue;
     }
 
-    if (auto seeded = seed_imports_from_source_module(imported_module, *source, imported_typed_let_keys,
+    if (auto seeded = seed_imports_from_source_module(imported_module, *source, search_paths, imported_typed_let_keys,
                                                       imported_alias_decl_keys, seeds);
         !seeded) {
       return tl::unexpected(seeded.error());
@@ -701,7 +705,7 @@ auto load_unlinked_module(const ResolvedModulePaths& paths, const ModuleLoadOpti
     return finish(tl::unexpected(loaded_imports.error()));
   }
 
-  const auto import_seeds = seed_imports(*loaded_imports);
+  const auto import_seeds = seed_imports(*loaded_imports, options.import_search_paths);
   if (!import_seeds) {
     return finish(tl::unexpected(import_seeds.error()));
   }

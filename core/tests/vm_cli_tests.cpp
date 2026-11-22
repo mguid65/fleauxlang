@@ -257,6 +257,23 @@ TEST_CASE("CLI loads an extension and runs native functions it declares", "[vm][
     REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("(7, seven)"));
   }
 
+  SECTION("a module the program imports finds the extension's module too") {
+    fleaux::tests::write_text_file(app_dir / "Shout.fleaux",
+                                   "import Std;\n"
+                                   "import Echo;\n"
+                                   "let Shout(x: Int64): Tuple<Int64, String> = (x, \"loud\") -> Host.ModuleEcho;\n");
+    const auto nested_source = app_dir / "nested.fleaux";
+    fleaux::tests::write_text_file(nested_source,
+                                   "import Std;\n"
+                                   "import Shout;\n"
+                                   "7 -> Shout -> Std.Println;\n");
+    const auto result =
+        run_cli("--extension " + shell_quote(extension_dir.string()) + " " + shell_quote(nested_source.string()), app_dir);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code == 0);
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("(7, loud)"));
+  }
+
   SECTION("without it, the declaration module is not found") {
     const auto result = run_cli(shell_quote(source_path.string()), app_dir);
     REQUIRE(result.exit_code != 0);

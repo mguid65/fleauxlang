@@ -4,6 +4,7 @@
 #include <fstream>
 #include <functional>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -41,12 +42,16 @@ struct TextFileReadError {
   return buffer.str();
 }
 
+// The source of an imported module: next to the importing module first, then in each of `search_paths`.
 [[nodiscard]] inline auto resolve_import_source(const std::filesystem::path& current_source,
-                                                const std::string& module_name) -> std::filesystem::path {
+                                                const std::string& module_name,
+                                                const std::span<const std::filesystem::path> search_paths = {})
+    -> std::filesystem::path {
   if (import_resolution::is_symbolic_import(module_name)) {
     return {};
   }
-  const auto [source, bytecode] = import_resolution::resolve_import_paths(current_source.parent_path(), module_name);
+  const auto [source, bytecode] =
+      import_resolution::resolve_import_paths(current_source.parent_path(), module_name, search_paths);
   return source.value_or(std::filesystem::path{});
 }
 
@@ -383,7 +388,8 @@ template <typename ErrorT, typename ErrorFactory>
     const std::vector<ir::IRTypeDecl>& extra_imported_type_decls = {},
     const std::vector<ir::IRAliasDecl>& extra_imported_alias_decls = {},
     const std::string_view cycle_message = "Cyclic import detected.",
-    const std::optional<std::string>& cycle_hint = std::nullopt) -> tl::expected<ir::IRProgram, ErrorT> {
+    const std::optional<std::string>& cycle_hint = std::nullopt,
+    const std::span<const std::filesystem::path> search_paths = {}) -> tl::expected<ir::IRProgram, ErrorT> {
   using IRProgram = ir::IRProgram;
   using IRExprStatement = ir::IRExprStatement;
   using IRLet = ir::IRLet;
@@ -438,7 +444,7 @@ template <typename ErrorT, typename ErrorFactory>
       if (import_resolution::is_symbolic_import(module_name)) {
         continue;
       }
-      const auto import_source = resolve_import_source(source_path, module_name);
+      const auto import_source = resolve_import_source(source_path, module_name, search_paths);
       if (import_source.empty()) {
         in_progress.erase(key);
         return tl::unexpected(
@@ -487,7 +493,8 @@ template <typename ErrorT, typename ErrorFactory>
 template <typename ErrorT, typename ErrorFactory>
 [[nodiscard]] auto load_ir_program(const std::filesystem::path& source_file, ErrorFactory&& make_error,
                                    const std::string_view cycle_message = "Cyclic import detected.",
-                                   const std::optional<std::string>& cycle_hint = std::nullopt)
+                                   const std::optional<std::string>& cycle_hint = std::nullopt,
+                                   const std::span<const std::filesystem::path> search_paths = {})
     -> tl::expected<ir::IRProgram, ErrorT> {
   auto current = parse_file_to_lowered_ir<ErrorT>(source_file, make_error);
   if (!current) {
@@ -495,7 +502,8 @@ template <typename ErrorT, typename ErrorFactory>
   }
 
   return analyze_lowered_program_with_imports<ErrorT>(
-      current.value(), source_file, std::forward<ErrorFactory>(make_error), {}, {}, {}, {}, cycle_message, cycle_hint);
+      current.value(), source_file, std::forward<ErrorFactory>(make_error), {}, {}, {}, {}, cycle_message, cycle_hint,
+      search_paths);
 }
 
 }  // namespace fleaux::frontend::source_loader

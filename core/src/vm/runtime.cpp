@@ -166,7 +166,7 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
   const auto base = stack.size() - tuple_size;
   Value first_element = std::move(stack[base]);
   stack[base] = Value{Array{}};
-  auto& out = runtime::as_array(stack[base]);
+  auto& out = runtime::mutable_array(stack[base]);
   out.Reserve(tuple_size);
   out.EmplaceBack(std::move(first_element));
   for (std::size_t element_index = 1; element_index < tuple_size; ++element_index) {
@@ -177,7 +177,7 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
 
 auto make_array_tail_value(Array& source, const std::size_t first_index) -> Value {
   Value tail{Array{}};
-  auto& out = runtime::as_array(tail);
+  auto& out = runtime::mutable_array(tail);
   out.Reserve(source.Size() - first_index);
   for (std::size_t element_index = first_index; element_index < source.Size(); ++element_index) {
     out.EmplaceBack(std::move(source[element_index]));
@@ -454,7 +454,7 @@ void bind_user_function_locals(CallFrame& frame, const std::uint32_t arity, cons
       return;
     }
 
-    auto& arr = runtime::as_array(arg);
+    auto& arr = runtime::mutable_array(arg);
     if (arity == 2U) {
       activate_inline_locals(frame, 2U);
       frame.inline_locals[0] = std::move(arr[0]);
@@ -476,7 +476,7 @@ void bind_user_function_locals(CallFrame& frame, const std::uint32_t arity, cons
   }
 
   const auto fixed_count = static_cast<std::size_t>(arity - 1U);
-  auto& arr = runtime::as_array(arg);
+  auto& arr = runtime::mutable_array(arg);
   for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
     frame.locals.emplace_back(std::move(arr[arg_index]));
   }
@@ -501,7 +501,7 @@ auto bind_user_function_binary_locals(CallFrame& frame, const std::string& fn_na
 auto pack_prefixed_binary_call_args(const Value& prefix_args, Value lhs, Value rhs) -> Value {
   const auto& prefix = runtime::as_array(prefix_args);
   Value out{Array{}};
-  auto& out_array = runtime::as_array(out);
+  auto& out_array = runtime::mutable_array(out);
   out_array.Reserve(prefix.Size() + 2U);
   append_array_copy(out_array, prefix);
   out_array.EmplaceBack(std::move(lhs));
@@ -521,12 +521,12 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
     if (declared_arity == 1U) {
       return arg;
     }
-    auto& arr = runtime::as_array(arg);
+    auto& arr = runtime::mutable_array(arg);
     if (arr.Size() == declared_arity) {
       return arg;
     }
     Value out{Array{}};
-    auto& out_array = runtime::as_array(out);
+    auto& out_array = runtime::mutable_array(out);
     out_array.Reserve(declared_arity);
     append_array_prefix(out_array, arr, declared_arity);
     return out;
@@ -537,9 +537,9 @@ auto pack_declared_call_args(Value arg, const std::uint32_t declared_arity, cons
   }
 
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
-  auto& arr = runtime::as_array(arg);
+  auto& arr = runtime::mutable_array(arg);
   Value out{Array{}};
-  auto& out_array = runtime::as_array(out);
+  auto& out_array = runtime::mutable_array(out);
   out_array.Reserve(declared_arity);
   append_array_prefix(out_array, arr, fixed_count);
   out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
@@ -561,7 +561,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
   }
 
   Value out{Array{}};
-  auto& out_array = runtime::as_array(out);
+  auto& out_array = runtime::mutable_array(out);
 
   if (!declared_has_variadic_tail) {
     if (declared_arity == 1U) {
@@ -570,7 +570,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
       out_array.EmplaceBack(std::move(arg));
       return out;
     }
-    auto& arr = runtime::as_array(arg);
+    auto& arr = runtime::mutable_array(arg);
     out_array.Reserve(prefix.Size() + declared_arity);
     append_array_copy(out_array, prefix);
     append_array_prefix(out_array, arr, declared_arity);
@@ -585,7 +585,7 @@ auto pack_prefixed_call_args(const Value& prefix_args, Value arg, const std::uin
   }
 
   const auto fixed_count = static_cast<std::size_t>(declared_arity - 1U);
-  auto& arr = runtime::as_array(arg);
+  auto& arr = runtime::mutable_array(arg);
   append_array_prefix(out_array, arr, fixed_count);
   out_array.EmplaceBack(make_array_tail_value(arr, fixed_count));
   return out;
@@ -757,9 +757,8 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
         Array joined;
         joined.Reserve(total);
         for (std::size_t position = first; position < stack.size(); ++position) {
-          auto& piece = runtime::as_array(stack[position]);
-          for (std::size_t index = 0; index < piece.Size(); ++index) {
-            joined.EmplaceBack(std::move(piece[index]));
+          for (const Value& item : runtime::as_array(stack[position])) {
+            joined.EmplaceBack(item);
           }
         }
         stack.resize(first);

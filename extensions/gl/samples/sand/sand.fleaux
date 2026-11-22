@@ -1,0 +1,69 @@
+// A falling sand box drawn with the OpenGL extension. Paint with the left mouse button and erase
+// with the right. The keys 1, 2, and 3 pick sand, water, and rock, Backspace empties the box, and
+// Escape quits.
+//
+//   fleaux --extension <directory of the built extension> extensions/gl/samples/sand/sand.fleaux
+//
+// Rules.fleaux holds the materials and the rule that moves them, Grid.fleaux steps and paints the
+// grid, and Render.fleaux draws it.
+
+import Std;
+import GL;
+import Rules;
+import Grid;
+import Render;
+
+// The screen, the cells, the rule table, the number of steps so far, and the material being
+// painted.
+alias World = Tuple<Screen, Row, BlockTable, Int64, Material>;
+
+let BrushRadius: Int64 = 3;
+
+// The material a number key picks, or `current` while none of them is held.
+let Picked(current: Material): Material =
+  (
+    GL.Key1 -> GL.KeyDown,
+    Rules.Sand,
+    (GL.Key2 -> GL.KeyDown, Rules.Water, (GL.Key3 -> GL.KeyDown, Rules.Rock, current) -> Std.Select)
+      -> Std.Select
+  ) -> Std.Select;
+
+let KeepCells(cells: Row): Row = cells;
+
+let Frame(screen: Screen, cells: Row, table: BlockTable, step: Int64, material: Material): World = {
+  let chosen: Material = material -> Picked;
+  let cursor: Tuple<Float64, Float64> = () -> GL.CursorPosition;
+  let painting: Bool = GL.MouseLeft -> GL.MouseButtonDown;
+  let erasing: Bool = GL.MouseRight -> GL.MouseButtonDown;
+  let start: Row =
+    (GL.KeyBackspace -> GL.KeyDown, cells, (old: Row): Row = () -> Grid.New, KeepCells)
+      -> Std.Branch;
+  let painted: Row =
+    (
+      (painting, erasing) -> ||,
+      start,
+      (old: Row): Row =
+        (old, cursor..., BrushRadius, (erasing, Rules.Empty, chosen) -> Std.Select) -> Grid.Paint,
+      KeepCells
+    ) -> Std.Branch;
+  let next: Row = (painted, table, step) -> Grid.Step;
+  (screen..., next, cursor..., BrushRadius, chosen) -> Render.Draw;
+  () -> GL.SwapBuffers;
+  () -> GL.PollEvents;
+  (screen, next, table, (step, 1) -> +, chosen);
+};
+
+let Running(world: World): Bool =
+  (() -> GL.WindowShouldClose, GL.KeyEscape -> GL.KeyDown) -> Std.Or -> Std.Not;
+
+let Advance(world: World): World = (world...) -> Frame;
+
+let Start(): World = {
+  let screen: Screen = () -> Render.Setup;
+  "Left mouse paints, right mouse erases. 1, 2, and 3 pick sand, water, and rock." -> Std.Println;
+  "Backspace empties the box and Escape quits." -> Std.Println;
+  (screen, () -> Grid.New, () -> Rules.BuildTable, 0, Rules.Sand);
+};
+
+(() -> Start, Running, Advance) -> Std.Loop;
+() -> GL.CloseWindow;

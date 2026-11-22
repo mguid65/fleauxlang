@@ -384,7 +384,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value add_one = make_callable_ref([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
 
     Value options{Object{}};
-    as_object(options)["s:max_workers"] = make_int(4);
+    mutable_object(options)["s:max_workers"] = make_int(4);
 
     const Value result = ParallelWithOptions(make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), add_one, options));
     REQUIRE(as_bool(ResultIsOk(result)));
@@ -408,7 +408,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value add_one = make_callable_ref([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
 
     Value options{Object{}};
-    as_object(options)["s:max_workers"] = make_int(2);
+    mutable_object(options)["s:max_workers"] = make_int(2);
 
     const Value result =
         ParallelWithOptions(make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4), make_int(5)),
@@ -430,7 +430,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     });
 
     Value options{Object{}};
-    as_object(options)["s:max_workers"] = make_int(2);
+    mutable_object(options)["s:max_workers"] = make_int(2);
 
     const Value result = ParallelWithOptions(
         make_tuple(make_tuple(make_int(1), make_int(2), make_int(3), make_int(4), make_int(5)), fail_on_four, options));
@@ -445,7 +445,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
 
     Value bad_workers{Object{}};
-    as_object(bad_workers)["s:max_workers"] = make_int(0);
+    mutable_object(bad_workers)["s:max_workers"] = make_int(0);
     const Value workers_result = ParallelWithOptions(make_tuple(make_tuple(make_int(1)), identity, bad_workers));
     REQUIRE(as_bool(ResultIsErr(workers_result)));
     const Value err = ResultUnwrapErr(workers_result);
@@ -458,7 +458,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value identity = make_callable_ref([](const Value& v) -> Value { return v; });
 
     Value options{Object{}};
-    as_object(options)["s:chunk_size"] = make_int(2);
+    mutable_object(options)["s:chunk_size"] = make_int(2);
     const Value result = ParallelWithOptions(make_tuple(make_tuple(make_int(1)), identity, options));
     REQUIRE(as_bool(ResultIsErr(result)));
     const Value err = ResultUnwrapErr(result);
@@ -1127,12 +1127,12 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
 
   SECTION("DictMerge overlays values without mutating the base input") {
     Value base{Object{}};
-    as_object(base)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(1);
-    as_object(base)[dict_key_from_validated_value(make_string("base_only"), "test")] = make_int(10);
+    mutable_object(base)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(1);
+    mutable_object(base)[dict_key_from_validated_value(make_string("base_only"), "test")] = make_int(10);
 
     Value overlay{Object{}};
-    as_object(overlay)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(2);
-    as_object(overlay)[dict_key_from_validated_value(make_string("overlay_only"), "test")] = make_int(20);
+    mutable_object(overlay)[dict_key_from_validated_value(make_string("shared"), "test")] = make_int(2);
+    mutable_object(overlay)[dict_key_from_validated_value(make_string("overlay_only"), "test")] = make_int(20);
 
     const Value merged = DictMerge(make_tuple(base, overlay));
     const auto& merged_object = as_object(merged);
@@ -1146,7 +1146,7 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
 
   SECTION("merge_dict_values keeps empty overlays as no-ops") {
     Value base{Object{}};
-    as_object(base)[dict_key_from_validated_value(make_string("k"), "test")] = make_int(7);
+    mutable_object(base)[dict_key_from_validated_value(make_string("k"), "test")] = make_int(7);
 
     const Value merged = merge_dict_values(base, Value{Object{}});
     const auto& merged_object = as_object(merged);
