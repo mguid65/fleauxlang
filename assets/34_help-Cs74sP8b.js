@@ -1,0 +1,12 @@
+var e=`import Std;
+
+// Python-like help() function for Fleaux
+// Try: "Std.Add" -> Std.Help -> Std.Println;
+
+// Example: Get help for various builtins
+"Std.Add" -> Std.Help -> Std.Println;
+"Std.String.Split" -> Std.Help -> Std.Println;
+"Std.Tuple.Map" -> Std.Help -> Std.Println;
+"Std.File.ReadText" -> Std.Help -> Std.Println;
+
+`;export{e as default};

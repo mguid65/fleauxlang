@@ -1,0 +1,18 @@
+var e=`import Std;
+
+// An empty dictionary takes its key and value types from the first Set. This one holds values of
+// different types, so its type is declared up front.
+let Build(): Dict<String, Any> = {
+    let empty: Dict<String, Any> = () -> Std.Dict.Create;
+    empty
+    -> (_, "name", "fleaux") -> Std.Dict.Set
+    -> (_, "year", 2026) -> Std.Dict.Set;
+};
+
+() -> Build -> Std.Dict.Keys -> Std.Println;
+() -> Build -> Std.Dict.Values -> Std.Println;
+(() -> Build, "name") -> Std.Dict.Get -> Std.Println;
+(() -> Build, "missing", "n/a") -> Std.Dict.GetDefault -> Std.Println;
+() -> Build -> Std.Dict.Length -> Std.Println;
+
+`;export{e as default};

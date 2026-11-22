@@ -1,0 +1,12 @@
+var e=`import Std;
+
+let PrintUnit(_unit: Tuple<>): Tuple<Any...> = ("ok") -> Std.Println;
+let FailUnit(_unit: Tuple<>): Any = (("boom") -> Std.Result.Err) -> Std.Result.Unwrap;
+
+// Demonstrate Std.Try with an empty tuple dummy input.
+((), PrintUnit) -> Std.Try -> Std.Result.IsOk -> Std.Println;
+
+// Demonstrate Std.Try capturing an exception with empty tuple input.
+((), FailUnit) -> Std.Try -> Std.Result.IsErr -> Std.Println;
+
+`;export{e as default};

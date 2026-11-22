@@ -1,0 +1,14 @@
+var e=`import Std;
+
+let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
+let ReturnSelf(x: Float64): Float64 = x;
+let Fail(_x: Float64): Float64 = ("boom-two") -> Std.Result.Err -> Std.Result.Unwrap;
+
+let MaybeFail(x: Float64): Float64 =
+  ((x, 2.0) -> Std.Equal, x, Fail, ReturnSelf) -> Std.Branch;
+
+((1.0, 3.0, 4.0), Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;
+((1.0, 2.0, 3.0), MaybeFail) -> Std.Parallel.Map -> Std.Result.IsErr -> Std.Println;
+((1.0, 2.0, 3.0), MaybeFail) -> Std.Parallel.Map -> Std.Result.UnwrapErr -> Std.Println;
+
+`;export{e as default};

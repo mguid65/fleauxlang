@@ -1,0 +1,59 @@
+var e=`import Std;
+
+// Streaming file I/O with handles
+//
+// Unlike Std.File.ReadText / Std.File.ReadLines, streaming handles let you
+// process arbitrarily large files without loading them into memory.
+//
+// Core API:
+//   (path, mode)         -> Std.File.Open      -> handle
+//   handle               -> Std.File.ReadLine   -> (handle, line, eof)
+//   (handle, nbytes)     -> Std.File.ReadChunk  -> (handle, chunk, eof)
+//   (handle, data)       -> Std.File.WriteChunk -> handle
+//   handle               -> Std.File.Flush      -> handle
+//   handle               -> Std.File.Close      -> Bool
+//   (path, mode, func)   -> Std.File.WithOpen   -> result
+//
+// Modes: "r" read, "w" write/truncate, "a" append; append "b" for binary.
+
+// Setup: temp file path
+let TmpPath(): String =
+    () -> Std.OS.TempDir -> (_, "fleaux_stream_sample.txt") -> Std.Path.Join;
+
+// 1. Write a multi-line file with WriteChunk
+let WriteSample(path: String): Bool =
+    (path, "w") -> Std.File.Open
+        -> (_, "alpha\\n")  -> Std.File.WriteChunk
+        -> (_, "beta\\n")   -> Std.File.WriteChunk
+        -> (_, "gamma\\n")  -> Std.File.WriteChunk
+        -> Std.File.Flush
+        -> Std.File.Close;
+
+() -> TmpPath -> WriteSample -> Std.Println;           // True
+
+//  2. Read line-by-line with ReadLine + Loop
+let ReadFirstLine(path: String): Any =
+    (path, "r") -> Std.File.Open -> Std.File.ReadLine -> Std.Println;
+
+() -> TmpPath -> ReadFirstLine;                        // (handle, alpha, False)
+
+//  3. Read in fixed-size chunks with ReadChunk + Loop
+let ReadFirstChunk(path: String): Any =
+    (path, "r") -> Std.File.Open -> (_, 4u64) -> Std.File.ReadChunk -> Std.Println;
+
+() -> TmpPath -> ReadFirstChunk;                       // (handle, alph, False)
+
+//  4. WithOpen: scoped handle, guaranteed close
+// func receives the open handle; the file is closed automatically when done.
+let ShowWithOpen(h: FileHandle): Any =
+    (h) -> Std.File.ReadLine -> Std.Println;
+
+let FirstLineOf(path: String): Any =
+    (path, "r", ShowWithOpen) -> Std.File.WithOpen;
+
+() -> TmpPath -> FirstLineOf -> Std.Println;
+
+//  Cleanup
+() -> TmpPath -> Std.File.Delete -> Std.Println;       // True
+
+`;export{e as default};

@@ -1,0 +1,48 @@
+var e=`import Std;
+
+// A generic function can use operators on a type parameter whose bound lists strong types. Each call passes the
+// right operator function for the type the parameter binds to: Std.Add for Int64, Money.Add for Money.
+
+type Money = Int64;
+
+let Money.Add(a: Money, b: Money): Money =
+  ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> Std.Cast<Money>;
+let Money.LessThan(a: Money, b: Money): Bool =
+  (a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> <;
+let M(x: Int64): Money = x -> Std.Cast<Money>;
+
+// Every alternative of the bound needs a function for each operator the body uses.
+alias Summable = Int64 | Money;
+
+let Total<T: Summable>(xs: Tuple<T...>, zero: T): T =
+  (xs, zero, (acc: T, x: T): T = (acc, x) -> +) -> Std.Tuple.Reduce;
+
+let Smaller<T: Summable>(a: T, b: T): T = ((a, b) -> <, a, b) -> Std.Select;
+
+((1, 2, 3), 0) -> Total -> Std.Println;                   // 6
+((1 -> M, 2 -> M, 3 -> M), 0 -> M) -> Total -> Std.Println;   // 6
+(5 -> M, 4 -> M) -> Smaller -> Std.Println;                // 4
+
+// A generic function calling another with its own type parameter passes the operators on.
+let Smallest<T: Summable>(a: T, b: T, c: T): T = ((a, b) -> Smaller, c) -> Smaller;
+
+(7 -> M, 3 -> M, 9 -> M) -> Smallest -> Std.Println;      // 3
+
+// Recursion works the same way.
+let Repeat<T: Summable>(n: Int64, x: T): T =
+  ((n, 1) -> <=, (n, x),
+   (p: Tuple<Int64, T>): Tuple<Int64, T> = p,
+   (p: Tuple<Int64, T>): Tuple<Int64, T> = (0, (((p -> Std.First, 1) -> -, p -> Std.Second) -> Repeat, p -> Std.Second) -> +))
+  -> Std.Branch -> Std.Second;
+
+(3, 5 -> M) -> Repeat -> Std.Println;                      // 15
+(4, 2) -> Repeat -> Std.Println;                           // 8
+
+// As a value, such a function needs its type arguments, which select the operator functions it uses.
+let SumWith<T>(xs: Tuple<T...>, zero: T, add: (T, T) => T): T = (xs, zero, add) -> Std.Tuple.Reduce;
+let Add2<T: Summable>(a: T, b: T): T = (a, b) -> +;
+((1 -> M, 5 -> M), 0 -> M, Add2<Money>) -> SumWith -> Std.Println;   // 6
+
+// Limits: one operator may use at most one such type parameter, and a generic closure cannot use operators of its
+// own strong-bounded type parameters.
+`;export{e as default};

@@ -1,0 +1,8 @@
+var e=`import Std;
+
+// Print a string literal directly
+("Hello, World!") -> Std.Println;
+
+// Print multiple values in one call
+("Hello", "from", "Fleaux") -> Std.Println;
+`;export{e as default};

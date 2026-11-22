@@ -1,0 +1,21 @@
+var e=`import Std;
+
+let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;
+let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
+
+let BuildOptions(): Dict<String, Any> =
+    () -> Std.Dict.Create
+    -> (_, "max_workers", 2) -> Std.Dict.Set
+;
+
+// Empty-input behavior remains well-defined across all parallel APIs.
+((), Inc) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;
+((), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;
+((), Inc) -> Std.Parallel.ForEach -> Std.Result.Unwrap -> Std.Println;
+((), 10, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;
+
+// Non-empty WithOptions and Reduce happy paths.
+((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;
+((1, 2, 3, 4), 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;
+
+`;export{e as default};

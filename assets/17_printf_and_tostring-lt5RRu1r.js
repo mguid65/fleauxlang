@@ -1,0 +1,31 @@
+var e=`import Std;
+
+// -- ToString: convert any value to its string representation --
+(42) -> Std.ToString -> Std.Println;                              // 42
+(3.14) -> Std.ToString -> Std.Println;                            // 3.14
+(True) -> Std.ToString -> Std.Println;                            // True
+
+// -- Combining ToString with string operations --
+(256) -> Std.ToString -> ("", (_, " bytes")) -> Std.String.Join -> Std.Println; // 256 bytes
+
+// -- Printf: prints formatted output --
+// First argument is the format string; remaining values substitute {} placeholders.
+("{} + {} = {}", 1, 2, 3) -> Std.Printf;                          // 1 + 2 = 3
+
+("Hello, {}!", "World") -> Std.Printf;                            // Hello, World!
+
+("Result: {}", (6, 7) -> Std.Multiply) -> Std.Printf;             // Result: 42
+
+// -- String.Format: format without printing, returns the formatted string --
+("{} + {} = {}", 1, 2, 3) -> Std.String.Format -> Std.Println;    // 1 + 2 = 3
+
+("Hello, {}!", "World") -> Std.String.Format -> Std.Println;      // Hello, World!
+
+// -- Building a formatted string for later use --
+let FormatScore(name: String, score: Float64): String =
+    ("{} scored {} points", name, score) -> Std.String.Format;
+
+("Alice", 98.0) -> FormatScore -> Std.Println;                    // Alice scored 98 points
+("Bob", 75.0) -> FormatScore -> Std.Println;                      // Bob scored 75 points
+
+`;export{e as default};

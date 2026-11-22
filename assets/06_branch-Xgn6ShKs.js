@@ -1,0 +1,52 @@
+var e=`import Std;
+
+// Std.Branch: (condition, value, true_func, false_func) -> Std.Branch
+// Dispatches value to true_func if condition is truthy, false_func otherwise.
+// Only the chosen function is called - unlike Select, the other is never evaluated.
+
+// -- Basic branch between two functions --
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+let Halve(x: Float64): Float64  = (x, 2.0) -> Std.Divide;
+
+// If 10 > 0, Double it; otherwise Halve it.
+((10.0, 0.0) -> Std.GreaterThan, 10.0, Double, Halve) -> Std.Branch -> Std.Println;  // 20
+((-4.0, 0.0) -> Std.GreaterThan, -4.0, Double, Halve) -> Std.Branch -> Std.Println;  // -2.0
+
+// -- Branch to apply different string transforms --
+let Shout(s: String): String = (s) -> Std.String.Upper;
+let Whisper(s: String): String = (s) -> Std.String.Lower;
+
+let Announce(loud: Bool, message: String): String =
+    (loud, message, Shout, Whisper) -> Std.Branch;
+
+(True, "hello world") -> Announce -> Std.Println;                 // HELLO WORLD
+(False, "HELLO WORLD") -> Announce -> Std.Println;                // hello world
+
+// -- Branch used for early-exit style logic --
+let SafeDivide(a: Float64, b: Float64): Float64 =
+    ((b, 0.0) -> Std.Equal, b, Halve, Double) -> Std.Branch;
+
+// b=0 -> Halve(0) = 0.0, b=4 -> Double(4) = 8
+(10.0, 0.0) -> SafeDivide -> Std.Println;                         // 0.0
+(10.0, 4.0) -> SafeDivide -> Std.Println;                         // 8
+
+// -- Branch with inline closures: no named helpers needed --
+// The value at position 1 is forwarded as the argument to whichever closure runs.
+((7.0, 0.0) -> Std.GreaterThan,
+ (7.0) -> Std.ToString,
+ (s: String): String = ("positive: {}", s) -> Std.String.Format,
+ (s: String): String = ("non-positive: {}", s) -> Std.String.Format
+) -> Std.Branch -> Std.Println;                                   // positive: 7
+
+((-3.0, 0.0) -> Std.GreaterThan,
+ (-3.0) -> Std.ToString,
+ (s: String): String = ("positive: {}", s) -> Std.String.Format,
+ (s: String): String = ("non-positive: {}", s) -> Std.String.Format
+) -> Std.Branch -> Std.Println;                                   // non-positive: -3
+
+// -- Zero-parameter closures capture from the outer scope --
+// Useful when the branch result does not depend on the dispatched value.
+let GetLabel(): String = "fleaux";
+((True, () -> GetLabel, Std.String.Upper, Std.String.Lower) -> Std.Branch) -> Std.Println;  // FLEAUX
+
+`;export{e as default};

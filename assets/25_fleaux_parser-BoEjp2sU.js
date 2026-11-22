@@ -1,0 +1,39 @@
+var e=`import Std;
+
+// Parser-oriented sample: load a Fleaux source file, strip comment-only lines,
+// split it into statements, and print the surviving statement text blocks.
+
+let IsNotEmpty(line: String): Bool =
+    (line, "") -> Std.NotEqual;
+
+let StripCommentLine(line: String): String =
+    (((line) -> Std.String.TrimStart, "//") -> Std.String.StartsWith,
+     "",
+     line) -> Std.Select;
+
+let NormalizeForStatements(src: String): String =
+    (src, "\\n") -> Std.String.Split
+    -> (_, StripCommentLine) -> Std.Tuple.Map
+    -> ("\\n", _) -> Std.String.Join;
+
+let SplitStatements(src: String): Tuple<Any...> =
+    (src, ";\\n") -> Std.String.Split
+    -> (_, Std.String.Trim) -> Std.Tuple.Map
+    -> (_, IsNotEmpty) -> Std.Tuple.Filter;
+
+let DemoSource(): String =
+    ("", ("import Std;\\n",
+          "let AddOne(x: Int64): Int64 = (x, 1) -> Std.Add;\\n",
+          "(41) -> AddOne -> Std.Println;\\n")) -> Std.String.Join;
+
+let ParsePreview(src: String): Tuple<Any...> =
+    (src) -> NormalizeForStatements -> SplitStatements;
+
+let main(): Any =
+    () -> DemoSource
+    -> ParsePreview
+    -> Std.Println;
+
+() -> main;
+
+`;export{e as default};

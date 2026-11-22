@@ -1,0 +1,42 @@
+var e=`import Std;
+
+let Inc(x: Int64): Int64 = (x, 1) -> Std.Add;
+let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;
+
+let BuildOptions(): Dict<String, Any> =
+    () -> Std.Dict.Create
+    -> (_, "max_workers", 2) -> Std.Dict.Set
+;
+
+let AwaitTask<T>(task: TaskHandle<T>): Result<T, String> = (task) -> Std.Task.Await;
+let CancelTask<T>(task: TaskHandle<T>): Bool = (task) -> Std.Task.Cancel;
+let AwaitTaskWithTimeout<T>(task: TaskHandle<T>, timeout: UInt64): Result<T, String> = (task, timeout) -> Std.Task.WithTimeout;
+
+let Add(acc: Int64, x: Int64): Int64 = (acc, x) -> Std.Add;
+
+// Task.Spawn + Task.Await
+(Inc, 41) -> Std.Task.Spawn -> AwaitTask -> Std.Result.Unwrap -> Std.Println;
+
+// Task.AwaitAll preserves input order
+(((Inc, 1) -> Std.Task.Spawn,
+  (Inc, 2) -> Std.Task.Spawn,
+  (Inc, 3) -> Std.Task.Spawn))
+  -> Std.Task.AwaitAll
+  -> Std.Result.Unwrap
+  -> Std.Println;
+
+// Task.Cancel returns a Bool, but the exact value is scheduler-sensitive if the task starts immediately.
+(Inc, 9) -> Std.Task.Spawn -> CancelTask -> Std.Type -> Std.Println;
+
+// Task.WithTimeout
+(Inc, 7) -> Std.Task.Spawn -> (_, 500u64) -> AwaitTaskWithTimeout -> Std.Result.Unwrap -> Std.Println;
+
+// Parallel.WithOptions with max_workers
+((1, 2, 3, 4), Inc, () -> BuildOptions) -> Std.Parallel.WithOptions -> Std.Result.Unwrap -> Std.Println;
+
+// Parallel.ForEach - side-effect iteration; result is empty tuple
+((10, 20, 30), Double) -> Std.Parallel.ForEach -> Std.Result.IsOk -> Std.Println;
+
+// Parallel.Reduce - left fold summing a list
+((1, 2, 3, 4, 5), 0, Add) -> Std.Parallel.Reduce -> Std.Result.Unwrap -> Std.Println;
+`;export{e as default};

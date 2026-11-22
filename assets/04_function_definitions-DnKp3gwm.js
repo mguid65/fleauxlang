@@ -1,0 +1,47 @@
+var e=`import Std;
+
+// -- Zero-parameter function (constant) --
+let Pi(): Float64 = 3.14159265358979;
+
+() -> Pi -> Std.Println;                                          // 3.14159...
+
+// -- Single-parameter function --
+let Negate(x: Float64): Float64 = (0.0, x) -> Std.Subtract;
+
+(7.0) -> Negate -> Std.Println;                                   // -7
+
+// -- Multi-parameter function --
+let Average(a: Float64, b: Float64): Float64 =
+    (a, b) -> Std.Add -> (_, 2.0) -> Std.Divide;
+
+(10.0, 20.0) -> Average -> Std.Println;                           // 15.0
+
+// -- Qualified function name (namespace prefix) --
+let MyMath.Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+
+(6.0) -> MyMath.Square -> Std.Println;                            // 36
+
+// -- Functions referencing other user functions --
+let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+
+let SumOfSquares(a: Float64, b: Float64): Float64 =
+    (a) -> Square -> (_, (b) -> Square) -> Std.Add;
+
+(3.0, 4.0) -> SumOfSquares -> Std.Println;                        // 25
+
+// -- The :: and = separators are both valid in let definitions --
+let AddAlt(x: Float64, y: Float64): Float64 :: (x, y) -> +;
+
+(8.0, 5.0) -> AddAlt -> Std.Println;                              // 13
+
+// -- Function with separate min/max helpers --
+let Min(a: Float64, b: Float64): Float64 =
+    ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
+
+let Max(a: Float64, b: Float64): Float64 =
+    ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
+
+(3.0, 9.0) -> Min -> Std.Println;                                 // 3
+(3.0, 9.0) -> Max -> Std.Println;                                 // 9
+
+`;export{e as default};

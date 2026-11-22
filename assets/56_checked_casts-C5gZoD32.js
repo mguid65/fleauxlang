@@ -1,0 +1,39 @@
+var e=`import Std;
+
+// A value of type Any can be used as a more specific type only after a cast.
+// Std.Cast<T> checks an Any value against T at runtime and stops the program when it does not match.
+// Std.TryCast<T> performs the same check and returns a Result instead.
+
+type UserId :: Int64;
+
+let Forget(x: Any): Any = x;
+
+let Increment(x: Any): Int64 = (x -> Std.Cast<Int64>, 1) -> Std.Add;
+
+41 -> Forget -> Increment -> Std.Println;                                   // 42
+
+// TryCast reports a mismatch as an Err naming the expected and actual types.
+"seven" -> Forget -> Std.TryCast<Int64> -> Std.Result.UnwrapErr -> Std.Println;
+
+// Unions, tuples, and dictionaries are checked structurally.
+7 -> Forget -> Std.TryCast<Int64 | String> -> Std.Result.IsOk -> Std.Println;                    // True
+(1, "a", "b",) -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println; // True
+(1, 2,) -> Forget -> Std.TryCast<Tuple<Int64, String...>> -> Std.Result.IsOk -> Std.Println;        // False
+
+let Scores(): Dict<String, Int64> =
+  () -> Std.Dict.Create -> (_, "ada", 3) -> Std.Dict.Set -> (_, "lin", 5) -> Std.Dict.Set;
+
+() -> Scores -> Forget -> Std.TryCast<Dict<String, Int64>> -> Std.Result.IsOk -> Std.Println;  // True
+() -> Scores -> Forget -> Std.TryCast<Dict<String, String>> -> Std.Result.IsOk -> Std.Println; // False
+
+// A strong type is checked by its underlying type.
+5 -> Forget -> Std.Cast<UserId> -> Std.Println;                              // 5
+
+// Builtin types are checked by their runtime tag.
+12345u64 -> Std.Random.Create -> Forget -> Std.TryCast<RandomGenerator> -> Std.Result.IsOk -> Std.Println; // True
+
+// Casts that cannot be checked at runtime are compile errors:
+//   x -> Std.Cast<(Int64) => Int64>   function types
+//   x -> Std.Cast<TaskHandle<Int64>>  a task's result type (TaskHandle<Any> is allowed)
+//   x -> Std.Cast<T>                  generic parameters
+`;export{e as default};

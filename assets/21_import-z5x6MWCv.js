@@ -1,0 +1,5 @@
+var e=`import Std;
+import 20_export;
+
+(4.0) -> Add4 -> Std.Println;
+`;export{e as default};

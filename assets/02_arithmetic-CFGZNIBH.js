@@ -1,0 +1,53 @@
+var e=`import Std;
+
+// -- Basic arithmetic functions --
+
+(10, 3) -> Std.Add -> Std.Println;               // 13
+(10, 3) -> Std.Subtract -> Std.Println;           // 7
+(10, 3) -> Std.Multiply -> Std.Println;           // 30
+(10, 3) -> Std.Divide -> Std.Println;             // 3 (Int64 division truncates)
+(10, 3) -> Std.Mod -> Std.Println;                // 1
+(2, 10) -> Std.Pow -> Std.Println;                // 1024
+(16.0) -> Std.Math.Sqrt -> Std.Println;           // 4.0
+
+// -- Operators used directly as pipeline call targets --
+// These are shorthand for the corresponding Std.* functions.
+
+(10, 3) -> + -> Std.Println;                      // 13
+(10, 3) -> - -> Std.Println;                      // 7
+(10, 3) -> * -> Std.Println;                      // 30
+(10, 3) -> / -> Std.Println;                      // 3
+(10.0, 3.0) -> / -> Std.Println;                  // 3.3333333333333335
+(10, 3) -> % -> Std.Println;                      // 1
+(2, 10) -> ^ -> Std.Println;                      // 1024
+
+// '-' with a single operand is negation (Std.UnaryMinus).
+7 -> - -> Std.Println;                            // -7
+(2.5) -> - -> Std.Println;                        // -2.5
+
+// The operand's type decides the form: a tuple-typed value is still a binary call.
+let Pair(): Tuple<Int64, Int64> = (10, 4);
+(Pair...) -> - -> Std.Println;                    // 6, the tuple's items are the two operands
+
+// -- Composing arithmetic in pipelines --
+
+// (4 + 6) * 2 = 20
+(4.0, 6.0) -> Std.Add -> (_, 2.0) -> Std.Multiply -> Std.Println;
+
+// Square: x * x
+let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
+
+// Cube: x * x * x
+let Cube(x: Float64): Float64 =
+    ((x, x) -> Std.Multiply, x) -> Std.Multiply;
+
+(5.0) -> Square -> Std.Println;                   // 25
+(3.0) -> Cube -> Std.Println;                     // 27
+
+// Hypotenuse of a 3-4-5 right triangle: sqrt(3^2 + 4^2)
+let Hypotenuse(a: Float64, b: Float64): Float64 =
+    ((a, a) -> Std.Multiply, (b, b) -> Std.Multiply) -> Std.Add -> Std.Math.Sqrt;
+
+(3.0, 4.0) -> Hypotenuse -> Std.Println;          // 5.0
+
+`;export{e as default};

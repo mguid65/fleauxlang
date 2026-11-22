@@ -1,0 +1,19 @@
+var e=`import Std;
+
+let G0: RandomGenerator = 123456789 -> Std.ToUInt64 -> Std.Random.Create;
+let Step1: Tuple<UInt64, RandomGenerator> = G0 -> Std.Random.NextUInt64;
+let Value1: UInt64 = Step1 -> Std.First;
+let G1: RandomGenerator = Step1 -> Std.Second;
+let Step2: Tuple<Float64, RandomGenerator> = G1 -> Std.Random.NextFloat64;
+let SplitPair: Tuple<RandomGenerator, RandomGenerator> = G0 -> Std.Random.Split;
+let LeftStep: Tuple<UInt64, RandomGenerator> = SplitPair -> Std.First -> Std.Random.NextUInt64;
+let RightStep: Tuple<UInt64, RandomGenerator> = SplitPair -> Std.Second -> Std.Random.NextUInt64;
+
+Value1 -> Std.Println;
+Step2 -> Std.First -> Std.Println;
+G0 -> Std.Random.NextBool -> Std.First -> Std.Println;
+LeftStep -> Std.First -> Std.Println;
+RightStep -> Std.First -> Std.Println;
+
+
+`;export{e as default};

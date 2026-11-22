@@ -1,0 +1,28 @@
+var e=`import Std;
+// -- Numeric comparisons --
+(5, 3) -> Std.GreaterThan -> Std.Println;                         // True
+(5, 3) -> Std.LessThan -> Std.Println;                            // False
+(5, 5) -> Std.GreaterOrEqual -> Std.Println;                      // True
+(4, 5) -> Std.LessOrEqual -> Std.Println;                         // True
+(5, 5) -> Std.Equal -> Std.Println;                               // True
+(5, 3) -> Std.NotEqual -> Std.Println;                            // True
+// -- Operator shorthand for comparisons --
+(10, 7) -> > -> Std.Println;                                      // True
+(3, 3) -> == -> Std.Println;                                      // True
+(3, 4) -> != -> Std.Println;                                      // True
+// -- Boolean logic --
+(True, False) -> Std.And -> Std.Println;                          // False
+(True, False) -> Std.Or -> Std.Println;                           // True
+(True) -> Std.Not -> Std.Println;                                 // False
+// -- Operator shorthand for logic --
+(True, True) -> && -> Std.Println;                                // True
+(False, True) -> || -> Std.Println;                               // True
+// -- Compound conditions --
+let InRange(x: Float64, lo: Float64, hi: Float64): Bool =
+    ((x, lo) -> Std.GreaterOrEqual, (x, hi) -> Std.LessOrEqual) -> Std.And;
+(5.0, 1.0, 10.0) -> InRange -> Std.Println;                       // True
+(15.0, 1.0, 10.0) -> InRange -> Std.Println;                      // False
+// -- String equality --
+("hello", "hello") -> Std.Equal -> Std.Println;                   // True
+("hello", "world") -> Std.Equal -> Std.Println;                   // False
+`;export{e as default};

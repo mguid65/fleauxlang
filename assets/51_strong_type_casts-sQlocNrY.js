@@ -1,0 +1,12 @@
+var e=`import Std;
+
+type UserId = Int64;
+
+let EchoUserId(value: UserId): UserId = value;
+
+let RenderUserId(value: UserId): String =
+  value -> Std.Cast<Int64> -> Std.ToString;
+
+42 -> Std.Cast<UserId> -> EchoUserId -> RenderUserId -> Std.Println;
+
+`;export{e as default};

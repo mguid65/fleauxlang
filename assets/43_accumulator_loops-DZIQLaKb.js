@@ -1,0 +1,22 @@
+var e=`import Std;
+
+// Python:
+// def sum_items(items):
+//     total = 0
+//     index = 0
+//     while index < len(items):
+//         total += items[index]
+//         index += 1
+//     return total
+
+let SumItems(items: Tuple<Int64...>): Int64 =
+    ((0, 0),
+     (state: Tuple<Int64, Int64>): Bool =
+         ((state, 0u64) -> Std.ElementAt, (items) -> Std.Length) -> Std.LessThan,
+     (state: Tuple<Int64, Int64>): Tuple<Int64, Int64> =
+         (((state, 0u64) -> Std.ElementAt, 1) -> Std.Add,
+          ((state, 1u64) -> Std.ElementAt, (items, (state, 0u64) -> Std.ElementAt -> Std.ToUInt64) -> Std.ElementAt) -> Std.Add)
+    ) -> Std.Loop -> (_, 1u64) -> Std.ElementAt;
+
+((3, 1, 4, 1, 5)) -> SumItems -> Std.Println;
+`;export{e as default};

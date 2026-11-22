@@ -1,0 +1,31 @@
+var e=`import Std;
+
+// Prototype: verbose error handling with explicit branching over typed Result values.
+
+let ReciprocalOk(x: Float64): Result<Float64, String> =
+    (1.0, x) -> Std.Divide -> Std.Result.Ok;
+
+let ReciprocalErr(x: Float64): Result<Float64, String> =
+    ("division by zero") -> Std.Result.Err;
+
+let SafeReciprocalResult(x: Float64): Result<Float64, String> =
+    ((x, 0.0) -> Std.Equal, ReciprocalErr, ReciprocalOk) -> Std.Select -> (x, _) -> Std.Apply;
+
+let PrintOk(result: Result<Float64, String>): Any =
+    ("OK: {}", (result) -> Std.Result.Unwrap) -> Std.String.Format -> Std.Println;
+
+let PrintErr(result: Result<Float64, String>): Any =
+    ("ERROR: {}", (result) -> Std.Result.UnwrapErr) -> Std.String.Format -> Std.Println;
+
+// Explicit branch on the Result value by selecting the handler first, then applying it.
+let HandleResult(result: Result<Float64, String>): Any =
+    ((result) -> Std.Result.IsOk, PrintOk, PrintErr) -> Std.Select -> (result, _) -> Std.Apply;
+
+(4.0) -> SafeReciprocalResult -> HandleResult;
+(0.0) -> SafeReciprocalResult -> HandleResult;
+
+
+
+
+
+`;export{e as default};

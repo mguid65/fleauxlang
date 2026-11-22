@@ -1,0 +1,47 @@
+var e=`import Std;
+
+// Python:
+// def summarize_numbers(items):
+//     index = 0
+//     total = 0
+//     even_count = 0
+//     odd_count = 0
+//     while index < len(items):
+//         current = items[index]
+//         total += current
+//         if current % 2 == 0:
+//             even_count += 1
+//         else:
+//             odd_count += 1
+//         index += 1
+//     return total, even_count, odd_count
+
+let IsEven(x: Int64): Bool =
+    ((x, 2) -> Std.Mod, 0) -> Std.Equal;
+
+let CurrentItem(items: Tuple<Int64...>, state: Tuple<Int64, Int64, Int64, Int64>): Int64 =
+    (items, (state, 0u64) -> Std.ElementAt -> Std.ToUInt64) -> Std.ElementAt;
+
+let SummarizeNumbers(items: Tuple<Int64...>): Tuple<Int64, Int64, Int64> =
+    ((0, 0, 0, 0),
+     (state: Tuple<Int64, Int64, Int64, Int64>): Bool =
+         ((state, 0u64) -> Std.ElementAt, (items) -> Std.Length) -> Std.LessThan,
+     (state: Tuple<Int64, Int64, Int64, Int64>): Tuple<Int64, Int64, Int64, Int64> =
+         (((state, 0u64) -> Std.ElementAt, 1) -> Std.Add,
+          ((state, 1u64) -> Std.ElementAt, (items, state) -> CurrentItem) -> Std.Add,
+          (((items, state) -> CurrentItem) -> IsEven,
+            ((state, 2u64) -> Std.ElementAt, 1) -> Std.Add,
+            (state, 2u64) -> Std.ElementAt) -> Std.Select,
+          (((items, state) -> CurrentItem) -> IsEven,
+            (state, 3u64) -> Std.ElementAt,
+            ((state, 3u64) -> Std.ElementAt, 1) -> Std.Add) -> Std.Select)
+    ) -> Std.Loop
+    -> (state: Tuple<Int64, Int64, Int64, Int64>): Tuple<Int64, Int64, Int64> =
+           ((state, 1u64) -> Std.ElementAt,
+            (state, 2u64) -> Std.ElementAt,
+            (state, 3u64) -> Std.ElementAt);
+
+((3, 1, 4, 1, 5, 9)) -> SummarizeNumbers -> Std.Println;
+((2, 4, 6, 8)) -> SummarizeNumbers -> Std.Println;
+
+`;export{e as default};

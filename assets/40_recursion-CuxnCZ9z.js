@@ -1,0 +1,19 @@
+var e=`import Std;
+
+// Python:
+// def factorial(n):
+//     if n == 0:
+//         return 1
+//     else:
+//         return n * factorial(n - 1)
+
+let Factorial(n: Int64): Int64 =
+    (n,
+     (0, (): Int64 = 1),
+     (_, (): Int64 = (n, ((n, 1) -> Std.Subtract) -> Factorial) -> Std.Multiply)
+    ) -> Std.Match;
+
+(0) -> Factorial -> Std.Println;
+(5) -> Factorial -> Std.Println;
+
+`;export{e as default};

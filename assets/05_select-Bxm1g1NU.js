@@ -1,0 +1,49 @@
+var e=`import Std;
+
+// Std.Select: (condition, true_value, false_value) -> Std.Select
+// Returns true_value when condition is truthy, false_value otherwise.
+// Note: both branches are always evaluated before Select is called.
+
+// -- Basic conditional value selection --
+(True, "yes", "no") -> Std.Select -> Std.Println;                 // yes
+(False, "yes", "no") -> Std.Select -> Std.Println;                // no
+
+// -- Select driven by a comparison --
+// Is 10 > 5? -> pick "greater" or "lesser"
+((10, 5) -> Std.GreaterThan, "greater", "lesser") -> Std.Select -> Std.Println;  // greater
+
+// -- Absolute value: x if x >= 0 else -x --
+let Abs(x: Float64): Float64 =
+    ((x, 0.0) -> Std.GreaterOrEqual, x, (0.0, x) -> Std.Subtract) -> Std.Select;
+
+(7.0) -> Abs -> Std.Println;                                      // 7
+(-7.0) -> Abs -> Std.Println;                                     // 7
+
+// -- Min and Max via Select --
+let Min(a: Float64, b: Float64): Float64 =
+    ((a, b) -> Std.LessOrEqual, a, b) -> Std.Select;
+
+let Max(a: Float64, b: Float64): Float64 =
+    ((a, b) -> Std.GreaterOrEqual, a, b) -> Std.Select;
+
+(4.0, 9.0) -> Min -> Std.Println;                                 // 4
+(4.0, 9.0) -> Max -> Std.Println;                                 // 9
+
+// -- Clamping a value to a range [lo, hi] --
+let Clamp(x: Float64, lo: Float64, hi: Float64): Float64 =
+    (x, lo) -> Max -> (_, hi) -> Min;
+
+(-5.0, 0.0, 100.0) -> Clamp -> Std.Println;                       // 0
+(50.0, 0.0, 100.0) -> Clamp -> Std.Println;                       // 50
+(150.0, 0.0, 100.0) -> Clamp -> Std.Println;                      // 100
+
+// -- Selecting a numeric label based on sign --
+let SignLabel(x: Float64): String =
+    ((x, 0.0) -> Std.GreaterThan, "positive",
+     ((x, 0.0) -> Std.Equal, "zero", "negative") -> Std.Select) -> Std.Select;
+
+(5.0) -> SignLabel -> Std.Println;                                 // positive
+(0.0) -> SignLabel -> Std.Println;                                 // zero
+(-3.0) -> SignLabel -> Std.Println;                                // negative
+
+`;export{e as default};

@@ -1,0 +1,28 @@
+var e=`import Std;
+// -- ElementAt, Length --
+(1, 2, 3) -> (_, 0u64) -> Std.ElementAt -> Std.Println;             // 1
+(1, 2, 3) -> (_, 1u64) -> Std.ElementAt -> Std.Println;             // 2
+((1, 2, 3)) -> Std.Length -> Std.Println;                         // 3
+// -- Take, Drop, Slice --
+((1, 2, 3, 4, 5), 3u64) -> Std.Take -> Std.Println;                 // (1, 2, 3)
+((1, 2, 3, 4, 5), 2u64) -> Std.Drop -> Std.Println;                 // (3, 4, 5)
+((1, 2, 3, 4, 5), 1u64) -> Std.Drop -> (_, 3u64) -> Std.Take -> Std.Println;   // (2, 3, 4)
+// -- Append, Prepend, Reverse --
+((1, 2, 3), 4) -> Std.Tuple.Append -> Std.Println;               // (1, 2, 3, 4)
+((1, 2, 3), 0) -> Std.Tuple.Prepend -> Std.Println;              // (0, 1, 2, 3)
+((1, 2, 3)) -> Std.Tuple.Reverse -> Std.Println;                 // (3, 2, 1)
+// -- Contains --
+((1, 2, 3), 2) -> Std.Tuple.Contains -> Std.Println;             // True
+((1, 2, 3), 9) -> Std.Tuple.Contains -> Std.Println;             // False
+// -- Zip --
+((1, 2, 3), (4, 5, 6)) -> Std.Tuple.Zip -> Std.Println;         // ((1,4),(2,5),(3,6))
+// -- Map: apply a function to each element --
+let Double(x: Float64): Float64 = (x, 2.0) -> Std.Multiply;
+((1.0, 2.0, 3.0, 4.0), Double) -> Std.Tuple.Map -> Std.Println;  // (2, 4, 6, 8)
+// -- Filter: keep elements matching a predicate --
+let IsEven(x: Float64): Bool = (x, 2.0) -> Std.Mod -> (_, 0.0) -> Std.Equal;
+((1.0, 2.0, 3.0, 4.0, 5.0, 6.0), IsEven) -> Std.Tuple.Filter -> Std.Println; // (2, 4, 6)
+// -- Wrap/Unwrap: lift single value into a 1-tuple and back --
+(42) -> Std.Wrap -> Std.Println;                                  // (42,)
+(42) -> Std.Wrap -> Std.Unwrap -> Std.Println;                    // 42
+`;export{e as default};

@@ -1,0 +1,30 @@
+var e=`import Std;
+
+// Generic strong types take type parameters in angle brackets.
+// The parameter of Id is only a marker: Id<User> and Id<Order> are distinct types
+// even though both are stored as Int64.
+type User = Null;
+type Order = Null;
+type Id<T> = Int64;
+
+let MakeUserId(raw: Int64): Id<User> = raw -> Std.Cast<Id<User>>;
+let RenderUserId(id: Id<User>): String = id -> Std.Cast<Int64> -> Std.ToString;
+
+42 -> MakeUserId -> RenderUserId -> Std.Println;
+
+// A generic strong type can wrap structure. Std.Cast converts to and from the
+// underlying type with the type arguments filled in.
+type Pair<A, B> = Tuple<A, B>;
+
+let MakePair<A, B>(a: A, b: B): Pair<A, B> = (a, b,) -> Std.Cast<Pair<A, B>>;
+let PairFirst<A, B>(p: Pair<A, B>): A = p -> Std.Cast<Tuple<A, B>> -> Std.First;
+
+("count", 3) -> MakePair -> PairFirst -> Std.Println;
+
+// Builtin types such as TaskHandle<T> carry their type argument through builtins:
+// Std.Task.Await on a TaskHandle<Int64> produces Result<Int64, String>.
+let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;
+let AwaitInt(task: TaskHandle<Int64>): Result<Int64, String> = (task) -> Std.Task.Await;
+
+(Double, 21) -> Std.Task.Spawn -> AwaitInt -> Std.Result.Unwrap -> Std.Println;
+`;export{e as default};

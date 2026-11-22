@@ -1,0 +1,40 @@
+var e=`import Std;
+
+//  Variadic-only parameter
+// When the sole parameter is marked \`...\`, all arguments are captured as a
+// tuple.  A scalar argument is automatically lifted into a 1-element tuple.
+
+let Collect(items: Any...): Tuple<Any...> = items;
+
+(42) -> Collect -> Std.Length -> Std.Println;              // 1  (scalar → 1-tuple)
+(1, 2, 3) -> Collect -> Std.Length -> Std.Println;         // 3
+() -> Collect -> Std.Length -> Std.Println;                // 0
+
+//  Fixed parameters + variadic tail
+// Named fixed parameters are bound left-to-right; the variadic tail
+// collects everything that remains (may be an empty tuple).
+
+let First(head: Any, rest: Any...): Any = head;
+let Rest(head: Any, rest: Any...): Tuple<Any...>  = rest;
+
+(10, 20, 30) -> First -> Std.Println;                      // 10
+(10, 20, 30) -> Rest  -> Std.Length -> Std.Println;        // 2
+
+//  Practical example: fixed-prefix sum with a variadic tail
+// The first three values are named, and any remaining values are captured in \`rest\`.
+
+let SumPrefix3(a: Float64, b: Float64, c: Float64, rest: Any...): Float64 =
+    ((a, b) -> Std.Add, c) -> Std.Add;
+
+(1.0, 2.0, 3.0, 4.0, 5.0) -> SumPrefix3 -> Std.Println;   // 6
+
+//  Practical example: variadic string join
+// Mix fixed + variadic: \`sep\` is the fixed separator, \`parts\` is the tail.
+
+let JoinWith(sep: String, parts: Any...): String =
+    (sep, parts) -> Std.String.Join;
+
+(",", "alpha", "beta", "gamma") -> JoinWith -> Std.Println;   // alpha,beta,gamma
+(" | ", "one", "two", "three") -> JoinWith -> Std.Println;    // one | two | three
+
+`;export{e as default};

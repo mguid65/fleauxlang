@@ -1,0 +1,50 @@
+var e=`import Std;
+// Std.Loop: (state, continue_func, step_func) -> Std.Loop
+// Iterates while continue_func(state) is truthy.
+// State can be any value or tuple.
+// -- Simple countdown: 10 down to 0 --
+let CountContinue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
+let CountStep(n: Float64): Float64   = (n, 1.0) -> Std.Subtract;
+(10.0, CountContinue, CountStep) -> Std.Loop -> Std.Println;      // 0
+// -- Accumulate: sum 1..N --
+// state = (counter, accumulator)
+let SumContinue(state: Tuple<Float64, Float64>): Bool =
+    ((state, 0u64) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
+let SumStep(state: Tuple<Float64, Float64>): Tuple<Float64, Float64> =
+    (((state, 0u64) -> Std.ElementAt, 1.0) -> Std.Subtract,
+     ((state, 1u64) -> Std.ElementAt, (state, 0u64) -> Std.ElementAt) -> Std.Add);
+(10.0, 0.0) -> (_, SumContinue, SumStep) -> Std.Loop -> Std.Println; // (0, 55)
+// -- Fibonacci: iterate until index reaches 0 --
+// state = (remaining_steps, a, b)
+let FibContinue(state: Tuple<Float64, Float64, Float64>): Bool =
+    ((state, 0u64) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
+let FibStep(state: Tuple<Float64, Float64, Float64>): Tuple<Float64, Float64, Float64> =
+    (((state, 0u64) -> Std.ElementAt, 1.0) -> Std.Subtract,
+     (state, 2u64) -> Std.ElementAt,
+     ((state, 1u64) -> Std.ElementAt, (state, 2u64) -> Std.ElementAt) -> Std.Add);
+// Compute fib(10): start (10, 0, 1), extract second element of result
+let Fib(n: Float64): Float64 =
+    ((n, 0.0, 1.0), FibContinue, FibStep) -> Std.Loop -> (_, 1u64) -> Std.ElementAt;
+(10.0) -> Fib -> Std.Println;                                     // 55
+(0.0)  -> Fib -> Std.Println;                                     // 0
+
+// -- Loop with inline closures: no named continue/step helpers needed --
+// state = (n, acc); continue while n > 0; step decrements n and adds to acc.
+((5.0, 0.0),
+ (state: Tuple<Float64, Float64>): Bool = ((state, 0u64) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
+ (state: Tuple<Float64, Float64>): Tuple<Float64, Float64> =
+     (((state, 0u64) -> Std.ElementAt, 1.0) -> Std.Subtract,
+      ((state, 1u64) -> Std.ElementAt, (state, 0u64) -> Std.ElementAt) -> Std.Add)
+) -> Std.Loop -> (_, 1u64) -> Std.ElementAt -> Std.Println;          // 15 (5+4+3+2+1)
+
+// -- LoopN with inline closures: double a value exactly 8 times --
+// state = (remaining_iters, current_value)
+((8.0, 1.0),
+ (state: Tuple<Float64, Float64>): Bool = ((state, 0u64) -> Std.ElementAt, 0.0) -> Std.GreaterThan,
+ (state: Tuple<Float64, Float64>): Tuple<Float64, Float64> =
+     (((state, 0u64) -> Std.ElementAt, 1.0) -> Std.Subtract,
+      ((state, 1u64) -> Std.ElementAt, 2.0) -> Std.Multiply),
+  10u64
+) -> Std.LoopN -> (_, 1u64) -> Std.ElementAt -> Std.Println;        // 256
+
+`;export{e as default};
