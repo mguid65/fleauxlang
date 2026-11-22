@@ -608,7 +608,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const std::string path = as_string(array_at(arg, 0));
   const std::string mode = as_string(array_at(arg, 1));
   const UInt slot = handle_registry().open(detail::resolve_runtime_path(path).string(), mode);
-  const UInt gen = handle_registry().entries[slot].generation;
+  const UInt gen = handle_registry().entries[static_cast<std::size_t>(slot)].generation;
   return make_handle_token(slot, gen);
 }
 
@@ -689,7 +689,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   const std::string mode = as_string(array_at(arg, 1));
   const Value& fn = array_at(arg, 2);
   const UInt slot = handle_registry().open(path, mode);
-  const UInt gen = handle_registry().entries[slot].generation;
+  const UInt gen = handle_registry().entries[static_cast<std::size_t>(slot)].generation;
   const Value token = make_handle_token(slot, gen);
   try {
     Value result = invoke_callable_ref(fn, token);

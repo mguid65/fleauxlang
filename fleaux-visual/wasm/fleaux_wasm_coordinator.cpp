@@ -63,8 +63,8 @@ struct StreamRedirectGuard {
 constexpr auto kDefaultSourceName = "visual_graph.fleaux";
 
 [[nodiscard]] auto is_blank_text(const std::string_view text) -> bool {
-  for (const unsigned char ch : text) {
-    if (!std::isspace(ch)) {
+  for (const char ch : text) {
+    if (!std::isspace(static_cast<unsigned char>(ch))) {
       return false;
     }
   }

@@ -924,7 +924,7 @@ struct HandleRegistry {
   [[nodiscard]] auto get(const UInt slot, const UInt gen) -> HandleEntry* {
     if (slot >= entries.size())
       return nullptr;
-    auto& entry = entries[slot];
+    auto& entry = entries[static_cast<std::size_t>(slot)];
     if (entry.closed || entry.generation != gen)
       return nullptr;
     return &entry;
@@ -934,7 +934,7 @@ struct HandleRegistry {
     std::scoped_lock lock(mtx);
     if (slot >= entries.size())
       return false;
-    auto& entry = entries[slot];
+    auto& entry = entries[static_cast<std::size_t>(slot)];
     if (entry.closed || entry.generation != gen)
       return false;
     entry.stream.close();
@@ -1334,7 +1334,17 @@ auto make_tuple(Values&&... vals) -> Value {
                               [](const UInt value) -> UInt { return value; },
                               [](const Float value) -> UInt { return static_cast<UInt>(value); });
 }
-[[nodiscard]] inline auto uint64_index(const Value& val) -> std::size_t { return uint64_value(val); }
+// A UInt as a container index. On targets with a 32-bit std::size_t, such as wasm32, a value too large for it becomes
+// the largest index, which no container reaches, so bounds checks still reject it instead of wrapping around.
+[[nodiscard]] inline auto to_index(const UInt value) -> std::size_t {
+  if constexpr (sizeof(std::size_t) < sizeof(UInt)) {
+    if (value > std::numeric_limits<std::size_t>::max()) {
+      return std::numeric_limits<std::size_t>::max();
+    }
+  }
+  return static_cast<std::size_t>(value);
+}
+[[nodiscard]] inline auto uint64_index(const Value& val) -> std::size_t { return to_index(uint64_value(val)); }
 
 [[nodiscard]] inline auto as_int_value_strict(const Value& val, const std::string_view name) -> Int {
   return as_number(val).Visit([&](const Int signed_value) -> Int { return signed_value; },
@@ -1770,7 +1780,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
             throw std::invalid_argument{"Format supports only '{}'/'{N}' with optional ':spec'"};
           }
         }
-        index = std::stoull(index_part);
+        index = to_index(std::stoull(index_part));
       }
 
       if (index >= values.size()) {
