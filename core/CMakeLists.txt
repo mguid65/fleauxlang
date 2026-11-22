@@ -83,6 +83,7 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
   # compiled with Emscripten pthread support, not just the final executable.
   target_compile_options(fleaux_emscripten_threads INTERFACE -pthread)
   target_link_options(fleaux_emscripten_threads INTERFACE -pthread)
+  set_target_properties(fleaux_emscripten_threads PROPERTIES EXPORT_NAME emscripten_threads)
 endif()
 
 set(FLEAUX_PCRE2_TARGET "")
@@ -513,6 +514,11 @@ endif()
 
 set(FLEAUX_INSTALL_TARGETS)
 set(FLEAUX_DEVELOPMENT_TARGETS tl_expected datatree fleaux_common fleaux_frontend_diagnostics fleaux_frontend_parser fleaux_frontend_lowering fleaux_bytecode)
+
+# The libraries pass -pthread on to their users through this target, so it is exported with them.
+if(TARGET fleaux_emscripten_threads)
+  list(APPEND FLEAUX_DEVELOPMENT_TARGETS fleaux_emscripten_threads)
+endif()
 
 if(TARGET fleaux)
   list(APPEND FLEAUX_INSTALL_TARGETS fleaux)
