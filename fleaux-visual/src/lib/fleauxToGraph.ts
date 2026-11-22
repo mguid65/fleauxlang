@@ -1,6 +1,7 @@
 import type { Node } from '@xyflow/react';
-import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, FunctionParam, LiteralValueType, StdFuncData, TypeDeclData, UserFuncData } from './types';
-import { formatFunctionDisplayName, matchesArity } from './functionSignatures';
+import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, FunctionParam, LetData, LiteralValueType, RawSourceData, StdFuncData, TypeDeclData, UserFuncData } from './types';
+import { formatAritySummary, formatFunctionDisplayName, hasVariadicTail, matchesArity, minArity } from './functionSignatures';
+import { isOperatorToken, resolveOperator } from './operators';
 import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
 export class FleauxImportError extends Error {
@@ -16,7 +17,14 @@ export interface FleauxGraphImportResult {
 }
 
 type Param = { name: string; type: string };
-type LetDef = { name: string; typeParams?: string[]; params: Param[]; returnType: string; body: string };
+type LetDef = {
+  name: string;
+  typeParams?: string[];
+  params: Param[];
+  returnType: string;
+  body: string;
+  isValueBinding?: boolean;
+};
 type TypeDecl = { name: string; targetType: string; separator: '=' | '::' };
 type AliasDecl = { name: string; targetType: string };
 
@@ -53,23 +61,6 @@ for (const entry of STD_FUNCTIONS) {
   stdFunctionsByName.set(entry.qualifiedName, group);
 }
 const stdValueByName = new Map(STD_VALUES.map((entry) => [entry.qualifiedName, entry]));
-
-const OPERATOR_TO_STD_TARGET = new Map<string, string>([
-  ['+', 'Std.Add'],
-  ['-', 'Std.Subtract'],
-  ['*', 'Std.Multiply'],
-  ['/', 'Std.Divide'],
-  ['%', 'Std.Mod'],
-  ['^', 'Std.Pow'],
-  ['>', 'Std.GreaterThan'],
-  ['<', 'Std.LessThan'],
-  ['>=', 'Std.GreaterOrEqual'],
-  ['<=', 'Std.LessOrEqual'],
-  ['==', 'Std.Equal'],
-  ['!=', 'Std.NotEqual'],
-  ['&&', 'Std.And'],
-  ['||', 'Std.Or'],
-]);
 
 function selectStdFunctionOverload(
   qualifiedName: string,
@@ -136,15 +127,21 @@ function stripLineComments(source: string): string {
   return out.join('');
 }
 
-function splitStatements(source: string): string[] {
-  const statements: string[] = [];
+/**
+ * Marks the characters of `text` that sit outside strings and outside any nesting: parentheses, brackets, braces, and,
+ * when `trackAngles` is set, the angle brackets of type arguments. In expressions `<` is also an operator, so it opens
+ * type arguments only directly after a name (`Tuple<`, `Std.Cast<`) or directly before one (a generic closure
+ * `<T>(x: T)`); the operator is written apart from its neighbours (`-> <`).
+ */
+function topLevelMask(text: string, trackAngles: boolean): boolean[] {
+  const mask = new Array<boolean>(text.length).fill(false);
   let depth = 0;
+  let angleDepth = 0;
   let inString = false;
   let escape = false;
-  let start = 0;
 
-  for (let index = 0; index < source.length; index += 1) {
-    const ch = source[index];
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
     if (inString) {
       if (escape) { escape = false; }
       else if (ch === '\\') { escape = true; }
@@ -152,9 +149,30 @@ function splitStatements(source: string): string[] {
       continue;
     }
     if (ch === '"') { inString = true; continue; }
-    if (ch === '(') { depth += 1; continue; }
-    if (ch === ')') { depth = Math.max(0, depth - 1); continue; }
-    if (ch === ';' && depth === 0) {
+    if (ch === '(' || ch === '[' || ch === '{') { depth += 1; continue; }
+    if (ch === ')' || ch === ']' || ch === '}') { depth = Math.max(0, depth - 1); continue; }
+    if (trackAngles) {
+      if (ch === '<' && opensTypeArguments(text, index)) { angleDepth += 1; continue; }
+      if (angleDepth > 0 && isClosingAngle(text, index)) { angleDepth -= 1; continue; }
+    }
+    mask[index] = depth === 0 && angleDepth === 0;
+  }
+  return mask;
+}
+
+function opensTypeArguments(text: string, index: number): boolean {
+  const before = text[index - 1] ?? '';
+  const after = text[index + 1] ?? '';
+  return /[A-Za-z0-9_]/.test(before) || /[A-Za-z_]/.test(after);
+}
+
+function splitStatements(source: string): string[] {
+  const statements: string[] = [];
+  const topLevel = topLevelMask(source, false);
+  let start = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    if (topLevel[index] && source[index] === ';') {
       const stmt = source.slice(start, index).trim();
       if (stmt.length > 0) statements.push(stmt);
       start = index + 1;
@@ -170,23 +188,11 @@ function splitStatements(source: string): string[] {
 
 function splitTopLevel(text: string, delimiter: string): string[] {
   const parts: string[] = [];
-  let depth = 0;
-  let inString = false;
-  let escape = false;
+  const topLevel = topLevelMask(text, true);
   let cursor = 0;
 
   for (let index = 0; index < text.length; index += 1) {
-    const ch = text[index];
-    if (inString) {
-      if (escape) { escape = false; }
-      else if (ch === '\\') { escape = true; }
-      else if (ch === '"') { inString = false; }
-      continue;
-    }
-    if (ch === '"') { inString = true; continue; }
-    if (ch === '(') { depth += 1; continue; }
-    if (ch === ')') { depth = Math.max(0, depth - 1); continue; }
-    if (depth === 0 && text.startsWith(delimiter, index)) {
+    if (topLevel[index] && text.startsWith(delimiter, index)) {
       parts.push(text.slice(cursor, index).trim());
       cursor = index + delimiter.length;
       index += delimiter.length - 1;
@@ -198,26 +204,12 @@ function splitTopLevel(text: string, delimiter: string): string[] {
 }
 
 function hasTopLevelDelimiter(text: string, delimiter: string): boolean {
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
+  const topLevel = topLevelMask(text, true);
   for (let index = 0; index < text.length; index += 1) {
-    const ch = text[index];
-    if (inString) {
-      if (escape) { escape = false; }
-      else if (ch === '\\') { escape = true; }
-      else if (ch === '"') { inString = false; }
-      continue;
-    }
-    if (ch === '"') { inString = true; continue; }
-    if (ch === '(') { depth += 1; continue; }
-    if (ch === ')') { depth = Math.max(0, depth - 1); continue; }
-    if (depth === 0 && text.startsWith(delimiter, index)) {
+    if (topLevel[index] && text.startsWith(delimiter, index)) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -280,7 +272,7 @@ function parseParams(paramText: string): Param[] {
   });
 }
 
-type ClosureSyntax = { params: Param[]; returnType: string; body: string };
+type ClosureSyntax = { typeParams: string[]; params: Param[]; returnType: string; body: string };
 
 type DefinitionSeparator = { index: number; length: 1 | 2 };
 
@@ -352,7 +344,16 @@ function findTopLevelDefinitionSeparator(text: string): DefinitionSeparator | nu
  * Returns null if the text doesn't match the closure pattern.
  */
 function tryParseClosureSyntax(text: string): ClosureSyntax | null {
-  const trimmed = text.trim();
+  let trimmed = text.trim();
+
+  // A generic closure starts with its type parameters: `<T, U: Numeric>(x: T, y: U): R = body`.
+  let typeParams: string[] = [];
+  if (trimmed.startsWith('<')) {
+    const close = findMatchingAngle(trimmed, 0);
+    if (close === -1) return null;
+    typeParams = splitTopLevelType(trimmed.slice(1, close), ',').map((entry) => entry.replace(/\s*:\s*/, ': '));
+    trimmed = trimmed.slice(close + 1).trimStart();
+  }
   if (!trimmed.startsWith('(')) return null;
 
   // Find the matching `)` at depth 0
@@ -404,7 +405,7 @@ function tryParseClosureSyntax(text: string): ClosureSyntax | null {
     return null;
   }
 
-  return { params, returnType, body };
+  return { typeParams, params, returnType, body };
 }
 
 function splitNameAndTypeParams(rawName: string): { name: string; typeParams: string[] } {
@@ -452,6 +453,24 @@ function parseLet(stmt: string): LetDef {
   }
 
   const afterLet = trimmed.slice(4).trimStart();
+
+  // A value let, `let Name: Type = expr;`, names its value; it has no parameter list.
+  const valueHead = /^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*:/.exec(afterLet);
+  if (valueHead) {
+    const afterColon = afterLet.slice(valueHead[0].length).trimStart();
+    const separator = findTopLevelDefinitionSeparator(afterColon);
+    if (!separator) {
+      throw new FleauxImportError(`Unsupported let statement: ${stmt}`);
+    }
+    return {
+      name: valueHead[1],
+      params: [],
+      returnType: afterColon.slice(0, separator.index).trim(),
+      body: afterColon.slice(separator.index + separator.length).trim(),
+      isValueBinding: true,
+    };
+  }
+
   let angleDepth = 0;
   let paramsOpenIndex = -1;
   for (let index = 0; index < afterLet.length; index += 1) {
@@ -557,9 +576,23 @@ function nextIdFactory() {
   return (prefix: string): string => { counter += 1; return `${prefix}-${counter}`; };
 }
 
-function isQualifiedIdentifier(token: string): boolean {
-  return /^[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*$/.test(token);
+// True when `name` is a parameter of the enclosing let or of an enclosing closure.
+function isParameterInScope(ctx: BuildContext, name: string): boolean {
+  return ctx.letSourceRef?.paramIndexByName.has(name) === true
+    || ctx.closureScopes.some((scope) => scope.paramIndexByName.has(name));
 }
+
+// A name the source does not declare, taken to come from an imported module other than Std (every Std symbol is in
+// the catalogue). An import brings in its module's names as written, qualified or not.
+function isExternalSymbol(ctx: BuildContext, token: string): boolean {
+  return /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(token)
+    && !token.startsWith('Std.')
+    && !isParameterInScope(ctx, token)
+    && [...ctx.importedModules].some((moduleName) => moduleName !== 'Std');
+}
+
+// The Result tags: lowering turns `Std.Ok` and `Std.Err` into constants, so they are not in the Std catalogue.
+const RESULT_TAGS = new Set(['Std.Ok', 'Std.Err']);
 
 function addEdge(ctx: BuildContext, source: SourceRef, target: string, targetHandle?: string): void {
   ctx.edges.push({
@@ -635,12 +668,38 @@ function parseLiteralToken(token: string): { valueType: LiteralValueType; value:
     try { return { valueType: 'String', value: JSON.parse(token) as string }; }
     catch { return { valueType: 'String', value: token.slice(1, -1) }; }
   }
+  const unsigned = /^(\d+)u64$/.exec(token);
+  if (unsigned) {
+    return { valueType: 'UInt64', value: unsigned[1] };
+  }
   if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) {
     return { valueType: inferNumericLiteralType(token), value: token };
   }
   if (token === 'True' || token === 'False') return { valueType: 'Bool', value: token };
   if (token === 'null') return { valueType: 'Null', value: 'null' };
   return null;
+}
+
+function createSpreadNode(ctx: BuildContext, id: string, source: SourceRef): SourceRef {
+  ctx.nodes.push({
+    id,
+    type: 'spreadNode',
+    position: { x: 500, y: 140 + ctx.nodes.length * 40 },
+    data: { kind: 'spread', label: 'x...' },
+  });
+  addEdge(ctx, source, id, 'spread-in');
+  return { nodeId: id };
+}
+
+function isSpreadRef(ctx: BuildContext, ref: SourceRef): boolean {
+  return ctx.nodes.find((node) => node.id === ref.nodeId)?.data.kind === 'spread';
+}
+
+// A spread only belongs in a call's argument list, so a parameter list holding one cannot become a tuple value.
+function assertNoSpread(ctx: BuildContext, args: SourceRef[]): void {
+  if (args.some((arg) => isSpreadRef(ctx, arg))) {
+    throw new FleauxImportError("A spread 'x...' can only be part of a call's argument list.");
+  }
 }
 
 function createTupleNode(ctx: BuildContext, id: string, args: SourceRef[]): SourceRef {
@@ -689,6 +748,17 @@ function resolveIdentifierAsSource(
   const paramIndex = ctx.letSourceRef?.paramIndexByName.get(resolvedToken);
   if (paramIndex !== undefined && ctx.letSourceRef) {
     return { nodeId: ctx.letSourceRef.nodeId, sourceHandle: `let-param-${paramIndex}` };
+  }
+
+  if (RESULT_TAGS.has(resolvedToken) && !appliedTypeArgs) {
+    const nodeId = nextId('stdval');
+    ctx.nodes.push({
+      id: nodeId,
+      type: 'stdValueNode',
+      position: { x: 380, y: 130 + ctx.nodes.length * 40 },
+      data: { kind: 'stdValue', qualifiedName: resolvedToken, namespace: 'Std', valueType: 'Bool', label: resolvedToken },
+    });
+    return { nodeId };
   }
 
   // Std constant/value
@@ -770,7 +840,7 @@ function resolveIdentifierAsSource(
   }
 
   // Imported symbols may not be present in local source; represent them as external user funcs.
-  if (ctx.importedModules.size > 0 && isQualifiedIdentifier(resolvedToken)) {
+  if (isExternalSymbol(ctx, resolvedToken)) {
     const nodeId = nextId('extfuncref');
     ctx.nodes.push({
       id: nodeId,
@@ -791,6 +861,28 @@ function resolveIdentifierAsSource(
   }
 
   throw new FleauxImportError(`Unsupported value token '${token}'. Add support or simplify source before import.`);
+}
+
+/** The items of a parenthesized list's inner text, and whether it ends with a trailing comma (`(a, b,)`). */
+function splitItems(inner: string): { items: string[]; trailingComma: boolean } {
+  const topLevel = topLevelMask(inner, true);
+  const items: string[] = [];
+  let cursor = 0;
+  for (let index = 0; index < inner.length; index += 1) {
+    if (topLevel[index] && inner[index] === ',') {
+      items.push(inner.slice(cursor, index).trim());
+      cursor = index + 1;
+    }
+  }
+  const last = inner.slice(cursor).trim();
+  const trailingComma = items.length > 0 && last.length === 0;
+  if (!trailingComma) {
+    items.push(last);
+  }
+  if (items.some((item) => item.length === 0)) {
+    throw new FleauxImportError(`Empty item in '(${inner})'.`);
+  }
+  return { items, trailingComma };
 }
 
 /**
@@ -820,12 +912,12 @@ function parseValueAsSource(
       // Empty tuple ()
       return createTupleNode(ctx, nextId('tuple'), []);
     }
-    const parts = splitTopLevel(inner, ',');
-    if (parts.length === 1) {
+    const { items, trailingComma } = splitItems(inner);
+    if (items.length === 1 && !trailingComma) {
       return parseExpressionAsSource(ctx, inner, nextId, pipelineSource);
     }
-    // Each tuple element may itself be a pipeline expression
-    const args = parts.map((part) => parseExpressionAsSource(ctx, part, nextId, pipelineSource));
+    // Several items, or a trailing comma, make a tuple value. Each item may itself be a pipeline expression.
+    const args = items.map((item) => parseExpressionAsSource(ctx, item, nextId, pipelineSource));
     return createTupleNode(ctx, nextId('tuple'), args);
   }
 
@@ -850,39 +942,54 @@ function parseExpressionAsSource(
   return parseValueAsSource(ctx, trimmed, nextId, pipelineSource);
 }
 
+function stdCallData(std: StdFunctionEntry, appliedTypeArgs: string[] | undefined): StdFuncData {
+  return {
+    kind: 'stdFunc',
+    qualifiedName: std.qualifiedName,
+    namespace: std.namespace,
+    typeParams: std.typeParams,
+    appliedTypeArgs,
+    params: std.params,
+    returnType: std.returnType,
+    signatureKey: std.signatureKey,
+    displayName: formatFunctionDisplayName(std.qualifiedName, appliedTypeArgs ?? std.typeParams),
+    displaySignature: std.displaySignature,
+    hasVariadicTail: std.hasVariadicTail,
+    minimumArity: std.minimumArity,
+    overloadIndex: std.overloadIndex,
+    overloadCount: std.overloadCount,
+    isTerminal: std.isTerminal,
+    label: std.displayName,
+  };
+}
+
 function tryParseCallTarget(
   targetToken: string,
   ctx: BuildContext,
   inferredArity?: number,
 ): { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData } | null {
   const splitTarget = splitNameAndTypeParams(targetToken);
-  const baseTargetToken = splitTarget.name;
+  const resolvedToken = splitTarget.name;
   const appliedTypeArgs = splitTarget.typeParams.length > 0 ? splitTarget.typeParams : undefined;
-  const resolvedToken = OPERATOR_TO_STD_TARGET.get(baseTargetToken) ?? baseTargetToken;
+
+  // An operator stands for a Std builtin chosen by its operand count; the node keeps the operator, so a strong type's
+  // operator function still applies when it is serialized.
+  if (isOperatorToken(resolvedToken)) {
+    const operandCount = inferredArity ?? 2;
+    const entry = resolveOperator(resolvedToken, operandCount);
+    const std = entry ? selectStdFunctionOverload(entry.qualifiedName, operandCount) : null;
+    if (!entry || !std) {
+      throw new FleauxImportError(`Operator '${resolvedToken}' does not take ${operandCount} operand(s).`);
+    }
+    return {
+      kind: 'stdFunc',
+      data: { ...stdCallData(std, appliedTypeArgs), operator: entry.token, displayName: entry.token, label: entry.token },
+    };
+  }
 
   const std = selectStdFunctionOverload(resolvedToken, inferredArity);
   if (std) {
-    return {
-      kind: 'stdFunc',
-      data: {
-        kind: 'stdFunc',
-        qualifiedName: std.qualifiedName,
-        namespace: std.namespace,
-        typeParams: std.typeParams,
-        appliedTypeArgs,
-        params: std.params,
-        returnType: std.returnType,
-        signatureKey: std.signatureKey,
-        displayName: formatFunctionDisplayName(std.qualifiedName, appliedTypeArgs ?? std.typeParams),
-        displaySignature: std.displaySignature,
-        hasVariadicTail: std.hasVariadicTail,
-        minimumArity: std.minimumArity,
-        overloadIndex: std.overloadIndex,
-        overloadCount: std.overloadCount,
-        isTerminal: std.isTerminal,
-        label: std.displayName,
-      },
-    };
+    return { kind: 'stdFunc', data: stdCallData(std, appliedTypeArgs) };
   }
 
   if (stdFunctionsByName.has(resolvedToken)) {
@@ -892,7 +999,7 @@ function tryParseCallTarget(
   }
 
   const user = ctx.userFunctions.get(resolvedToken);
-  if (user) {
+  if (user && user.isValueBinding !== true) {
     const params = createFunctionParams('', user.params);
     return {
       kind: 'userFunc',
@@ -909,8 +1016,8 @@ function tryParseCallTarget(
     };
   }
 
-  if (ctx.importedModules.size > 0 && isQualifiedIdentifier(resolvedToken)) {
-    const arity = Math.max(1, inferredArity ?? 1);
+  if (isExternalSymbol(ctx, resolvedToken)) {
+    const arity = inferredArity ?? 0;
     return {
       kind: 'userFunc',
       data: {
@@ -956,9 +1063,16 @@ function parseTupleArgsIfPresent(
   if (!isWrappedByParens(token)) return null;
   const inner = token.slice(1, -1).trim();
   if (!inner) return [];
-  const parts = splitTopLevel(inner, ',');
-  if (parts.length === 1) return null;
-  return parts.map((part) => parseExpressionAsSource(ctx, part, nextId, pipelineSource));
+  const { items, trailingComma } = splitItems(inner);
+  const spreads = items.map((item) => item.length > 3 && item.endsWith('...'));
+  if (trailingComma && spreads.some(Boolean)) {
+    throw new FleauxImportError("A tuple written with a trailing comma cannot spread items with 'x...'.");
+  }
+  // `(x)` is the value x and `(a, b,)` one tuple value: neither is a list of several arguments. `(x...)` is.
+  if (trailingComma || (items.length === 1 && !spreads[0])) return null;
+  return items.map((item, index) => (spreads[index]
+    ? createSpreadNode(ctx, nextId('spread'), parseExpressionAsSource(ctx, item.slice(0, -3).trim(), nextId, pipelineSource))
+    : parseExpressionAsSource(ctx, item, nextId, pipelineSource)));
 }
 
 /**
@@ -969,12 +1083,11 @@ function createClosureNodeFromSyntax(
   closureSyntax: ClosureSyntax,
   nextId: (prefix: string) => string,
 ): SourceRef {
-  const { params, returnType, body } = closureSyntax;
+  const { typeParams, params, returnType, body } = closureSyntax;
   const closureNodeId = nextId('closure');
   const displayParams =
-    params.length === 0
-      ? '()'
-      : `(${params.map((p) => `${p.name}: ${p.type}`).join(', ')})`;
+    (typeParams.length > 0 ? `<${typeParams.join(', ')}>` : '')
+    + (params.length === 0 ? '()' : `(${params.map((p) => `${p.name}: ${p.type}`).join(', ')})`);
 
   ctx.nodes.push({
     id: closureNodeId,
@@ -982,6 +1095,7 @@ function createClosureNodeFromSyntax(
     position: { x: 380, y: 130 + ctx.nodes.length * 48 },
     data: {
       kind: 'closure',
+      typeParams: typeParams.length > 0 ? typeParams : undefined,
       params,
       returnType,
       label: `${displayParams}: ${returnType}`,
@@ -1006,56 +1120,109 @@ function createClosureNodeFromSyntax(
   return { nodeId: closureNodeId };
 }
 
-/** Push a call node (stdFunc or userFunc) and return its id. */
-function pushCallNode(
-  ctx: BuildContext,
-  nodeId: string,
-  target: { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData },
-  stageIndex: number,
-): void {
-  if (target.kind === 'stdFunc') {
-    ctx.nodes.push({
-      id: nodeId,
-      type: 'stdFuncNode',
-      position: { x: 640 + stageIndex * 140, y: 170 + ctx.nodes.length * 8 },
-      data: target.data,
-    });
-  } else {
-    ctx.nodes.push({
-      id: nodeId,
-      type: 'userFuncNode',
-      position: { x: 640 + stageIndex * 140, y: 170 + ctx.nodes.length * 8 },
-      data: target.data,
-    });
-  }
+type CallTarget = { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData };
+
+// True when a call target names a function value: a parameter in scope or a value let.
+function isFunctionValueName(ctx: BuildContext, name: string): boolean {
+  return isParameterInScope(ctx, name) || ctx.userFunctions.get(name)?.isValueBinding === true;
 }
 
-/** Wire args or a single source into a call node. */
-function wireInputs(
-  ctx: BuildContext,
-  nodeId: string,
-  target: { kind: 'stdFunc'; data: StdFuncData } | { kind: 'userFunc'; data: UserFuncData },
-  nextId: (prefix: string) => string,
-  inputArgs: SourceRef[] | null,
-  singleSource: SourceRef | null,
-): void {
-  const paramCount = target.data.params.length;
-  const prefix = target.kind === 'stdFunc' ? 'stdfunc-in-' : 'userfunc-in-';
-
-  if (inputArgs !== null) {
-    if (inputArgs.length === paramCount) {
-      inputArgs.forEach((arg, i) => addEdge(ctx, arg, nodeId, `${prefix}${i}`));
-    } else {
-      const tupleRef = createTupleNode(ctx, nextId('tuple'), inputArgs);
-      addEdge(ctx, tupleRef, nodeId);
-    }
-  } else if (singleSource !== null) {
-    if (paramCount === 1) {
-      addEdge(ctx, singleSource, nodeId, `${prefix}0`);
-    } else {
-      addEdge(ctx, singleSource, nodeId);
+// The declared type of a function value named by a call target, when the source declares it.
+function functionValueType(ctx: BuildContext, name: string): string | undefined {
+  for (let index = ctx.closureScopes.length - 1; index >= 0; index -= 1) {
+    const scope = ctx.closureScopes[index];
+    const paramIndex = scope.paramIndexByName.get(name);
+    if (paramIndex !== undefined) {
+      const closure = ctx.nodes.find((node) => node.id === scope.nodeId)?.data as ClosureData | undefined;
+      return closure?.params[paramIndex]?.type;
     }
   }
+  const letParamIndex = ctx.letSourceRef?.paramIndexByName.get(name);
+  if (letParamIndex !== undefined && ctx.letSourceRef) {
+    const letData = ctx.nodes.find((node) => node.id === ctx.letSourceRef!.nodeId)?.data as { params?: Param[] } | undefined;
+    return letData?.params?.[letParamIndex]?.type;
+  }
+  return ctx.userFunctions.get(name)?.returnType;
+}
+
+/** Push a call of the function value `fn` with `args` in its slots: `(args) -> f`, or a closure stage. */
+function pushCallValueNode(
+  ctx: BuildContext,
+  nextId: (prefix: string) => string,
+  fn: SourceRef,
+  args: SourceRef[],
+  stageIndex: number,
+  functionType: string | undefined,
+): SourceRef {
+  const nodeId = nextId('callvalue');
+  ctx.nodes.push({
+    id: nodeId,
+    type: 'callValueNode',
+    position: { x: 640 + stageIndex * 140, y: 170 + ctx.nodes.length * 8 },
+    data: { kind: 'callValue', slots: args.length, functionType, label: 'call value' },
+  });
+  addEdge(ctx, fn, nodeId, 'callvalue-fn');
+  args.forEach((arg, index) => addEdge(ctx, arg, nodeId, `callvalue-in-${index}`));
+  return { nodeId };
+}
+
+// A stage the parser takes as a call target: a name or qualified name (with type arguments or not), or an operator.
+function isCallTargetStage(part: string): boolean {
+  return /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\s*<.*>)?$/s.test(part) || isOperatorToken(part);
+}
+
+/**
+ * A closure written as a stage, starting at `parts[stageIndex]`. As in the parser, its body is the value after `=`
+ * followed by stages up to and including the first stage that is a call target; the stages after that are outside
+ * the closure. (A closure anywhere else takes the rest of its expression, which `parsePipelineExpression` handles.)
+ */
+function matchClosureStage(parts: string[], stageIndex: number): { syntax: ClosureSyntax; endIndex: number } | null {
+  const first = parts[stageIndex]?.trim() ?? '';
+  if ((!first.startsWith('(') && !first.startsWith('<')) || !tryParseClosureSyntax(first)) {
+    return null;
+  }
+  let candidate = first;
+  let endIndex = stageIndex;
+  for (let index = stageIndex + 1; index < parts.length; index += 1) {
+    const stage = parts[index].trim();
+    candidate = `${candidate} -> ${stage}`;
+    endIndex = index;
+    if (isCallTargetStage(stage)) {
+      break;
+    }
+  }
+  const syntax = tryParseClosureSyntax(candidate);
+  return syntax ? { syntax, endIndex } : null;
+}
+
+/**
+ * Push a call node whose arguments are `args`, wired to its slots: one slot per parameter, and one per argument of a
+ * variadic tail. A call whose argument count the callee does not take is not imported.
+ */
+function pushCallNode(ctx: BuildContext, nodeId: string, target: CallTarget, stageIndex: number, args: SourceRef[]): void {
+  const params = target.data.params;
+  const name = target.kind === 'stdFunc' ? target.data.qualifiedName : target.data.functionName;
+  // A spread supplies an unknown number of arguments; the slots after it may stay empty. Without one, the argument
+  // count must match.
+  if (!args.some((arg) => isSpreadRef(ctx, arg))) {
+    if (!matchesArity(params, args.length)) {
+      throw new FleauxImportError(`'${name}' takes ${formatAritySummary(params)} but is called with ${args.length}.`);
+    }
+  } else if (!hasVariadicTail(params) && args.length > params.length) {
+    throw new FleauxImportError(`'${name}' takes ${formatAritySummary(params)} but is called with ${args.length}.`);
+  }
+  if (hasVariadicTail(params)) {
+    target.data.variadicSlots = Math.max(0, args.length - minArity(params));
+  }
+
+  ctx.nodes.push({
+    id: nodeId,
+    type: target.kind === 'stdFunc' ? 'stdFuncNode' : 'userFuncNode',
+    position: { x: 640 + stageIndex * 140, y: 170 + ctx.nodes.length * 8 },
+    data: target.data,
+  });
+  const prefix = target.kind === 'stdFunc' ? 'stdfunc-in-' : 'userfunc-in-';
+  args.forEach((arg, index) => addEdge(ctx, arg, nodeId, `${prefix}${index}`));
 }
 
 function parsePipelineExpression(
@@ -1100,101 +1267,67 @@ function parsePipelineExpression(
         currentSource = current.source;
       } else {
         // Materialise the accumulated args into a concrete tuple node
+        assertNoSpread(ctx, current.args);
         const tupleRef = createTupleNode(ctx, nextId('tuple'), current.args);
         current = { kind: 'source', source: tupleRef };
         currentSource = tupleRef;
       }
 
-      const newArgs = parseTupleArgsIfPresent(part, ctx, nextId, currentSource)!;
       stageIndex += 1;
-
       if (stageIndex >= parts.length) {
-        // Trailing tuple with no following call target – return it as a value
-        return createTupleNode(ctx, nextId('tuple'), newArgs);
+        // A tuple template with no call target after it is a value.
+        return parseValueAsSource(ctx, part, nextId, currentSource);
       }
 
+      // The template is the parameter list of the target after it; `(x)` and `(a, b,)` are one argument.
+      const newArgs = parseTupleArgsIfPresent(part, ctx, nextId, currentSource)
+        ?? [parseValueAsSource(ctx, part, nextId, currentSource)];
+      const templateClosure = matchClosureStage(parts, stageIndex);
+      if (templateClosure) {
+        const closureRef = createClosureNodeFromSyntax(ctx, templateClosure.syntax, nextId);
+        current = { kind: 'source', source: pushCallValueNode(ctx, nextId, closureRef, newArgs, stageIndex, undefined) };
+        stageIndex = templateClosure.endIndex + 1;
+        continue;
+      }
       const callTargetToken = parts[stageIndex].trim();
       const target = parseCallTarget(callTargetToken, ctx, newArgs.length);
       const nodeId = nextId('call');
-      pushCallNode(ctx, nodeId, target, stageIndex);
-      wireInputs(ctx, nodeId, target, nextId, newArgs, null);
+      pushCallNode(ctx, nodeId, target, stageIndex, newArgs);
       if (target.kind === 'stdFunc' && target.data.isTerminal === true && stageIndex < parts.length - 1) {
         throw new FleauxImportError(`Terminal Std function '${target.data.qualifiedName}' cannot be followed by additional pipeline stages.`);
       }
       current = { kind: 'source', source: { nodeId } };
     } else {
-      const materializeCurrentSource = (): SourceRef => {
-        if (current.kind === 'source') {
-          return current.source;
-        }
-        return createTupleNode(ctx, nextId('tuple'), current.args);
-      };
-      let consumedInlineClosureStage = false;
-
-      if (part.startsWith('(')) {
-        let closureCandidate = '';
-        let matchedClosureSyntax: ClosureSyntax | null = null;
-        let matchedClosureEndIndex = -1;
-        let matchedClosureWithRemainderSyntax: ClosureSyntax | null = null;
-        let matchedClosureWithRemainderEndIndex = -1;
-        for (let lookaheadIndex = stageIndex; lookaheadIndex < parts.length; lookaheadIndex += 1) {
-          closureCandidate = lookaheadIndex === stageIndex
-            ? parts[lookaheadIndex].trim()
-            : `${closureCandidate} -> ${parts[lookaheadIndex].trim()}`;
-          const closureSyntax = tryParseClosureSyntax(closureCandidate);
-          if (!closureSyntax) {
-            continue;
-          }
-
-          matchedClosureSyntax = closureSyntax;
-          matchedClosureEndIndex = lookaheadIndex;
-          if (lookaheadIndex < parts.length - 1) {
-            matchedClosureWithRemainderSyntax = closureSyntax;
-            matchedClosureWithRemainderEndIndex = lookaheadIndex;
-          }
-        }
-
-        const selectedClosureSyntax = matchedClosureWithRemainderSyntax ?? matchedClosureSyntax;
-        const selectedClosureEndIndex = matchedClosureWithRemainderSyntax ? matchedClosureWithRemainderEndIndex : matchedClosureEndIndex;
-
-        if (selectedClosureSyntax && selectedClosureEndIndex >= stageIndex) {
-          const closureRef = createClosureNodeFromSyntax(ctx, selectedClosureSyntax, nextId);
-          const applyTarget = parseCallTarget('Std.Apply', ctx, 2);
-          const nodeId = nextId('call');
-          pushCallNode(ctx, nodeId, applyTarget, selectedClosureEndIndex);
-          const currentSource = materializeCurrentSource();
-          wireInputs(ctx, nodeId, applyTarget, nextId, [currentSource, closureRef], null);
-          current = { kind: 'source', source: { nodeId } };
-          stageIndex = selectedClosureEndIndex + 1;
-          consumedInlineClosureStage = true;
-        }
-      }
-
-      if (consumedInlineClosureStage) {
+      // A closure stage calls the closure with the stage's arguments.
+      const closureStage = matchClosureStage(parts, stageIndex);
+      if (closureStage) {
+        const closureRef = createClosureNodeFromSyntax(ctx, closureStage.syntax, nextId);
+        const closureArgs = current.kind === 'args' ? current.args : [current.source];
+        current = { kind: 'source', source: pushCallValueNode(ctx, nextId, closureRef, closureArgs, stageIndex, undefined) };
+        stageIndex = closureStage.endIndex + 1;
         continue;
       }
 
-      // Direct call target; if not callable, treat this stage as a value source.
-      const target = tryParseCallTarget(part, ctx, current.kind === 'args' ? current.args.length : 1);
+      // Direct call target: a parameter list's items are the arguments, anything else is one argument.
+      const args = current.kind === 'args' ? current.args : [current.source];
+      const target = tryParseCallTarget(part, ctx, args.length);
 
       if (target) {
         const nodeId = nextId('call');
-        pushCallNode(ctx, nodeId, target, stageIndex);
-
-        if (current.kind === 'args') {
-          wireInputs(ctx, nodeId, target, nextId, current.args, null);
-        } else {
-          wireInputs(ctx, nodeId, target, nextId, null, current.source);
-        }
+        pushCallNode(ctx, nodeId, target, stageIndex, args);
         if (target.kind === 'stdFunc' && target.data.isTerminal === true && stageIndex < parts.length - 1) {
           throw new FleauxImportError(`Terminal Std function '${target.data.qualifiedName}' cannot be followed by additional pipeline stages.`);
         }
         current = { kind: 'source', source: { nodeId } };
+      } else if (isFunctionValueName(ctx, part)) {
+        // A parameter or value let of function type: call the value it holds.
+        const fn = resolveIdentifierAsSource(ctx, part, nextId, null);
+        current = { kind: 'source', source: pushCallValueNode(ctx, nextId, fn, args, stageIndex, functionValueType(ctx, part)) };
+      } else if (args.length === 0 && stdValueByName.has(part)) {
+        // `() -> Std.Pi`: a Std constant.
+        current = { kind: 'source', source: parseValueAsSource(ctx, part, nextId, null) };
       } else {
-        // Materialize args to a source so '_' can bind if used in the value expression.
-        const currentSource = materializeCurrentSource();
-        const valueRef = parseExpressionAsSource(ctx, part, nextId, currentSource);
-        current = { kind: 'source', source: valueRef };
+        throw new FleauxImportError(`'${part}' is not a function the importer knows.`);
       }
     }
 
@@ -1233,11 +1366,12 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
     }
   }
 
-  //  Second pass: build nodes and edges
+  //  Second pass: build nodes and edges. A statement the graph cannot represent is kept verbatim as raw source, so
+  //  one unsupported construct does not fail the whole import.
   let importY = 60;
   let declarationY = 200;
 
-  for (const stmt of statements) {
+  function importStatement(stmt: string): void {
     const importMatch = /^import\s+([^\s]+)$/.exec(stmt);
     if (importMatch) {
       importedModules.add(importMatch[1]);
@@ -1248,7 +1382,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
         data: { kind: 'import', moduleName: importMatch[1], label: `import ${importMatch[1]}` },
       });
       importY += 90;
-      continue;
+      return;
     }
 
     if (stmt.startsWith('type ')) {
@@ -1266,7 +1400,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
         } as TypeDeclData,
       });
       declarationY += 110;
-      continue;
+      return;
     }
 
     if (stmt.startsWith('alias ')) {
@@ -1283,7 +1417,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
         } as AliasDeclData,
       });
       declarationY += 110;
-      continue;
+      return;
     }
 
     if (stmt.startsWith('let ')) {
@@ -1300,6 +1434,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
           typeParams: letDef.typeParams,
           params: letParams,
           returnType: letDef.returnType,
+          isValueBinding: letDef.isValueBinding === true,
           label: `let ${formatFunctionDisplayName(letDef.name, letDef.typeParams)}`,
         },
       });
@@ -1320,14 +1455,71 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
 
       ctx.letSourceRef = undefined;
       declarationY += 180;
-      continue;
+      return;
     }
 
     // Top-level expression statement
     parsePipelineExpression(stmt, ctx, nextId);
   }
 
+  for (const stmt of statements) {
+    const nodeCount = nodes.length;
+    const edgeCount = edges.length;
+    try {
+      importStatement(stmt);
+    } catch (error) {
+      if (!(error instanceof FleauxImportError)) {
+        throw error;
+      }
+      nodes.length = nodeCount;
+      edges.length = edgeCount;
+      ctx.letSourceRef = undefined;
+      ctx.closureScopes = [];
+      nodes.push({
+        id: nextId('raw'),
+        type: 'rawSourceNode',
+        position: { x: 60, y: declarationY },
+        data: {
+          kind: 'rawSource',
+          statementText: stmt,
+          importError: error.message,
+          label: stmt.split('\n')[0],
+        } as RawSourceData,
+      });
+      declarationY += 110;
+    }
+  }
+
+  linkUserFunctionCalls(nodes);
   return { nodes, edges };
+}
+
+// Links each user function node to the let node that declares it (when exactly one does), sharing the let's
+// parameters, so that editing the let's signature updates its calls and references.
+function linkUserFunctionCalls(nodes: Node<FleauxNodeData>[]): void {
+  const letNodesByName = new Map<string, Node<FleauxNodeData>[]>();
+  for (const node of nodes) {
+    if (node.data.kind === 'let') {
+      const group = letNodesByName.get(node.data.name) ?? [];
+      group.push(node);
+      letNodesByName.set(node.data.name, group);
+    }
+  }
+  for (const node of nodes) {
+    if (node.data.kind !== 'userFunc') {
+      continue;
+    }
+    const matches = letNodesByName.get(node.data.functionName) ?? [];
+    if (matches.length !== 1) {
+      continue;
+    }
+    const letData = matches[0].data as LetData;
+    node.data = {
+      ...(node.data as UserFuncData),
+      functionNodeId: matches[0].id,
+      params: letData.params.map((param) => ({ ...param })),
+    };
+  }
 }
 
 

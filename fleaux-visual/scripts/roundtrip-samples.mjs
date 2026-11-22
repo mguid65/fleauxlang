@@ -31,6 +31,7 @@ function parseArgs(argv) {
   let fleauxBin = '';
   let keepTemp = false;
   let port = defaultPort;
+  let browserChannel = '';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -60,6 +61,14 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--browser-channel') {
+      browserChannel = argv[index + 1] ?? '';
+      if (!browserChannel) {
+        throw new Error('Missing value for --browser-channel');
+      }
+      index += 1;
+      continue;
+    }
     if (arg === '--keep-temp') {
       keepTemp = true;
       continue;
@@ -68,14 +77,15 @@ function parseArgs(argv) {
     throw new Error('Unknown argument: ' + arg);
   }
 
-  return { samples, fleauxBin, keepTemp, port };
+  return { samples, fleauxBin, keepTemp, port, browserChannel };
 }
 
 function findDefaultFleauxBinary() {
+  const executableName = process.platform === 'win32' ? 'fleaux.exe' : 'fleaux';
   const candidates = [
-    resolve(repoRoot, 'core/cmake-build-debug/bin/fleaux'),
-    resolve(repoRoot, 'core/cmake-build-relwithdebinfo/bin/fleaux'),
-    resolve(repoRoot, 'core/cmake-build-debug-coverage/bin/fleaux'),
+    resolve(repoRoot, 'core/cmake-build-debug/bin', executableName),
+    resolve(repoRoot, 'core/cmake-build-relwithdebinfo/bin', executableName),
+    resolve(repoRoot, 'core/cmake-build-debug-coverage/bin', executableName),
   ];
 
   for (const candidate of candidates) {
@@ -184,11 +194,14 @@ async function waitForServer(url) {
 }
 
 async function startDevServer(port) {
-  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  // Windows runs npm through npm.cmd, and Node only starts .cmd files through a shell.
+  const isWindows = process.platform === 'win32';
+  const command = isWindows ? 'npm.cmd' : 'npm';
   const child = spawn(command, ['run', 'dev', '--', '--host', defaultHost, '--port', String(port), '--strictPort'], {
     cwd: visualDir,
     env: { ...process.env },
-    detached: process.platform !== 'win32',
+    detached: !isWindows,
+    shell: isWindows,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -283,7 +296,13 @@ function stopDevServer(child) {
 }
 
 async function main() {
-  const { samples: requestedSamples, fleauxBin: requestedBin, keepTemp, port: requestedPort } = parseArgs(process.argv.slice(2));
+  const {
+    samples: requestedSamples,
+    fleauxBin: requestedBin,
+    keepTemp,
+    port: requestedPort,
+    browserChannel,
+  } = parseArgs(process.argv.slice(2));
   const fleauxBin = requestedBin || findDefaultFleauxBinary();
   if (!fleauxBin) {
     throw new Error('Unable to locate fleaux binary. Pass --fleaux-bin explicitly.');
@@ -303,7 +322,8 @@ async function main() {
 
   try {
     devServer = await startDevServer(port);
-    browser = await chromium.launch({ headless: true });
+    // '--browser-channel msedge' (or 'chrome') runs an installed browser instead of Playwright's own Chromium.
+    browser = await chromium.launch(browserChannel ? { headless: true, channel: browserChannel } : { headless: true });
     const page = await browser.newPage();
     await page.goto(devServer.harnessUrl);
     await page.waitForFunction(() => window.__fleauxWasmHarnessReady === true);

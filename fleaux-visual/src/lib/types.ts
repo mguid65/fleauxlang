@@ -12,9 +12,11 @@ export type FleauxNodeKind =
   | 'import'    // import ModuleName
   | 'rawSource' // Opaque top-level statement preserved verbatim for round-trip fidelity
   | 'tuple'     // (a, b, c) — argument grouping
+  | 'spread'    // x...: the items of a tuple as arguments, inside a call's argument list
   | 'stdValue'  // A concrete Std constant/value symbol
   | 'stdFunc'   // A concrete Std built-in function call node
-  | 'userFunc'; // A user-defined function call node
+  | 'userFunc'  // A user-defined function call node
+  | 'callValue'; // (args) -> f: a call of a function value (a parameter, value let, or closure)
 
 interface FleauxNodeDataBase extends Record<string, unknown> {
   kind: FleauxNodeKind;
@@ -22,8 +24,7 @@ interface FleauxNodeDataBase extends Record<string, unknown> {
 }
 
 export type NumericLiteralValueType = 'Float64' | 'Int64' | 'UInt64';
-export type LegacyNumericLiteralValueType = 'Number';
-export type LiteralValueType = NumericLiteralValueType | LegacyNumericLiteralValueType | 'String' | 'Bool' | 'Null';
+export type LiteralValueType = NumericLiteralValueType | 'String' | 'Bool' | 'Null';
 
 export interface FunctionParam {
   id: string;
@@ -63,6 +64,8 @@ export interface LetData extends FleauxNodeDataBase {
   typeParams?: string[];
   params: FunctionParam[];
   returnType: string;
+  // A value let, `let Name: Type = expr;`: it names a value and has no parameter list.
+  isValueBinding?: boolean;
 }
 
 export interface ImportData extends FleauxNodeDataBase {
@@ -73,11 +76,17 @@ export interface ImportData extends FleauxNodeDataBase {
 export interface RawSourceData extends FleauxNodeDataBase {
   kind: 'rawSource';
   statementText: string;
+  // Why the importer kept the statement as raw source, when it came from an import.
+  importError?: string;
 }
 
 export interface TupleData extends FleauxNodeDataBase {
   kind: 'tuple';
   arity: number;
+}
+
+export interface SpreadData extends FleauxNodeDataBase {
+  kind: 'spread';
 }
 
 export interface StdValueData extends FleauxNodeDataBase {
@@ -105,6 +114,10 @@ export interface StdFuncData extends FleauxNodeDataBase {
   isTerminal?: boolean;
   // True when node represents a function value/reference, not a call invocation.
   isReference?: boolean;
+  // The operator the call was written with, such as '+'; serialized instead of the builtin's name.
+  operator?: string;
+  // The number of argument slots for a variadic tail; 1 when unset.
+  variadicSlots?: number;
 }
 
 export interface UserFuncData extends FleauxNodeDataBase {
@@ -117,12 +130,24 @@ export interface UserFuncData extends FleauxNodeDataBase {
   returnType: string;
   // True when node represents a function value/reference, not a call invocation.
   isReference?: boolean;
+  // The number of argument slots for a variadic tail; 1 when unset.
+  variadicSlots?: number;
 }
 
 export interface ClosureData extends FleauxNodeDataBase {
   kind: 'closure';
+  // A generic closure's type parameters, each with its bound when it has one ('T' or 'T: Numeric').
+  typeParams?: string[];
   params: { name: string; type: string }[];
   returnType: string;
+}
+
+export interface CallValueData extends FleauxNodeDataBase {
+  kind: 'callValue';
+  // The number of argument slots.
+  slots: number;
+  // The called value's function type, when known, for display.
+  functionType?: string;
 }
 
 export type FleauxNodeData =
@@ -134,10 +159,12 @@ export type FleauxNodeData =
   | ImportData
   | RawSourceData
   | TupleData
+  | SpreadData
   | StdValueData
   | StdFuncData
   | UserFuncData
-  | ClosureData;
+  | ClosureData
+  | CallValueData;
 
 //  Fleaux-specific edge types
 

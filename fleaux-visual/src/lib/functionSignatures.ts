@@ -53,6 +53,12 @@ export function minArity(params: SignatureParam[]): number {
   return hasVariadicTail(params) ? Math.max(0, params.length - 1) : params.length;
 }
 
+// The argument slots of a call node: one per parameter, with a variadic tail taking `variadicSlots` slots (1 when
+// unset). A call serializes as the parameter list of its slots.
+export function callSlotCount(params: SignatureParam[], variadicSlots: number | undefined): number {
+  return hasVariadicTail(params) ? minArity(params) + (variadicSlots ?? 1) : params.length;
+}
+
 export function matchesArity(params: SignatureParam[], arity: number): boolean {
   if (hasVariadicTail(params)) {
     return arity >= minArity(params);
@@ -65,6 +71,11 @@ export function formatAritySummary(params: SignatureParam[]): string {
     return `${minArity(params)}+ args`;
   }
   return `${params.length} arg${params.length === 1 ? '' : 's'}`;
+}
+
+// Whether a Std function node never returns; the catalogue says so, or else its return type does.
+export function isTerminalStdFunc(data: { isTerminal?: boolean; returnType: string }): boolean {
+  return data.isTerminal ?? isTerminalReturnType(data.returnType);
 }
 
 export function isTerminalReturnType(returnType: string): boolean {

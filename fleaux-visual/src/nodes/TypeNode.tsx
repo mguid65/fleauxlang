@@ -24,21 +24,21 @@ export function TypeNode({ data, id }: NodeProps<Node<TypeDeclData>>) {
   };
 
   return (
-    <div className="rounded-lg border border-cyan-500 bg-cyan-950 text-cyan-100 shadow-lg min-w-[240px] max-w-[320px]"
+    <div className="rounded-lg border border-purple-500 bg-purple-950 text-purple-100 shadow-lg min-w-[240px] max-w-[320px]"
          style={{padding: '4px'}}
     >
-      <div className="text-[10px] font-bold text-cyan-300 mb-1">TYPE DECL</div>
+      <div className="text-[10px] font-bold text-purple-300 mb-1">TYPE DECL</div>
       <input
         value={data.name}
         onChange={(evt) => updateName(evt.target.value)}
         placeholder="Type name"
-        className="w-full rounded border border-cyan-700 bg-cyan-900/40 px-2 py-1 text-sm font-bold font-mono text-cyan-50 outline-none focus:border-cyan-300"
+        className="w-full rounded border border-purple-700 bg-purple-900/40 px-2 py-1 text-sm font-bold font-mono text-purple-50 outline-none focus:border-purple-300"
       />
       <div className="mt-2 grid grid-cols-[88px_1fr] gap-2 items-center">
         <select
           value={data.separator}
           onChange={(evt) => updateSeparator(evt.target.value as TypeDeclarationSeparator)}
-          className="rounded border border-cyan-700 bg-cyan-900/40 px-2 py-1 text-xs font-mono text-cyan-50 outline-none focus:border-cyan-300"
+          className="rounded border border-purple-700 bg-purple-900/40 px-2 py-1 text-xs font-mono text-purple-50 outline-none focus:border-purple-300"
         >
           <option value="=">=</option>
           <option value="::">::</option>
@@ -47,10 +47,10 @@ export function TypeNode({ data, id }: NodeProps<Node<TypeDeclData>>) {
           value={data.targetType}
           onChange={(evt) => updateTargetType(evt.target.value)}
           placeholder="Target type"
-          className="w-full rounded border border-sky-800 bg-sky-950/40 px-2 py-1 text-xs font-mono text-sky-100 outline-none focus:border-sky-300"
+          className="w-full rounded border border-purple-700 bg-purple-900/40 px-2 py-1 text-xs font-mono text-purple-50 outline-none focus:border-purple-300"
         />
       </div>
-      <div className="mt-2 text-[10px] text-cyan-300/70 font-mono">Adds a user strong type declaration to generated source.</div>
+      <div className="mt-2 text-[10px] text-purple-300/70 font-mono">Adds a user strong type declaration to generated source.</div>
     </div>
   );
 }

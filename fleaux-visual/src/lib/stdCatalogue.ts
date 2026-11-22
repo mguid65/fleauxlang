@@ -690,20 +690,45 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "overloadCount": 1
   },
   {
-    "qualifiedName": "Std.ToInt64",
+    "qualifiedName": "Std.TryCast",
     "namespace": "Std",
-    "name": "ToInt64",
-    "typeParams": [],
+    "name": "TryCast",
+    "typeParams": [
+      "T"
+    ],
     "params": [
       {
         "name": "value",
         "type": "Any"
       }
     ],
+    "returnType": "Result<T, String>",
+    "displayName": "Std.TryCast<T>",
+    "displaySignature": "Std.TryCast<T>(value: Any) -> Result<T, String>",
+    "signatureKey": "Std.TryCast<T>(value: Any):Result<T, String>",
+    "hasVariadicTail": false,
+    "minimumArity": 1,
+    "isTerminal": false,
+    "overloadIndex": 1,
+    "overloadCount": 1
+  },
+  {
+    "qualifiedName": "Std.ToInt64",
+    "namespace": "Std",
+    "name": "ToInt64",
+    "typeParams": [
+      "T: Numeric"
+    ],
+    "params": [
+      {
+        "name": "value",
+        "type": "T"
+      }
+    ],
     "returnType": "Int64",
-    "displayName": "Std.ToInt64",
-    "displaySignature": "Std.ToInt64(value: Any) -> Int64",
-    "signatureKey": "Std.ToInt64(value: Any):Int64",
+    "displayName": "Std.ToInt64<T: Numeric>",
+    "displaySignature": "Std.ToInt64<T: Numeric>(value: T) -> Int64",
+    "signatureKey": "Std.ToInt64<T: Numeric>(value: T):Int64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -714,17 +739,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.ToUInt64",
     "namespace": "Std",
     "name": "ToUInt64",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
     "returnType": "UInt64",
-    "displayName": "Std.ToUInt64",
-    "displaySignature": "Std.ToUInt64(value: Any) -> UInt64",
-    "signatureKey": "Std.ToUInt64(value: Any):UInt64",
+    "displayName": "Std.ToUInt64<T: Numeric>",
+    "displaySignature": "Std.ToUInt64<T: Numeric>(value: T) -> UInt64",
+    "signatureKey": "Std.ToUInt64<T: Numeric>(value: T):UInt64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -735,17 +762,19 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "qualifiedName": "Std.ToFloat64",
     "namespace": "Std",
     "name": "ToFloat64",
-    "typeParams": [],
+    "typeParams": [
+      "T: Numeric"
+    ],
     "params": [
       {
         "name": "value",
-        "type": "Any"
+        "type": "T"
       }
     ],
     "returnType": "Float64",
-    "displayName": "Std.ToFloat64",
-    "displaySignature": "Std.ToFloat64(value: Any) -> Float64",
-    "signatureKey": "Std.ToFloat64(value: Any):Float64",
+    "displayName": "Std.ToFloat64<T: Numeric>",
+    "displaySignature": "Std.ToFloat64<T: Numeric>(value: T) -> Float64",
+    "signatureKey": "Std.ToFloat64<T: Numeric>(value: T):Float64",
     "hasVariadicTail": false,
     "minimumArity": 1,
     "isTerminal": false,
@@ -4827,10 +4856,10 @@ export const STD_FUNCTIONS: StdFunctionEntry[] = [
     "name": "Create",
     "typeParams": [],
     "params": [],
-    "returnType": "Dict<Any, Any>",
+    "returnType": "Dict<Never, Never>",
     "displayName": "Std.Dict.Create",
-    "displaySignature": "Std.Dict.Create() -> Dict<Any, Any>",
-    "signatureKey": "Std.Dict.Create():Dict<Any, Any>",
+    "displaySignature": "Std.Dict.Create() -> Dict<Never, Never>",
+    "signatureKey": "Std.Dict.Create():Dict<Never, Never>",
     "hasVariadicTail": false,
     "minimumArity": 0,
     "isTerminal": false,

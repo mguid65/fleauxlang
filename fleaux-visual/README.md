@@ -9,8 +9,10 @@ A node-based visual programming interface for Fleaux, built with:
 
 ## Prerequisites
 
-- Node.js 22.x (recommended)
+- Node.js 22 or newer (Node 26 needs `@playwright/test` 1.65 or newer, which `package.json` pins)
 - npm 10+
+
+On Windows, PowerShell's script execution policy may block the `npm` and `npx` shims; use `npm.cmd` and `npx.cmd`.
 
 If Node is not installed, this project works well with `fnm`:
 
@@ -41,8 +43,22 @@ npm run dev
 ```bash
 cd /home/matthew/CLionProjects/fleauxlang/fleaux-visual
 npm run typecheck
+npm run lint
 npm run build
 ```
+
+The sample round trip imports every `samples/*.fleaux` file into a graph, serializes it back, and checks that both
+versions print the same. It needs a built `fleaux` binary (found under `core/cmake-build-debug/bin` and similar) and
+Playwright's Chromium:
+
+```bash
+npx playwright install chromium
+npm run samples:roundtrip
+```
+
+Options: `--sample <name>` for one sample, `--fleaux-bin <path>` for another binary, `--keep-temp` to keep the
+generated sources, and `--browser-channel msedge` (or `chrome`) to run an installed browser instead of Playwright's
+Chromium. On Windows, put the MinGW runtime folder on `PATH` so `fleaux.exe` finds its DLLs.
 
 ## GitHub Pages deployment
 
@@ -106,36 +122,50 @@ Then open `http://127.0.0.1:4173/fleauxlang/`. The page should reload once after
 
 ## Current Features
 
-- Drag/drop node graph canvas
-- Connect/disconnect typed pipeline edges (`data.kind = "pipeline"`)
-- Connection guard rejects:
-  - self-loops
-  - duplicate `source -> target` edges
-  - any edge where source or target node is `import`
-- Starter Fleaux node types:
-  - `import`
-  - `let`
-  - `tuple`
-  - `std` (explicit Std namespace nodes)
-    - `literal` (`String` / `Int64|UInt64|Float64` / `Bool` / `Null`)
-- Std namespace nodes (from `stdlib/Std.fleaux`) available in toolbar:
-  - `Std`, `Std.Exp`, `Std.String`, `Std.String.Regex`, `Std.Tuple`, `Std.Math`, `Std.Path`, `Std.File`, `Std.Dir`, `Std.OS`, `Std.Dict`
-- Quick add toolbar for creating nodes
-- Dark theme suitable for large graph editing
+- Import Fleaux source into a graph and serialize a graph back to source. Statements keep their source order; a
+  statement the graph cannot represent (currently blocks) stays as a raw source node with the reason.
+- Node kinds:
+  - declarations: `import`, `type`, `alias`, `let` (a function, or a value let `let Name: Type = expr`)
+  - values: literals (`String`, `Int64`, `UInt64`, `Float64`, `Bool`, `Null`), Std constants, tuples
+  - calls: Std builtins, operators (`+`, `-`, `!`, ...), user functions, and call value nodes for calling a parameter,
+    value let, or closure
+  - `closure` (generic closures included), `spread` (`x...`), and raw source
+- A call node has one argument slot per parameter and serializes as the parameter list of its slots; a variadic tail
+  has as many slots as you set with +/-. A spread may supply several arguments, so the slots after it may stay empty.
+- An operator call keeps its operator, so an operator on a strong type still reaches the type's operator function.
+- The connection guard rejects self-loops, duplicate edges, edges to or from declarations and raw source, and spread
+  outputs that do not go into a call's argument slot.
+- The Std toolbar is generated from `stdlib/Std.fleaux`.
+- The action bar opens any of the repository's `samples/*.fleaux` files, loads and saves `.fleaux` files, and has undo
+  and redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) and Tidy, which lays the graph out again. An imported graph is laid out
+  automatically, left to right.
+- The open graph is kept in the browser's local storage, so a reload brings it back.
+- Validation and runs go through the WASM coordinator built from `core`.
 
 ## Project Structure
 
 - `src/components/Canvas.tsx` - main React Flow surface
 - `src/components/Toolbar.tsx` - node creation controls
+- `src/components/ActionBar.tsx` - samples, file, history, and layout actions
 - `src/store/flowStore.ts` - Zustand graph state/actions
 - `src/store/initialGraph.ts` - starter demo graph
+- `src/lib/fleauxToGraph.ts` - Fleaux source to graph import
+- `src/lib/graphToFleaux.ts` - graph to Fleaux source serialization
 - `src/lib/edgeValidation.ts` - pipeline edge validation rules
+- `src/lib/autoLayout.ts` - the layered left-to-right layout
+- `src/lib/graphStorage.ts` - keeping the graph in local storage
+- `src/lib/samples.ts` - the bundled `samples/*.fleaux` files
+- `src/lib/operators.ts` - the operators and the Std builtins they stand for
+- `src/lib/functionValues.ts` - function types of called values
+- `src/lib/stdCatalogue.ts` - generated from `stdlib/Std.fleaux` by `scripts/generate-std-catalogue.mjs`
 - `src/nodes/*` - Fleaux node renderers
 - `src/lib/types.ts` - Fleaux node and edge data model
+- `scripts/roundtrip-samples.mjs` - the sample round trip
 
 ## Next Steps
 
-- Add graph -> Fleaux source code generation
-- Add Fleaux source -> graph import (parser bridge)
-- Add save/load (JSON project files)
-- Add node inspectors and form editing for node data
+- Visual blocks (`{ ... }`), which import as raw source today
+- Drawable body markers for lets and closures; a let built in the editor finds its body from its parameters, and a
+  closure built in the editor has no body yet
+- Save/load (JSON project files)
+- Node inspectors and form editing for node data

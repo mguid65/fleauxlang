@@ -34,7 +34,7 @@ export function AliasNode({ data, id }: NodeProps<Node<AliasDeclData>>) {
         value={data.targetType}
         onChange={(evt) => updateTargetType(evt.target.value)}
         placeholder="Target type"
-        className="mt-2 w-full rounded border border-emerald-800 bg-emerald-950/40 px-2 py-1 text-xs font-mono text-emerald-100 outline-none focus:border-emerald-300"
+        className="mt-2 w-full rounded border border-lime-700 bg-lime-900/40 px-2 py-1 text-xs font-mono text-lime-50 outline-none focus:border-lime-300"
       />
       <div className="mt-2 text-[10px] text-lime-300/70 font-mono">Adds a user alias declaration to generated source.</div>
     </div>

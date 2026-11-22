@@ -1,11 +1,29 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* The editor's neutral palette, as Tailwind theme colours: `bg-app`, `bg-panel`, `border-line`, ... */
+@theme {
+  --color-app: #0f0f10;
+  --color-panel: #151517;
+  --color-raised: #1c1c1f;
+  --color-hover: #27272b;
+  --color-line: #2e2e33;
+  --color-scroll: #3f3f45;
+  --color-ink: #e5e5e5;
+  --color-muted: #a3a3a3;
 }
+
+/* Thin scrollbars in the palette's greys, on every scrolling element. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scroll) transparent;
+  }
+}
+
+/* Tailwind's preflight already gives every element border-box sizing and zero margin and padding, inside its base
+   layer. Do not add an unlayered reset here: unlayered rules beat Tailwind's layered utilities, so `mt-*` and `px-*`
+   classes would stop working. */
 
 html,
 body,
@@ -13,88 +31,42 @@ body,
   width: 100%;
   height: 100%;
   font-family: ui-monospace, Consolas, monospace;
-  background: #0f1117;
-  color: #e2e8f0;
+  background: var(--color-app);
+  color: var(--color-ink);
 }
 
 /* React Flow dark overrides */
 .react-flow__background {
-  background: #0f1117;
+  background: var(--color-app);
 }
 .react-flow__controls button {
-  background: #1e2130;
-  border-color: #2d3148;
-  color: #94a3b8;
+  background: var(--color-raised);
+  border-color: var(--color-line);
+  color: var(--color-muted);
 }
 .react-flow__controls button:hover {
-  background: #2d3148;
-  color: #e2e8f0;
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 .react-flow__minimap {
-  background: #1e2130;
-  border: 1px solid #2d3148;
+  background: var(--color-raised);
+  border: 1px solid var(--color-line);
   border-radius: 8px;
 }
 
 /*  Selection indicators  */
 
-/* Node selection glow */
-.xyflow__node.selected {
-  outline: 2px solid #fbbf24 !important;
+/* Node selection glow, on the node's own rounded box inside React Flow's wrapper */
+.react-flow__node.selected > div {
+  outline: 2px solid #fbbf24;
   outline-offset: 2px;
   box-shadow: 0 0 12px rgba(251, 191, 36, 0.6);
 }
 
-/* Edge selection highlighting */
-.xyflow__edge.selected {
+/* Edge selection highlighting; the edge path carries its stroke inline */
+.react-flow__edge.selected .react-flow__edge-path {
   stroke: #fbbf24 !important;
   stroke-width: 3 !important;
   filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.8));
 }
 
-.fleaux-code-view {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  color: #e2e8f0;
-}
-
-.fleaux-code-gutter {
-  color: #64748b;
-  text-align: right;
-  user-select: none;
-  margin-right: 0.75rem;
-}
-
-.fleaux-token-comment {
-  color: #6b7280;
-  font-style: italic;
-}
-
-.fleaux-token-keyword {
-  color: #f59e0b;
-  font-weight: 600;
-}
-
-.fleaux-token-string {
-  color: #34d399;
-}
-
-.fleaux-token-number {
-  color: #60a5fa;
-}
-
-.fleaux-token-constant {
-  color: #a78bfa;
-  font-weight: 600;
-}
-
-.fleaux-token-type {
-  color: #22d3ee;
-}
-
-.fleaux-token-builtin {
-  color: #f472b6;
-}
-
-.fleaux-token-operator {
-  color: #fbbf24;
-}

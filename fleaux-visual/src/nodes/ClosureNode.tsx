@@ -9,6 +9,15 @@ export function ClosureNode({ data, id }: NodeProps<Node<ClosureData>>) {
     updateNodeData(id, { returnType: returnType || 'Any' });
   };
 
+  const typeParamsText = (data.typeParams ?? []).join(', ');
+  const updateTypeParams = (value: string) => {
+    const typeParams = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    updateNodeData(id, { typeParams: typeParams.length > 0 ? typeParams : undefined });
+  };
+
   const updateParam = (index: number, patch: Partial<ClosureData['params'][number]>) => {
     const params = data.params.map((param, paramIndex) =>
       paramIndex === index ? { ...param, ...patch } : param,
@@ -34,6 +43,13 @@ export function ClosureNode({ data, id }: NodeProps<Node<ClosureData>>) {
     >
       <div className="text-[10px] font-bold text-violet-400 mb-1">λ CLOSURE</div>
 
+      <input
+        value={typeParamsText}
+        onChange={(evt) => updateTypeParams(evt.target.value)}
+        placeholder="type params, e.g. T, U: Numeric"
+        className="w-full rounded border border-violet-700 bg-violet-900/40 px-2 py-1 text-xs font-mono text-violet-100 outline-none focus:border-violet-400"
+      />
+
       <div className="mt-1 space-y-1 text-xs text-violet-300">
         {data.params.map((param, index) => (
           <div key={`${id}-param-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-1 items-center">
@@ -46,12 +62,12 @@ export function ClosureNode({ data, id }: NodeProps<Node<ClosureData>>) {
             <input
               value={param.type}
               onChange={(evt) => updateParam(index, { type: evt.target.value })}
-              className="rounded border border-sky-800 bg-sky-950/40 px-1.5 py-1 font-mono text-sky-100 outline-none focus:border-sky-400"
+              className="rounded border border-violet-700 bg-violet-900/40 px-1.5 py-1 font-mono text-violet-100 outline-none focus:border-violet-400"
               placeholder="type"
             />
             <button
               onClick={() => removeParam(index)}
-              className="rounded border border-red-800 px-1.5 py-1 text-[10px] text-red-300 hover:bg-red-950"
+              className="rounded border border-violet-700 px-1.5 py-1 text-[10px] text-violet-200 hover:bg-violet-900/60"
               title="Remove parameter"
             >
               x
@@ -71,7 +87,7 @@ export function ClosureNode({ data, id }: NodeProps<Node<ClosureData>>) {
         <input
           value={data.returnType}
           onChange={(evt) => updateReturnType(evt.target.value)}
-          className="min-w-0 flex-1 rounded border border-sky-800 bg-sky-950/40 px-1.5 py-1 text-sky-100 outline-none focus:border-sky-400"
+          className="min-w-0 flex-1 rounded border border-violet-700 bg-violet-900/40 px-1.5 py-1 text-violet-100 outline-none focus:border-violet-400"
         />
       </div>
 

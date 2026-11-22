@@ -21,7 +21,7 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
       root: [
         [/\/\/.*$/, 'comment'],
         [/"([^"\\]|\\.)*"/, 'string'],
-        [/[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/, 'number'],
+        [/[0-9]+(?:u64|(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/, 'number'],
         [/__builtin__/, 'keyword'],
         [/[A-Z][A-Za-z0-9_.]*(?=<)/, 'type'],  // Parameterized types: Result<T, E>, Dict<K, V>
         [/[A-Z][A-Za-z0-9_.]*/, {
@@ -53,16 +53,19 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
     autoClosingPairs: [
       { open: '(', close: ')' },
       { open: '[', close: ']' },
+      { open: '{', close: '}' },
       { open: '"', close: '"' },
     ],
     surroundingPairs: [
       { open: '(', close: ')' },
       { open: '[', close: ']' },
+      { open: '{', close: '}' },
       { open: '"', close: '"' },
     ],
     brackets: [
       ['(', ')'],
       ['[', ']'],
+      ['{', '}'],
     ],
   });
 
@@ -70,26 +73,30 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '6B7280', fontStyle: 'italic' },
+      { token: 'comment', foreground: '737373', fontStyle: 'italic' },
       { token: 'keyword', foreground: 'F59E0B', fontStyle: 'bold' },
-      { token: 'type', foreground: '22D3EE' },
-      { token: 'type.identifier', foreground: '67E8F9', fontStyle: 'bold' },
+      { token: 'type', foreground: 'C4B5FD' },
+      { token: 'type.identifier', foreground: 'DDD6FE', fontStyle: 'bold' },
       { token: 'string', foreground: '34D399' },
-      { token: 'number', foreground: '60A5FA' },
+      { token: 'number', foreground: 'FDBA74' },
       { token: 'predefined', foreground: 'F472B6' },
-      { token: 'constant.language', foreground: 'A78BFA', fontStyle: 'bold' },
+      { token: 'constant.language', foreground: 'F0ABFC', fontStyle: 'bold' },
       { token: 'operator', foreground: 'FBBF24' },
-      { token: 'delimiter', foreground: '94A3B8' },
+      { token: 'delimiter', foreground: 'A3A3A3' },
     ],
     colors: {
-      'editor.background': '#121420',
-      'editor.foreground': '#E2E8F0',
-      'editor.lineHighlightBackground': '#1A1D2E',
-      'editorLineNumber.foreground': '#64748B',
-      'editorLineNumber.activeForeground': '#CBD5E1',
-      'editorCursor.foreground': '#F8FAFC',
-      'editor.selectionBackground': '#33415580',
-      'editor.inactiveSelectionBackground': '#33415540',
+      'editor.background': '#151517',
+      'editor.foreground': '#E5E5E5',
+      'editor.lineHighlightBackground': '#1C1C1F',
+      'editorLineNumber.foreground': '#737373',
+      'editorLineNumber.activeForeground': '#D4D4D4',
+      'editorCursor.foreground': '#FAFAFA',
+      'editor.selectionBackground': '#52525B80',
+      'editor.inactiveSelectionBackground': '#52525B40',
+      'scrollbar.shadow': '#00000000',
+      'scrollbarSlider.background': '#3F3F4580',
+      'scrollbarSlider.hoverBackground': '#52525BB0',
+      'scrollbarSlider.activeBackground': '#71717AC0',
     },
   });
 }

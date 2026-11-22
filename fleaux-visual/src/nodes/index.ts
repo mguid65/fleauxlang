@@ -10,6 +10,8 @@ import { StdFuncNode } from './StdFuncNode';
 import { UserFuncNode } from './UserFuncNode';
 import RawSourceNode from './RawSourceNode';
 import { WildcardNode } from './WildcardNode';
+import { SpreadNode } from './SpreadNode';
+import { CallValueNode } from './CallValueNode';
 
 export const nodeTypes = {
   literalNode: LiteralNode,
@@ -20,8 +22,10 @@ export const nodeTypes = {
   aliasNode: AliasNode,
   rawSourceNode: RawSourceNode,
   tupleNode: TupleNode,
+  spreadNode: SpreadNode,
   stdValueNode: StdValueNode,
   stdFuncNode: StdFuncNode,
   userFuncNode: UserFuncNode,
+  callValueNode: CallValueNode,
   wildcardNode: WildcardNode,
 } as const;

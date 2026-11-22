@@ -1,18 +1,20 @@
 import type { Node } from '@xyflow/react';
 import type {
   AliasDeclData,
+  CallValueData,
   ClosureData,
   FleauxEdge,
   FleauxNodeData,
   LetData,
   LiteralData,
+  RawSourceData,
   StdFuncData,
   StdValueData,
   TypeDeclData,
   TupleData,
   UserFuncData,
 } from './types';
-import { hasVariadicTail, minArity } from './functionSignatures';
+import { callSlotCount, hasVariadicTail, minArity } from './functionSignatures';
 
 export class GraphSerializationError extends Error {
   constructor(message: string) {
@@ -23,11 +25,8 @@ export class GraphSerializationError extends Error {
 
 export interface GraphSerializationResult {
   sourceText: string;
-  imports: string[];
-  typeStatements: string[];
-  aliasStatements: string[];
-  letStatements: string[];
-  expressionStatements: string[];
+  // The top-level statements in source order: the order of their nodes.
+  statements: string[];
 }
 
 type GraphContext = {
@@ -88,11 +87,16 @@ function renderLiteral(data: LiteralData): string {
   switch (data.valueType) {
     case 'String':
       return quoteString(data.value);
-    case 'Float64':
+    case 'Float64': {
+      const text = data.value.trim() === '' ? '0' : data.value.trim();
+      return /^-?\d+$/.test(text) ? `${text}.0` : text;
+    }
+    case 'UInt64': {
+      const text = data.value.trim().replace(/u64$/, '');
+      return `${text === '' ? '0' : text}u64`;
+    }
     case 'Int64':
-    case 'UInt64':
-    case 'Number':
-      return data.value.trim() === '' ? '0' : data.value;
+      return data.value.trim() === '' ? '0' : data.value.trim();
     case 'Bool': {
       const normalized = data.value.trim().toLowerCase();
       return normalized === 'false' ? 'False' : 'True';
@@ -261,6 +265,8 @@ function serializeNodeExpression(
         return serializeCallNode(node as Node<UserFuncData>, ctx, letCtx, visiting, 'userfunc-in-');
       case 'closure':
         return serializeClosureNode(node as Node<ClosureData>, ctx, letCtx);
+      case 'callValue':
+        return serializeCallValueNode(node as Node<CallValueData>, ctx, letCtx, visiting);
       case 'import':
         throw new GraphSerializationError(`Import node '${node.data.label}' cannot be used as an expression.`);
       case 'typeDecl':
@@ -269,6 +275,10 @@ function serializeNodeExpression(
         throw new GraphSerializationError(`Alias declaration node '${node.data.label}' cannot be used as an expression.`);
       case 'let':
         throw new GraphSerializationError(`Let node '${node.data.label}' cannot be embedded as an expression.`);
+      case 'rawSource':
+        throw new GraphSerializationError(`Raw source node '${node.data.label}' cannot be used as an expression.`);
+      case 'spread':
+        throw new GraphSerializationError("A spread node can only feed a call's argument slot.");
       default:
         throw new GraphSerializationError(`Unsupported node kind '${String((node.data as { kind: unknown }).kind)}'.`);
     }
@@ -319,11 +329,12 @@ function serializeClosureNode(
   ctx: GraphContext,
   letCtx: LetContext | null,
 ): string {
+  const typeParamText = formatTypeParams(node.data.typeParams);
   const paramText = node.data.params.map((p) => `${p.name}: ${p.type}`).join(', ');
   const bodyRootEdge = getClosureBodyRootEdge(node.id, ctx);
   if (!bodyRootEdge) {
     // Empty/stub closure — emit a placeholder
-    return `(${paramText}): ${node.data.returnType} = null`;
+    return `${typeParamText}(${paramText}): ${node.data.returnType} = null`;
   }
 
   const bodySourceNodeId = typeof bodyRootEdge.data?.bodySourceNodeId === 'string'
@@ -346,11 +357,11 @@ function serializeClosureNode(
         `Closure node '${node.id}' body marker references missing parameter index ${paramIndex}.`,
       );
     }
-    return `(${paramText}): ${node.data.returnType} = ${param.name}`;
+    return `${typeParamText}(${paramText}): ${node.data.returnType} = ${param.name}`;
   }
 
   const bodyExpr = resolveClosureBodyRootExpression(bodyRootEdge, ctx, letCtx);
-  return `(${paramText}): ${node.data.returnType} = ${bodyExpr}`;
+  return `${typeParamText}(${paramText}): ${node.data.returnType} = ${bodyExpr}`;
 }
 
 function serializeTupleNode(
@@ -380,47 +391,100 @@ function serializeTupleNode(
     );
   }
 
-  return wrapTupleItems(items);
-}
-
-function formatCallSource(targetName: string, argExprs: string[]): string {
-  if (argExprs.length === 0) {
-    throw new GraphSerializationError(`Call target '${targetName}' is missing input arguments.`);
-  }
-  return `${wrapTupleItems(argExprs)} -> ${targetName}`;
+  return items.length === 1 ? `(${items[0]},)` : wrapTupleItems(items);
 }
 
 function isFunctionReferenceNode(node: Node<StdFuncData | UserFuncData>): boolean {
   return node.data.isReference === true;
 }
 
-function trySerializeTupleItems(
-  nodeId: string,
+// The arguments in a call node's slots, in order. A spread may supply several arguments, so the empty slots after one
+// are skipped; any other empty slot is an error.
+function serializeSlotArguments(
+  node: Node<FleauxNodeData>,
   ctx: GraphContext,
   letCtx: LetContext | null,
   visiting: Set<string>,
-): string[] | null {
-  const node = ctx.nodesById.get(nodeId);
-  if (!node || node.data.kind !== 'tuple') {
-    return null;
+  handlePrefix: string,
+  slotCount: number,
+  slotName: (index: number) => string | undefined,
+): string[] {
+  const indexedInputs = getIndexedInputs(node, ctx, handlePrefix);
+  for (const index of indexedInputs.keys()) {
+    if (index >= slotCount) {
+      throw new GraphSerializationError(`Call node '${node.data.label}' has an input connected to missing slot ${index}.`);
+    }
   }
 
-  const tupleNode = node as Node<TupleData>;
-  const indexedInputs = getIndexedInputs(tupleNode, ctx, 'tuple-in-');
-  const items: string[] = [];
-  for (let index = 0; index < tupleNode.data.arity; index += 1) {
+  const args: string[] = [];
+  let afterSpread = false;
+  for (let index = 0; index < slotCount; index += 1) {
     const edge = indexedInputs.get(index);
+    if (!edge && afterSpread) {
+      continue;
+    }
     if (!edge) {
+      const name = slotName(index);
       throw new GraphSerializationError(
-        `Tuple node '${tupleNode.data.label}' is missing input ${index}.`,
+        `Call node '${node.data.label}' is missing argument ${index + 1}${name ? ` (${name})` : ''}.`,
       );
     }
-    items.push(resolveEdgeSourceExpression(edge, ctx, letCtx, visiting));
+    const sourceNode = ctx.nodesById.get(edge.source);
+    if (sourceNode?.data.kind === 'spread') {
+      args.push(serializeSpread(sourceNode, ctx, letCtx, visiting));
+      afterSpread = true;
+      continue;
+    }
+    args.push(resolveEdgeSourceExpression(edge, ctx, letCtx, visiting));
   }
-
-  return items;
+  return args;
 }
 
+// A call of a function value: `(args) -> f` for a parameter, value let, or function reference, and a closure stage
+// `(args) -> (params): R = body` for a closure. A call target must be a name or a closure.
+function serializeCallValueNode(
+  node: Node<CallValueData>,
+  ctx: GraphContext,
+  letCtx: LetContext | null,
+  visiting: Set<string>,
+): string {
+  const functionEdges = getIncomingEdges(node.id, ctx).filter((edge) => edge.targetHandle === 'callvalue-fn');
+  if (functionEdges.length !== 1) {
+    throw new GraphSerializationError(`Call value node '${node.data.label}' needs exactly one function input.`);
+  }
+  const functionEdge = functionEdges[0];
+  const source = ctx.nodesById.get(functionEdge.source);
+  const handle = functionEdge.sourceHandle ?? '';
+  const callable = (source?.data.kind === 'let' && handle.startsWith('let-param-'))
+    || source?.data.kind === 'closure'
+    || ((source?.data.kind === 'userFunc' || source?.data.kind === 'stdFunc') && source.data.isReference === true);
+  if (!callable) {
+    throw new GraphSerializationError(
+      `Call value node '${node.data.label}' calls a value that is not a parameter, a let, or a closure; bind it to a let first.`,
+    );
+  }
+
+  const target = resolveEdgeSourceExpression(functionEdge, ctx, letCtx, visiting);
+  const args = serializeSlotArguments(node, ctx, letCtx, visiting, 'callvalue-in-', node.data.slots, () => undefined);
+  return `${wrapTupleItems(args)} -> ${target}`;
+}
+
+// The tuple a spread node spreads, written `x...`.
+function serializeSpread(
+  spreadNode: Node<FleauxNodeData>,
+  ctx: GraphContext,
+  letCtx: LetContext | null,
+  visiting: Set<string>,
+): string {
+  const inputs = getIncomingEdges(spreadNode.id, ctx).filter((edge) => edge.targetHandle === 'spread-in');
+  if (inputs.length !== 1) {
+    throw new GraphSerializationError('A spread node needs exactly one input: the tuple whose items it spreads.');
+  }
+  return `${resolveEdgeSourceExpression(inputs[0], ctx, letCtx, visiting)}...`;
+}
+
+// A call is the parameter list of its argument slots: one per parameter, and `variadicSlots` for a variadic tail. A
+// spread may supply several arguments, so the empty slots after one are skipped.
 function serializeCallNode(
   node: Node<StdFuncData | UserFuncData>,
   ctx: GraphContext,
@@ -429,7 +493,7 @@ function serializeCallNode(
   handlePrefix: string,
 ): string {
   const targetName = node.data.kind === 'stdFunc'
-    ? formatCallableTarget(node.data.qualifiedName, node.data.appliedTypeArgs)
+    ? node.data.operator ?? formatCallableTarget(node.data.qualifiedName, node.data.appliedTypeArgs)
     : formatCallableTarget(node.data.functionName, node.data.appliedTypeArgs);
 
   // Function-reference nodes serialize as bare symbols (e.g. `Double`, `Std.String.Trim`).
@@ -437,72 +501,26 @@ function serializeCallNode(
     return targetName;
   }
 
-  const paramCount = node.data.params.length;
-  const variadic = hasVariadicTail(node.data.params);
-  const requiredInputs = minArity(node.data.params);
-  const indexedInputs = getIndexedInputs(node, ctx, handlePrefix);
-  const pipelineInput = getPipelineInput(node, ctx);
-
-  if (indexedInputs.size > 0 && pipelineInput) {
+  if (getPipelineInput(node, ctx)) {
     throw new GraphSerializationError(
-      `Call node '${node.data.label}' mixes direct argument inputs with a pipeline input. Use one style per call.`,
+      `Call node '${node.data.label}' has an input that is not connected to an argument slot.`,
     );
   }
 
-  if (indexedInputs.size > 0) {
-    const args: string[] = [];
-    for (let index = 0; index < paramCount; index += 1) {
-      const edge = indexedInputs.get(index);
-      if (edge) {
-        args.push(resolveEdgeSourceExpression(edge, ctx, letCtx, visiting));
-        continue;
-      }
+  const params = node.data.params;
+  const fixedCount = minArity(params);
+  const variadic = hasVariadicTail(params);
+  const args = serializeSlotArguments(
+    node,
+    ctx,
+    letCtx,
+    visiting,
+    handlePrefix,
+    callSlotCount(params, node.data.variadicSlots),
+    (index) => (index < fixedCount || !variadic ? params[index]?.name : params[params.length - 1]?.name),
+  );
 
-      if (variadic && index === paramCount - 1) {
-        continue;
-      }
-
-      throw new GraphSerializationError(`Call node '${node.data.label}' is missing argument ${index}.`);
-    }
-
-    if (args.length < requiredInputs) {
-      throw new GraphSerializationError(`Call node '${node.data.label}' is missing required input arguments.`);
-    }
-
-    if (args.length === 0 && requiredInputs === 0) {
-      return `${wrapTupleItems([])} -> ${targetName}`;
-    }
-
-    return formatCallSource(targetName, args);
-  }
-
-  if (pipelineInput) {
-    if (variadic) {
-      const tupleItems = trySerializeTupleItems(pipelineInput.source, ctx, letCtx, visiting);
-      if (tupleItems) {
-        if (tupleItems.length < requiredInputs) {
-          throw new GraphSerializationError(`Call node '${node.data.label}' is missing required input arguments.`);
-        }
-        if (tupleItems.length === 0) {
-          return `${wrapTupleItems([])} -> ${targetName}`;
-        }
-        return formatCallSource(targetName, tupleItems);
-      }
-    }
-
-    const lhs = resolveEdgeSourceExpression(pipelineInput, ctx, letCtx, visiting);
-    if (paramCount == 1) {
-      return `${wrapTupleItems([lhs])} -> ${targetName}`;
-    }
-    return `${lhs} -> ${targetName}`;
-  }
-
-  if (paramCount === 0 || requiredInputs === 0) {
-    return `${wrapTupleItems([])} -> ${targetName}`;
-  }
-
-
-  throw new GraphSerializationError(`Call node '${node.data.label}' has no input.`);
+  return `${wrapTupleItems(args)} -> ${targetName}`;
 }
 
 function serializeTypeStatement(node: Node<TypeDeclData>): string {
@@ -529,7 +547,7 @@ function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge | 
     );
   }
 
-  const inferredRootNodeId = inferLegacyLetBodyRootNodeId(letNodeId, ctx);
+  const inferredRootNodeId = inferLetBodyRootNodeId(letNodeId, ctx);
   if (!inferredRootNodeId) {
     const hasAnyNonMarkerOutgoing = (ctx.outgoingBySource.get(letNodeId) ?? []).some(
       (edge) => edge.targetHandle !== LET_BODY_ROOT_HANDLE,
@@ -554,7 +572,10 @@ function getLetBodyRootEdge(letNodeId: string, ctx: GraphContext): FleauxEdge | 
   };
 }
 
-function inferLegacyLetBodyRootNodeId(letNodeId: string, ctx: GraphContext): string | null {
+// The body root of a let without a body marker edge: the one node, reachable from the let's parameters, that feeds
+// nothing else they reach. The editor does not let users draw marker edges (the marker handles are hidden), so this
+// is how a let built in the editor finds its body; imported lets carry a marker.
+function inferLetBodyRootNodeId(letNodeId: string, ctx: GraphContext): string | null {
   const outgoing = (ctx.outgoingBySource.get(letNodeId) ?? []).filter(
     (edge) => edge.targetHandle !== LET_BODY_ROOT_HANDLE,
   );
@@ -744,10 +765,14 @@ function serializeLetStatement(
   ctx: GraphContext,
 ): { statement: string; bodyNodeIds: Set<string> } {
   const markerEdge = getLetBodyRootEdge(node.id, ctx);
+  if (node.data.isValueBinding === true && node.data.params.length > 0) {
+    throw new GraphSerializationError(`Value let '${node.data.name}' cannot have parameters.`);
+  }
+  const header = node.data.isValueBinding === true
+    ? `let ${node.data.name}: ${node.data.returnType}`
+    : `let ${node.data.name}${formatTypeParams(node.data.typeParams)}(${node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ')}): ${node.data.returnType}`;
   if (!markerEdge) {
-    const paramText = node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ');
-    const statement = `let ${node.data.name}${formatTypeParams(node.data.typeParams)}(${paramText}): ${node.data.returnType} = null;`;
-    return { statement, bodyNodeIds: new Set<string>() };
+    return { statement: `${header} = null;`, bodyNodeIds: new Set<string>() };
   }
 
   const letCtx: LetContext = {
@@ -759,10 +784,7 @@ function serializeLetStatement(
   const bodyNodeIds = markerEdge.target === node.id
     ? new Set<string>()
     : collectDependencyNodeIds(markerEdge.target, node.id, ctx);
-  const paramText = node.data.params.map((param) => `${param.name}: ${param.type}`).join(', ');
-  const statement = `let ${node.data.name}${formatTypeParams(node.data.typeParams)}(${paramText}): ${node.data.returnType} = ${bodyExpr};`;
-
-  return { statement, bodyNodeIds };
+  return { statement: `${header} = ${bodyExpr};`, bodyNodeIds };
 }
 
 function serializeTopLevelExpression(
@@ -777,59 +799,48 @@ export function serializeGraphToFleaux(
   edges: FleauxEdge[],
 ): GraphSerializationResult {
   const ctx = buildGraphContext(nodes, edges);
-  const imports: string[] = [];
-  const typeStatements: string[] = [];
-  const aliasStatements: string[] = [];
-  const declarationStatements: string[] = [];
-  const letStatements: string[] = [];
-  const expressionStatements: string[] = [];
-  const letBodyNodes = new Set<string>();
   const closureBodyNodes = collectClosureBodyNodeIds(ctx);
   const symbolicInputTargets = collectSymbolicInputTargetNodeIds(ctx);
 
-  for (const node of nodes) {
-    if (node.data.kind === 'import') {
-      imports.push(`import ${node.data.moduleName};`);
-    }
-  }
-
-  for (const node of nodes) {
-    if (node.data.kind === 'typeDecl') {
-      const statement = serializeTypeStatement(node as Node<TypeDeclData>);
-      typeStatements.push(statement);
-      declarationStatements.push(statement);
-      continue;
-    }
-
-    if (node.data.kind === 'aliasDecl') {
-      const statement = serializeAliasStatement(node as Node<AliasDeclData>);
-      aliasStatements.push(statement);
-      declarationStatements.push(statement);
-    }
-  }
-
+  // Let bodies are serialized first, so the nodes they use are known not to be statements of their own.
+  const letStatementsById = new Map<string, string>();
+  const letBodyNodes = new Set<string>();
   for (const node of nodes) {
     if (node.data.kind !== 'let') {
       continue;
     }
     const { statement, bodyNodeIds } = serializeLetStatement(node as Node<LetData>, ctx);
-    letStatements.push(statement);
+    letStatementsById.set(node.id, statement);
     for (const bodyNodeId of bodyNodeIds) {
       letBodyNodes.add(bodyNodeId);
     }
   }
 
+  // Statements keep the order of their nodes, which is source order for an imported graph: value lets are only
+  // visible after their declaration, and raw source statements sit between the others.
+  const statements: string[] = [];
   for (const node of nodes) {
-    if (node.data.kind === 'import' || node.data.kind === 'typeDecl' || node.data.kind === 'aliasDecl' || node.data.kind === 'let') {
-      continue;
+    switch (node.data.kind) {
+      case 'import':
+        statements.push(`import ${node.data.moduleName};`);
+        continue;
+      case 'typeDecl':
+        statements.push(serializeTypeStatement(node as Node<TypeDeclData>));
+        continue;
+      case 'aliasDecl':
+        statements.push(serializeAliasStatement(node as Node<AliasDeclData>));
+        continue;
+      case 'let':
+        statements.push(letStatementsById.get(node.id)!);
+        continue;
+      case 'rawSource':
+        statements.push(`${(node.data as RawSourceData).statementText};`);
+        continue;
+      default:
+        break;
     }
-    if (letBodyNodes.has(node.id)) {
-      continue;
-    }
-    if (closureBodyNodes.has(node.id)) {
-      continue;
-    }
-    if (symbolicInputTargets.has(node.id)) {
+
+    if (letBodyNodes.has(node.id) || closureBodyNodes.has(node.id) || symbolicInputTargets.has(node.id)) {
       continue;
     }
 
@@ -842,22 +853,15 @@ export function serializeGraphToFleaux(
       continue;
     }
 
-    expressionStatements.push(serializeTopLevelExpression(node, ctx));
+    statements.push(serializeTopLevelExpression(node, ctx));
   }
 
-  const statements = [...imports, ...declarationStatements, ...letStatements, ...expressionStatements];
   if (statements.length === 0) {
     throw new GraphSerializationError('The graph does not contain any serializable Fleaux statements.');
   }
 
   return {
     sourceText: `${statements.join('\n')}\n`,
-    imports,
-    typeStatements,
-    aliasStatements,
-    letStatements,
-    expressionStatements,
+    statements,
   };
 }
-
-

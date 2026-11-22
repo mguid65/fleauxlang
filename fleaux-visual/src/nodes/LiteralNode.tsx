@@ -4,27 +4,35 @@ import type { LiteralData } from '../lib/types';
 import { useFlowStore } from '../store/flowStore';
 
 const VALUE_TYPE_COLORS: Record<LiteralData['valueType'], string> = {
-  Float64: 'border-sky-500 bg-sky-950 text-sky-300',
-  Int64: 'border-cyan-500 bg-cyan-950 text-cyan-300',
-  UInt64: 'border-indigo-500 bg-indigo-950 text-indigo-300',
-  Number: 'border-sky-500 bg-sky-950 text-sky-300',
+  Float64: 'border-orange-500 bg-orange-950 text-orange-300',
+  Int64: 'border-green-500 bg-green-950 text-green-300',
+  UInt64: 'border-yellow-500 bg-yellow-950 text-yellow-300',
   String: 'border-emerald-500 bg-emerald-950 text-emerald-300',
   Bool: 'border-amber-500 bg-amber-950 text-amber-300',
-  Null: 'border-slate-500 bg-slate-900 text-slate-400',
+  Null: 'border-pink-500 bg-pink-950 text-pink-300',
+};
+
+// The value field while a literal is edited.
+const EDIT_COLORS: Record<LiteralData['valueType'], string> = {
+  Float64: 'border-orange-700 bg-orange-950 text-orange-100 focus:border-orange-400',
+  Int64: 'border-green-700 bg-green-950 text-green-100 focus:border-green-400',
+  UInt64: 'border-yellow-700 bg-yellow-950 text-yellow-100 focus:border-yellow-400',
+  String: 'border-emerald-700 bg-emerald-950 text-emerald-100 focus:border-emerald-400',
+  Bool: 'border-amber-700 bg-amber-950 text-amber-100 focus:border-amber-400',
+  Null: 'border-pink-700 bg-pink-950 text-pink-100 focus:border-pink-400',
 };
 
 const BADGE_COLORS: Record<LiteralData['valueType'], string> = {
-  Float64: 'bg-sky-800 text-sky-200',
-  Int64: 'bg-cyan-800 text-cyan-200',
-  UInt64: 'bg-indigo-800 text-indigo-200',
-  Number: 'bg-sky-800 text-sky-200',
+  Float64: 'bg-orange-800 text-orange-200',
+  Int64: 'bg-green-800 text-green-200',
+  UInt64: 'bg-yellow-800 text-yellow-200',
   String: 'bg-emerald-800 text-emerald-200',
   Bool: 'bg-amber-800 text-amber-200',
-  Null: 'bg-slate-700 text-slate-300',
+  Null: 'bg-pink-800 text-pink-200',
 };
 
 function isNumericLiteralType(valueType: LiteralData['valueType']): boolean {
-  return valueType === 'Float64' || valueType === 'Int64' || valueType === 'UInt64' || valueType === 'Number';
+  return valueType === 'Float64' || valueType === 'Int64' || valueType === 'UInt64';
 }
 
 function formatLiteralLabel(valueType: LiteralData['valueType'], value: string): string {
@@ -58,6 +66,7 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
 
   const colors = VALUE_TYPE_COLORS[data.valueType];
   const badge = BADGE_COLORS[data.valueType];
+  const editColors = EDIT_COLORS[data.valueType];
   const isBoolLiteral = data.valueType === 'Bool';
   const isNullLiteral = data.valueType === 'Null';
 
@@ -98,7 +107,7 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={handleSave}
             onKeyDown={handleKeyDown}
-            className="w-full mt-1 px-2 py-1 text-sm font-mono bg-slate-900 border border-slate-600 rounded text-amber-200 focus:border-amber-400 outline-none"
+            className={`w-full mt-1 px-2 py-1 text-sm font-mono border rounded outline-none ${editColors}`}
           >
             <option value="True">True</option>
             <option value="False">False</option>
@@ -111,7 +120,7 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={handleSave}
             onKeyDown={handleKeyDown}
-            className="w-full mt-1 px-2 py-1 text-sm font-mono bg-slate-900 border border-slate-600 rounded text-sky-200 focus:border-sky-400 outline-none"
+            className={`w-full mt-1 px-2 py-1 text-sm font-mono border rounded outline-none ${editColors}`}
           />
         )
       ) : (

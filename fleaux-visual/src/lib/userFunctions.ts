@@ -12,6 +12,7 @@ export interface UserFunctionEntry {
   typeParams?: string[];
   params: FunctionParam[];
   returnType: string;
+  isValueBinding: boolean;
 }
 
 export interface UserTypeEntry {
@@ -38,6 +39,7 @@ export function extractUserFunctions(nodes: Node<FleauxNodeData>[]): UserFunctio
         qualifiedName: letData.name,
         name: letData.name,
         typeParams: letData.typeParams,
+        isValueBinding: letData.isValueBinding === true,
         params: letData.params,
         returnType: letData.returnType,
       });

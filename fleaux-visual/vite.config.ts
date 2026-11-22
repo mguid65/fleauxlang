@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -32,6 +32,10 @@ export default defineConfig({
   base: normalizeBasePath(process.env.VITE_BASE_PATH ?? (process.env.GITHUB_ACTIONS ? detectGitHubPagesBasePath() : '/')),
   plugins: [react(), tailwindcss()],
   server: {
+    // The Samples menu bundles ../samples/*.fleaux, which sits outside this app.
+    fs: {
+      allow: [searchForWorkspaceRoot(process.cwd()), '../samples'],
+    },
     headers: {
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
