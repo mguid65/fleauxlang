@@ -1761,3 +1761,13 @@ TEST_CASE("Bit shifts of 64 or more bits are runtime errors", "[runtime][bitwise
                       "BitShiftLeft: shift count 64 is out of range for Int64 (0 to 63)");
   REQUIRE_THROWS_AS(BitShiftRight(make_tuple(make_int(1), make_uint(1000U))), std::out_of_range);
 }
+
+TEST_CASE("Runtime builtins: Float64 results stay Float64 when they are whole numbers", "[runtime]") {
+  CHECK(is_float_number(Sqrt(make_tuple(make_float(9.0)))));
+  CHECK(is_float_number(MathFloor(make_tuple(make_float(2.9)))));
+  CHECK(is_float_number(MathCeil(make_tuple(make_float(2.1)))));
+  CHECK(is_float_number(MathAbs(make_tuple(make_float(-3.0)))));
+  CHECK(is_float_number(MathLog(make_tuple(make_float(1.0)))));
+  CHECK(is_float_number(MathClamp(make_tuple(make_float(650.0), make_float(0.0), make_float(600.0)))));
+  CHECK(is_float_number(ToNum(make_tuple(make_string("42")))));
+}

@@ -2,6 +2,7 @@ import type { Node } from '@xyflow/react';
 import type { AliasDeclData, ClosureData, FleauxEdge, FleauxNodeData, FunctionParam, LetData, LiteralValueType, RawSourceData, StdFuncData, TypeDeclData, UserFuncData } from './types';
 import { formatAritySummary, formatFunctionDisplayName, hasVariadicTail, matchesArity, minArity } from './functionSignatures';
 import { isOperatorToken, resolveOperator } from './operators';
+import { RawStringError, rewriteRawStrings } from './stringLiterals';
 import { STD_FUNCTIONS, STD_VALUES, type StdFunctionEntry } from './stdCatalogue';
 
 export class FleauxImportError extends Error {
@@ -97,6 +98,18 @@ function formatArityErrorSuffix(inferredArity?: number): string {
     return '';
   }
   return ` with ${inferredArity} argument${inferredArity === 1 ? '' : 's'}`;
+}
+
+/** The source with each raw string literal written as an ordinary one, which is all the scanners below read. */
+function withoutRawStrings(source: string): string {
+  try {
+    return rewriteRawStrings(source);
+  } catch (error) {
+    if (error instanceof RawStringError) {
+      throw new FleauxImportError(error.message);
+    }
+    throw error;
+  }
 }
 
 /** Strip // line comments from source, preserving string literals. */
@@ -1351,7 +1364,7 @@ export function importFleauxSourceToGraph(sourceText: string): FleauxGraphImport
 
   const ctx: BuildContext = { nodes, edges, userFunctions, importedModules, closureScopes: [] };
 
-  const statements = splitStatements(stripLineComments(sourceText));
+  const statements = splitStatements(stripLineComments(withoutRawStrings(sourceText)));
 
   //  First pass: collect ALL let definitions for forward-reference support
   for (const stmt of statements) {

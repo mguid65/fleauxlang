@@ -1,0 +1,63 @@
+// A rotating, colored triangle drawn with the OpenGL extension. Close the window or press Escape to stop.
+//
+//   fleaux --extension <directory of the built extension> extensions/gl/samples/triangle.fleaux
+
+import Std;
+import GL;
+
+let VertexSource: String = """
+  #version 330 core
+  layout(location = 0) in vec2 position;
+  layout(location = 1) in vec3 color;
+  uniform float angle;
+  out vec3 vertex_color;
+  void main() {
+    float c = cos(angle);
+    float s = sin(angle);
+    gl_Position = vec4(c * position.x - s * position.y, s * position.x + c * position.y, 0.0, 1.0);
+    vertex_color = color;
+  }
+  """;
+
+let FragmentSource: String = """
+  #version 330 core
+  in vec3 vertex_color;
+  out vec4 fragment_color;
+  void main() {
+    fragment_color = vec4(vertex_color, 1.0);
+  }
+  """;
+
+// Each corner: position (x, y), then color (red, green, blue).
+let Vertices: Tuple<Float64...> =
+  (0.0, 0.6, 1.0, 0.25, 0.2, -0.52, -0.3, 0.2, 0.9, 0.3, 0.52, -0.3, 0.25, 0.4, 1.0);
+
+// Opens the window and uploads the triangle. The result is the shader program and the location of its angle uniform.
+let Setup(): Tuple<Int64, Int64> = {
+  ("Fleaux: a rotating triangle", 800, 600) -> GL.OpenWindow;
+  let program: Int64 = (VertexSource, FragmentSource) -> GL.CompileProgram -> Std.Result.Unwrap;
+  () -> GL.CreateVertexArray;
+  Vertices -> GL.CreateBuffer;
+  (0, 2, 5, 0) -> GL.VertexAttribute;
+  (1, 3, 5, 2) -> GL.VertexAttribute;
+  (program, (program, "angle") -> GL.UniformLocation);
+};
+
+let Running(state: Tuple<Int64, Int64>): Bool =
+  (() -> GL.WindowShouldClose, GL.KeyEscape -> GL.KeyDown) -> Std.Or -> Std.Not;
+
+let DrawFrame(program: Int64, angle_location: Int64): Tuple<Int64, Int64> = {
+  (0.08, 0.08, 0.1, 1.0) -> GL.ClearColor;
+  GL.ColorBufferBit -> GL.Clear;
+  program -> GL.UseProgram;
+  (angle_location, () -> GL.Time) -> GL.Uniform1f;
+  (GL.Triangles, 0, 3) -> GL.DrawArrays;
+  () -> GL.SwapBuffers;
+  () -> GL.PollEvents;
+  (program, angle_location);
+};
+
+let Step(state: Tuple<Int64, Int64>): Tuple<Int64, Int64> = (state...) -> DrawFrame;
+
+(() -> Setup, Running, Step) -> Std.Loop;
+() -> GL.CloseWindow;

@@ -12,7 +12,10 @@
 #include "fleaux/bytecode/module_loader.hpp"
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/cli/repl_driver.hpp"
+#include "fleaux/embed/native_bindings.hpp"
+#include "fleaux/embed/vm_host.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/frontend/format/formatter.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/source_loader.hpp"
@@ -35,6 +38,10 @@ struct CliOptions {
   bool disassemble = false;
   bool dump_ast = false;
   bool dump_ir = false;
+  bool format = false;
+  bool format_write = false;
+  bool format_check = false;
+  std::vector<std::filesystem::path> extensions;
 };
 
 struct CliError {
@@ -77,7 +84,9 @@ auto dedupe_hint_if_embedded(const std::string& message, const std::optional<std
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] "
+  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--format [--write|--check]] "
+         "[--extension PATH]... "
+         "[--no-emit-bytecode] [--no-color] "
          "[--experimental-builtin-reductions] "
          "[--auto-value-ref] [--value-ref-byte-cutoff N] "
          "[file.fleaux|file.fleaux.bc] "
@@ -102,6 +111,11 @@ void print_help() {
             << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
             << "  --dump-ast             Parse a .fleaux source file, print the AST, and exit\n"
             << "  --dump-ir              Parse/lower a .fleaux source file, print the IR, and exit\n"
+            << "  --extension PATH       Load a native extension: its library, or a directory holding one library.\n"
+            << "                         Its directory is searched for imports. May be given more than once.\n"
+            << "  --format               Print a .fleaux source file formatted, and exit\n"
+            << "  --write                With --format, rewrite the file instead of printing it\n"
+            << "  --check                With --format, print nothing and exit 1 if the file is not formatted\n"
             << "  --no-color             Disable REPL syntax coloring (also honors NO_COLOR)\n";
 }
 
@@ -125,6 +139,55 @@ auto load_source_text_for_dump(const std::filesystem::path& source_file, const s
   }
 
   return *source_text;
+}
+
+// Prints the source formatted, or rewrites the file with `write`, or with `check` only reports whether the file is
+// already formatted. Returns the exit code: 1 when `check` finds the file unformatted, otherwise 0.
+auto run_format(const std::filesystem::path& source_file, const bool write, const bool check)
+    -> tl::expected<int, CliError> {
+  const auto source_text = load_source_text_for_dump(source_file, "Format mode");
+  if (!source_text) {
+    return tl::unexpected(source_text.error());
+  }
+
+  const auto formatted = fleaux::frontend::format::format_source(*source_text, source_file.string());
+  if (!formatted) {
+    return tl::unexpected(CliError{
+        .message = formatted.error().message,
+        .hint = formatted.error().hint,
+        .span = formatted.error().span,
+    });
+  }
+
+  if (check) {
+    if (*formatted == *source_text) {
+      return 0;
+    }
+    std::cerr << source_file.string() << " is not formatted\n";
+    return 1;
+  }
+
+  if (write) {
+    if (*formatted != *source_text) {
+      // Binary, so the line endings the formatter kept from the source are written as they are.
+      std::ofstream out(source_file, std::ios::binary | std::ios::trunc);
+      out << *formatted;
+      if (!out) {
+        return tl::unexpected(CliError{
+            .message = "Failed to write source file: " + source_file.string(),
+            .hint = "Check the file permissions.",
+            .span = std::nullopt,
+        });
+      }
+    }
+    return 0;
+  }
+
+  // The console stream writes each '\n' as the platform's line ending.
+  std::string printed = *formatted;
+  std::erase(printed, '\r');
+  std::cout << printed;
+  return 0;
 }
 
 auto run_ast_dump(const std::filesystem::path& source_file) -> tl::expected<void, CliError> {
@@ -183,10 +246,68 @@ auto run_ir_dump(const std::filesystem::path& source_file) -> tl::expected<void,
   return {};
 }
 
+// The shared library of an extension: the path itself, or the one library in a directory.
+auto find_extension_library(const std::filesystem::path& extension) -> tl::expected<std::filesystem::path, CliError> {
+#if defined(_WIN32)
+  constexpr std::string_view kLibraryExtension = ".dll";
+#elif defined(__APPLE__)
+  constexpr std::string_view kLibraryExtension = ".dylib";
+#else
+  constexpr std::string_view kLibraryExtension = ".so";
+#endif
+  std::error_code error;
+  if (std::filesystem::is_regular_file(extension, error)) {
+    return std::filesystem::weakly_canonical(extension);
+  }
+  if (!std::filesystem::is_directory(extension, error)) {
+    return tl::unexpected(CliError{
+        .message = "Extension not found: " + extension.string(),
+        .hint = "Pass the extension's library, or the directory that holds it.",
+        .span = std::nullopt,
+    });
+  }
+
+  std::vector<std::filesystem::path> libraries;
+  for (const auto& entry : std::filesystem::directory_iterator(extension, error)) {
+    if (entry.is_regular_file() && entry.path().extension() == kLibraryExtension) {
+      libraries.push_back(entry.path());
+    }
+  }
+  if (libraries.size() != 1U) {
+    return tl::unexpected(CliError{
+        .message = std::format("Extension directory {} holds {} {} libraries; expected exactly one.", extension.string(),
+                               libraries.size(), kLibraryExtension),
+        .hint = "Pass the library itself instead of its directory.",
+        .span = std::nullopt,
+    });
+  }
+  return std::filesystem::weakly_canonical(libraries.front());
+}
+
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
             const bool write_bytecode_cache, const bool enable_experimental_builtin_reductions,
-            const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff)
-    -> tl::expected<void, CliError> {
+            const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff,
+            const std::vector<std::filesystem::path>& extensions) -> tl::expected<void, CliError> {
+  // Extensions load into a host whose bindings the program's native functions call. Each extension's directory is
+  // searched for the modules that declare them.
+  fleaux::embed::NativeBindingRegistry registry;
+  fleaux::embed::VmHost extension_host(fleaux::embed::VmHostConfig{.binding_registry = &registry});
+  std::vector<std::filesystem::path> extension_directories;
+  for (const auto& extension : extensions) {
+    const auto library = find_extension_library(extension);
+    if (!library) {
+      return tl::unexpected(library.error());
+    }
+    if (auto loaded = extension_host.load_binding_module(*library); !loaded) {
+      return tl::unexpected(CliError{
+          .message = loaded.error().message,
+          .hint = loaded.error().hint,
+          .span = loaded.error().span,
+      });
+    }
+    extension_directories.push_back(library->parent_path());
+  }
+
   auto module_result = fleaux::bytecode::load_linked_module(
       source_file, fleaux::bytecode::ModuleLoadOptions{
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
@@ -196,6 +317,7 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
                        .enable_value_ref_gate = enable_auto_value_ref,
                        .enable_auto_value_ref = enable_auto_value_ref,
                        .value_ref_byte_cutoff = value_ref_byte_cutoff,
+                       .import_search_paths = extension_directories,
                    });
   if (!module_result) {
     return tl::unexpected(CliError{
@@ -209,7 +331,10 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   auto module = std::move(module_result.value());
 
   const fleaux::vm::Runtime runtime(process_args);
-  if (const auto exec = runtime.execute(module, fleaux::vm::RuntimeInvocationOptions{.entry_label = source_file.string()});
+  if (const auto exec = runtime.execute(module, fleaux::vm::RuntimeInvocationOptions{
+                                                    .entry_label = source_file.string(),
+                                                    .native_resolver = extension_host.native_function_resolver(),
+                                                });
       !exec) {
     return tl::unexpected(CliError{
         .message = exec.error().message,
@@ -410,6 +535,33 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
       continue;
     }
 
+    if (token == "--format") {
+      options.format = true;
+      continue;
+    }
+
+    if (token == "--extension") {
+      if (arg_index + 1 >= argc) {
+        return tl::unexpected(CliError{
+            .message = "missing path for --extension",
+            .hint = "pass the extension's library, or the directory that holds it, after --extension",
+            .span = std::nullopt,
+        });
+      }
+      options.extensions.emplace_back(argv[++arg_index]);
+      continue;
+    }
+
+    if (token == "--write") {
+      options.format_write = true;
+      continue;
+    }
+
+    if (token == "--check") {
+      options.format_check = true;
+      continue;
+    }
+
     if (!token.empty() && token[0] == '-') {
       return tl::unexpected(CliError{
           .message = std::string("unknown option: ") + std::string(token),
@@ -431,11 +583,36 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
   }
 
   const auto primary_mode_count = static_cast<int>(options.repl) + static_cast<int>(options.disassemble) +
-                                  static_cast<int>(options.dump_ast) + static_cast<int>(options.dump_ir);
+                                  static_cast<int>(options.dump_ast) + static_cast<int>(options.dump_ir) +
+                                  static_cast<int>(options.format);
   if (primary_mode_count > 1) {
     return tl::unexpected(CliError{
-        .message = "options --repl, --disassemble, --dump-ast, and --dump-ir are mutually exclusive",
+        .message = "options --repl, --disassemble, --dump-ast, --dump-ir, and --format are mutually exclusive",
         .hint = "Choose exactly one primary mode.",
+        .span = std::nullopt,
+    });
+  }
+
+  if (!options.extensions.empty() && primary_mode_count > 0) {
+    return tl::unexpected(CliError{
+        .message = "option --extension applies only when running a program",
+        .hint = "Remove --repl, --disassemble, --dump-ast, --dump-ir, or --format.",
+        .span = std::nullopt,
+    });
+  }
+
+  if ((options.format_write || options.format_check) && !options.format) {
+    return tl::unexpected(CliError{
+        .message = "options --write and --check apply only to --format",
+        .hint = "Use them as 'fleaux --format --write file.fleaux' or 'fleaux --format --check file.fleaux'.",
+        .span = std::nullopt,
+    });
+  }
+
+  if (options.format_write && options.format_check) {
+    return tl::unexpected(CliError{
+        .message = "options --write and --check are mutually exclusive",
+        .hint = "Use --write to rewrite the file, or --check to only test whether it is formatted.",
         .span = std::nullopt,
     });
   }
@@ -458,7 +635,8 @@ auto main(int argc, char** argv) -> int {
 
   const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache,
                enable_experimental_builtin_reductions, enable_auto_value_ref,
-               value_ref_byte_cutoff, no_color, repl, show_help, disassemble, dump_ast, dump_ir] = *parsed;
+               value_ref_byte_cutoff, no_color, repl, show_help, disassemble, dump_ast, dump_ir, format, format_write,
+               format_check, extensions] = *parsed;
   if (show_help) {
     print_help();
     return 0;
@@ -476,6 +654,21 @@ auto main(int argc, char** argv) -> int {
 
   if (dump_ir) {
     return run(source_path, "vm-ir", "IR dump mode requires a source path", "Pass a .fleaux source file.", run_ir_dump);
+  }
+
+  if (format) {
+    if (!source_path.has_value()) {
+      return print_diag_and_return("vm-format", CliError{
+                                                    .message = "format mode requires a source path",
+                                                    .hint = "Pass a .fleaux source file.",
+                                                    .span = std::nullopt,
+                                                });
+    }
+    const auto exit_code = run_format(*source_path, format_write, format_check);
+    if (!exit_code) {
+      return print_diag_and_return("vm-format", exit_code.error());
+    }
+    return *exit_code;
   }
 
   if (repl) {
@@ -498,7 +691,7 @@ auto main(int argc, char** argv) -> int {
 
   if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache,
                                  enable_experimental_builtin_reductions, enable_auto_value_ref,
-                                 value_ref_byte_cutoff);
+                                 value_ref_byte_cutoff, extensions);
       !result) {
     return print_diag_and_return("vm-run", result.error());
   }

@@ -296,6 +296,51 @@ int main() {
 }
 ```
 
+## Calling native bindings from Fleaux programs
+
+A Fleaux program calls a native binding through a native function declaration: a function with a signature and no
+body, marked `__native__`.
+
+```fleaux
+let Ext.Add(a: Int64, b: Int64): Int64 :: __native__;
+
+(2, 3) -> Ext.Add -> Std.Println;
+```
+
+- The declaration is an ordinary function to the rest of the program: it type-checks against its signature, can be
+  imported from another module, and can be passed as a function value.
+- The binding registered under the same symbol receives the declared parameters as one tuple, always, so `Ext.Add`
+  receives `(2, 3)` and a function without parameters receives `()`.
+- The VM checks each value a binding returns against the declared return type, because bindings are outside the type
+  checker. A mismatch is a runtime error that names the function. For that reason a native function cannot be
+  generic, and its return type cannot be or contain a function type.
+- A binding that returns a `HostError` fails the call with the error's message.
+- Every native function a module declares is bound before the module runs. If no binding provides one, the program
+  stops before it starts, with an error that names the function.
+
+`VmHost::run_file`, `run_source`, and `call_fleaux` bind native functions to the host's `NativeBindingRegistry`. A host
+that runs modules on a `vm::Runtime` of its own passes `VmHost::native_function_resolver()` as the
+`RuntimeInvocationOptions::native_resolver`.
+
+### Extensions
+
+An extension is a binding plugin together with the Fleaux module that declares its functions, in one directory. The
+`fleaux` CLI loads it with `--extension`:
+
+```bash
+fleaux --extension path/to/extension program.fleaux
+```
+
+`--extension` takes the plugin library itself, or a directory that holds exactly one library. It may be given more than
+once. Each extension's directory is searched for imports after the importing module's own directory, so the program
+reaches the declarations with an ordinary `import`. `VmHost::run_file` searches `VmHostConfig::import_roots` the same
+way.
+
+`extensions/gl` is an example: OpenGL 3.3 core through GLFW and glad. Configure the core with
+`-DFLEAUX_BUILD_GL_EXTENSION=ON` and give Conan the option `-o &:build_gl_extension=True`. The build writes the library
+and `GL.fleaux` to `extensions/gl/fleaux_gl` in the build directory, and `extensions/gl/samples/triangle.fleaux` draws
+with it.
+
 ## Installing Fleaux for embedding
 
 A minimal native install looks like this:
@@ -322,3 +367,6 @@ The embedding surface is usable, but it is still intentionally narrow:
 - `call(...)` can report ambiguity if the same symbol exists in both Fleaux and native surfaces
 - `BindingSignature` metadata is not yet enforced by the host runtime
 - plugin ABI growth is versioned conservatively through a single registration entrypoint
+- plugins exchange C++ objects (`runtime::Value`, `std::function`) with the host, so a plugin must be built with the same
+  compiler and standard library as the host
+- native functions cannot be generic, and their return types cannot contain function types

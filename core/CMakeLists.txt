@@ -240,6 +240,8 @@ endif()
 set(FLEAUX_FRONTEND_PARSER_SOURCES
         src/frontend/lexer.cpp
         src/frontend/parser.cpp
+        src/frontend/format/layout.cpp
+        src/frontend/format/formatter.cpp
 )
 
 add_library(fleaux_frontend_parser STATIC)
@@ -302,6 +304,7 @@ if(BUILD_TESTING)
       tests/embed_api_surface_tests.cpp
       tests/parser_tests.cpp
       tests/parser_type_syntax_tests.cpp
+      tests/formatter_tests.cpp
       tests/lowering_tests.cpp
       tests/typecheck_tests.cpp
       tests/runtime_builtins_tests.cpp
@@ -375,7 +378,7 @@ if(FLEAUX_PCRE2_TARGET)
 
   add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
   target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
-  target_link_libraries(fleaux PRIVATE fleaux_vm)
+  target_link_libraries(fleaux PRIVATE fleaux_vm fleaux_embed)
   fleaux_set_project_warnings(fleaux WARNINGS_AS_ERRORS)
 
   add_library(fleaux_embed STATIC
@@ -437,7 +440,7 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       "SHELL:-sENVIRONMENT=web,worker"
       "SHELL:-sNO_EXIT_RUNTIME=1"
       "SHELL:-sASSERTIONS=1"
-      "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_last_status\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\"]"
+      "SHELL:-sEXPORTED_FUNCTIONS=[\"_main\",\"_fleaux_wasm_version\",\"_fleaux_wasm_last_error\",\"_fleaux_wasm_last_output\",\"_fleaux_wasm_last_exit_code\",\"_fleaux_wasm_last_status\",\"_fleaux_wasm_parse_and_lower\",\"_fleaux_wasm_run_source\",\"_fleaux_wasm_format_source\"]"
       "SHELL:-sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\"]")
   set_target_properties(fleaux_wasm_coordinator PROPERTIES
       OUTPUT_NAME "fleaux_wasm_coordinator"
@@ -488,6 +491,7 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
       tests/bytecode_tests.cpp
       tests/embed_dynamic_loader_tests.cpp
       tests/embed_native_bindings_tests.cpp
+      tests/native_call_tests.cpp
       tests/opcode_stringify_tests.cpp
       tests/embed_vm_host_tests.cpp
       tests/vm_cli_tests.cpp
@@ -526,6 +530,13 @@ endif()
 
 if(TARGET fleaux_vm)
   list(APPEND FLEAUX_DEVELOPMENT_TARGETS fleaux_vm)
+endif()
+
+# Extensions are native libraries that 'fleaux --extension' loads; see extensions/.
+option(FLEAUX_BUILD_GL_EXTENSION "Build the OpenGL extension in extensions/gl (needs Conan's build_gl_extension option)"
+       OFF)
+if(FLEAUX_BUILD_GL_EXTENSION AND NOT EMSCRIPTEN)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../extensions/gl" "${CMAKE_CURRENT_BINARY_DIR}/extensions/gl")
 endif()
 
 if(TARGET fleaux_embed)

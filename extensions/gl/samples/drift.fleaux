@@ -1,0 +1,465 @@
+// Drift: a small arcade game drawn with the OpenGL extension. Steer the cyan block along the bottom
+// with the arrow keys, catch the gold gems, and dodge the red blocks. Blocks fall faster and more
+// often the longer you last, and a red block costs one of three lives. After the last one, Space
+// starts a new game. Escape quits.
+//
+//   fleaux --extension <directory of the built extension> extensions/gl/samples/drift.fleaux
+
+import Std;
+import GL;
+
+// Everything drawn is a rectangle on an 800 x 600 field with its origin at the bottom left: x, y,
+// width, height.
+alias Rect = Tuple<Float64, Float64, Float64, Float64>;
+alias Color = Tuple<Float64, Float64, Float64>;
+
+let VertexSource: String = """
+  #version 330 core
+  layout(location = 0) in vec2 corner;
+  uniform vec4 rect;
+  out vec2 local;
+  void main() {
+    local = corner;
+    vec2 field = rect.xy + corner * rect.zw;
+    gl_Position = vec4(field / vec2(400.0, 300.0) - 1.0, 0.0, 1.0);
+  }
+  """;
+
+// The color's fourth component scales its brightness. Each rectangle is lit from its middle, so it
+// reads as a tile.
+let FragmentSource: String = """
+  #version 330 core
+  in vec2 local;
+  uniform vec4 color;
+  out vec4 fragment_color;
+  void main() {
+    vec2 edge = min(local, 1.0 - local);
+    float bevel = smoothstep(0.0, 0.2, min(edge.x, edge.y));
+    fragment_color = vec4(color.rgb * color.a * (0.6 + 0.4 * bevel), 1.0);
+  }
+  """;
+
+// Drawing
+
+// The shader program and the locations of its `rect` and `color` uniforms.
+alias Gpu = Tuple<Int64, Int64, Int64>;
+
+// A unit square as a triangle strip; the vertex shader moves and sizes it to each rectangle.
+let Corners: Tuple<Float64...> = (0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+
+let Setup(): Gpu = {
+  ("Fleaux: Drift", 800, 600) -> GL.OpenWindow;
+  let program: Int64 = (VertexSource, FragmentSource) -> GL.CompileProgram -> Std.Result.Unwrap;
+  () -> GL.CreateVertexArray;
+  Corners -> GL.CreateBuffer;
+  (0, 2, 2, 0) -> GL.VertexAttribute;
+  program -> GL.UseProgram;
+  (program, (program, "rect") -> GL.UniformLocation, (program, "color") -> GL.UniformLocation);
+};
+
+let DrawRect(
+  program: Int64,
+  rect_location: Int64,
+  color_location: Int64,
+  rect: Rect,
+  color: Color,
+  brightness: Float64
+): Null = {
+  (rect_location, rect...) -> GL.Uniform4f;
+  (color_location, color..., brightness) -> GL.Uniform4f;
+  (GL.TriangleStrip, 0, 4) -> GL.DrawArrays;
+};
+
+let DrawRects(gpu: Gpu, rects: Tuple<Rect...>, color: Color, brightness: Float64): Null = {
+  (rects, (rect: Rect): Null = (gpu..., rect, color, brightness) -> DrawRect) -> Std.Tuple.Map;
+  null;
+};
+
+let Pick<T>(values: Tuple<T...>, index: Int64): T =
+  (values, index -> Std.ToUInt64) -> Std.ElementAt;
+
+// The seven segments of a digit in a 24 x 40 box: top, upper right, lower right, bottom, lower
+// left, upper left, middle.
+let Segments: Tuple<Rect...> =
+  (
+    (5.0, 35.0, 14.0, 5.0),
+    (19.0, 20.0, 5.0, 15.0),
+    (19.0, 5.0, 5.0, 15.0),
+    (5.0, 0.0, 14.0, 5.0),
+    (0.0, 5.0, 5.0, 15.0),
+    (0.0, 20.0, 5.0, 15.0),
+    (5.0, 17.5, 14.0, 5.0)
+  );
+
+// The segments that each digit, 0 to 9, lights.
+let DigitSegments: Tuple<Tuple<Int64...>...> =
+  (
+    (0, 1, 2, 3, 4, 5),
+    (1, 2),
+    (0, 1, 3, 4, 6),
+    (0, 1, 2, 3, 6),
+    (1, 2, 5, 6),
+    (0, 2, 3, 5, 6),
+    (0, 2, 3, 4, 5, 6),
+    (0, 1, 2),
+    (0, 1, 2, 3, 4, 5, 6),
+    (0, 1, 2, 3, 5, 6)
+  );
+
+// A rectangle scaled by `scale` and moved by (x, y).
+let Place(
+  rx: Float64,
+  ry: Float64,
+  rw: Float64,
+  rh: Float64,
+  x: Float64,
+  y: Float64,
+  scale: Float64
+): Rect =
+  (((rx, scale) -> *, x) -> +, ((ry, scale) -> *, y) -> +, (rw, scale) -> *, (rh, scale) -> *);
+
+let DrawDigit(
+  gpu: Gpu,
+  digit: Int64,
+  x: Float64,
+  y: Float64,
+  scale: Float64,
+  color: Color,
+  brightness: Float64
+): Null = {
+  let segments: Tuple<Rect...> = Segments;
+  let lit: Tuple<Int64...> = (DigitSegments, digit) -> Pick;
+  let rects: Tuple<Rect...> =
+    (
+      lit,
+      (segment: Int64): Rect = {
+        let rect: Rect = (segments, segment) -> Pick;
+        (rect..., x, y, scale) -> Place;
+      }
+    ) -> Std.Tuple.Map;
+  (gpu, rects, color, brightness) -> DrawRects;
+};
+
+// `value` as five digits, with leading zeros, starting at (x, y). Each digit takes 32 units of
+// width at scale 1.
+let DrawNumber(
+  gpu: Gpu,
+  value: Int64,
+  x: Float64,
+  y: Float64,
+  scale: Float64,
+  color: Color,
+  brightness: Float64
+): Null = {
+  let shown: Int64 = ((value, 99999) -> >, 99999, value) -> Std.Select;
+  let places: Tuple<Int64...> = (10000, 1000, 100, 10, 1);
+  (
+    5 -> Std.Tuple.Range,
+    (index: Int64): Null = {
+      let digit: Int64 = ((shown, (places, index) -> Pick) -> /, 10) -> Std.Mod;
+      let left: Float64 = (x, ((index -> Std.ToFloat64, 32.0) -> *, scale) -> *) -> +;
+      (gpu, digit, left, y, scale, color, brightness) -> DrawDigit;
+    }
+  ) -> Std.Tuple.Map;
+  null;
+};
+
+// The game
+
+let PlayerY: Float64 = 30.0;
+let PlayerSize: Float64 = 44.0;
+let PlayerSpeed: Float64 = 520.0;
+let GemSize: Float64 = 26.0;
+let HazardSize: Float64 = 40.0;
+
+let PlayerColor: Color = (0.25, 0.9, 1.0);
+let HitColor: Color = (1.0, 1.0, 1.0);
+let GemColor: Color = (1.0, 0.8, 0.25);
+let HazardColor: Color = (0.95, 0.25, 0.3);
+let LifeColor: Color = (0.95, 0.4, 0.8);
+let ScoreColor: Color = (0.9, 0.95, 1.0);
+let StarColor: Color = (0.45, 0.5, 0.8);
+
+// A falling block: x, y, how fast it falls in units a second, and whether it is a gem.
+alias Faller = Tuple<Float64, Float64, Float64, Bool>;
+
+// The time of the last frame, the player's x, the falling blocks, the score, the lives left, the
+// random generator, the seconds until the next block, the seconds played, the seconds left of the
+// hit flash, and whether the game is over.
+alias Game = Tuple<
+  Float64,
+  Float64,
+  Tuple<Faller...>,
+  Float64,
+  Int64,
+  RandomGenerator,
+  Float64,
+  Float64,
+  Float64,
+  Bool
+>;
+
+alias State = Tuple<Gpu, Game>;
+
+let NewGame(rng: RandomGenerator, now: Float64): Game =
+  (now, 378.0, (), 0.0, 3, rng, 0.8, 0.0, 0.0, False);
+
+let PlayerRect(x: Float64): Rect = (x, PlayerY, PlayerSize, PlayerSize);
+
+let FallerRect(x: Float64, y: Float64, speed: Float64, gem: Bool): Rect = {
+  let size: Float64 = (gem, GemSize, HazardSize) -> Std.Select;
+  (x, y, size, size);
+};
+
+let IsGem(x: Float64, y: Float64, speed: Float64, gem: Bool): Bool = gem;
+
+let Fall(x: Float64, y: Float64, speed: Float64, gem: Bool, dt: Float64): Faller =
+  (x, (y, (speed, dt) -> *) -> -, speed, gem);
+
+let OverlapsAt(
+  ax: Float64,
+  ay: Float64,
+  aw: Float64,
+  ah: Float64,
+  bx: Float64,
+  by: Float64,
+  bw: Float64,
+  bh: Float64
+): Bool =
+  (
+    ((ax, (bx, bw) -> +) -> <, (bx, (ax, aw) -> +) -> <) -> &&,
+    ((ay, (by, bh) -> +) -> <, (by, (ay, ah) -> +) -> <) -> &&
+  ) -> &&;
+
+let Overlaps(a: Rect, b: Rect): Bool = (a..., b...) -> OverlapsAt;
+
+let Touches(x: Float64, y: Float64, speed: Float64, gem: Bool, player: Rect): Bool =
+  ((x, y, speed, gem) -> FallerRect, player) -> Overlaps;
+
+// A block stays in play until the player touches it or it falls below the field.
+let Stays(x: Float64, y: Float64, speed: Float64, gem: Bool, player: Rect): Bool =
+  (
+    (x, y, speed, gem, player) -> Touches -> Std.Not,
+    ((y, (gem, GemSize, HazardSize) -> Std.Select) -> +, 0.0) -> >
+  ) -> &&;
+
+// 1 while `key` is held, otherwise 0.
+let KeyAxis(key: Int64): Float64 = (key -> GL.KeyDown, 1.0, 0.0) -> Std.Select;
+
+let AnnounceGameOver(score: Float64): Float64 = {
+  (
+    "Game over. Score:",
+    score -> Std.Math.Floor -> Std.ToInt64,
+    "- Space plays again, Escape quits."
+  ) -> Std.Println;
+  score;
+};
+
+let KeepScore(score: Float64): Float64 = score;
+
+// One frame of play: moves the player and the blocks, scores what the player touches, and drops a
+// new block when one is due.
+let Play(
+  time: Float64,
+  player_x: Float64,
+  fallers: Tuple<Faller...>,
+  score: Float64,
+  lives: Int64,
+  rng: RandomGenerator,
+  spawn_in: Float64,
+  played: Float64,
+  flash: Float64,
+  over: Bool,
+  now: Float64
+): Game = {
+  let dt: Float64 = ((now, time) -> -, 0.0, 0.05) -> Std.Math.Clamp;
+  let steer: Float64 = (GL.KeyArrowRight -> KeyAxis, GL.KeyArrowLeft -> KeyAxis) -> -;
+  let x: Float64 =
+    ((player_x, ((steer, PlayerSpeed) -> *, dt) -> *) -> +, 0.0, (800.0, PlayerSize) -> -)
+      -> Std.Math.Clamp;
+  let player: Rect = x -> PlayerRect;
+
+  let moved: Tuple<Faller...> =
+    (fallers, (f: Faller): Faller = (f..., dt) -> Fall) -> Std.Tuple.Map;
+  let touched: Tuple<Faller...> =
+    (moved, (f: Faller): Bool = (f..., player) -> Touches) -> Std.Tuple.Filter;
+  let gems: Int64 =
+    (touched, (f: Faller): Bool = (f...) -> IsGem) -> Std.Tuple.Filter -> Std.Length;
+  let hits: Int64 = (touched -> Std.Length, gems) -> -;
+  let kept: Tuple<Faller...> =
+    (moved, (f: Faller): Bool = (f..., player) -> Stays) -> Std.Tuple.Filter;
+
+  // A new block: where it starts, whether it is a gem, and its speed come from three random
+  // numbers.
+  let due: Bool = ((spawn_in, dt) -> -, 0.0) -> <=;
+  let roll_x: Tuple<Float64, RandomGenerator> = rng -> Std.Random.NextFloat64;
+  let roll_kind: Tuple<Float64, RandomGenerator> = roll_x -> Std.Second -> Std.Random.NextFloat64;
+  let roll_speed: Tuple<Float64, RandomGenerator> =
+    roll_kind -> Std.Second -> Std.Random.NextFloat64;
+  let gem: Bool = (roll_kind -> Std.First, 0.3) -> <;
+  let size: Float64 = (gem, GemSize, HazardSize) -> Std.Select;
+  let speed: Float64 =
+    ((((played, 7.0) -> *, 170.0) -> +, (roll_speed -> Std.First, 110.0) -> *) -> +, 0.0, 600.0)
+      -> Std.Math.Clamp;
+  let spawned: Faller = ((roll_x -> Std.First, (800.0, size) -> -) -> *, 600.0, speed, gem);
+  let next_fallers: Tuple<Faller...> =
+    (due, (kept, spawned) -> Std.Tuple.Append, kept) -> Std.Select;
+  let interval: Float64 = ((0.8, (played, 0.012) -> *) -> -, 0.22, 0.8) -> Std.Math.Clamp;
+  let next_spawn: Float64 = (due, interval, (spawn_in, dt) -> -) -> Std.Select;
+
+  let next_score: Float64 = ((score, (dt, 4.0) -> *) -> +, (gems -> Std.ToFloat64, 25.0) -> *) -> +;
+  let next_lives: Int64 = (lives, hits) -> -;
+  let lost: Bool = (next_lives, 0) -> <=;
+  let next_flash: Float64 =
+    ((hits, 0) -> >, 0.5, ((flash, dt) -> -, 0.0, 1.0) -> Std.Math.Clamp) -> Std.Select;
+  (lost, next_score, AnnounceGameOver, KeepScore) -> Std.Branch;
+  (
+    now,
+    x,
+    next_fallers,
+    next_score,
+    (lost, 0, next_lives) -> Std.Select,
+    roll_speed -> Std.Second,
+    next_spawn,
+    (played, dt) -> +,
+    next_flash,
+    lost
+  );
+};
+
+// After the last life everything stays where it stopped, until Space starts a new game.
+let Wait(
+  time: Float64,
+  player_x: Float64,
+  fallers: Tuple<Faller...>,
+  score: Float64,
+  lives: Int64,
+  rng: RandomGenerator,
+  spawn_in: Float64,
+  played: Float64,
+  flash: Float64,
+  over: Bool,
+  now: Float64
+): Game =
+  (
+    GL.KeySpace -> GL.KeyDown,
+    (rng, now) -> NewGame,
+    (now, player_x, fallers, score, lives, rng, spawn_in, played, 0.0, over)
+  ) -> Std.Select;
+
+let IsOver(
+  time: Float64,
+  player_x: Float64,
+  fallers: Tuple<Faller...>,
+  score: Float64,
+  lives: Int64,
+  rng: RandomGenerator,
+  spawn_in: Float64,
+  played: Float64,
+  flash: Float64,
+  over: Bool
+): Bool = over;
+
+let Advance(game: Game, now: Float64): Game =
+  (
+    (game...) -> IsOver,
+    game,
+    (g: Game): Game = (g..., now) -> Wait,
+    (g: Game): Game = (g..., now) -> Play
+  ) -> Std.Branch;
+
+// A background star, placed by its number so that it needs no state. The stars drift down at three
+// speeds.
+let Star(index: Int64, time: Float64): Rect = {
+  let number: Float64 = index -> Std.ToFloat64;
+  let layer: Float64 = (index, 3) -> Std.Mod -> Std.ToFloat64;
+  let size: Float64 = (layer, 1.0) -> +;
+  let x: Float64 = ((number, 197.0) -> *, 800.0) -> Std.Mod;
+  let fallen: Float64 =
+    (((number, 263.0) -> *, (time, ((layer, 25.0) -> *, 15.0) -> +) -> *) -> +, 600.0) -> Std.Mod;
+  (x, (600.0, fallen) -> -, size, size);
+};
+
+let LifeRect(index: Int64): Rect =
+  (((index -> Std.ToFloat64, 30.0) -> *, 20.0) -> +, 560.0, 20.0, 20.0);
+
+// The final score, large, in the middle, over a bar that pulses until Space is pressed.
+let DrawGameOver(gpu: Gpu, score: Float64, time: Float64): Float64 = {
+  (gpu, score -> Std.Math.Floor -> Std.ToInt64, 210.0, 250.0, 2.5, ScoreColor, 1.0) -> DrawNumber;
+  let pulse: Float64 = (((time, 4.0) -> * -> Std.Math.Sin, 0.3) -> *, 0.7) -> +;
+  (gpu..., (300.0, 200.0, 200.0, 12.0), PlayerColor, pulse) -> DrawRect;
+  score;
+};
+
+let DrawGame(
+  gpu: Gpu,
+  time: Float64,
+  player_x: Float64,
+  fallers: Tuple<Faller...>,
+  score: Float64,
+  lives: Int64,
+  rng: RandomGenerator,
+  spawn_in: Float64,
+  played: Float64,
+  flash: Float64,
+  over: Bool
+): Null = {
+  let brightness: Float64 = (over, 0.35, 1.0) -> Std.Select;
+  (0.02, 0.02, 0.06, 1.0) -> GL.ClearColor;
+  GL.ColorBufferBit -> GL.Clear;
+  let stars: Tuple<Rect...> =
+    (40 -> Std.Tuple.Range, (index: Int64): Rect = (index, time) -> Star) -> Std.Tuple.Map;
+  (gpu, stars, StarColor, brightness) -> DrawRects;
+
+  let gems: Tuple<Faller...> = (fallers, (f: Faller): Bool = (f...) -> IsGem) -> Std.Tuple.Filter;
+  let hazards: Tuple<Faller...> =
+    (fallers, (f: Faller): Bool = (f...) -> IsGem -> Std.Not) -> Std.Tuple.Filter;
+  (gpu, (gems, (f: Faller): Rect = (f...) -> FallerRect) -> Std.Tuple.Map, GemColor, brightness)
+    -> DrawRects;
+  (
+    gpu,
+    (hazards, (f: Faller): Rect = (f...) -> FallerRect) -> Std.Tuple.Map,
+    HazardColor,
+    brightness
+  ) -> DrawRects;
+
+  // The player blinks white for a moment after a hit.
+  let blink: Bool = (((time, 16.0) -> * -> Std.Math.Floor, 2.0) -> Std.Mod, 0.0) -> ==;
+  let flashing: Bool = ((flash, 0.0) -> >, blink) -> &&;
+  (gpu..., player_x -> PlayerRect, (flashing, HitColor, PlayerColor) -> Std.Select, brightness)
+    -> DrawRect;
+
+  (gpu, (lives -> Std.Tuple.Range, LifeRect) -> Std.Tuple.Map, LifeColor, brightness) -> DrawRects;
+  (gpu, score -> Std.Math.Floor -> Std.ToInt64, 632.0, 546.0, 1.0, ScoreColor, brightness)
+    -> DrawNumber;
+  (over, score, (s: Float64): Float64 = (gpu, s, time) -> DrawGameOver, KeepScore) -> Std.Branch;
+  null;
+};
+
+// The frame loop
+
+let Running(state: State): Bool =
+  (() -> GL.WindowShouldClose, GL.KeyEscape -> GL.KeyDown) -> Std.Or -> Std.Not;
+
+let Frame(gpu: Gpu, game: Game): State = {
+  let next: Game = (game, () -> GL.Time) -> Advance;
+  (gpu, next...) -> DrawGame;
+  () -> GL.SwapBuffers;
+  () -> GL.PollEvents;
+  (gpu, next);
+};
+
+let Step(state: State): State = (state...) -> Frame;
+
+let Start(): State = {
+  let gpu: Gpu = () -> Setup;
+  let now: Float64 = () -> GL.Time;
+  // Seeded from the clock, so that every run deals different blocks.
+  let rng: RandomGenerator = (now, 1000000000.0) -> * -> Std.ToUInt64 -> Std.Random.Create;
+  "Drift: catch the gold gems and dodge the red blocks. Arrow keys steer, Escape quits."
+    -> Std.Println;
+  (gpu, (rng, now) -> NewGame);
+};
+
+(() -> Start, Running, Step) -> Std.Loop;
+() -> GL.CloseWindow;

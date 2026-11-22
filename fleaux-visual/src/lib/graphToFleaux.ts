@@ -15,6 +15,7 @@ import type {
   UserFuncData,
 } from './types';
 import { callSlotCount, hasVariadicTail, minArity } from './functionSignatures';
+import { multiLineRawStringLiteral, ordinaryStringLiteral } from './stringLiterals';
 
 export class GraphSerializationError extends Error {
   constructor(message: string) {
@@ -79,14 +80,11 @@ function buildGraphContext(
   return { nodesById, incomingByTarget, outgoingBySource, nodeOrder };
 }
 
-function quoteString(value: string): string {
-  return JSON.stringify(value);
-}
-
 function renderLiteral(data: LiteralData): string {
   switch (data.valueType) {
     case 'String':
-      return quoteString(data.value);
+      // Text of several lines reads best as a raw string.
+      return multiLineRawStringLiteral(data.value) ?? ordinaryStringLiteral(data.value);
     case 'Float64': {
       const text = data.value.trim() === '' ? '0' : data.value.trim();
       return /^-?\d+$/.test(text) ? `${text}.0` : text;

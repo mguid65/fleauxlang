@@ -14,6 +14,7 @@ class ConanApplication(ConanFile):
 
     options = {
         "build_wasm_coordinator": [True, False],
+        "build_gl_extension": [True, False],
         "install_visual_assets": [True, False],
         "enable_asan": [True, False],
         "enable_tsan": [True, False],
@@ -21,6 +22,11 @@ class ConanApplication(ConanFile):
     }
     default_options = {
         "build_wasm_coordinator": False,
+        "build_gl_extension": False,
+        # The OpenGL extension targets OpenGL 3.3 core.
+        "glad/*:spec": "gl",
+        "glad/*:gl_profile": "core",
+        "glad/*:gl_version": "3.3",
         "install_visual_assets": False,
         "enable_asan": False,
         "enable_tsan": False,
@@ -49,6 +55,7 @@ class ConanApplication(ConanFile):
         tc = CMakeToolchain(self)
         tc.user_presets_path = False
         tc.variables["FLEAUX_INSTALL_VISUAL_ASSETS"] = self.options.install_visual_assets
+        tc.variables["FLEAUX_BUILD_GL_EXTENSION"] = self.options.build_gl_extension
         tc.variables["FLEAUX_ENABLE_ASAN"] = self.options.enable_asan
         tc.variables["FLEAUX_ENABLE_TSAN"] = self.options.enable_tsan
         tc.variables["FLEAUX_ENABLE_UBSAN"] = self.options.enable_ubsan
@@ -86,3 +93,7 @@ class ConanApplication(ConanFile):
         requirements = self.conan_data.get('requirements', [])
         for requirement in requirements:
             self.requires(requirement)
+        # The OpenGL extension (extensions/gl): a window and input from GLFW, OpenGL functions loaded by glad.
+        if self.options.build_gl_extension and self.settings.os != "Emscripten":
+            self.requires("glfw/3.4")
+            self.requires("glad/0.1.36")

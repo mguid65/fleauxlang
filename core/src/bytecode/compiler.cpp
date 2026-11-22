@@ -698,12 +698,36 @@ auto compile_single_top_level_expression(Module& bytecode_module, CompileState& 
   return {};
 }
 
+// A native function's body passes its parameters, as one tuple, to the extension function and returns the result.
+auto compile_native_function_body(Module& bytecode_module, CompileState& state, const IRLet& let) -> EmitResult {
+  if (!let.native_return_check.has_value()) {
+    return tl::unexpected(CompileError{.message = "native function '" + common::full_symbol_name(let.qualifier, let.name) +
+                                                  "' has no return check; the type checker did not run"});
+  }
+  auto& instructions = bytecode_module.functions[state.function_idx.at(internal_symbol_name(let))].instructions;
+  const auto param_count = static_cast<std::int64_t>(let.params.size());
+  for (std::int64_t slot = 0; slot < param_count; ++slot) {
+    instructions.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = slot});
+  }
+  instructions.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = param_count});
+  const auto native_index = static_cast<std::int64_t>(bytecode_module.native_functions.size());
+  bytecode_module.native_functions.push_back(NativeFunctionRecord{
+      .symbol = common::full_symbol_name(let.qualifier, let.name),
+      .return_check = *let.native_return_check,
+  });
+  instructions.push_back(Instruction{.opcode = Opcode::kCallNative, .operand = native_index});
+  instructions.push_back(Instruction{.opcode = Opcode::kReturn, .operand = 0});
+  return {};
+}
+
 auto compile_function_bodies(Module& bytecode_module, CompileState& state, const IRProgram& program) -> EmitResult {
   for (const auto& let : program.lets) {
     if (let.is_builtin)
       continue;
 
-    if (auto emit_result = compile_single_function_body(bytecode_module, state, let); !emit_result) {
+    auto emit_result = let.is_native ? compile_native_function_body(bytecode_module, state, let)
+                                     : compile_single_function_body(bytecode_module, state, let);
+    if (!emit_result) {
       return emit_result;
     }
   }

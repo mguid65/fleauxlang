@@ -69,6 +69,8 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
   const editColors = EDIT_COLORS[data.valueType];
   const isBoolLiteral = data.valueType === 'Bool';
   const isNullLiteral = data.valueType === 'Null';
+  const isStringLiteral = data.valueType === 'String';
+  const editLineCount = editValue.split('\n').length;
 
   const handleSave = () => {
     const normalizedValue = normalizeLiteralValue(data.valueType, editValue);
@@ -84,8 +86,12 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
     setIsEditing(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
-    if (e.key === 'Enter') handleSave();
+  // Enter saves. In a string, Shift+Enter starts a new line.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !(isStringLiteral && e.shiftKey)) {
+      e.preventDefault();
+      handleSave();
+    }
     if (e.key === 'Escape') {
       setEditValue(data.value);
       setIsEditing(false);
@@ -112,6 +118,19 @@ export function LiteralNode({ data, id }: NodeProps<Node<LiteralData>>) {
             <option value="True">True</option>
             <option value="False">False</option>
           </select>
+        ) : isStringLiteral ? (
+          // A text input would drop the line breaks of a multi-line string.
+          <textarea
+            autoFocus
+            rows={Math.min(editLineCount, 12)}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+            wrap="off"
+            className={`nodrag nowheel block w-full mt-1 px-2 py-1 text-sm font-mono border rounded outline-none resize ${editLineCount > 1 ? 'min-w-[360px]' : ''} ${editColors}`}
+          />
         ) : (
           <input
             autoFocus

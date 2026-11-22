@@ -27,7 +27,9 @@ struct TextFileReadError {
 
 [[nodiscard]] inline auto read_text_file(const std::filesystem::path& file)
     -> tl::expected<std::string, TextFileReadError> {
-  std::ifstream in(file);
+  // Binary, so every platform sees the same bytes: the lexer accepts "\r\n", and the formatter keeps the file's own
+  // line endings.
+  std::ifstream in(file, std::ios::binary);
   if (!in) {
     return tl::unexpected(TextFileReadError{.message = "Failed to read source file: " + file.string()});
   }

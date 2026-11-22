@@ -137,8 +137,8 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 [[nodiscard]] inline auto ToNum(Value arg) -> Value {
   const Value string_value = unwrap_singleton_arg(std::move(arg));
   const std::string& str = as_string(string_value);
-  const auto parsed_number = detail::parse_decimal_or_throw<double>(str, "ToNum");
-  return num_result(parsed_number);
+  // Std.ToNum is declared to return Float64, so "42" is 42.0.
+  return make_float(detail::parse_decimal_or_throw<double>(str, "ToNum"));
 }
 
 [[nodiscard]] inline auto StringParseInt64(Value arg) -> Value {

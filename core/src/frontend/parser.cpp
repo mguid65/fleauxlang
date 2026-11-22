@@ -76,7 +76,6 @@ private:
   std::string source_name_;
   std::vector<Token> tokens_;
   std::size_t i_ = 0;
-  std::vector<bool> source_line_is_blank_;
   std::vector<std::optional<std::string>> source_line_comment_;
 
   [[nodiscard]] static auto trim_copy(const std::string_view text) -> std::string {
@@ -89,7 +88,6 @@ private:
   }
 
   void classify_source_lines() {
-    source_line_is_blank_.assign(1, false);
     source_line_comment_.assign(1, std::nullopt);
 
     std::size_t line_start = 0;
@@ -99,7 +97,6 @@ private:
       const std::string_view raw_line(source_.data() + line_start, line_end - line_start);
       const std::string trimmed = trim_copy(raw_line);
 
-      source_line_is_blank_.push_back(trimmed.empty());
       if (trimmed.starts_with("//")) {
         std::string comment_text = trim_copy(std::string_view(trimmed).substr(2));
         source_line_comment_.emplace_back(std::move(comment_text));
@@ -114,34 +111,17 @@ private:
     }
   }
 
+  // A let's documentation: the run of '//' lines that ends on the line directly above it. Whatever is above the run,
+  // a blank line or code, does not matter. This is the same rule the Std help metadata uses.
   [[nodiscard]] auto doc_comments_for_line(const int line) const -> std::vector<std::string> {
-    if (line <= 1 || static_cast<std::size_t>(line) >= source_line_is_blank_.size()) {
-      return {};
-    }
-
-    int cursor = line - 1;
-    if (source_line_is_blank_[static_cast<std::size_t>(cursor)]) {
-      return {};
-    }
-    if (!source_line_comment_[static_cast<std::size_t>(cursor)].has_value()) {
-      return {};
-    }
-
     std::vector<std::string> comments;
-    while (cursor >= 1) {
+    for (int cursor = line - 1; cursor >= 1; --cursor) {
       const auto idx = static_cast<std::size_t>(cursor);
-      if (source_line_comment_[idx].has_value()) {
-        comments.push_back(*source_line_comment_[idx]);
-        --cursor;
-        continue;
-      }
-      if (source_line_is_blank_[idx]) {
-        comments.clear();
+      if (idx >= source_line_comment_.size() || !source_line_comment_[idx].has_value()) {
         break;
       }
-      break;
+      comments.push_back(*source_line_comment_[idx]);
     }
-
     std::ranges::reverse(comments);
     return comments;
   }
@@ -179,7 +159,7 @@ private:
     span.source_text = source_;
     span.line = token.line;
     span.col = token.col;
-    span.end_line = token.line;
+    span.end_line = token.end_line();
     span.end_col = (token.kind == TokenKind::kEof) ? token.col : token.end_col();
     return span;
   }
@@ -193,7 +173,7 @@ private:
     span.source_text = source_;
     span.line = start_tok.line;
     span.col = start_tok.col;
-    span.end_line = end_tok.line;
+    span.end_line = end_tok.end_line();
     span.end_col = (end_tok.kind == TokenKind::kEof) ? end_tok.col : end_tok.end_col();
     return span;
   }
@@ -1085,7 +1065,7 @@ private:
       std::vector<Token> parts{next()};
       while (peek().kind == TokenKind::kNumeric || peek().kind == TokenKind::kIdent) {
         const Token nxt = peek();
-        if (const Token prev = parts.back(); nxt.line != prev.line || nxt.col != prev.end_col()) {
+        if (const Token prev = parts.back(); nxt.line != prev.end_line() || nxt.col != prev.end_col()) {
           break;
         }
         parts.push_back(next());
@@ -1183,6 +1163,10 @@ private:
       if (is_ident_value("__builtin__")) {
         next();
         out.is_builtin = true;
+        out.expr = std::nullopt;
+      } else if (is_ident_value("__native__")) {
+        next();
+        out.is_native = true;
         out.expr = std::nullopt;
       } else {
         FLEAUX_TRY_ASSIGN(let_expr, expr());
@@ -1511,6 +1495,7 @@ private:
     fields.push_back(std::format("doc_comments: {}", format_string_list(stmt.doc_comments, level + 1)));
     fields.push_back(std::format("is_value_binding: {}", stmt.is_value_binding));
     fields.push_back(std::format("is_builtin: {}", stmt.is_builtin));
+    fields.push_back(std::format("is_native: {}", stmt.is_native));
     fields.push_back(
         std::format("expr: {}", stmt.expr ? format_expression(*stmt.expr, level + 1) : std::string{"null"}));
     return format_block("LetStatement", fields, level);

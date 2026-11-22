@@ -42,6 +42,7 @@ struct MergeMaps {
   std::vector<std::uint32_t> functions;
   std::vector<std::uint32_t> closures;
   std::vector<std::uint32_t> type_checks;
+  std::vector<std::uint32_t> native_functions;
 };
 
 struct LoadedImports {
@@ -111,9 +112,18 @@ auto resolve_entry_paths(const std::filesystem::path& entry_path) -> ResolvedMod
   return frontend::import_resolution::resolve_entry_paths(entry_path);
 }
 
-auto resolve_import_paths(const std::filesystem::path& current_module_dir, const std::string& module_name)
-    -> ResolvedModulePaths {
-  return frontend::import_resolution::resolve_import_paths(current_module_dir, module_name);
+auto resolve_import_paths(const std::filesystem::path& current_module_dir, const std::string& module_name,
+                          const ModuleLoadOptions& options) -> ResolvedModulePaths {
+  return frontend::import_resolution::resolve_import_paths(current_module_dir, module_name, options.import_search_paths);
+}
+
+auto searched_import_locations(const std::filesystem::path& importing_location, const ModuleLoadOptions& options)
+    -> std::string {
+  std::string locations = "'" + importing_location.string() + "'";
+  for (const auto& directory : options.import_search_paths) {
+    locations += ", '" + directory.string() + "'";
+  }
+  return locations;
 }
 
 auto read_binary_file(const std::filesystem::path& file_path)
@@ -169,6 +179,9 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
       case Opcode::kTryCheckType:
         operand = static_cast<std::int64_t>(maps.type_checks[static_cast<std::size_t>(operand)]);
         break;
+      case Opcode::kCallNative:
+        operand = static_cast<std::int64_t>(maps.native_functions[static_cast<std::size_t>(operand)]);
+        break;
       case Opcode::kJump:
       case Opcode::kJumpIf:
       case Opcode::kJumpIfNot:
@@ -197,6 +210,12 @@ auto merge_module_into(Module& target, const Module& source,
   for (const auto& check : source.type_checks) {
     maps.type_checks.push_back(static_cast<std::uint32_t>(target.type_checks.size()));
     target.type_checks.push_back(check);
+  }
+
+  maps.native_functions.reserve(source.native_functions.size());
+  for (const auto& native_function : source.native_functions) {
+    maps.native_functions.push_back(static_cast<std::uint32_t>(target.native_functions.size()));
+    target.native_functions.push_back(native_function);
   }
 
   maps.functions.resize(source.functions.size());
@@ -352,12 +371,12 @@ auto load_imports(const frontend::ir::IRProgram& ir_program, const ResolvedModul
       continue;
     }
 
-    const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name);
+    const auto import_paths = resolve_import_paths(paths.source->parent_path(), module_name, options);
     if (!import_paths.source.has_value() && !import_paths.bytecode.has_value()) {
       return tl::unexpected(make_error(
           "import-unresolved: Import not found: '" + module_name + "'.",
-          std::optional<std::string>{"Checked relative to '" + paths.source->string() +
-                                     "'. Verify module name and file location."},
+          std::optional<std::string>{"Checked relative to " + searched_import_locations(*paths.source, options) +
+                                     ". Verify module name and file location."},
           src_span));
     }
 
@@ -726,11 +745,12 @@ auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions&
     if (is_symbolic) {
       continue;
     }
-    const auto dependency_paths = resolve_import_paths(current_dir, module_name);
+    const auto dependency_paths = resolve_import_paths(current_dir, module_name, options);
     if (!dependency_paths.source.has_value() && !dependency_paths.bytecode.has_value()) {
       return finish(tl::unexpected(make_error("import-unresolved: Import not found: '" + module_name +
-                                              "'. Checked relative to '" + current_dir.string() +
-                                              "'. Verify module name and file location.")));
+                                              "'. Checked relative to " +
+                                              searched_import_locations(current_dir, options) +
+                                              ". Verify module name and file location.")));
     }
 
     if (auto result = link_module_into(dependency_paths, options, state, context); !result) {

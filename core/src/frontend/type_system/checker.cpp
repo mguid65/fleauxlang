@@ -1730,6 +1730,40 @@ auto host_entry_check_for_let(const ir::IRLet& let, const StrongTypeIndex& type_
   return entry;
 }
 
+auto native_return_check_for_let(const ir::IRLet& let, const StrongTypeIndex& type_index, const AliasIndex& alias_index)
+    -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError> {
+  const std::string full_name = qualified_symbol_name(let.qualifier, let.name);
+  if (!let.generic_params.empty()) {
+    return tl::unexpected(make_error(
+        "Invalid native function declaration.",
+        std::format("Native function {} cannot have generic parameters: an extension implements one concrete "
+                    "signature. Declare one native function per type instead.",
+                    full_name),
+        let.span));
+  }
+
+  auto generic_scope = make_generic_scope(let.generic_params, let.generic_bounds, type_index, alias_index, let.span);
+  if (!generic_scope) {
+    return tl::unexpected(generic_scope.error());
+  }
+  const Type declared_return = rewrite_generic_type(from_ir_type(let.return_type), *generic_scope);
+  auto expanded = expand_aliases_in_type(declared_return, type_index, alias_index, *generic_scope, let.span);
+  if (!expanded) {
+    return tl::unexpected(expanded.error());
+  }
+  std::unordered_set<std::string> expanding;
+  auto check = build_runtime_type_check(full_name, normalize_type(*expanded), type_index, let.span, expanding);
+  if (!check) {
+    return tl::unexpected(make_error(
+        "Invalid native function declaration.",
+        std::format("Native function {} returns {}, which the VM cannot check at runtime. The return type of a native "
+                    "function cannot be or contain a function type.",
+                    full_name, type_debug_name(*expanded)),
+        let.span));
+  }
+  return check;
+}
+
 auto check_generic_bounds(const std::string& full_name, const std::optional<diag::SourceSpan>& span,
                           const FunctionSig& sig, const TypeBindings& bindings)
     -> tl::expected<void, type_check::AnalysisError> {

@@ -25,6 +25,8 @@ struct ModuleLoadOptions {
   bool enable_value_ref_gate{false};
   bool enable_auto_value_ref{false};
   std::size_t value_ref_byte_cutoff{256};
+  // Searched for imports after the importing module's own directory, in order: the directories of loaded extensions.
+  std::vector<std::filesystem::path> import_search_paths{};
 };
 
 [[nodiscard]] auto load_linked_module(const std::filesystem::path& entry_path,

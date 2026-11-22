@@ -6771,3 +6771,28 @@ TEST_CASE("Bytecode-only imports know the imported module's types, aliases, and 
   REQUIRE(runtime.execute(*linked, output).has_value());
   REQUIRE(output.str() == "8\n5\n");
 }
+
+TEST_CASE("A native function compiles to kCallNative with a native function record", "[bytecode][native]") {
+  const auto ir = lower_source_to_ir("let Ext.Add(a: Int64, b: Int64): Int64 :: __native__;\n"
+                                     "(2, 3) -> Ext.Add;\n",
+                                     "native_compile.fleaux");
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled = compiler.compile(ir);
+  REQUIRE(compiled.has_value());
+
+  REQUIRE(compiled->native_functions.size() == 1);
+  CHECK(compiled->native_functions[0].symbol == "Ext.Add");
+  CHECK(compiled->native_functions[0].return_check.kind == fleaux::common::RuntimeTypeCheckKind::kInt64);
+  const auto has_native_call = std::ranges::any_of(compiled->functions, [](const fleaux::bytecode::FunctionDef& fn) {
+    return std::ranges::any_of(fn.instructions, [](const fleaux::bytecode::Instruction& instruction) {
+      return instruction.opcode == fleaux::bytecode::Opcode::kCallNative && instruction.operand == 0;
+    });
+  });
+  CHECK(has_native_call);
+
+  const auto serialized = fleaux::bytecode::serialize_module(*compiled);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  CHECK(deserialized->native_functions == compiled->native_functions);
+}

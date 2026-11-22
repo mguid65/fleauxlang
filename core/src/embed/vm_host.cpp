@@ -166,10 +166,34 @@ struct VmHost::Impl {
     return std::nullopt;
   }
 
-  [[nodiscard]] auto execute_module(const bytecode::Module& module, const std::string& entry_label) const -> VmResult {
+  // Binds a module's native functions to this host's native bindings. A binding receives the declared parameters as
+  // one tuple, and the active host through its BindingContext.
+  [[nodiscard]] auto native_resolver(VmHost& host) const -> vm::NativeFunctionResolver {
+    return [registry = config.binding_registry, &host](const std::string_view symbol)
+               -> std::optional<runtime::NativeFunction> {
+      if (registry == nullptr) {
+        return std::nullopt;
+      }
+      const auto binding = registry->find_callable(symbol);
+      if (!binding.has_value()) {
+        return std::nullopt;
+      }
+      return [callable = binding->get().callable, symbol_name = std::string{symbol}, &host](const VmValue& args) -> VmValue {
+        auto result = callable(BindingContext{.host = host, .symbol = symbol_name}, args);
+        if (!result) {
+          throw std::runtime_error(result.error().message);
+        }
+        return std::move(*result);
+      };
+    };
+  }
+
+  [[nodiscard]] auto execute_module(VmHost& host, const bytecode::Module& module, const std::string& entry_label) const
+      -> VmResult {
     std::ostringstream captured_stdout;
     const auto exec_result = runtime.execute(module, vm::RuntimeInvocationOptions{
                                                          .entry_label = entry_label,
+                                                         .native_resolver = native_resolver(host),
                                                          .input = config.stdin_stream,
                                                          .output = std::ref(captured_stdout),
                                                      });
@@ -232,7 +256,8 @@ struct VmHost::Impl {
     return binding->get().callable(context, runtime::make_tuple(lhs, rhs));
   }
 
-  [[nodiscard]] auto invoke_fleaux(const std::string_view qualified_symbol, const VmValue& args) const -> VmResult {
+  [[nodiscard]] auto invoke_fleaux(VmHost& host, const std::string_view qualified_symbol, const VmValue& args) const
+      -> VmResult {
     if (!last_fleaux_module.has_value()) {
       return tl::unexpected(
           make_error(HostErrorCategory::kBinding, "No Fleaux module is available for call_fleaux.",
@@ -243,6 +268,7 @@ struct VmHost::Impl {
     const auto invoked = runtime.invoke_symbol(*last_fleaux_module, qualified_symbol, args,
                                                vm::RuntimeInvocationOptions{
                                                    .entry_label = std::string{qualified_symbol},
+                                                   .native_resolver = native_resolver(host),
                                                    .input = config.stdin_stream,
                                                    .output = std::ref(captured_stdout),
                                                });
@@ -292,13 +318,14 @@ auto VmHost::run_file(const std::filesystem::path& path) -> VmResult {
                             .enable_value_ref_gate = impl_->config.compile_options.enable_value_ref_gate,
                             .enable_auto_value_ref = impl_->config.compile_options.enable_auto_value_ref,
                             .value_ref_byte_cutoff = impl_->config.compile_options.value_ref_byte_cutoff,
+                            .import_search_paths = impl_->config.import_roots,
                         });
     if (!module_result) {
       return tl::unexpected(make_error(HostErrorCategory::kBytecode, module_result.error().message));
     }
 
     impl_->last_fleaux_module = std::move(*module_result);
-    return impl_->execute_module(*impl_->last_fleaux_module, resolved_path->string());
+    return impl_->execute_module(*this, *impl_->last_fleaux_module, resolved_path->string());
   }();
 
   return impl_->finalize_result(std::move(result));
@@ -354,11 +381,13 @@ auto VmHost::run_source(const std::string_view module_name, const std::string_vi
     }
 
     impl_->last_fleaux_module = *compiled;
-    return impl_->execute_module(*impl_->last_fleaux_module, std::string{module_name});
+    return impl_->execute_module(*this, *impl_->last_fleaux_module, std::string{module_name});
   }();
 
   return impl_->finalize_result(std::move(result));
 }
+
+auto VmHost::native_function_resolver() -> vm::NativeFunctionResolver { return impl_->native_resolver(*this); }
 
 auto VmHost::call_native(const std::string_view qualified_symbol, const VmValue& args) -> VmResult {
   auto result = impl_->invoke_native(*this, qualified_symbol, args);
@@ -372,7 +401,7 @@ auto VmHost::call_native_binary(const std::string_view qualified_symbol, const V
 }
 
 auto VmHost::call_fleaux(const std::string_view qualified_symbol, const VmValue& args) -> VmResult {
-  auto result = impl_->invoke_fleaux(qualified_symbol, args);
+  auto result = impl_->invoke_fleaux(*this, qualified_symbol, args);
   return impl_->finalize_result(std::move(result));
 }
 
@@ -389,7 +418,7 @@ auto VmHost::call(const std::string_view qualified_symbol, const VmValue& args) 
           std::optional<std::string>{"Use call_fleaux() or call_native() to choose the dispatch surface explicitly."}));
     }
     if (has_fleaux_symbol) {
-      return impl_->invoke_fleaux(qualified_symbol, args);
+      return impl_->invoke_fleaux(*this, qualified_symbol, args);
     }
     if (has_native_symbol) {
       return impl_->invoke_native(*this, qualified_symbol, args);

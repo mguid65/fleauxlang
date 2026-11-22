@@ -1,0 +1,45 @@
+import Std;
+
+// A raw string starts and ends with three or more quotes. Its content is taken as written: backslashes are not
+// escapes, and quotes need no escaping.
+"""C:\temp\new "quoted" \d+""" -> Std.Println;  // C:\temp\new "quoted" \d+
+
+// A raw string is multi-line when nothing but whitespace follows the opening quotes. The closing quotes stand on a
+// line of their own, and the whitespace before them is removed from every line. Nested indentation stays, and the
+// line breaks right after the opening quotes and right before the closing quotes are not part of the value.
+let Shader: String = """
+  #version 330 core
+  void main() {
+    gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);
+  }
+  """;
+Shader -> Std.Println;
+(Shader, "\n") -> Std.String.Split -> Std.Length -> Std.Println;  // 4
+
+// The value is the same string the escaped form spells out.
+let Escaped: String =
+  "#version 330 core\nvoid main() {\n  gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);\n}";
+(Shader, Escaped) -> == -> Std.Println;  // True
+
+// A blank line inside stays as an empty line.
+let Paragraphs: String = """
+  first
+
+  second
+  """;
+(Paragraphs, "\n") -> Std.String.Split -> Std.Println;  // (first, , second)
+
+// Use more quotes to put a run of three quotes inside.
+let Docstring: String = """"
+  A Python docstring: """like this"""
+  """";
+Docstring -> Std.Println;  // A Python docstring: """like this"""
+
+// Not allowed:
+//   """
+//   """                      an empty multi-line raw string; write "" instead
+//   """
+//     indented
+//   less                     a line indented less than the closing quotes
+//     """
+//   """a""""                 a run of quotes longer than the delimiter

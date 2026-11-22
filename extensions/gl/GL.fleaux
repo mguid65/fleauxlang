@@ -1,0 +1,100 @@
+// The OpenGL extension: OpenGL 3.3 core, with a window and keyboard input from GLFW.
+//
+// Build it with the core: configure with -DFLEAUX_BUILD_GL_EXTENSION=ON, and give Conan the option
+// '-o &:build_gl_extension=True'. The build puts the extension's library and this file in one directory. Run a
+// program with:
+//
+//   fleaux --extension <that directory> program.fleaux
+//
+// and 'import GL;' in the program. GL object names (programs, buffers, vertex arrays, uniform locations) are Int64.
+// Every function except GL.OpenWindow and GL.Time needs the window that GL.OpenWindow opens.
+
+import Std;
+
+// Window and frame loop
+
+// Opens the window, with its OpenGL 3.3 core context, and makes it current.
+let GL.OpenWindow(title: String, width: Int64, height: Int64): Null :: __native__;
+let GL.CloseWindow(): Null :: __native__;
+// True once the user has asked to close the window.
+let GL.WindowShouldClose(): Bool :: __native__;
+// Processes window and input events. Call it once a frame.
+let GL.PollEvents(): Null :: __native__;
+// Shows the frame just drawn. Waits for the display's vertical sync.
+let GL.SwapBuffers(): Null :: __native__;
+// Seconds since the extension started.
+let GL.Time(): Float64 :: __native__;
+// Whether a key is held down; `key` is one of the GL.Key constants.
+let GL.KeyDown(key: Int64): Bool :: __native__;
+// The size of the window's drawing area in pixels, (width, height). The viewport follows it on its own.
+let GL.FramebufferSize(): Tuple<Int64, Int64> :: __native__;
+
+// State and clearing
+
+let GL.Viewport(x: Int64, y: Int64, width: Int64, height: Int64): Null :: __native__;
+let GL.ClearColor(red: Float64, green: Float64, blue: Float64, alpha: Float64): Null :: __native__;
+// `mask` is GL.ColorBufferBit, GL.DepthBufferBit, or their sum.
+let GL.Clear(mask: Int64): Null :: __native__;
+let GL.Enable(capability: Int64): Null :: __native__;
+let GL.Disable(capability: Int64): Null :: __native__;
+
+// Shaders
+
+// Compiles and links a vertex and a fragment shader. Ok holds the program; Err holds the compiler or linker log.
+let GL.CompileProgram(
+  vertex_source: String,
+  fragment_source: String
+): Result<Int64, String> :: __native__;
+let GL.UseProgram(program: Int64): Null :: __native__;
+// The location of a uniform in a program, or -1 when the program has no such uniform.
+let GL.UniformLocation(program: Int64, name: String): Int64 :: __native__;
+let GL.Uniform1f(location: Int64, x: Float64): Null :: __native__;
+let GL.Uniform3f(location: Int64, x: Float64, y: Float64, z: Float64): Null :: __native__;
+let GL.Uniform4f(
+  location: Int64,
+  x: Float64,
+  y: Float64,
+  z: Float64,
+  w: Float64
+): Null :: __native__;
+// A 4x4 matrix as 16 values in column-major order.
+let GL.UniformMatrix4(location: Int64, values: Tuple<Float64...>): Null :: __native__;
+
+// Buffers and vertex arrays
+
+// Creates a vertex array and binds it. Attributes and the index buffer set up next belong to it.
+let GL.CreateVertexArray(): Int64 :: __native__;
+let GL.BindVertexArray(vertex_array: Int64): Null :: __native__;
+// Creates an array buffer holding `data` as 32-bit floats, and binds it.
+let GL.CreateBuffer(data: Tuple<Float64...>): Int64 :: __native__;
+// Creates an index buffer holding `indices` as 32-bit unsigned integers, for the bound vertex array.
+let GL.CreateIndexBuffer(indices: Tuple<Int64...>): Int64 :: __native__;
+// Reads attribute `index` from the bound array buffer: `size` floats per vertex, starting `offset` floats into each
+// vertex of `stride` floats. Also enables the attribute.
+let GL.VertexAttribute(index: Int64, size: Int64, stride: Int64, offset: Int64): Null :: __native__;
+let GL.DrawArrays(mode: Int64, first: Int64, count: Int64): Null :: __native__;
+// Draws `count` indices of the bound vertex array's index buffer.
+let GL.DrawElements(mode: Int64, count: Int64): Null :: __native__;
+
+// Constants
+
+let GL.ColorBufferBit: Int64 = 16384;
+let GL.DepthBufferBit: Int64 = 256;
+let GL.DepthTest: Int64 = 2929;
+let GL.Blend: Int64 = 3042;
+let GL.CullFace: Int64 = 2884;
+
+let GL.Points: Int64 = 0;
+let GL.Lines: Int64 = 1;
+let GL.LineStrip: Int64 = 3;
+let GL.Triangles: Int64 = 4;
+let GL.TriangleStrip: Int64 = 5;
+let GL.TriangleFan: Int64 = 6;
+
+let GL.KeySpace: Int64 = 32;
+let GL.KeyEscape: Int64 = 256;
+let GL.KeyEnter: Int64 = 257;
+let GL.KeyArrowRight: Int64 = 262;
+let GL.KeyArrowLeft: Int64 = 263;
+let GL.KeyArrowDown: Int64 = 264;
+let GL.KeyArrowUp: Int64 = 265;

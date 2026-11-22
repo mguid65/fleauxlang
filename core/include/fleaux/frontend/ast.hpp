@@ -190,6 +190,8 @@ struct LetStatement {
   ExpressionBox expr{std::nullopt};
   bool is_value_binding{false};
   bool is_builtin{false};
+  // Declared '... :: __native__;': a function an extension implements, called through the host's native bindings.
+  bool is_native{false};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -419,6 +421,11 @@ struct IRLet {
   IRExprBox body{std::nullopt};
   bool is_value_binding{false};
   bool is_builtin{false};
+  // A function an extension implements (declared '__native__'); it has no body.
+  bool is_native{false};
+  // Set by the type checker for a native function: the check of the value it returns, against its declared return
+  // type. Extensions are outside the type checker, so the VM checks what they return.
+  std::optional<common::RuntimeTypeCheck> native_return_check{std::nullopt};
   // Set by the type checker: the runtime check of an argument the host passes when it calls this function.
   std::optional<common::HostEntryCheck> host_entry_check{std::nullopt};
   // Set by the type checker: the number of hidden leading parameters in `params` that carry operator

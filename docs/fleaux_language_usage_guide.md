@@ -639,6 +639,32 @@ Examples:
 The formatting helper supports width, alignment, precision, fill, and indexed placeholders.
 See samples/26_format_specifiers.fleaux for a focused tour.
 
+### Raw strings
+
+A raw string starts and ends with three or more quotes. Its content is taken as written: backslashes are not escapes and quotes need no escaping.
+
+    """C:\temp\new "quoted" \d+""" -> Std.Println;
+
+When only whitespace follows the opening quotes, the raw string is multi-line. The closing quotes stand on a line of their own, and the whitespace before them is removed from every line, so the literal can be indented with the surrounding code:
+
+    let Shader: String = """
+      #version 330 core
+      void main() {
+        gl_FragColor = vec4(1.0);
+      }
+      """;
+
+Rules:
+
+- the line breaks right after the opening quotes and right before the closing quotes are not part of the value
+- a content line indented less than the closing quotes is an error
+- lines of only whitespace become empty, and every line ends with \n whatever the source file uses
+- a run of quotes inside must be shorter than the delimiter, so use four quotes to put three in a row inside
+- an empty multi-line raw string is an error; write "" instead
+
+The formatter keeps the content's indentation relative to the closing quotes and moves the whole literal with the surrounding code.
+See samples/61_raw_strings.fleaux.
+
 ## Tuples
 
 Tuples are central to Fleaux.

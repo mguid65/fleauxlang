@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <span>
 #include <string>
@@ -31,7 +32,29 @@ struct Token {
   int col = 1;
   std::string text;
 
-  [[nodiscard]] auto end_col() const -> int { return col + static_cast<int>(text.size()); }
+  // The line and column just past the token. A raw string literal spans lines, so both come from its text.
+  [[nodiscard]] auto end_line() const -> int { return line + static_cast<int>(std::ranges::count(text, '\n')); }
+  [[nodiscard]] auto end_col() const -> int {
+    const auto last_newline = text.rfind('\n');
+    if (last_newline == std::string::npos) {
+      return col + static_cast<int>(text.size());
+    }
+    return static_cast<int>(text.size() - last_newline);
+  }
+};
+
+// A '//' line comment. The lexer skips comments; the formatter needs them back.
+struct Comment {
+  // From '//' to the end of the line, without trailing whitespace.
+  std::string text;
+  std::size_t offset = 0;
+  int line = 1;
+  int col = 1;
+};
+
+struct LexedSource {
+  std::vector<Token> tokens;
+  std::vector<Comment> comments;
 };
 
 using LexResult = tl::expected<std::vector<Token>, ParseError>;
@@ -44,5 +67,8 @@ using LexResult = tl::expected<std::vector<Token>, ParseError>;
 [[nodiscard]] auto lex_program(const std::string& source, const std::string& source_name) -> LexResult;
 [[nodiscard]] auto lex_program_best_effort(const std::string& source, const std::string& source_name)
     -> std::vector<Token>;
+// Like lex_program, and also returns the comments in source order.
+[[nodiscard]] auto lex_program_with_comments(const std::string& source, const std::string& source_name)
+    -> tl::expected<LexedSource, ParseError>;
 
 }  // namespace fleaux::frontend::parse

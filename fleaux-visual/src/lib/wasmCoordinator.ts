@@ -5,6 +5,7 @@ import {
 import type { WasmRunResult, WasmValidationResult } from './wasmCoordinatorCommon';
 import {
   wasmCoordinatorVersionImpl,
+  wasmFormatSourceImpl,
   wasmParseAndLowerImpl,
   wasmRunSourceImpl,
   wasmValidateSourceImpl,
@@ -14,7 +15,8 @@ type WorkerRequestPayload =
   | { kind: 'version' }
   | { kind: 'parseAndLower'; sourceText: string; sourceName?: string }
   | { kind: 'validate'; sourceText: string; sourceName?: string }
-  | { kind: 'run'; sourceText: string; sourceName?: string };
+  | { kind: 'run'; sourceText: string; sourceName?: string }
+  | { kind: 'format'; sourceText: string; sourceName?: string };
 
 type WorkerRequest = WorkerRequestPayload & { id: number };
 
@@ -209,6 +211,14 @@ export async function wasmValidateSource(
   return await callCoordinator<WasmValidationResult>(
     { kind: 'validate', sourceText, sourceName },
     () => wasmValidateSourceImpl(sourceText, sourceName),
+  );
+}
+
+// The source formatted by the core formatter.
+export async function wasmFormatSource(sourceText: string, sourceName = 'visual_graph.fleaux'): Promise<string> {
+  return await callCoordinator<string>(
+    { kind: 'format', sourceText, sourceName },
+    () => wasmFormatSourceImpl(sourceText, sourceName),
   );
 }
 

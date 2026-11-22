@@ -1,0 +1,130 @@
+// A spinning cube in perspective, drawn with the OpenGL extension: an index buffer, a depth buffer, and matrices
+// computed in Fleaux. Close the window or press Escape to stop.
+//
+//   fleaux --extension <directory of the built extension> extensions/gl/samples/cube.fleaux
+
+import Std;
+import GL;
+
+let VertexSource: String = """
+  #version 330 core
+  layout(location = 0) in vec3 position;
+  layout(location = 1) in vec3 color;
+  uniform mat4 projection;
+  uniform mat4 model_view;
+  out vec3 vertex_color;
+  void main() {
+    gl_Position = projection * model_view * vec4(position, 1.0);
+    vertex_color = color;
+  }
+  """;
+
+let FragmentSource: String = """
+  #version 330 core
+  in vec3 vertex_color;
+  out vec4 fragment_color;
+  void main() {
+    fragment_color = vec4(vertex_color, 1.0);
+  }
+  """;
+
+// Joins spread tuples into one: GL takes vertex data, indices, and matrices as flat lists of numbers.
+let Floats(values: Float64...): Tuple<Float64...> = values;
+let Ints(values: Int64...): Tuple<Int64...> = values;
+
+// The eight corners: position (x, y, z), then color (red, green, blue).
+let Vertices: Tuple<Float64...> =
+  (
+    (-0.5, -0.5, -0.5, 0.95, 0.3, 0.3)...,
+    (0.5, -0.5, -0.5, 0.95, 0.75, 0.25)...,
+    (0.5, 0.5, -0.5, 0.9, 0.95, 0.3)...,
+    (-0.5, 0.5, -0.5, 0.35, 0.9, 0.4)...,
+    (-0.5, -0.5, 0.5, 0.3, 0.85, 0.9)...,
+    (0.5, -0.5, 0.5, 0.3, 0.45, 0.95)...,
+    (0.5, 0.5, 0.5, 0.7, 0.4, 0.95)...,
+    (-0.5, 0.5, 0.5, 0.95, 0.4, 0.75)...
+  ) -> Floats;
+
+// Two triangles for each face, as corner numbers: front, back, left, right, bottom, top.
+let Indices: Tuple<Int64...> =
+  (
+    (4, 5, 6, 4, 6, 7)...,
+    (1, 0, 3, 1, 3, 2)...,
+    (0, 4, 7, 0, 7, 3)...,
+    (5, 1, 2, 5, 2, 6)...,
+    (0, 1, 5, 0, 5, 4)...,
+    (7, 6, 2, 7, 2, 3)...
+  ) -> Ints;
+
+// A 4x4 matrix is four columns, and GL.UniformMatrix4 takes them one after another.
+alias Column = Tuple<Float64, Float64, Float64, Float64>;
+
+// A perspective projection with a 45 degree vertical field of view, seeing depths from 0.1 to 100.
+let Projection(width: Int64, height: Int64): Tuple<Float64...> = {
+  let aspect: Float64 = (width -> Std.ToFloat64, height -> Std.ToFloat64) -> /;
+  // 1 / tan(half the field of view), where half of 45 degrees is 0.3927 radians.
+  let focal: Float64 = (1.0, 0.39269908169872414 -> Std.Math.Tan) -> /;
+  let x_axis: Column = ((focal, aspect) -> /, 0.0, 0.0, 0.0);
+  let y_axis: Column = (0.0, focal, 0.0, 0.0);
+  // (far + near) / (near - far), then 2 * far * near / (near - far).
+  let z_axis: Column = (0.0, 0.0, -1.002002002002002, -1.0);
+  let w_axis: Column = (0.0, 0.0, -0.2002002002002002, 0.0);
+  (x_axis..., y_axis..., z_axis..., w_axis...) -> Floats;
+};
+
+// The cube turned by `yaw` about the y axis and then `pitch` about the x axis, three units in front of the camera.
+let ModelView(yaw: Float64, pitch: Float64): Tuple<Float64...> = {
+  let cos_yaw: Float64 = yaw -> Std.Math.Cos;
+  let sin_yaw: Float64 = yaw -> Std.Math.Sin;
+  let cos_pitch: Float64 = pitch -> Std.Math.Cos;
+  let sin_pitch: Float64 = pitch -> Std.Math.Sin;
+  let x_axis: Column = (cos_yaw, 0.0, (sin_yaw) -> -, 0.0);
+  let y_axis: Column = ((sin_yaw, sin_pitch) -> *, cos_pitch, (cos_yaw, sin_pitch) -> *, 0.0);
+  let z_axis: Column =
+    ((sin_yaw, cos_pitch) -> *, (sin_pitch) -> -, (cos_yaw, cos_pitch) -> *, 0.0);
+  let w_axis: Column = (0.0, 0.0, -3.0, 1.0);
+  (x_axis..., y_axis..., z_axis..., w_axis...) -> Floats;
+};
+
+// Opens the window and uploads the cube. The result is the shader program and the locations of its two matrices.
+let Setup(): Tuple<Int64, Int64, Int64> = {
+  ("Fleaux: a spinning cube", 800, 600) -> GL.OpenWindow;
+  GL.DepthTest -> GL.Enable;
+  let program: Int64 = (VertexSource, FragmentSource) -> GL.CompileProgram -> Std.Result.Unwrap;
+  () -> GL.CreateVertexArray;
+  Vertices -> GL.CreateBuffer;
+  (0, 3, 6, 0) -> GL.VertexAttribute;
+  (1, 3, 6, 3) -> GL.VertexAttribute;
+  Indices -> GL.CreateIndexBuffer;
+  (
+    program,
+    (program, "projection") -> GL.UniformLocation,
+    (program, "model_view") -> GL.UniformLocation
+  );
+};
+
+let Running(state: Tuple<Int64, Int64, Int64>): Bool =
+  (() -> GL.WindowShouldClose, GL.KeyEscape -> GL.KeyDown) -> Std.Or -> Std.Not;
+
+let DrawFrame(
+  program: Int64,
+  projection_location: Int64,
+  model_view_location: Int64
+): Tuple<Int64, Int64, Int64> = {
+  let time: Float64 = () -> GL.Time;
+  let size: Tuple<Int64, Int64> = () -> GL.FramebufferSize;
+  (0.08, 0.08, 0.1, 1.0) -> GL.ClearColor;
+  (GL.ColorBufferBit, GL.DepthBufferBit) -> + -> GL.Clear;
+  program -> GL.UseProgram;
+  (projection_location, (size...) -> Projection) -> GL.UniformMatrix4;
+  (model_view_location, (time, (time, 0.7) -> *) -> ModelView) -> GL.UniformMatrix4;
+  (GL.Triangles, 36) -> GL.DrawElements;
+  () -> GL.SwapBuffers;
+  () -> GL.PollEvents;
+  (program, projection_location, model_view_location);
+};
+
+let Step(state: Tuple<Int64, Int64, Int64>): Tuple<Int64, Int64, Int64> = (state...) -> DrawFrame;
+
+(() -> Setup, Running, Step) -> Std.Loop;
+() -> GL.CloseWindow;

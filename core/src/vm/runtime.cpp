@@ -118,6 +118,45 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
   }
 }
 
+// Calls an extension function and checks its result against the declared return type: extensions are outside the
+// type checker, and code after the call relies on that type.
+auto call_native_function(const bytecode::NativeFunctionRecord& record, const runtime::NativeFunction& function,
+                          const Value& arg) -> tl::expected<Value, RuntimeError> {
+  Value result;
+  try {
+    result = function(arg);
+  } catch (const std::exception& ex) {
+    return tl::unexpected(make_runtime_error(std::format("native function '{}' failed: {}", record.symbol, ex.what())));
+  }
+  if (!runtime::value_matches_type_check(result, record.return_check)) {
+    return tl::unexpected(make_runtime_error(std::format("native function '{}' returned {}, but it is declared to return {}",
+                                                         record.symbol, runtime::runtime_value_kind_name(result),
+                                                         common::describe(record.return_check))));
+  }
+  return result;
+}
+
+// Binds every native function the module declares, before any of it runs, so that a missing extension stops the
+// program at the start rather than partway through.
+auto bind_native_functions(const bytecode::Module& bytecode_module, const RuntimeInvocationOptions& options,
+                           runtime::RuntimeExecutionState& execution_state) -> tl::expected<void, RuntimeError> {
+  execution_state.native_functions.clear();
+  execution_state.native_functions.reserve(bytecode_module.native_functions.size());
+  for (const auto& record : bytecode_module.native_functions) {
+    std::optional<runtime::NativeFunction> function =
+        options.native_resolver ? options.native_resolver(record.symbol) : std::nullopt;
+    if (!function.has_value() || !*function) {
+      return tl::unexpected(RuntimeError{
+          .message = std::format("Native function '{}' is not provided by any loaded extension.", record.symbol),
+          .hint = "Load the extension that implements it, for example with 'fleaux --extension <dir>'.",
+          .span = std::nullopt,
+      });
+    }
+    execution_state.native_functions.push_back(std::move(*function));
+  }
+  return {};
+}
+
 void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t tuple_size) {
   if (tuple_size == 0U) {
     stack.emplace_back(Array{});
@@ -746,6 +785,23 @@ auto run_loop(const bytecode::Module& bytecode_module, std::vector<Value>& stack
           return tl::unexpected(make_runtime_error(runtime::type_check_failure_message("Std.Cast", *value, check)));
         }
         stack.push_back(std::move(*value));
+        break;
+      }
+
+      case bytecode::Opcode::kCallNative: {
+        const auto idx = static_cast<std::size_t>(operand);
+        const auto& bound = runtime::runtime_execution_state().native_functions;
+        if (operand < 0 || idx >= bytecode_module.native_functions.size() || idx >= bound.size()) {
+          return tl::unexpected(make_runtime_error("native function index out of range"));
+        }
+        auto arg = pop_stack(stack, "call_native");
+        if (!arg)
+          return tl::unexpected(arg.error());
+        const auto& record = bytecode_module.native_functions[idx];
+        auto result = call_native_function(record, bound[idx], *arg);
+        if (!result)
+          return tl::unexpected(result.error());
+        stack.push_back(std::move(*result));
         break;
       }
 
@@ -1924,6 +1980,9 @@ auto Runtime::execute(const bytecode::Module& bytecode_module, const RuntimeInvo
   runtime::RuntimeInputStreamScope input_scope(resolve_runtime_input_stream(options.input));
   runtime::RuntimeProcessArgsScope process_args_scope(
       make_process_args_for_invocation(process_args_, options.entry_label));
+  if (auto bound = bind_native_functions(bytecode_module, options, execution_state); !bound) {
+    return tl::unexpected(bound.error());
+  }
 
   std::vector<Value> stack;
   CallFrameStack frames;
@@ -2052,6 +2111,9 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
   runtime::RuntimeInputStreamScope input_scope(resolve_runtime_input_stream(options.input));
   runtime::RuntimeProcessArgsScope process_args_scope(make_process_args_for_invocation(
       process_args_, options.entry_label.empty() ? qualified_symbol : options.entry_label));
+  if (auto bound = bind_native_functions(bytecode_module, options, execution_state); !bound) {
+    return tl::unexpected(bound.error());
+  }
 
   const auto* exported_symbol = find_exported_symbol(bytecode_module, qualified_symbol);
   if (exported_symbol == nullptr) {

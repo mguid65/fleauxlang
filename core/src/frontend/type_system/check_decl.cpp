@@ -72,6 +72,14 @@ auto validate_let_signature_types(ir::IRProgram& program, const StrongTypeIndex&
       return tl::unexpected(host_entry_check.error());
     }
     let.host_entry_check = std::move(*host_entry_check);
+
+    if (let.is_native) {
+      auto return_check = detail::native_return_check_for_let(let, type_index, alias_index);
+      if (!return_check) {
+        return tl::unexpected(return_check.error());
+      }
+      let.native_return_check = std::move(*return_check);
+    }
   }
 
   return {};

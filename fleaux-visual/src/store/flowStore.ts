@@ -16,7 +16,7 @@ import { formatFunctionDisplayName } from '../lib/functionSignatures';
 import type { FleauxEdge, FleauxNodeData, LetData, UserFuncData } from '../lib/types';
 import { initialNodes, initialEdges } from './initialGraph';
 import { serializeGraphToFleaux } from '../lib/graphToFleaux';
-import { wasmRunSource, WasmCoordinatorError, WasmStatusCode } from '../lib/wasmCoordinator';
+import { wasmFormatSource, wasmRunSource, WasmCoordinatorError, WasmStatusCode } from '../lib/wasmCoordinator';
 import { importFleauxSourceToGraph } from '../lib/fleauxToGraph';
 import { loadSavedGraph, saveGraph } from '../lib/graphStorage';
 
@@ -66,10 +66,21 @@ export interface FlowState {
   applyPendingLayout: () => void;
   // The graph as Fleaux source, or null when it cannot be serialized; the error then shows in the output panel.
   graphSource: () => string | null;
-  // Replaces the editor's contents with the graph's source.
-  generateSource: () => void;
+  // Replaces the editor's contents with the graph's source, formatted when the WASM formatter is available.
+  generateSource: () => Promise<void>;
+  // Formats the editor's contents with the core formatter.
+  formatEditorSource: () => Promise<void>;
   runGraphWithWasm: () => Promise<void>;
   runEditorSourceWithWasm: () => Promise<void>;
+}
+
+// The source formatted by the WASM formatter, or unchanged when the formatter is not available.
+async function formatIfAvailable(source: string): Promise<string> {
+  try {
+    return await wasmFormatSource(source);
+  } catch {
+    return source;
+  }
 }
 
 //  History
@@ -371,17 +382,48 @@ export const useFlowStore = create<FlowState>()(
         }
       },
 
-      generateSource() {
+      async generateSource() {
         const source = get().graphSource();
         if (source === null) {
           return;
         }
+        const formatted = await formatIfAvailable(source);
         set((state) => {
-          state.sourceText = source;
+          state.sourceText = formatted;
           state.wasmStatus = 'success';
           state.wasmOutput = '';
           state.wasmMessage = 'Generated source from the graph';
         });
+      },
+
+      async formatEditorSource() {
+        const source = get().sourceText;
+        if (source.trim().length === 0) {
+          return;
+        }
+        try {
+          const formatted = await wasmFormatSource(source);
+          set((state) => {
+            // Text typed while the formatter ran is left alone.
+            if (state.sourceText !== source) {
+              state.wasmMessage = 'The editor changed while formatting. Format again.';
+              return;
+            }
+            state.sourceText = formatted;
+            state.wasmStatus = 'success';
+            state.wasmOutput = '';
+            state.wasmMessage = 'Formatted the editor source';
+          });
+        } catch (error) {
+          const isUnavailable =
+            error instanceof WasmCoordinatorError && error.statusCode === WasmStatusCode.RuntimeUnavailable;
+          const message = error instanceof Error ? error.message : String(error);
+          set((state) => {
+            state.wasmStatus = 'error';
+            state.wasmOutput = '';
+            state.wasmMessage = isUnavailable ? `WASM runtime not available: ${message}` : message;
+          });
+        }
       },
 
       async runGraphWithWasm() {
@@ -394,15 +436,15 @@ export const useFlowStore = create<FlowState>()(
 
         try {
           const { sourceText } = serializeGraphToFleaux(get().nodes, get().edges);
-          generatedSource = sourceText;
+          generatedSource = await formatIfAvailable(sourceText);
 
           set((state) => {
-            state.sourceText = sourceText;
+            state.sourceText = generatedSource;
             state.wasmOutput = '';
             state.wasmMessage = 'Running graph with Fleaux WASM…';
           });
 
-          const result = await wasmRunSource(sourceText);
+          const result = await wasmRunSource(generatedSource);
 
           set((state) => {
             state.wasmStatus = 'success';

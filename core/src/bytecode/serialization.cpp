@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 30;
+constexpr std::uint32_t BYTECODE_VERSION = 31;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -506,6 +506,13 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
       return std::format("type_check[{}]={}", instruction.operand,
                          common::describe(module.type_checks[static_cast<std::size_t>(instruction.operand)]));
     }
+    case Opcode::kCallNative: {
+      if (!valid_index(instruction.operand, module.native_functions.size())) {
+        return index_label(instruction.operand, module.native_functions.size(), "native function");
+      }
+      return std::format("native[{}]={}", instruction.operand,
+                         module.native_functions[static_cast<std::size_t>(instruction.operand)].symbol);
+    }
     case Opcode::kLoadLocal:
       return std::format("local[{}]", instruction.operand);
     case Opcode::kBuildTuple:
@@ -633,6 +640,12 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     for (const auto& check : module.type_checks) {
       write_type_check(buffer, check);
     }
+  }
+
+  write_pod(buffer, static_cast<std::uint32_t>(module.native_functions.size()));
+  for (const auto& [symbol, return_check] : module.native_functions) {
+    write_string(buffer, symbol);
+    write_type_check(buffer, return_check);
   }
 
   write_pod(buffer, static_cast<std::uint32_t>(module.type_decls.size()));
@@ -817,6 +830,20 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
       if (!read_type_check(buffer, offset, check, 0U) || !common::is_well_formed(check) ||
           !common::is_cast_check(check)) {
         return tl::unexpected(SerializationError{.message = "Cannot read type check"});
+      }
+    }
+  }
+
+  {
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+      return tl::unexpected(SerializationError{.message = "Cannot read native function count"});
+    }
+    deserialized.native_functions.resize(count);
+    for (auto& [symbol, return_check] : deserialized.native_functions) {
+      if (!read_string(buffer, offset, symbol) || symbol.empty() || !read_type_check(buffer, offset, return_check, 0U) ||
+          !common::is_well_formed(return_check) || !common::is_cast_check(return_check)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read native function"});
       }
     }
   }
@@ -1013,6 +1040,12 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "TypeChecks:\n";
   for (std::size_t check_index = 0; check_index < module.type_checks.size(); ++check_index) {
     out << std::format("  TypeCheck {}: {}\n", check_index, common::describe(module.type_checks[check_index]));
+  }
+
+  out << "NativeFunctions:\n";
+  for (std::size_t native_index = 0; native_index < module.native_functions.size(); ++native_index) {
+    const auto& [symbol, return_check] = module.native_functions[native_index];
+    out << std::format("  NativeFunction {}: {} -> {}\n", native_index, symbol, common::describe(return_check));
   }
 
   out << "BuiltinCallsites:\n";

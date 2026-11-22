@@ -181,6 +181,15 @@ struct BuiltinCallsiteRecord {
   std::vector<BuiltinValueSlotRecord> value_slots{};
 };
 
+// A function an extension implements, declared '__native__'. The VM binds `symbol` to an extension function before the
+// module runs, and checks each value the function returns against `return_check`.
+struct NativeFunctionRecord {
+  std::string symbol{};
+  common::RuntimeTypeCheck return_check{};
+
+  friend auto operator==(const NativeFunctionRecord&, const NativeFunctionRecord&) -> bool = default;
+};
+
 struct Module {
   ModuleHeader header{};
 
@@ -204,6 +213,9 @@ struct Module {
 
   // Runtime type checks for casts from Any: indexed by kCheckType and kTryCheckType operands.
   std::vector<common::RuntimeTypeCheck> type_checks{};
+
+  // Native functions: indexed by kCallNative operands.
+  std::vector<NativeFunctionRecord> native_functions{};
 
   // The module's own type and alias declarations, for importers that only have the bytecode.
   std::vector<TypeDeclRecord> type_decls{};

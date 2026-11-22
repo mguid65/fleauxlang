@@ -79,6 +79,12 @@ private:
                                             const AliasIndex& alias_index)
     -> tl::expected<common::HostEntryCheck, type_check::AnalysisError>;
 
+// The runtime check of the value a native function returns, against its declared return type. Rejects a native
+// function that is generic, or whose return type the VM cannot check.
+[[nodiscard]] auto native_return_check_for_let(const ir::IRLet& let, const StrongTypeIndex& type_index,
+                                               const AliasIndex& alias_index)
+    -> tl::expected<common::RuntimeTypeCheck, type_check::AnalysisError>;
+
 [[nodiscard]] auto runtime_type_check_for_cast(const std::string& full_name, const Type& target,
                                                const StrongTypeIndex& type_index,
                                                const std::optional<diag::SourceSpan>& span)

@@ -1078,7 +1078,8 @@ private:
                          std::format("doc_comments: {}", format_string_list(let.doc_comments, level + 1)),
                          std::format("body: {}", format_nullable_expr(let.body, level + 1)),
                          std::format("is_value_binding: {}", let.is_value_binding),
-                         std::format("is_builtin: {}", let.is_builtin)},
+                         std::format("is_builtin: {}", let.is_builtin),
+                         std::format("is_native: {}", let.is_native)},
                         level);
   }
 
@@ -1356,7 +1357,7 @@ auto make_bound_name_set(const std::vector<ir::IRParam>& params) -> std::unorder
 auto lower_let_body_if_needed(const model::LetStatement& model_let, const bool is_builtin,
                               const LoweringContext& context)
     -> tl::expected<ir::IRExprBox, LoweringError> {
-  if (is_builtin) {
+  if (is_builtin || model_let.is_native) {
     return ir::IRExprBox{};
   }
 
@@ -1401,6 +1402,7 @@ auto lower_let_statement(ir::IRProgram& ir_program, std::unordered_map<std::stri
       .body = std::move(*body),
       .is_value_binding = model_let.is_value_binding,
       .is_builtin = is_builtin,
+      .is_native = model_let.is_native,
       .span = model_let.span,
   });
   return {};

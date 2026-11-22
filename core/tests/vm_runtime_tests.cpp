@@ -7094,3 +7094,24 @@ TEST_CASE("RuntimeSession spreads reach overloads and function values in generic
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "5\nab\n5\n42\n");
 }
+
+TEST_CASE("Whole-number Float64 builtin results keep their fractions in later arithmetic", "[vm][stdlib]") {
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  // A clamped speed of exactly 600.0 times a frame time once printed 0.
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Speed: Float64 = (650.0, 0.0, 600.0) -> Std.Math.Clamp;\n"
+      "(Speed, 0.05) -> * -> Std.Println;\n"
+      "(2.5 -> Std.Math.Floor, 0.5) -> + -> Std.Println;\n"
+      "(\"42\" -> Std.ToNum, 0.5) -> + -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "30\n2.5\n42.5\n");
+}

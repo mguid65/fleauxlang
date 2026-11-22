@@ -62,6 +62,9 @@ using UInt = mguid::UnsignedIntegerType;  // uint64_t
 using Float = mguid::DoubleType;          // double
 
 using RuntimeCallable = std::function<Value(Value)>;
+// An extension function bound to a native function declaration. It receives the declared parameters as one tuple and
+// throws std::exception on failure.
+using NativeFunction = std::function<Value(const Value&)>;
 using BinaryRuntimeCallable = std::function<Value(Value, Value)>;
 
 struct RegisteredCallable {
@@ -402,6 +405,9 @@ struct RuntimeExecutionState {
   std::mutex task_registry_mutex{};
 
   std::unique_ptr<HandleRegistry> handle_registry{make_default_handle_registry()};
+
+  // The running module's native functions, parallel to Module::native_functions. Bound before the module runs.
+  std::vector<NativeFunction> native_functions{};
 };
 
 [[nodiscard]] inline auto next_runtime_execution_state_id() -> UInt {
@@ -1215,27 +1221,6 @@ auto make_tuple(Values&&... vals) -> Value {
   return as_number(val).Visit([](const Int signed_value) -> double { return static_cast<double>(signed_value); },
                               [](const UInt unsigned_value) -> double { return static_cast<double>(unsigned_value); },
                               [](const Float float_value) -> double { return float_value; });
-}
-
-// Convert a double result back to the most correct numeric Value (Int64, UInt64, or Float64).
-[[nodiscard]] inline auto num_result(const double val, const bool prefer_unsigned = false,
-                                     const bool prefer_float = false) -> Value {
-  if (prefer_float) {
-    return make_float(val);
-  }
-  if (val == std::floor(val) && std::isfinite(val)) {
-    if (prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
-      return make_uint(static_cast<UInt>(val));
-    }
-    if (val >= static_cast<double>(std::numeric_limits<Int>::min()) &&
-        val <= static_cast<double>(std::numeric_limits<Int>::max())) {
-      return make_int(static_cast<Int>(val));
-    }
-    if (!prefer_unsigned && val >= 0.0 && val <= static_cast<double>(std::numeric_limits<UInt>::max())) {
-      return make_uint(static_cast<UInt>(val));
-    }
-  }
-  return make_float(val);
 }
 
 [[nodiscard]] inline auto is_uint_number(const Value& val) -> bool {

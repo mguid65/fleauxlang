@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -75,20 +76,35 @@ struct ResolvedModulePaths {
   return paths;
 }
 
-[[nodiscard]] inline auto resolve_import_paths(const std::filesystem::path& current_module_dir,
-                                               const std::string& module_name) -> ResolvedModulePaths {
+[[nodiscard]] inline auto resolve_import_paths_in(const std::filesystem::path& directory, const std::string& module_name)
+    -> ResolvedModulePaths {
   ResolvedModulePaths paths;
-  if (is_symbolic_import(module_name)) {
-    return paths;
-  }
-
-  const auto source_candidate = current_module_dir / (module_name + ".fleaux");
-  const auto bytecode_candidate = current_module_dir / (module_name + ".fleaux.bc");
+  const auto source_candidate = directory / (module_name + ".fleaux");
+  const auto bytecode_candidate = directory / (module_name + ".fleaux.bc");
   paths.source = canonical_if_exists(source_candidate);
   if (paths.source.has_value()) {
     paths.bytecode = canonical_if_exists(bytecode_candidate).value_or(normalized_path(bytecode_candidate));
   } else {
     paths.bytecode = canonical_if_exists(bytecode_candidate);
+  }
+  return paths;
+}
+
+// The source and bytecode of an imported module: next to the importing module first, then in each of `search_paths`
+// in order, such as the directories of loaded extensions.
+[[nodiscard]] inline auto resolve_import_paths(const std::filesystem::path& current_module_dir,
+                                               const std::string& module_name,
+                                               const std::span<const std::filesystem::path> search_paths = {})
+    -> ResolvedModulePaths {
+  if (is_symbolic_import(module_name)) {
+    return {};
+  }
+  auto paths = resolve_import_paths_in(current_module_dir, module_name);
+  for (const auto& directory : search_paths) {
+    if (paths.source.has_value() || paths.bytecode.has_value()) {
+      break;
+    }
+    paths = resolve_import_paths_in(directory, module_name);
   }
   return paths;
 }

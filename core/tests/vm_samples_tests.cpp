@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 60> kExpectedSamples = {
+constexpr std::array<std::string_view, 61> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -178,6 +178,7 @@ constexpr std::array<std::string_view, 60> kExpectedSamples = {
     "58_generic_function_values.fleaux",
     "59_generic_user_operators.fleaux",
     "60_function_values.fleaux",
+    "61_raw_strings.fleaux",
 };
 
 }  // namespace
@@ -1443,6 +1444,7 @@ FLEAUX_VM_SAMPLE_TEST("57_user_operators.fleaux")
 FLEAUX_VM_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_SAMPLE_TEST("59_generic_user_operators.fleaux")
 FLEAUX_VM_SAMPLE_TEST("60_function_values.fleaux")
+FLEAUX_VM_SAMPLE_TEST("61_raw_strings.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1503,6 +1505,7 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("57_user_operators.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("59_generic_user_operators.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("60_function_values.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("61_raw_strings.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

@@ -37,8 +37,13 @@ struct RuntimeCompileOptions {
   std::size_t value_ref_byte_cutoff{256};
 };
 
+// Finds the extension function for a native function symbol, or nothing when no loaded extension provides it.
+using NativeFunctionResolver = std::function<std::optional<runtime::NativeFunction>(std::string_view symbol)>;
+
 struct RuntimeInvocationOptions {
   std::string entry_label{};
+  // Binds the module's native functions. Without one, a module that declares native functions cannot run.
+  NativeFunctionResolver native_resolver{};
   std::optional<std::reference_wrapper<std::istream>> input{std::nullopt};
   std::optional<std::reference_wrapper<std::ostream>> output{std::nullopt};
 };

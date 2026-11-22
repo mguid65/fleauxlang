@@ -143,6 +143,7 @@ TEST_CASE("CLI help documents bytecode cache writes as opt-out", "[vm][cli]") {
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--value-ref-byte-cutoff"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--dump-ast"));
   REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--dump-ir"));
+  REQUIRE_THAT(stdout_text, Catch::Matchers::ContainsSubstring("--format"));
   REQUIRE(stdout_text.find("--mode") == std::string::npos);
 }
 
@@ -187,6 +188,86 @@ TEST_CASE("CLI AST and IR dump modes stop before execution", "[vm][cli][dump]") 
     REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("IRImport {"));
     REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("module_name: \"missing_dep\""));
     REQUIRE(result.stderr_text.empty());
+  }
+}
+
+TEST_CASE("CLI format mode prints, checks, and rewrites source", "[vm][cli][format]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_format";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+
+  const auto source_path = temp_dir / "entry.fleaux";
+  fleaux::tests::write_text_file(source_path, "import Std;\n(1,2)->Std.Add->Std.Println;\n");
+  const std::string formatted = "import Std;\n(1, 2) -> Std.Add -> Std.Println;\n";
+  const std::string quoted_path = shell_quote(source_path.string());
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+
+  SECTION("print") {
+    const auto result = run_cli("--format " + quoted_path, temp_dir);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code == 0);
+    REQUIRE(result.stdout_text == formatted);
+  }
+
+  SECTION("check, rewrite, check again") {
+    const auto unformatted = run_cli("--format --check " + quoted_path, temp_dir);
+    REQUIRE(unformatted.exit_code != 0);
+    REQUIRE_THAT(unformatted.stderr_text, Catch::Matchers::ContainsSubstring("is not formatted"));
+
+    const auto rewritten = run_cli("--format --write " + quoted_path, temp_dir);
+    INFO("stderr: " << rewritten.stderr_text);
+    REQUIRE(rewritten.exit_code == 0);
+    REQUIRE(rewritten.stdout_text.empty());
+
+    const auto checked = run_cli("--format --check " + quoted_path, temp_dir);
+    REQUIRE(checked.exit_code == 0);
+  }
+
+  SECTION("--write and --check need --format and exclude each other") {
+    REQUIRE(run_cli("--write " + quoted_path, temp_dir).exit_code != 0);
+    REQUIRE(run_cli("--format --write --check " + quoted_path, temp_dir).exit_code != 0);
+  }
+}
+
+TEST_CASE("CLI loads an extension and runs native functions it declares", "[vm][cli][native]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_extension";
+  std::filesystem::remove_all(temp_dir);
+  const auto extension_dir = temp_dir / "echo";
+  const auto app_dir = temp_dir / "app";
+  std::filesystem::create_directories(extension_dir);
+  std::filesystem::create_directories(app_dir);
+
+  // The echo plugin returns its argument tuple. Its declaration module sits next to it, apart from the program.
+  const std::filesystem::path plugin_path{FLEAUX_TEST_BINDING_PLUGIN_PATH};
+  std::filesystem::copy_file(plugin_path, extension_dir / plugin_path.filename());
+  fleaux::tests::write_text_file(extension_dir / "Echo.fleaux",
+                                 "let Host.ModuleEcho(x: Int64, label: String): Tuple<Int64, String> :: __native__;\n");
+  const auto source_path = app_dir / "main.fleaux";
+  fleaux::tests::write_text_file(source_path,
+                                 "import Std;\n"
+                                 "import Echo;\n"
+                                 "(7, \"seven\") -> Host.ModuleEcho -> Std.Println;\n");
+  REQUIRE(std::filesystem::exists(fleaux_binary_path()));
+
+  SECTION("with the extension") {
+    const auto result =
+        run_cli("--extension " + shell_quote(extension_dir.string()) + " " + shell_quote(source_path.string()), app_dir);
+    INFO("stderr: " << result.stderr_text);
+    REQUIRE(result.exit_code == 0);
+    REQUIRE_THAT(result.stdout_text, Catch::Matchers::ContainsSubstring("(7, seven)"));
+  }
+
+  SECTION("without it, the declaration module is not found") {
+    const auto result = run_cli(shell_quote(source_path.string()), app_dir);
+    REQUIRE(result.exit_code != 0);
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("Import not found: 'Echo'"));
+  }
+
+  SECTION("a directory without a library is rejected") {
+    const auto result =
+        run_cli("--extension " + shell_quote(app_dir.string()) + " " + shell_quote(source_path.string()), app_dir);
+    REQUIRE(result.exit_code != 0);
+    REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("expected exactly one"));
   }
 }
 

@@ -142,6 +142,11 @@ enum class Opcode {
   // Concatenation of argument pieces for a parameter list with spreads: pops N tuples (bottom-first) and pushes one
   // tuple of all their items in order. operand = N.
   kConcatTuples,
+
+  // Native function call: pops the argument tuple, calls the extension function bound to the native function record,
+  // checks its result against the record's return check, and pushes the result.
+  // operand = index into Module::native_functions.
+  kCallNative,
 };
 
 inline constexpr std::array opcode_names{
@@ -187,7 +192,8 @@ inline constexpr std::array opcode_names{
   std::string_view{"CallUserFuncBinary"},
   std::string_view{"CheckType"},
   std::string_view{"TryCheckType"},
-  std::string_view{"ConcatTuples"}
+  std::string_view{"ConcatTuples"},
+  std::string_view{"CallNative"}
 };
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {

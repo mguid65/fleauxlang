@@ -94,6 +94,9 @@ public:
   // ambiguity error and callers should use call_fleaux() or call_native().
   [[nodiscard]] auto call(std::string_view qualified_symbol, const VmValue& args) -> VmResult;
   [[nodiscard]] auto load_binding_module(const std::filesystem::path& module_path) -> HostStatus;
+  // Binds native function declarations to this host's native bindings, for running a module on a vm::Runtime of the
+  // caller's own (the fleaux CLI does). The resolver refers to this host, which must outlive its use.
+  [[nodiscard]] auto native_function_resolver() -> vm::NativeFunctionResolver;
 
   void set_binding_registry(NativeBindingRegistry* registry);
   [[nodiscard]] auto binding_registry() const -> NativeBindingRegistry*;

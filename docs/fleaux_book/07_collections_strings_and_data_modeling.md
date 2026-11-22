@@ -100,6 +100,21 @@ Examples:
     ("  fleaux  ") -> Std.String.Trim -> Std.Println;
     ("hello world", "world") -> Std.String.Contains -> Std.Println;
 
+## Raw string literals
+
+Text with backslashes, quotes, or many lines reads better as a raw string. Three or more quotes start and end one, and its content is taken as written, without escapes:
+
+    ("10-20", """\d+-\d+""") -> Std.String.Regex.IsMatch -> Std.Println;
+
+When nothing but whitespace follows the opening quotes, the raw string is multi-line. The closing quotes go on a line of their own, and the whitespace before them is removed from every line:
+
+    let Usage: String = """
+      usage: tool [options] FILE
+        --verbose   print each step
+      """;
+
+Here the value is two lines, the second indented by two spaces. A content line indented less than the closing quotes is an error, lines of only whitespace become empty, and lines always end with \n. To put three quotes in a row inside, start and end the literal with four.
+
 ## Building strings from parts
 
 Joining and formatting are the two most important text-building tools.

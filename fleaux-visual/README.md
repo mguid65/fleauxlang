@@ -141,6 +141,9 @@ Then open `http://127.0.0.1:4173/fleauxlang/`. The page should reload once after
   automatically, left to right.
 - The open graph is kept in the browser's local storage, so a reload brings it back.
 - Validation and runs go through the WASM coordinator built from `core`.
+- The editor's Format button formats the source with the core formatter (`fleaux --format`) through the same
+  coordinator. Generate Source and Run Graph format the generated source too, and leave it unformatted when the
+  coordinator is not available.
 
 ## Project Structure
 

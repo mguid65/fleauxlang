@@ -13,6 +13,7 @@ export function EditorPanel() {
   const setSourceText = useFlowStore((s) => s.setSourceText);
   const loadGraphFromSource = useFlowStore((s) => s.loadGraphFromSource);
   const runEditorSourceWithWasm = useFlowStore((s) => s.runEditorSourceWithWasm);
+  const formatEditorSource = useFlowStore((s) => s.formatEditorSource);
   const wasmOutput = useFlowStore((s) => s.wasmOutput);
   const wasmMessage = useFlowStore((s) => s.wasmMessage);
   const wasmStatus = useFlowStore((s) => s.wasmStatus);
@@ -83,6 +84,15 @@ export function EditorPanel() {
           <div className={`text-[10px] font-mono border rounded px-2 py-1 ${statusBadgeClass}`}>
             {wasmStatus.toUpperCase()}
           </div>
+          <button
+            type="button"
+            onClick={() => void formatEditorSource()}
+            disabled={isRunning || sourceText.trim().length === 0}
+            title="Format the editor source with the Fleaux formatter"
+            className="text-xs font-mono border border-violet-700 text-violet-300 hover:bg-violet-950 disabled:opacity-50 disabled:cursor-not-allowed rounded px-3 py-1.5 transition-colors cursor-pointer"
+          >
+            Format
+          </button>
           <button
             type="button"
             onClick={handleApplyToGraph}

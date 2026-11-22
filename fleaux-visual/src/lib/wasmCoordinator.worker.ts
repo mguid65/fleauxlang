@@ -1,6 +1,7 @@
 import { WasmCoordinatorError } from './wasmCoordinatorCommon';
 import {
   wasmCoordinatorVersionImpl,
+  wasmFormatSourceImpl,
   wasmParseAndLowerImpl,
   wasmRunSourceImpl,
   wasmValidateSourceImpl,
@@ -10,7 +11,8 @@ type WorkerRequest =
   | { id: number; kind: 'version' }
   | { id: number; kind: 'parseAndLower'; sourceText: string; sourceName?: string }
   | { id: number; kind: 'validate'; sourceText: string; sourceName?: string }
-  | { id: number; kind: 'run'; sourceText: string; sourceName?: string };
+  | { id: number; kind: 'run'; sourceText: string; sourceName?: string }
+  | { id: number; kind: 'format'; sourceText: string; sourceName?: string };
 
 type WorkerResponse =
   | { id: number; ok: true; value: unknown }
@@ -68,6 +70,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         return;
       case 'run':
         self.postMessage({ id: request.id, ok: true, value: await wasmRunSourceImpl(request.sourceText, request.sourceName) } satisfies WorkerResponse);
+        return;
+      case 'format':
+        self.postMessage({ id: request.id, ok: true, value: await wasmFormatSourceImpl(request.sourceText, request.sourceName) } satisfies WorkerResponse);
         return;
       default: {
         self.postMessage({

@@ -15,6 +15,9 @@ This guide helps contributors identify exactly where to implement a feature in `
   - `core/src/frontend/parser.cpp`
   - `core/src/frontend/lowering.cpp`
   - `core/include/fleaux/frontend/ast.hpp`
+- Source formatter (`fleaux --format`, the editor's Format button through the WASM coordinator):
+  - `core/src/frontend/format/formatter.cpp`: prints the AST, taking every token from the source token stream
+  - `core/src/frontend/format/layout.cpp`: the Wadler-style layout engine (groups, line breaks, trailing comments)
 - Type analysis:
   - `core/src/frontend/type_check.cpp`
   - `core/src/frontend/type_system/*.cpp`
@@ -31,7 +34,7 @@ This guide helps contributors identify exactly where to implement a feature in `
 Reference: `core/CMakeLists.txt`
 
 - `fleaux_frontend_diagnostics`: diagnostics formatting and spans
-- `fleaux_frontend_parser`: parser
+- `fleaux_frontend_parser`: lexer, parser, and source formatter
 - `fleaux_frontend_lowering`: lowering and type system
 - `fleaux_bytecode`: bytecode compiler, loader, optimizer, serializer
 - `fleaux_vm`: VM runtime
@@ -47,10 +50,13 @@ Touch:
 - `core/include/fleaux/frontend/ast.hpp` (if AST shape changes)
 - `core/src/frontend/lowering.cpp` (if lowering output changes)
 
+- `core/src/frontend/format/formatter.cpp` (the printer must take the new tokens in source order)
+
 Tests:
 - `core/tests/parser_tests.cpp`
 - `core/tests/parser_type_syntax_tests.cpp`
 - `core/tests/lowering_tests.cpp`
+- `core/tests/formatter_tests.cpp` (it formats every sample, so new syntax in a sample is covered)
 - A representative sample in `samples/` when user-visible
 
 ### 2) New lowering behavior or pipeline semantics
@@ -185,7 +191,21 @@ Tests:
 - `core/tests/vm_cli_tests.cpp`
 - Targeted session coverage in `core/tests/vm_samples_tests.cpp`
 
-### 9) Diagnostics formatting and source spans
+### 9) Native functions and extensions
+Touch:
+- `core/src/frontend/parser.cpp` and `core/src/frontend/lexer.cpp` (`__native__`)
+- `core/src/frontend/type_system/checker.cpp` (`native_return_check_for_let`) and `check_decl.cpp`
+- `core/src/bytecode/compiler.cpp` (`compile_native_function_body`), `serialization.cpp` and `module_loader.cpp`
+  (the `native_functions` table and `kCallNative`)
+- `core/src/vm/runtime.cpp` (`bind_native_functions`, `kCallNative`) and `core/src/embed/vm_host.cpp` (the resolver)
+- `core/src/cli/vm_main.cpp` (`--extension`), `core/include/fleaux/frontend/import_resolution.hpp` (search paths)
+- `extensions/gl/`: the OpenGL extension, built with `FLEAUX_BUILD_GL_EXTENSION`
+
+Tests:
+- `core/tests/native_call_tests.cpp`
+- The native cases in `parser_tests.cpp`, `bytecode_tests.cpp`, `formatter_tests.cpp`, and `vm_cli_tests.cpp`
+
+### 10) Diagnostics formatting and source spans
 Touch:
 - `core/include/fleaux/frontend/diagnostics.hpp`
 - `core/src/frontend/diagnostics.cpp`
@@ -203,7 +223,8 @@ Tests:
 - REPL session state persists lets, strong types, and transparent aliases separately; do not collapse aliases into strong-type storage.
 
 ## Test matrix by change type
-- Parser and grammar: `parser_tests`, `parser_type_syntax_tests`, `lowering_tests`
+- Parser and grammar: `parser_tests`, `parser_type_syntax_tests`, `lowering_tests`, `formatter_tests`
+- Formatter: `formatter_tests`, plus the format mode case in `vm_cli_tests`
 - Type system: `typecheck_tests` plus at least one VM sample case in `vm_samples_tests`
 - Import and module loading: `vm_samples_tests` contract cases plus staged `bytecode_tests`
 - VM and runtime boundaries: `bytecode_tests`, `vm_runtime_tests`, `vm_boundary_matrix_tests`
@@ -225,5 +246,7 @@ ctest --test-dir core/cmake-build-debug --output-on-failure
 ./core/cmake-build-debug/bin/fleaux --help
 ./core/cmake-build-debug/bin/fleaux samples/01_hello_world.fleaux
 ./core/cmake-build-debug/bin/fleaux --repl
+./core/cmake-build-debug/bin/fleaux --format samples/01_hello_world.fleaux
+./core/cmake-build-debug/bin/fleaux --format --check samples/01_hello_world.fleaux
 ```
 

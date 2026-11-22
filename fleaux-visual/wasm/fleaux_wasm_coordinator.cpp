@@ -9,6 +9,7 @@
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
+#include "fleaux/frontend/format/formatter.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/runtime/value.hpp"
@@ -236,6 +237,20 @@ FLEAUX_WASM_EXPORT int fleaux_wasm_last_status() {
 // Coordinator entrypoint for smoke-testing the Emscripten toolchain.
 FLEAUX_WASM_EXPORT int fleaux_wasm_parse_and_lower(const char* source_text, const char* source_name) {
   return run_with_compile_unit(source_text, source_name, [](auto&&) { return to_status_code(WasmStatus::kOk); });
+}
+
+// Formats the source. The formatted text is the last output; source that does not parse fails with a parse error.
+FLEAUX_WASM_EXPORT int fleaux_wasm_format_source(const char* source_text, const char* source_name) {
+  g_state.reset();
+  const auto formatted =
+      fleaux::frontend::format::format_source(safe_text(source_text, ""), normalized_source_name(source_name));
+  if (!formatted) {
+    return to_status_code(fail_with_diagnostic(WasmStatus::kParseError, "format", formatted.error().message,
+                                               formatted.error().span, formatted.error().hint));
+  }
+  set_output(*formatted);
+  set_status(WasmStatus::kOk);
+  return to_status_code(WasmStatus::kOk);
 }
 
 FLEAUX_WASM_EXPORT int fleaux_wasm_run_source(const char* source_text, const char* source_name) {

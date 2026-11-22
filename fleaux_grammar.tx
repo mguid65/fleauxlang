@@ -167,6 +167,9 @@ Identifier:
 NamespaceIdentifier:
   !StructuralKeyword ID;
 
+// STRING also covers raw strings, which the lexer reads: three or more quotes open and close one, and the content has
+// no escapes. When only whitespace follows the opening quotes, the content is the lines up to the closing quotes,
+// which stand on a line of their own, with the closing quotes' indentation removed from each line.
 Constant:
   val=NUMBER | val=STRING | val=BOOL | val='null';
 

@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <string>
+#include <variant>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -671,4 +673,87 @@ TEST_CASE("Parser accepts trailing commas and spread items in parentheses", "[pa
   REQUIRE(parser.parse_program("x -> (_..., 3) -> F;\n", "spread_template.fleaux").has_value());
   REQUIRE_FALSE(parser.parse_program("(,) -> F;\n", "comma_only.fleaux").has_value());
   REQUIRE_FALSE(parser.parse_program("(1,,) -> F;\n", "double_comma.fleaux").has_value());
+}
+
+TEST_CASE("Parser reads native function declarations", "[parser][native]") {
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program("let Ext.Add(a: Int64, b: Int64): Int64 :: __native__;\n", "native.fleaux");
+  REQUIRE(parsed.has_value());
+  const auto& let = std::get<fleaux::frontend::model::LetStatement>(parsed->statements.front());
+  CHECK(let.is_native);
+  CHECK_FALSE(let.is_builtin);
+  CHECK_FALSE(let.expr.has_value());
+
+  // '__native__' is a keyword: a value let cannot use it as its body.
+  CHECK_FALSE(parser.parse_program("let Ext.Value: Int64 = __native__;\n", "native_value.fleaux").has_value());
+}
+
+namespace {
+
+// The value of the string literal in `let S: String = <literal>;`.
+auto raw_string_value(const std::string& literal) -> std::string {
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program("let S: String = " + literal + ";\n", "raw_string.fleaux");
+  INFO((parsed.has_value() ? std::string{} : parsed.error().message));
+  REQUIRE(parsed.has_value());
+  const auto& let = std::get<fleaux::frontend::model::LetStatement>(parsed->statements.front());
+  const auto& constant = std::get<fleaux::frontend::model::Constant>(let.expr->expr.lhs.base.value);
+  return std::get<std::string>(constant.val);
+}
+
+auto raw_string_error(const std::string& literal) -> std::string {
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program("let S: String = " + literal + ";\n", "raw_string.fleaux");
+  REQUIRE_FALSE(parsed.has_value());
+  return parsed.error().message;
+}
+
+}  // namespace
+
+TEST_CASE("Multi-line raw strings remove the closing quotes' indentation", "[parser][raw_string]") {
+  // Nested indentation stays, a line of only whitespace becomes empty, and trailing spaces and quotes are content.
+  CHECK(raw_string_value("\"\"\"\n"
+                         "    void main() {\n"
+                         "      x = \"a\" + \"\"b\"\";   \n"
+                         "  \n"
+                         "    }\n"
+                         "    \"\"\"") == "void main() {\n  x = \"a\" + \"\"b\"\";   \n\n}");
+  // Escapes are not processed.
+  CHECK(raw_string_value("\"\"\"\n  a\\nb\n  \"\"\"") == "a\\nb");
+  // Line endings become '\n'.
+  CHECK(raw_string_value("\"\"\"\r\n  one\r\n  two\r\n  \"\"\"") == "one\ntwo");
+  // More quotes allow three in a row as content.
+  CHECK(raw_string_value("\"\"\"\"\n  say \"\"\"hi\"\"\"\n  \"\"\"\"") == "say \"\"\"hi\"\"\"");
+}
+
+TEST_CASE("One-line raw strings keep their content as written", "[parser][raw_string]") {
+  CHECK(raw_string_value("\"\"\"a \"quoted\" \\d+ word\"\"\"") == "a \"quoted\" \\d+ word");
+  CHECK(raw_string_value("\"\"\"\" a \"\"\" b \"\"\"\"") == " a \"\"\" b ");
+}
+
+TEST_CASE("Malformed raw strings are reported", "[parser][raw_string]") {
+  CHECK(raw_string_error("\"\"\"\n    ok\n  less\n    \"\"\"") ==
+        "Raw string line is indented less than its closing quotes");
+  CHECK(raw_string_error("\"\"\"no end") == "Unterminated raw string literal");
+  CHECK(raw_string_error("\"\"\"\n  no closing line") == "Unterminated raw string literal");
+  CHECK(raw_string_error("\"\"\"\n  \"\"\"") == "Empty multi-line raw string literal");
+  CHECK(raw_string_error("\"\"\"a\"\"\"\"") == "Raw string contains 4 quotes in a row");
+  CHECK(raw_string_error("\"\"\"\n  a \"\"\" b\n  \"\"\"") == "Raw string contains 3 quotes in a row");
+}
+
+TEST_CASE("A multi-line raw string token ends on its closing line", "[parser][raw_string]") {
+  const auto tokens = fleaux::frontend::parse::lex_program("let S: String = \"\"\"\n  a\n  \"\"\";\n", "positions.fleaux");
+  REQUIRE(tokens.has_value());
+  const auto string_token = std::ranges::find_if(*tokens, [](const fleaux::frontend::parse::Token& token) {
+    return token.kind == fleaux::frontend::parse::TokenKind::kString;
+  });
+  REQUIRE(string_token != tokens->end());
+  CHECK(string_token->line == 1);
+  CHECK(string_token->col == 17);
+  CHECK(string_token->end_line() == 3);
+  CHECK(string_token->end_col() == 6);
+  const auto& semicolon = *(string_token + 1);
+  CHECK(semicolon.text == ";");
+  CHECK(semicolon.line == 3);
+  CHECK(semicolon.col == 6);
 }

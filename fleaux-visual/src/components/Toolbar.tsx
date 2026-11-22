@@ -452,7 +452,7 @@ export function Toolbar() {
       <div className="border-t border-line my-1" />
       <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Graph</div>
       <button
-        onClick={generateSource}
+        onClick={() => void generateSource()}
         disabled={isRunningWasm}
         title="Write the graph's source into the editor"
         className="text-xs font-mono border border-emerald-700 text-emerald-300 hover:bg-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed rounded px-3 py-1.5 transition-colors cursor-pointer"

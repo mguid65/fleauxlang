@@ -94,6 +94,13 @@ export async function wasmValidateSourceImpl(
   return { version };
 }
 
+export async function wasmFormatSourceImpl(sourceText: string, sourceName = 'visual_graph.fleaux'): Promise<string> {
+  const wasm = await loadFleauxWasmCoordinator();
+  const rc = callWithSource(wasm, 'fleaux_wasm_format_source', sourceText, sourceName);
+  throwIfFailed(wasm, 'format', rc);
+  return callString(wasm, 'fleaux_wasm_last_output');
+}
+
 export async function wasmRunSourceImpl(
   sourceText: string,
   sourceName = 'visual_graph.fleaux',

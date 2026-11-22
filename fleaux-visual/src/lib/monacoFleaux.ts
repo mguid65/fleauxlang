@@ -20,6 +20,10 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
     tokenizer: {
       root: [
         [/\/\/.*$/, 'comment'],
+        // A raw string opens with three or more quotes and closes with the same number; the state name carries them.
+        // It is multi-line when only whitespace follows the opening quotes.
+        [/("{3,})(?=[ \t\r]*$)/, { token: 'string', next: '@rawMultiLine.$1' }],
+        [/"{3,}/, { token: 'string', next: '@rawOneLine.$#' }],
         [/"([^"\\]|\\.)*"/, 'string'],
         [/[0-9]+(?:u64|(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/, 'number'],
         [/__builtin__/, 'keyword'],
@@ -42,6 +46,22 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
         [/[,;:()[\]{}]/, 'delimiter'],
         [/\.\.\.|->|::|=>|==|!=|>=|<=|&&|\|\||[\^/%*+\-<>!=|]/, 'operator'],
         [/\s+/, 'white'],
+      ],
+      // Raw string content has no escapes: only a run of exactly the opening quotes ends it.
+      rawMultiLine: [
+        [/"+/, { cases: { '$#==$S2': { token: 'string', next: '@pop' }, '@default': 'string' } }],
+        [/[^"]+/, 'string'],
+      ],
+      // A one-line raw string that reaches the end of its line is unterminated.
+      rawOneLine: [
+        [/"+/, {
+          cases: {
+            '$#==$S2': { token: 'string', next: '@pop' },
+            '@eos': { token: 'string.invalid', next: '@pop' },
+            '@default': 'string',
+          },
+        }],
+        [/[^"]+/, { cases: { '@eos': { token: 'string.invalid', next: '@pop' }, '@default': 'string' } }],
       ],
     },
   });
@@ -78,6 +98,7 @@ export function configureFleauxMonaco(monaco: typeof Monaco) {
       { token: 'type', foreground: 'C4B5FD' },
       { token: 'type.identifier', foreground: 'DDD6FE', fontStyle: 'bold' },
       { token: 'string', foreground: '34D399' },
+      { token: 'string.invalid', foreground: 'F87171' },
       { token: 'number', foreground: 'FDBA74' },
       { token: 'predefined', foreground: 'F472B6' },
       { token: 'constant.language', foreground: 'F0ABFC', fontStyle: 'bold' },
