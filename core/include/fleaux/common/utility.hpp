@@ -621,17 +621,17 @@ constexpr decltype(auto) structured_dispatch_impl_exact(Visitor&& visitor, Bound
   }
 }
 
-template <class VisitorRef>
-struct structured_visit_result_visitor {
-  template <class... Alternatives>
-  constexpr auto operator()(Alternatives&&...) const
-      -> decltype(structured_dispatch_impl_exact(std::declval<VisitorRef>(), std::tuple<>{},
-                                                 std::forward_as_tuple(std::declval<Alternatives>()...)));
-};
+// The alternative std::visit passes for index 0, with the variant's constness and value category.
+template <class Variant>
+using first_alternative_ref_t = decltype(std::get<0>(std::declval<Variant>()));
 
+// The result of structured_visit. std::visit requires every combination of alternatives to give the same type, so the
+// first alternatives decide it. This does not ask std::visit itself: libc++ deduces std::visit's return type from its
+// body, which would need a defined visitor.
 template <class VisitorRef, class... Variants>
 using structured_visit_result_t =
-    decltype(std::visit(std::declval<structured_visit_result_visitor<VisitorRef>>(), std::declval<Variants>()...));
+    decltype(structured_dispatch_impl_exact(std::declval<VisitorRef>(), std::tuple<>{},
+                                            std::forward_as_tuple(std::declval<first_alternative_ref_t<Variants>>()...)));
 
 }  // namespace detail
 
