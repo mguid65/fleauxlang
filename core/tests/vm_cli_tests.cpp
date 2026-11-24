@@ -5,6 +5,10 @@
 #include <string>
 #include <string_view>
 
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -105,7 +109,13 @@ auto run_cli(const std::string& arguments, const std::filesystem::path& working_
   command += " >" + shell_quote(output_path.string()) + " 2>" + shell_quote(error_path.string());
 #endif
 
-  const int exit_code = std::system(command.c_str());
+  const int status = std::system(command.c_str());
+#ifdef _WIN32
+  const int exit_code = status;
+#else
+  // std::system returns the shell's wait status here, which holds the exit code in its second byte.
+  const int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif
 
   auto read_file = [](const std::filesystem::path& path) -> std::string {
     std::ifstream in(path);
