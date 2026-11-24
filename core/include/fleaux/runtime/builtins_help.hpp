@@ -34,10 +34,8 @@ struct HelpMetadataThreadContext {
   return store;
 }
 
-[[nodiscard]] inline auto help_metadata_thread_context() -> HelpMetadataThreadContext& {
-  thread_local HelpMetadataThreadContext context{default_help_metadata_store()};
-  return context;
-}
+// Defined with the VM's other per-thread state (runtime.cpp).
+[[nodiscard]] auto help_metadata_thread_context() -> HelpMetadataThreadContext&;
 
 [[nodiscard]] inline auto help_metadata_store() -> const HelpMetadataStore& {
   return help_metadata_thread_context().active.get();

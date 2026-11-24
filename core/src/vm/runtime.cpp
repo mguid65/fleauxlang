@@ -20,22 +20,9 @@
 
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/common/overloaded.hpp"
+#include "fleaux/common/thread_slot.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
 #include "fleaux/vm/runtime.hpp"
-
-namespace fleaux::runtime {
-
-auto runtime_execution_state_thread_context() -> RuntimeExecutionStateThreadContext& {
-  thread_local RuntimeExecutionStateThreadContext context{default_runtime_execution_state()};
-  return context;
-}
-
-auto runtime_thread_context() -> RuntimeThreadContext& {
-  thread_local RuntimeThreadContext context{};
-  return context;
-}
-
-}  // namespace fleaux::runtime
 
 namespace fleaux::vm {
 namespace {
@@ -378,14 +365,64 @@ struct InvocationScratchPool {
   std::size_t depth = 0U;
 };
 
-thread_local InvocationScratchPool g_invocation_scratch_pool;
+// The VM's state for one thread: the stacks runs and calls reuse, the active run's execution state, its streams and
+// process arguments, and the help metadata Std.Help reads. One ThreadSlot finds it, rather than a thread_local for each
+// part: MinGW emulates thread_local, and every access of an emulated one takes a lock.
+struct VmThreadState {
+  InvocationScratchPool scratch;
+  runtime::RuntimeExecutionStateThreadContext execution{runtime::default_runtime_execution_state()};
+  runtime::RuntimeThreadContext streams;
+  runtime::HelpMetadataThreadContext help{runtime::default_help_metadata_store()};
+};
 
-// Thread-local storage can be slow: MinGW emulates it, so every access is a library call. A call reaches the pool
-// once, when it takes its scratch, and keeps references to the pool and the scratch from then on.
+void end_vm_thread_state(void* state) noexcept { delete static_cast<VmThreadState*>(state); }
+
+constinit common::ThreadSlot g_vm_state_slot{&end_vm_thread_state};
+
+auto make_vm_thread_state() -> VmThreadState& {
+  auto state = std::make_unique<VmThreadState>();
+  if (g_vm_state_slot.set(state.get())) {
+    return *state.release();
+  }
+  // The thread is ending, or the process is exiting: a state of the thread's own for the rest of it, never cleaned up.
+  thread_local VmThreadState* late = nullptr;
+  if (late == nullptr) {
+    late = state.release();
+  }
+  return *late;
+}
+
+auto vm_thread_state() -> VmThreadState& {
+  if (void* const state = g_vm_state_slot.get(); state != nullptr) {
+    return *static_cast<VmThreadState*>(state);
+  }
+  return make_vm_thread_state();
+}
+
+}  // namespace
+}  // namespace fleaux::vm
+
+namespace fleaux::runtime {
+
+auto runtime_execution_state_thread_context() -> RuntimeExecutionStateThreadContext& {
+  return vm::vm_thread_state().execution;
+}
+
+auto runtime_thread_context() -> RuntimeThreadContext& { return vm::vm_thread_state().streams; }
+
+auto help_metadata_thread_context() -> HelpMetadataThreadContext& { return vm::vm_thread_state().help; }
+
+}  // namespace fleaux::runtime
+
+namespace fleaux::vm {
+namespace {
+
+// A call reaches the thread's state once, when it takes its scratch, and keeps references to the pool and the scratch
+// from then on.
 class ScopedInvocationScratch {
 public:
   ScopedInvocationScratch(const std::size_t operand_stack_capacity, const std::size_t frame_stack_capacity)
-      : pool_(g_invocation_scratch_pool), depth_index_(pool_.depth++) {
+      : pool_(vm_thread_state().scratch), depth_index_(pool_.depth++) {
     if (depth_index_ == pool_.scratches.size()) {
       pool_.scratches.emplace_back();
     }
@@ -957,17 +994,34 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
               std::ostream& output) -> LoopResult {
   const bytecode::Module& bytecode_module = running_module.bytecode();
   const std::vector<Value>& constants = running_module.constants();
-  while (!frames.empty()) {
-    const std::size_t curr_ip = frames.back().ip;
-    frames.back().ip++;
+  if (frames.empty()) {
+    return tl::unexpected(make_runtime_error("program terminated without halt"));
+  }
 
-    const auto& instr_list = *frames.back().instructions;
-    if (curr_ip >= instr_list.size()) {
+  // The running frame, its instructions, and the next one to run, held here rather than read from the frame stack for
+  // every instruction. The position goes back into the frame only when a call leaves it; after a call pushes a frame
+  // or a return pops one, the loop enters the frame on top.
+  CallFrame* frame = nullptr;
+  const bytecode::Instruction* code = nullptr;
+  const bytecode::Instruction* end = nullptr;
+  const bytecode::Instruction* ip = nullptr;
+  const auto enter_top_frame = [&]() {
+    frame = &frames.back();
+    code = frame->instructions->data();
+    end = code + frame->instructions->size();
+    ip = code + frame->ip;
+  };
+  // Leaves the running frame for a call: its position is kept in it until the call returns.
+  const auto leave_frame = [&]() { frame->ip = static_cast<std::size_t>(ip - code); };
+  enter_top_frame();
+
+  for (;;) {
+    if (ip >= end) {
       return tl::unexpected(make_runtime_error("program terminated without halt"));
     }
-
-    const auto opcode = instr_list[curr_ip].opcode;
-    const auto operand = instr_list[curr_ip].operand;
+    const auto opcode = ip->opcode;
+    const auto operand = ip->operand;
+    ++ip;
 
     switch (opcode) {
       case bytecode::Opcode::kNoOp:
@@ -1084,10 +1138,9 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (operand < 0) {
           return tl::unexpected(make_runtime_error("iterate slot index out of range"));
         }
-        auto& frame = frames.back();
         // The index first: making its slot can move the locals, which would leave a pointer to the tuple dangling.
-        Value& index = get_or_create_local(frame, items_slot + 1U);
-        Value* items = try_get_local(frame, items_slot);
+        Value& index = get_or_create_local(*frame, items_slot + 1U);
+        Value* items = try_get_local(*frame, items_slot);
         if (items == nullptr || !items->is_tuple() || !index.is_uint()) {
           return tl::unexpected(make_runtime_error("iterate expects a tuple and a UInt64 index"));
         }
@@ -1167,8 +1220,10 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         stack.pop_back();
 
         const auto& function = bytecode_module.functions[fn_idx];
-        auto& new_frame = frames.push(&function.instructions);
-        bind_user_function_locals(new_frame, function.arity, function.has_variadic_tail, std::move(arg));
+        leave_frame();
+        bind_user_function_locals(frames.push(&function.instructions), function.arity, function.has_variadic_tail,
+                                  std::move(arg));
+        enter_top_frame();
         break;
       }
 
@@ -1187,7 +1242,9 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (stack.size() < arity) {
           return tl::unexpected(stack_underflow("call_user_func_args"));
         }
+        leave_frame();
         bind_stack_arguments(frames.push(&function.instructions), stack, arity);
+        enter_top_frame();
         break;
       }
 
@@ -1208,10 +1265,12 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const auto& compiled = static_cast<const CompiledFunctionValue&>(callable);
         Value argument = std::move(stack.back());
         stack.pop_back();
+        leave_frame();
         if (const auto failure = compiled.bind(frames.push(&compiled.function().instructions), std::move(argument));
             failure.has_value()) {
           return tl::unexpected(compiled.argument_error(*failure));
         }
+        enter_top_frame();
         break;
       }
 
@@ -1236,10 +1295,12 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
           break;
         }
         const auto& compiled = static_cast<const CompiledFunctionValue&>(callable);
+        leave_frame();
         if (const auto failure = compiled.bind_from_stack(frames.push(&compiled.function().instructions), stack, count);
             failure.has_value()) {
           return tl::unexpected(compiled.argument_error(*failure));
         }
+        enter_top_frame();
         break;
       }
 
@@ -1301,12 +1362,13 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
           return LoopExit{std::move(result)};
         }
         // The caller's stack is the same stack: the result is already on top of it.
+        enter_top_frame();
         break;
       }
 
       case bytecode::Opcode::kLoadLocal: {
         const auto slot = static_cast<std::size_t>(operand);
-        const Value* local = try_get_local(frames.back(), slot);
+        const Value* local = try_get_local(*frame, slot);
         if (local == nullptr) {
           return tl::unexpected(make_runtime_error("local slot index out of range"));
         }
@@ -1315,7 +1377,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       }
 
       case bytecode::Opcode::kTakeLocal: {
-        Value* local = try_get_local(frames.back(), static_cast<std::size_t>(operand));
+        Value* local = try_get_local(*frame, static_cast<std::size_t>(operand));
         if (local == nullptr) {
           return tl::unexpected(make_runtime_error("local slot index out of range"));
         }
@@ -1327,17 +1389,17 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (stack.empty()) {
           return tl::unexpected(stack_underflow("store_local"));
         }
-        get_or_create_local(frames.back(), static_cast<std::size_t>(operand)) = std::move(stack.back());
+        get_or_create_local(*frame, static_cast<std::size_t>(operand)) = std::move(stack.back());
         stack.pop_back();
         break;
       }
 
       case bytecode::Opcode::kJump: {
         const auto target = static_cast<std::size_t>(operand);
-        if (target > instr_list.size()) {
+        if (target > static_cast<std::size_t>(end - code)) {
           return tl::unexpected(make_runtime_error("jump target out of range"));
         }
-        frames.back().ip = target;
+        ip = code + target;
         break;
       }
 
@@ -1348,11 +1410,11 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const bool condition = runtime::as_bool(stack.back());
         stack.pop_back();
         const auto target = static_cast<std::size_t>(operand);
-        if (target > instr_list.size()) {
+        if (target > static_cast<std::size_t>(end - code)) {
           return tl::unexpected(make_runtime_error("jump_if target out of range"));
         }
         if (condition) {
-          frames.back().ip = target;
+          ip = code + target;
         }
         break;
       }
@@ -1364,11 +1426,11 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const bool condition = runtime::as_bool(stack.back());
         stack.pop_back();
         const auto target = static_cast<std::size_t>(operand);
-        if (target > instr_list.size()) {
+        if (target > static_cast<std::size_t>(end - code)) {
           return tl::unexpected(make_runtime_error("jump_if_not target out of range"));
         }
         if (!condition) {
-          frames.back().ip = target;
+          ip = code + target;
         }
         break;
       }
@@ -1670,8 +1732,6 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         return tl::unexpected(make_runtime_error(std::format("invalid opcode {}", static_cast<int>(opcode))));
     }
   }
-
-  return tl::unexpected(make_runtime_error("program terminated without halt"));
 }
 
 auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape /*shape*/, Value arg)

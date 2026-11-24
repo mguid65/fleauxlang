@@ -108,21 +108,42 @@ public:
     other.payload_.unsigned_integer = 0;
   }
 
+  // The assignments take the new contents first and release the old object last, so that assigning a value that the
+  // old one holds (a tuple's own item, say) is safe. They work on the kind and pointer directly rather than through a
+  // temporary Value, which would have to live in memory for the release; the VM assigns on most instructions.
   auto operator=(const Value& other) noexcept -> Value& {
-    Value copy{other};
-    swap(copy);
+    if (is_heap_kind(other.kind_)) {
+      other.payload_.object->retain();
+    }
+    const ValueKind old_kind = kind_;
+    HeapObject* const old_object = payload_.object;
+    kind_ = other.kind_;
+    payload_ = other.payload_;
+    if (is_heap_kind(old_kind)) {
+      release(old_kind, old_object);
+    }
     return *this;
   }
 
   auto operator=(Value&& other) noexcept -> Value& {
-    Value moved{std::move(other)};
-    swap(moved);
+    if (this == &other) {
+      return *this;
+    }
+    const ValueKind old_kind = kind_;
+    HeapObject* const old_object = payload_.object;
+    kind_ = other.kind_;
+    payload_ = other.payload_;
+    other.kind_ = ValueKind::kNull;
+    other.payload_.unsigned_integer = 0;
+    if (is_heap_kind(old_kind)) {
+      release(old_kind, old_object);
+    }
     return *this;
   }
 
   ~Value() {
     if (is_heap_kind(kind_)) {
-      release_object();
+      release(kind_, payload_.object);
     }
   }
 
@@ -222,7 +243,13 @@ private:
   // A builder continues a tuple this value alone refers to by taking over its reference (TupleBuilder::reopen).
   friend class TupleBuilder;
 
-  void release_object() noexcept;
+  // Drops a reference to `object`, a heap object of `kind`, and destroys it when that was the last one.
+  static void release(const ValueKind kind, HeapObject* object) noexcept {
+    if (object->release()) {
+      destroy_object(kind, object);
+    }
+  }
+  static void destroy_object(ValueKind kind, HeapObject* object) noexcept;
   // The content of this value's heap object, copied into an object of its own first when other values share it.
   template <typename Object, typename Content>
   [[nodiscard]] auto detached(Content Object::* content) -> Content&;
@@ -698,7 +725,7 @@ auto Value::detached(Content Object::* content) -> Content& {
   auto* object = static_cast<Object*>(payload_.object);
   if (!object->unique()) {
     auto* copy = new Object(object->*content);
-    release_object();
+    release(kind_, object);
     payload_.object = copy;
     object = copy;
   }
@@ -747,12 +774,8 @@ inline auto Value::mutable_dict() -> Dict& { return detached(&DictObject::dict);
 
 inline auto Value::mutable_string() -> String& { return detached(&StringObject::text); }
 
-inline void Value::release_object() noexcept {
-  HeapObject* object = payload_.object;
-  if (!object->release()) {
-    return;
-  }
-  switch (kind_) {
+inline void Value::destroy_object(const ValueKind kind, HeapObject* object) noexcept {
+  switch (kind) {
     case ValueKind::kString:
       delete static_cast<StringObject*>(object);
       break;

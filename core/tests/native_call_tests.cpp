@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <string_view>
 
 #include <catch2/catch_test_macros.hpp>
@@ -193,5 +194,61 @@ TEST_CASE("Runs on one thread reuse its stacks", "[embed][native]") {
     CHECK(fixture.captured == "1\n");
     CHECK(open_handles() == handles_before);
     std::filesystem::remove(path);
+  }
+}
+
+TEST_CASE("Each thread's runs keep their own streams and execution state", "[embed][native][thread]") {
+  SECTION("Runs on two threads at once print only to their own output") {
+    const auto program = [](const std::string& word) {
+      return "import Std;\n"
+             "let Say(n: Int64): Int64 = { \"" + word + "\" -> Std.Println; (n, 1) -> +; };\n"
+             "(0, (n: Int64): Bool = (n, 200) -> <, Say) -> Std.Loop -> Std.Println;\n";
+    };
+    const auto expected = [](const std::string& word) {
+      std::string run;
+      for (int line = 0; line < 200; ++line) {
+        run += word + "\n";
+      }
+      run += "200\n";
+      std::string all;
+      for (int repeat = 0; repeat < 5; ++repeat) {
+        all += run;
+      }
+      return all;
+    };
+    // Catch2's checks are not thread-safe, so each thread records what it saw and the checks come after.
+    const auto run_five_times = [&program](const std::string& word, std::string& captured, bool& all_ran) {
+      HostFixture fixture;
+      all_ran = true;
+      for (int repeat = 0; repeat < 5; ++repeat) {
+        all_ran = fixture.run(program(word)).has_value() && all_ran;
+      }
+      captured = fixture.captured;
+    };
+    std::string left;
+    std::string right;
+    bool left_ran = false;
+    bool right_ran = false;
+    std::thread left_thread([&] { run_five_times("left", left, left_ran); });
+    std::thread right_thread([&] { run_five_times("right", right, right_ran); });
+    left_thread.join();
+    right_thread.join();
+
+    CHECK(left_ran);
+    CHECK(right_ran);
+    CHECK(left == expected("left"));
+    CHECK(right == expected("right"));
+  }
+
+  SECTION("A task prints to the output of the run that spawned it") {
+    // The task's worker enters the run's execution state and output stream for each job.
+    HostFixture fixture;
+    const auto result = fixture.run(
+        "import Std;\n"
+        "let Speak(n: Int64): Int64 = { \"from the task\" -> Std.Println; n; };\n"
+        "((Speak, 7) -> Std.Task.Spawn,) -> Std.Task.AwaitAll -> Std.Println;\n");
+    INFO((result.has_value() ? std::string{} : result.error().message));
+    REQUIRE(result.has_value());
+    CHECK(fixture.captured == "from the task\n(True, (7,))\n");
   }
 }

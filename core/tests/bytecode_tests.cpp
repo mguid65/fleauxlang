@@ -6888,3 +6888,29 @@ let Sum(acc: Int64, x: Int64): Int64 = (acc, (x, (x, 3) -> -) -> /) -> +;
           "(False, (0, Divide: Int64 division by zero))\n"
           "(False, (2, Divide: Int64 division by zero))\n");
 }
+
+TEST_CASE("Calls return to their caller's frame and position while the frames grow", "[bytecode][loop]") {
+  // The VM loop holds the running frame and its position, and enters the frame on top again after each call and
+  // return. Std.Loop runs in place as a loop that calls More and Next and jumps back after each returns; Std.Tuple.Map
+  // runs in place as a kIterate loop whose calls recurse deep enough to grow the frame storage; Count passes two
+  // arguments (kCallUserFuncArgs).
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let More(n: Int64): Bool = (n, 5000) -> <;
+let Next(n: Int64): Int64 = (n, 1) -> +;
+let Depth(n: Int64): Int64 = (n, (0, (): Int64 = 0), (_, (): Int64 = (((n, 1) -> -) -> Depth, 1) -> +)) -> Std.Match;
+let Count(n: Int64, total: Int64): Int64 =
+    (n, (0, (): Int64 = total), (_, (): Int64 = ((n, 1) -> -, (total, 1) -> +) -> Count)) -> Std.Match;
+(0, More, Next) -> Std.Loop -> Std.Println;
+((10, 3000, 20), Depth) -> Std.Tuple.Map -> Std.Println;
+(3000, 0) -> Count -> Std.Println;
+(4000) -> Depth -> Std.Println;
+)",
+                                                         "bytecode_loop_frames.fleaux");
+
+  REQUIRE(output == "5000\n(10, 3000, 20)\n3000\n4000\n");
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kJump) >= 2U);
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kIterate) == 1U);
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) >= 3U);
+  REQUIRE(count_opcode(compiled_function(bytecode_module, "Count").instructions,
+                       fleaux::bytecode::Opcode::kCallUserFuncArgs) == 1U);
+}

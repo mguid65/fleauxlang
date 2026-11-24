@@ -194,6 +194,7 @@ endfunction()
 
 set(FLEAUX_COMMON_SOURCES
         src/common/embedded_resource.cpp
+        src/common/thread_slot.cpp
 )
 
 add_library(fleaux_common STATIC)
@@ -287,7 +288,8 @@ if(BUILD_TESTING)
       tests/box_tests.cpp
       tests/embedded_resource_tests.cpp
       tests/indirect_optional_tests.cpp
-      tests/structured_visit_tests.cpp)
+      tests/structured_visit_tests.cpp
+      tests/thread_slot_tests.cpp)
   target_link_libraries(fleaux_common_tests PRIVATE Catch2::Catch2 fleaux_common)
   fleaux_set_project_warnings(fleaux_common_tests WARNINGS_AS_ERRORS)
 
@@ -333,6 +335,7 @@ set_target_properties(fleaux_heap PROPERTIES EXPORT_NAME heap)
 target_include_directories(fleaux_heap PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(fleaux_heap PUBLIC fleaux_common)
 fleaux_set_project_warnings(fleaux_heap WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_heap PUBLIC fleaux_emscripten_threads)

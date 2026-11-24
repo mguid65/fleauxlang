@@ -4,16 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
-
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
+#include <new>
 
 namespace fleaux::runtime::heap::detail {
 namespace {
@@ -95,146 +86,28 @@ void give_all(ThreadLists& lists) noexcept {
   }
 }
 
-#if defined(_WIN32)
-
-// MinGW emulates thread_local, at several times the cost of the Windows functions, so a thread's lists are found
-// through a TLS slot. A fiber-local slot holds them too, for its callback: Windows calls it when the thread ends, and
-// for every thread when the slot is freed, which happens when this library unloads or the process exits. TlsGetValue
-// clears the thread's last Win32 error, so code must not make or free a value between a failing Windows call and its
-// GetLastError.
-
-// The TLS value of a thread whose lists have gone.
-constexpr auto kEnded = std::uintptr_t{1U};
-
-// The TLS slot while the lists are in use: TLS_OUT_OF_INDEXES before they are set up and after they shut down.
-std::atomic<DWORD> g_lookup{TLS_OUT_OF_INDEXES};
-// The TLS slot, which end_thread_lists still reads while they shut down.
-DWORD g_lookup_slot = TLS_OUT_OF_INDEXES;
-DWORD g_ending_slot = FLS_OUT_OF_INDEXES;
-std::atomic<bool> g_shut_down{false};
-
-void NTAPI end_thread_lists(void* data) {
-  auto* const lists = static_cast<ThreadLists*>(data);
+// A thread's lists go to the depot when the thread ends, and when this library unloads or the process exits.
+void end_thread_lists(void* value) noexcept {
+  auto* const lists = static_cast<ThreadLists*>(value);
   give_all(*lists);
-  // On a thread that is ending, a block freed from now on goes to the depot.
-  if (TlsGetValue(g_lookup_slot) == data) {
-    TlsSetValue(g_lookup_slot, reinterpret_cast<void*>(kEnded));
-  }
   delete lists;
 }
 
-class ThreadSlots {
-public:
-  ThreadSlots() {
-    g_lookup_slot = TlsAlloc();
-    g_ending_slot = FlsAlloc(&end_thread_lists);
-    if (g_lookup_slot != TLS_OUT_OF_INDEXES && g_ending_slot != FLS_OUT_OF_INDEXES) {
-      g_lookup.store(g_lookup_slot, std::memory_order_release);
-    }
-  }
+}  // namespace
 
-  ThreadSlots(const ThreadSlots&) = delete;
-  auto operator=(const ThreadSlots&) -> ThreadSlots& = delete;
-  ThreadSlots(ThreadSlots&&) = delete;
-  auto operator=(ThreadSlots&&) -> ThreadSlots& = delete;
-
-  // Every thread's lists go to the depot. No other thread may be allocating while this runs.
-  ~ThreadSlots() {
-    g_shut_down.store(true, std::memory_order_release);
-    g_lookup.store(TLS_OUT_OF_INDEXES, std::memory_order_release);
-    if (g_ending_slot != FLS_OUT_OF_INDEXES) {
-      FlsFree(g_ending_slot);
-    }
-    if (g_lookup_slot != TLS_OUT_OF_INDEXES) {
-      TlsFree(g_lookup_slot);
-    }
-  }
-};
+constinit common::ThreadSlot g_lists_slot{&end_thread_lists};
 
 auto make_thread_lists() noexcept -> ThreadLists* {
-  if (g_shut_down.load(std::memory_order_acquire)) {
-    return nullptr;
-  }
-  static const ThreadSlots slots;
-  const DWORD slot = g_lookup.load(std::memory_order_acquire);
-  if (slot == TLS_OUT_OF_INDEXES || reinterpret_cast<std::uintptr_t>(TlsGetValue(slot)) == kEnded) {
-    return nullptr;
-  }
   auto* const lists = new (std::nothrow) ThreadLists;
   if (lists == nullptr) {
     return nullptr;
   }
-  if (TlsSetValue(slot, lists) == FALSE || FlsSetValue(g_ending_slot, lists) == FALSE) {
-    TlsSetValue(slot, nullptr);
+  if (!g_lists_slot.set(lists)) {
     delete lists;
     return nullptr;
   }
   return lists;
 }
-
-}  // namespace
-
-auto thread_lists() noexcept -> ThreadLists* {
-  if (const DWORD slot = g_lookup.load(std::memory_order_acquire); slot != TLS_OUT_OF_INDEXES) {
-    if (void* const value = TlsGetValue(slot); reinterpret_cast<std::uintptr_t>(value) > kEnded) {
-      return static_cast<ThreadLists*>(value);
-    }
-  }
-  return make_thread_lists();
-}
-
-#else
-
-// The thread's lists for the fast path; t_end owns them.
-thread_local ThreadLists* t_lists = nullptr;
-thread_local bool t_ended = false;
-
-// Owns the thread's lists, and gives them to the depot when the thread ends.
-struct ThreadEnd {
-  ThreadEnd() = default;
-  ThreadEnd(const ThreadEnd&) = delete;
-  auto operator=(const ThreadEnd&) -> ThreadEnd& = delete;
-  ThreadEnd(ThreadEnd&&) = delete;
-  auto operator=(ThreadEnd&&) -> ThreadEnd& = delete;
-
-  ~ThreadEnd() {
-    t_ended = true;
-    t_lists = nullptr;
-    if (lists != nullptr) {
-      give_all(*lists);
-      delete lists;
-    }
-  }
-
-  ThreadLists* lists = nullptr;
-};
-
-thread_local ThreadEnd t_end;
-
-auto make_thread_lists() noexcept -> ThreadLists* {
-  if (t_ended) {
-    return nullptr;
-  }
-  auto* const lists = new (std::nothrow) ThreadLists;
-  if (lists == nullptr) {
-    return nullptr;
-  }
-  // Using the guard constructs it, and its destructor runs when the thread ends.
-  t_end.lists = lists;
-  t_lists = lists;
-  return lists;
-}
-
-}  // namespace
-
-auto thread_lists() noexcept -> ThreadLists* {
-  if (t_lists != nullptr) {
-    return t_lists;
-  }
-  return make_thread_lists();
-}
-
-#endif
 
 auto refill(FreeList& list, const std::size_t size_class) -> void* {
   list = take_batch(size_class);

@@ -531,6 +531,70 @@ TEST_CASE("Std.Try turns a failure into an Err whichever way it arrives", "[runt
   }
 }
 
+TEST_CASE("Value assignments take the new contents first and release the old object last", "[runtime][value]") {
+  // A function value whose destructor counts, to see when its object goes.
+  struct Sentinel {
+    explicit Sentinel(int* counter) : destroyed(counter) {}
+    Sentinel(const Sentinel&) = delete;
+    auto operator=(const Sentinel&) -> Sentinel& = delete;
+    Sentinel(Sentinel&&) = delete;
+    auto operator=(Sentinel&&) -> Sentinel& = delete;
+    ~Sentinel() { ++*destroyed; }
+    int* destroyed;
+  };
+  int destroyed = 0;
+  const auto make_probe = [&destroyed] {
+    auto sentinel = std::make_shared<Sentinel>(&destroyed);
+    return make_function([sentinel](const Value& value) -> Value { return value; });
+  };
+
+  SECTION("A tuple assigned its own item, by copy and by move") {
+    Value copied = make_tuple(make_string("first item"), make_int(2));
+    copied = copied.tuple()[0];
+    CHECK(copied == make_string("first item"));
+
+    Value moved = make_tuple(make_string("first item"), make_int(2));
+    moved = std::move(moved.mutable_tuple()[0]);
+    CHECK(moved == make_string("first item"));
+  }
+
+  SECTION("A value assigned itself, by copy and by move") {
+    Value value = make_probe();
+    Value& same = value;
+    value = same;
+    value = std::move(same);
+    CHECK(value.is_function());
+    CHECK(destroyed == 0);
+    value = Value{};
+    CHECK(destroyed == 1);
+  }
+
+  SECTION("Assigning over the last reference destroys the object once") {
+    Value copied_over = make_probe();
+    const Value replacement = make_int(1);
+    copied_over = replacement;
+    CHECK(destroyed == 1);
+    Value moved_over = make_probe();
+    moved_over = make_int(2);
+    CHECK(destroyed == 2);
+    CHECK(copied_over == make_int(1));
+    CHECK(moved_over == make_int(2));
+  }
+
+  SECTION("Copies between values that share an object") {
+    Value first = make_probe();
+    Value second = first;
+    Value third;
+    third = second;
+    second = third;
+    first = Value{};
+    second = Value{};
+    CHECK(destroyed == 0);
+    third = Value{};
+    CHECK(destroyed == 1);
+  }
+}
+
 TEST_CASE("Runtime builtins: arithmetic, comparison, and logic", "[runtime]") {
   REQUIRE(to_double(make_tuple(make_int(3), make_int(4)) | Add) == 7.0);
   REQUIRE(to_double(make_tuple(make_int(9), make_int(4)) | Subtract) == 5.0);

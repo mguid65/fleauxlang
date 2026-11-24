@@ -25,6 +25,8 @@
 #include <limits>
 #include <new>
 
+#include "fleaux/common/thread_slot.hpp"
+
 namespace fleaux::runtime::heap {
 
 inline constexpr std::size_t kGranule = 16U;
@@ -74,9 +76,21 @@ inline constexpr auto kListLimits = [] {
   return limits;
 }();
 
+// Each thread's lists. Their cleanup gives them to the depot when the thread ends, and when this library unloads or the
+// process exits.
+extern common::ThreadSlot g_lists_slot;
+
+// Makes the calling thread's lists; null once the thread is ending or the slot has shut down.
+[[nodiscard]] auto make_thread_lists() noexcept -> ThreadLists*;
+
 // The calling thread's lists, made on its first call. Null once the thread is ending or the allocator has shut down
 // (its library is unloading, or the process is exiting); blocks then go to and from the depot.
-[[nodiscard]] auto thread_lists() noexcept -> ThreadLists*;
+[[nodiscard]] inline auto thread_lists() noexcept -> ThreadLists* {
+  if (void* const lists = g_lists_slot.get(); lists != nullptr) {
+    return static_cast<ThreadLists*>(lists);
+  }
+  return make_thread_lists();
+}
 
 // Fills the empty `list` with a batch from the depot, or with a new chunk, and returns one block of the class.
 [[nodiscard]] auto refill(FreeList& list, std::size_t size_class) -> void*;

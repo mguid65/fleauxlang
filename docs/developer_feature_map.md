@@ -85,11 +85,21 @@ This guide helps contributors identify exactly where to implement a feature in `
     - **Libraries.** Chunks are never freed, and a block's class follows from the size handed back with it, so each
       library's copy of the allocator (the host's, and each extension's) frees the others' blocks. Everything that
       makes values links `fleaux_heap`.
-    - **Thread lookup.** On Windows a thread's lists are found with `TlsGetValue`, because MinGW emulates
-      `thread_local` at several times the cost. A fiber-local callback empties them into the depot when the thread
-      ends or the library unloads. Elsewhere the lookup uses `thread_local`.
+    - **Thread lookup.** A thread's lists are found through a `ThreadSlot` (see below), whose cleanup empties them
+      into the depot when the thread ends or the library unloads.
     - **Checks.** Debug builds check each block's size and liveness when it is freed. The AddressSanitizer and
       ThreadSanitizer builds take every block from `operator new` (`FLEAUX_HEAP_SYSTEM_ALLOCATOR`).
+  - Per-thread state goes through `common::ThreadSlot` (`core/include/fleaux/common/thread_slot.hpp`,
+    `core/src/common/thread_slot.cpp`, in `fleaux_common`), not `thread_local`. MinGW emulates `thread_local`, and
+    every access takes a winpthreads lock.
+    - **The slot.** A `ThreadSlot` is a `constinit` pointer per thread with a cleanup. On Windows `get()` is
+      `TlsGetValue`, and a fiber-local callback runs the cleanup when the thread ends, and for every thread when the
+      library unloads or the process exits. Elsewhere the pointers live in a `thread_local` array.
+    - **The VM's state.** The VM keeps all of its per-thread state in one `VmThreadState` (`runtime.cpp`), found
+      through one slot: the scratch stacks, the active execution state, the streams and process arguments, and the
+      help metadata store. `runtime_thread_context()`, `runtime_execution_state_thread_context()` and
+      `help_metadata_thread_context()` return its parts.
+    - **Adding state.** New per-thread state that hot code reaches belongs there, not in a new `thread_local`.
   - A run (`Runtime::execute`) takes the thread's operand and frame stacks from the scratch pool, as calls from
     native code into compiled functions do. Runs repeated on one thread (`--bench`, the REPL, `VmHost`) therefore
     keep the stacks' capacity. `CallFrameStack::pop` releases the frame's inline locals, so a value a run leaves
@@ -114,6 +124,17 @@ This guide helps contributors identify exactly where to implement a feature in `
     one on every success, which costs more than an addition. Binding a call returns the argument count that did not
     fit (`BindFailure`), and `apply_binary_op` and `apply_unary_op` return a message; the loop makes the
     `RuntimeError` when one fails.
+  - `run_loop` keeps the running frame, its instructions, and a pointer to the next instruction in locals.
+    - **Leaving the frame.** The position goes back into the frame only when a call leaves it (`leave_frame`).
+    - **Entering a frame.** After a call pushes a frame or a return pops one, the loop enters the frame on top again
+      (`enter_top_frame`). A push may move the frame storage, so no frame pointer is kept across one.
+    - **Adding an opcode.** An opcode that pushes a frame must leave the running frame before the push and enter the
+      new one after it.
+  - `Value`'s assignments take the new contents first and release the old object last, without a temporary
+    (`Value::release`, `destroy_object`).
+  - GCC does not inline the loop's helpers into `run_loop`: value assignment, the stack's `push_back`, and
+    `get_or_create_local`. The reason is that `runtime.cpp` reaches GCC's `inline-unit-growth` cap.
+    `internal_docs/vm_loop_overhead_plan_2026-11-23.md` measures raising the cap for that file, which was not done.
   - Each invocation runs a `RunningModule` (`runtime.cpp`): the bytecode with its constant pool made into values
     once, at the start, so `kPushConst` copies a value instead of building one (a string only gains a reference).
     It is made before the invocation's `TaskScope`, so tasks still running at the end can use it.
