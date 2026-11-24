@@ -847,8 +847,8 @@ auto validate_alias_declarations(const ir::IRProgram& program, const std::vector
 
     if (const auto it = seen_aliases.find(alias_decl.name); it != seen_aliases.end()) {
       std::string hint = std::format("Alias '{}' is already declared", alias_decl.name);
-      if (it->second.has_value() && !it->second->source_name.empty()) {
-        hint += std::format(" in '{}'.", it->second->source_name);
+      if (it->second.has_value() && !it->second->source_name().empty()) {
+        hint += std::format(" in '{}'.", it->second->source_name());
       } else {
         hint += ".";
       }
@@ -945,8 +945,8 @@ auto validate_strong_type_declarations(const ir::IRProgram& program,
   const auto validate_decl_name = [&](const ir::IRTypeDecl& type_decl) -> std::optional<type_check::AnalysisError> {
     if (const auto it = seen.find(type_decl.name); it != seen.end()) {
       std::string hint = std::format("Strong type '{}' is already declared", type_decl.name);
-      if (it->second.has_value() && !it->second->source_name.empty()) {
-        hint += std::format(" in '{}'.", it->second->source_name);
+      if (it->second.has_value() && !it->second->source_name().empty()) {
+        hint += std::format(" in '{}'.", it->second->source_name());
       } else {
         hint += ".";
       }

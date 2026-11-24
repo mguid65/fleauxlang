@@ -1,12 +1,15 @@
+#include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
 #include "fleaux/bytecode/compiler.hpp"
-#include "fleaux/bytecode/escape_analyzer.hpp"
+#include "fleaux/bytecode/local_liveness.hpp"
+#include "fleaux/common/match_wildcard.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/common/symbol_name.hpp"
 #include "fleaux/frontend/lowering.hpp"
@@ -56,6 +59,18 @@ auto binary_intrinsic_builtin_to_opcode(const std::string& symbol_key) -> std::o
     return Opcode::kAnd;
   if (symbol_key == "Std.Or")
     return Opcode::kOr;
+  if (symbol_key == "Std.ElementAt")
+    return Opcode::kElementAt;
+  if (symbol_key == "Std.Bit.And")
+    return Opcode::kBitAnd;
+  if (symbol_key == "Std.Bit.Or")
+    return Opcode::kBitOr;
+  if (symbol_key == "Std.Bit.Xor")
+    return Opcode::kBitXor;
+  if (symbol_key == "Std.Bit.ShiftLeft")
+    return Opcode::kShiftLeft;
+  if (symbol_key == "Std.Bit.ShiftRight")
+    return Opcode::kShiftRight;
   return std::nullopt;
 }
 
@@ -68,8 +83,6 @@ struct CompileState {
   // Maps a short/full name to the stdlib builtin it aliases (from is_builtin lets).
   std::unordered_map<std::string, std::string> builtin_alias;
   bool enable_experimental_builtin_reductions{false};
-  bool enable_auto_value_ref{false};
-  std::unordered_map<std::uint32_t, std::unordered_set<std::uint32_t>> by_ref_param_slots;
   std::optional<std::uint32_t> current_function_idx;
 
   static auto intern_const(Module& bytecode_module, ConstValue c) -> std::uint32_t {
@@ -115,6 +128,43 @@ void record_builtin_callsite(Module& bytecode_module, const CompileState& state,
       .callable_slots = std::move(callable_slots),
       .value_slots = std::move(value_slots),
   });
+}
+
+// Whether a jump in `out` lands on instruction `target`.
+auto jumps_to(const std::vector<Instruction>& out, const std::size_t target) -> bool {
+  return std::ranges::any_of(out, [target](const Instruction& instruction) {
+    return (instruction.opcode == Opcode::kJump || instruction.opcode == Opcode::kJumpIf ||
+            instruction.opcode == Opcode::kJumpIfNot) &&
+           instruction.operand == static_cast<std::int64_t>(target);
+  });
+}
+
+// Emits the call of a builtin whose arguments were just emitted. A builtin that takes runtime::Arguments
+// (vm::builtin_takes_arguments) is called on the argument values when the last instruction built their tuple: the
+// kCallBuiltinArgs takes the BuildTuple's place, so a jump that lands there still finds the arguments on the stack.
+// Every other call passes the tuple (kCallBuiltin): an argument list with spreads, a builtin of one parameter.
+void emit_builtin_call(Module& bytecode_module, const CompileState& state, std::vector<Instruction>& out,
+                       const vm::BuiltinId builtin_id, const vm::BuiltinCallShape call_shape,
+                       const std::uint32_t static_argument_count,
+                       std::vector<BuiltinCallableSlotRecord> callable_slots = {},
+                       std::vector<BuiltinValueSlotRecord> value_slots = {}) {
+  if (call_shape == vm::BuiltinCallShape::kTupleExpanded && vm::builtin_takes_arguments(builtin_id) && !out.empty() &&
+      out.back().opcode == Opcode::kBuildTuple && out.back().operand >= 0 &&
+      std::cmp_less_equal(out.back().operand, vm::kBuiltinOperandArgumentCountMask) &&
+      (static_argument_count == kUnknownBuiltinStaticArgumentCount ||
+       std::cmp_equal(static_argument_count, out.back().operand)) &&
+      !jumps_to(out, out.size())) {
+    const auto count = static_cast<std::uint16_t>(out.back().operand);
+    out.pop_back();
+    record_builtin_callsite(bytecode_module, state, out, builtin_id, call_shape, count, std::move(callable_slots),
+                            std::move(value_slots));
+    out.push_back(
+        Instruction{.opcode = Opcode::kCallBuiltinArgs, .operand = vm::builtin_operand_with_arguments(builtin_id, count)});
+    return;
+  }
+  record_builtin_callsite(bytecode_module, state, out, builtin_id, call_shape, static_argument_count,
+                          std::move(callable_slots), std::move(value_slots));
+  out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = vm::builtin_operand(builtin_id, call_shape)});
 }
 
 auto builtin_callable_slot_indices(const vm::BuiltinId builtin_id) -> std::vector<std::uint32_t> {
@@ -396,7 +446,7 @@ auto let_belongs_to_module(const IRLet& let, const CompileOptions& options) -> b
   if (!let.span.has_value()) {
     return true;
   }
-  return let.span->source_name == options.source_path->string();
+  return let.span->source_name() == options.source_path->string();
 }
 
 void register_builtin_alias_export(Module& bytecode_module, const IRLet& let, const CompileOptions& options,
@@ -540,21 +590,8 @@ auto emit_tuple_items(const IRTupleExpr& tuple_expr, std::vector<Instruction>& o
                       CompileState& state, Module& bytecode_module) -> EmitResult;
 auto count_inline_closures(const IRExpr& expr) -> std::size_t;
 
-auto validate_compile_options(const CompileOptions& options) -> tl::expected<void, CompileError> {
-  if (options.enable_auto_value_ref && !options.enable_value_ref_gate) {
-    return tl::unexpected(
-        make_err("Invalid compile options: enable_auto_value_ref requires enable_value_ref_gate=true."));
-  }
-  if (options.enable_auto_value_ref && options.value_ref_byte_cutoff == 0) {
-    return tl::unexpected(
-        make_err("Invalid compile options: value_ref_byte_cutoff must be > 0 when auto value-ref is enabled."));
-  }
-  return {};
-}
-
 void initialize_module_header(Module& bytecode_module, CompileState& state, const CompileOptions& options) {
   state.enable_experimental_builtin_reductions = options.enable_experimental_builtin_reductions;
-  state.enable_auto_value_ref = options.enable_auto_value_ref;
   bytecode_module.header.module_name = options.module_name.value_or(
       options.source_path.has_value() ? options.source_path->stem().string() : std::string{});
   bytecode_module.header.source_path = options.source_path.has_value() ? options.source_path->string() : std::string{};
@@ -577,7 +614,7 @@ void seed_program_dependencies(Module& bytecode_module, const IRProgram& program
 // True when a declaration was written in the module being compiled rather than seeded from an import.
 auto declared_in_module(const std::optional<frontend::diag::SourceSpan>& span, const CompileOptions& options) -> bool {
   return !options.source_path.has_value() || !span.has_value() ||
-         span->source_name == options.source_path->string();
+         span->source_name() == options.source_path->string();
 }
 
 void record_type_declarations(Module& bytecode_module, const IRProgram& program, const CompileOptions& options) {
@@ -615,26 +652,6 @@ void register_let_definitions(Module& bytecode_module, CompileState& state, cons
     }
 
     register_user_function_definition(bytecode_module, state, let, options, full_name, link_name);
-  }
-}
-
-void apply_auto_value_ref_analysis(CompileState& state, const Module& bytecode_module, const IRProgram& program,
-                                   const CompileOptions& options) {
-  const auto by_ref_analysis = analyze_auto_value_ref_params(
-      program, AutoValueRefAnalysisOptions{.enabled = options.enable_auto_value_ref && options.enable_value_ref_gate,
-                                           .byte_cutoff = options.value_ref_byte_cutoff});
-  for (const auto& [full_name, param_slots] : by_ref_analysis) {
-    const auto fn_it = state.function_idx.find(full_name);
-    if (fn_it == state.function_idx.end()) {
-      continue;
-    }
-    if (fn_it->second >= bytecode_module.functions.size()) {
-      continue;
-    }
-    if (bytecode_module.functions[fn_it->second].is_import_placeholder) {
-      continue;
-    }
-    state.by_ref_param_slots.emplace(fn_it->second, param_slots);
   }
 }
 
@@ -838,15 +855,14 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
                       const std::uint32_t builtin_static_argument_count = kUnknownBuiltinStaticArgumentCount,
                       const std::vector<BuiltinCallableSlotRecord>& builtin_callable_slots = {}) -> EmitResult {
   (void)locals;
-  // Helper: emit kCallBuiltin with a resolved BuiltinId.
+  // Helper: emit the call of a resolved BuiltinId.
   auto emit_builtin = [&](const std::string& symbol_key) -> EmitResult {
     const auto builtin_id = vm::builtin_id_from_symbol_key(symbol_key);
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
     }
-    record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
-                            builtin_static_argument_count, builtin_callable_slots);
-    out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+    emit_builtin_call(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
+                      builtin_static_argument_count, builtin_callable_slots);
     return {};
   };
 
@@ -884,59 +900,6 @@ auto emit_call_target(const IRCallTarget& target, std::vector<Instruction>& out,
       target);
 }
 
-auto emit_lhs_for_user_call_with_auto_value_ref(const IRExpr& lhs, const std::uint32_t function_index,
-                                                std::vector<Instruction>& out, const LocalSlots& locals,
-                                                CompileState& state, Module& bytecode_module)
-    -> tl::expected<bool, CompileError> {
-  if (!state.enable_auto_value_ref) {
-    return false;
-  }
-
-  const auto by_ref_it = state.by_ref_param_slots.find(function_index);
-  if (by_ref_it == state.by_ref_param_slots.end() || by_ref_it->second.empty()) {
-    return false;
-  }
-
-  if (function_index >= bytecode_module.functions.size()) {
-    return false;
-  }
-  const auto& fn_def = bytecode_module.functions[function_index];
-  if (fn_def.is_import_placeholder || fn_def.has_variadic_tail) {
-    return false;
-  }
-
-  if (fn_def.arity == 1) {
-    if (auto emit_result = emit_expr(lhs, out, locals, state, bytecode_module); !emit_result) {
-      return tl::unexpected(emit_result.error());
-    }
-    if (by_ref_it->second.contains(0)) {
-      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
-    }
-    return true;
-  }
-
-  const auto* tuple_expr = std::get_if<IRTupleExpr>(&lhs.node);
-  if (tuple_expr == nullptr || tuple_expr->items.size() != fn_def.arity) {
-    return false;
-  }
-
-  bool emitted_any = false;
-  for (std::uint32_t param_index = 0; param_index < fn_def.arity; ++param_index) {
-    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module);
-        !emit_result) {
-      return tl::unexpected(emit_result.error());
-    }
-    if (by_ref_it->second.contains(param_index)) {
-      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
-      emitted_any = true;
-    }
-  }
-
-  out.push_back(
-      Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(tuple_expr->items.size())});
-  return emitted_any;
-}
-
 auto emit_tuple_items(const IRTupleExpr& tuple_expr, std::vector<Instruction>& out, const LocalSlots& locals,
                       CompileState& state, Module& bytecode_module) -> EmitResult {
   for (const auto& item : tuple_expr.items) {
@@ -958,39 +921,31 @@ auto adapted_user_flow_lhs_expr(const IRFlowExpr& flow) -> const IRExpr& {
   return *flow.lhs;
 }
 
-auto try_emit_user_binary_call_fast_path(const IRFlowExpr& flow, std::vector<Instruction>& out,
-                                         const LocalSlots& locals, CompileState& state, Module& bytecode_module)
+// A call of a non-variadic user function of two or more parameters, written with one argument per parameter: the
+// arguments go on the stack and kCallUserFuncArgs binds them, without an argument tuple.
+auto try_emit_user_args_call_fast_path(const IRFlowExpr& flow, std::vector<Instruction>& out,
+                                       const LocalSlots& locals, CompileState& state, Module& bytecode_module)
     -> tl::expected<bool, CompileError> {
   const auto user_fn_idx = user_function_index_from_target(flow.rhs, state);
   if (!user_fn_idx.has_value() || *user_fn_idx >= bytecode_module.functions.size()) {
     return false;
   }
 
-  if (const auto& function = bytecode_module.functions[*user_fn_idx];
-      function.has_variadic_tail || function.arity != 2U) {
+  const auto& function = bytecode_module.functions[*user_fn_idx];
+  if (function.has_variadic_tail || function.arity < 2U) {
     return false;
   }
 
   const auto& [node, span] = adapted_user_flow_lhs_expr(flow);
   const auto* tuple_expr = std::get_if<IRTupleExpr>(&node);
-  if (tuple_expr == nullptr || tuple_expr->items.size() != 2U) {
+  if (tuple_expr == nullptr || tuple_expr->items.size() != function.arity || tuple_expr->has_spread()) {
     return false;
   }
 
-  const auto by_ref_it =
-      state.enable_auto_value_ref ? state.by_ref_param_slots.find(*user_fn_idx) : state.by_ref_param_slots.end();
-  for (std::uint32_t param_index = 0; param_index < 2U; ++param_index) {
-    if (auto emit_result = emit_expr(*tuple_expr->items[param_index], out, locals, state, bytecode_module);
-        !emit_result) {
-      return tl::unexpected(emit_result.error());
-    }
-    if (state.enable_auto_value_ref && by_ref_it != state.by_ref_param_slots.end() &&
-        by_ref_it->second.contains(param_index)) {
-      out.push_back(Instruction{.opcode = Opcode::kMakeValueRef, .operand = 0});
-    }
+  if (auto emit_result = emit_tuple_items(*tuple_expr, out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
   }
-
-  out.push_back(Instruction{.opcode = Opcode::kCallUserFuncBinary, .operand = static_cast<std::int64_t>(*user_fn_idx)});
+  out.push_back(Instruction{.opcode = Opcode::kCallUserFuncArgs, .operand = static_cast<std::int64_t>(*user_fn_idx)});
   return true;
 }
 
@@ -1023,83 +978,11 @@ auto format_builtin_arity_expectation(const vm::BuiltinArityContract contract) -
   return "unknown";
 }
 
-auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const vm::BuiltinId builtin_id) -> bool {
-  switch (builtin_id) {
-    case vm::BuiltinId::ArrayFlatten:
-    case vm::BuiltinId::ArrayRank:
-    case vm::BuiltinId::ArrayShape:
-    case vm::BuiltinId::ArrayTranspose2D:
-    case vm::BuiltinId::Wrap:
-    case vm::BuiltinId::Unwrap:
-    case vm::BuiltinId::Length:
-    case vm::BuiltinId::ToNum:
-    case vm::BuiltinId::TupleReverse:
-    case vm::BuiltinId::TupleSort:
-    case vm::BuiltinId::TupleUnique:
-    case vm::BuiltinId::TupleMin:
-    case vm::BuiltinId::TupleMax:
-    case vm::BuiltinId::TaskAwait:
-    case vm::BuiltinId::TaskCancel:
-    case vm::BuiltinId::TaskAwaitAll:
-    case vm::BuiltinId::DictCreateDict:
-    case vm::BuiltinId::DictKeys:
-    case vm::BuiltinId::DictValues:
-    case vm::BuiltinId::DictEntries:
-    case vm::BuiltinId::DictClear:
-    case vm::BuiltinId::DictLength:
-    case vm::BuiltinId::First:
-    case vm::BuiltinId::Second:
-    case vm::BuiltinId::ResultTag:
-    case vm::BuiltinId::ResultPayload:
-    case vm::BuiltinId::ResultIsOk:
-    case vm::BuiltinId::ResultIsErr:
-    case vm::BuiltinId::ResultUnwrap:
-    case vm::BuiltinId::ResultUnwrapErr:
-    case vm::BuiltinId::TupleRangeInt64:
-    case vm::BuiltinId::RandomCreate:
-    case vm::BuiltinId::RandomNextUInt64:
-    case vm::BuiltinId::RandomNextInt64:
-    case vm::BuiltinId::RandomNextFloat64:
-    case vm::BuiltinId::RandomNextBool:
-    case vm::BuiltinId::RandomSplit:
-    case vm::BuiltinId::StringParseInt64:
-    case vm::BuiltinId::StringParseUInt64:
-    case vm::BuiltinId::StringParseFloat64:
-    case vm::BuiltinId::StringUpper:
-    case vm::BuiltinId::StringLower:
-    case vm::BuiltinId::StringTrim:
-    case vm::BuiltinId::StringTrimStart:
-    case vm::BuiltinId::StringTrimEnd:
-    case vm::BuiltinId::StringLength:
-    case vm::BuiltinId::StringFormat:
-    case vm::BuiltinId::OSEnv:
-    case vm::BuiltinId::OSHasEnv:
-    case vm::BuiltinId::OSUnsetEnv:
-    case vm::BuiltinId::OSExec:
-    case vm::BuiltinId::PathNormalize:
-    case vm::BuiltinId::PathBasename:
-    case vm::BuiltinId::PathDirname:
-    case vm::BuiltinId::PathExists:
-    case vm::BuiltinId::PathIsFile:
-    case vm::BuiltinId::PathIsDir:
-    case vm::BuiltinId::PathAbsolute:
-    case vm::BuiltinId::PathExtension:
-    case vm::BuiltinId::PathStem:
-    case vm::BuiltinId::FileReadText:
-    case vm::BuiltinId::FileReadLines:
-    case vm::BuiltinId::FileDelete:
-    case vm::BuiltinId::FileSize:
-    case vm::BuiltinId::DirCreate:
-    case vm::BuiltinId::DirDelete:
-    case vm::BuiltinId::DirList:
-    case vm::BuiltinId::DirListFull:
-    case vm::BuiltinId::FileReadLine:
-    case vm::BuiltinId::FileFlush:
-    case vm::BuiltinId::FileClose:
-      return true;
-    default:
-      return false;
-  }
+// A builtin that takes one argument receives the argument value itself, on every path: a direct call, a call through a
+// function value, and a host call. A call written with a one-item parameter list passes that item.
+auto builtin_takes_one_argument(const vm::BuiltinId builtin_id) -> bool {
+  const auto contract = vm::builtin_arity_contract(builtin_id);
+  return contract.kind == vm::BuiltinArityKind::kExact && contract.primary == 1U;
 }
 
 // Builtin pipeline adaptation must stay syntax-aware: each pipeline expression may unwrap only
@@ -1107,7 +990,7 @@ auto builtin_dispatch_contract_requires_direct_lhs_unwrap(const vm::BuiltinId bu
 // recursive singleton flattening, because genuine singleton tuple results from earlier stages are
 // real values and must remain intact.
 auto adapted_builtin_flow_lhs_expr(const fleaux::vm::BuiltinId builtin_id, const IRFlowExpr& flow) -> const IRExpr& {
-  if (flow.call_shape == IRFlowCallShape::kDirectValue && builtin_dispatch_contract_requires_direct_lhs_unwrap(builtin_id)) {
+  if (flow.call_shape == IRFlowCallShape::kDirectValue && builtin_takes_one_argument(builtin_id)) {
     if (const auto* item = single_parameter_list_item(*flow.lhs); item != nullptr) {
       return **item;
     }
@@ -1395,10 +1278,8 @@ auto emit_builtin_symbol_flow(const std::string& symbol_key, const IRFlowExpr& f
       return emit_result;
     }
   }
-  record_builtin_callsite(bytecode_module, state, out, *builtin_id, call_shape,
-                          recorded_builtin_static_argument_count(known_arity), callable_slots, value_slots);
-  out.push_back(Instruction{.opcode = Opcode::kCallBuiltin,
-                            .operand = fleaux::vm::builtin_operand(*builtin_id, call_shape)});
+  emit_builtin_call(bytecode_module, state, out, *builtin_id, call_shape,
+                    recorded_builtin_static_argument_count(known_arity), callable_slots, value_slots);
   return {};
 }
 
@@ -1461,9 +1342,8 @@ auto emit_builtin_symbol_flow_for_tuple_prefix(
     return tl::unexpected(make_err("Unknown builtin in bytecode compiler: '" + symbol_key + "'."));
   }
   out.push_back(Instruction{.opcode = Opcode::kBuildTuple, .operand = static_cast<std::int64_t>(item_count)});
-  record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
-                          static_cast<std::uint32_t>(item_count));
-  out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+  emit_builtin_call(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded,
+                    static_cast<std::uint32_t>(item_count));
   return {};
 }
 
@@ -1593,12 +1473,6 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
   if (!name_ref.qualifier.has_value()) {
     if (const auto it = locals.find(name_ref.name); it != locals.end()) {
       out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(it->second)});
-      if (state.current_function_idx.has_value()) {
-        if (const auto by_ref_it = state.by_ref_param_slots.find(*state.current_function_idx);
-            by_ref_it != state.by_ref_param_slots.end() && by_ref_it->second.contains(it->second)) {
-          out.push_back(Instruction{.opcode = Opcode::kDerefValueRef, .operand = 0});
-        }
-      }
       return {};
     }
   }
@@ -1619,8 +1493,7 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
       if (auto validated = validate_builtin_known_arity(*builtin_id, 0U); !validated) {
         return validated;
       }
-      record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
-      out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+      emit_builtin_call(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
       return {};
     }
 
@@ -1632,8 +1505,7 @@ auto emit_name_ref_expr(const IRNameRef& name_ref, std::vector<Instruction>& out
       if (auto validated = validate_builtin_known_arity(*builtin_id, 0U); !validated) {
         return validated;
       }
-      record_builtin_callsite(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
-      out.push_back(Instruction{.opcode = Opcode::kCallBuiltin, .operand = fleaux::vm::builtin_operand(*builtin_id)});
+      emit_builtin_call(bytecode_module, state, out, *builtin_id, vm::BuiltinCallShape::kTupleExpanded, 0U);
       return {};
     }
   }
@@ -1788,6 +1660,412 @@ auto emit_block_expr(const IRBlockExpr& block, std::vector<Instruction>& out, co
   return emit_expr(*block.result, out, block_locals, state, bytecode_module);
 }
 
+// Branch, Loop, Map, Match, and Apply in place
+//
+// When the functions passed to Std.Branch, Std.Loop, Std.Tuple.Map, Std.Match, or Std.Apply are written inline, or
+// name a user function, the compiler runs them in the current function instead of making function values for the
+// builtin to call: the argument goes into a local slot, and the code jumps between the bodies. Calls then stay in one
+// interpreter loop.
+
+// A function that can run in place: an inline closure with one parameter, or a named user function. A Std.Match
+// handler may also be an inline closure with no parameter.
+struct InPlaceFunction {
+  const IRClosureExpr* closure{nullptr};
+  std::uint32_t function_index{0};
+};
+
+auto in_place_function(const IRExpr& expr, const LocalSlots& locals, const CompileState& state)
+    -> std::optional<InPlaceFunction> {
+  if (const auto* closure_box = std::get_if<IRClosureExprBox>(&expr.node); closure_box != nullptr) {
+    const IRClosureExpr& closure = **closure_box;
+    if (!closure.generic_params.empty() || closure.params.size() != 1U || closure.params.front().type.variadic ||
+        !closure.body.has_value()) {
+      return std::nullopt;
+    }
+    return InPlaceFunction{.closure = &closure};
+  }
+  if (const auto* name_ref = std::get_if<IRNameRef>(&expr.node); name_ref != nullptr) {
+    // A local of the same name is a function value, not this function.
+    if (name_ref->materialize_as_value || !name_ref->bound_operator_args.empty() ||
+        (!name_ref->qualifier.has_value() && locals.contains(name_ref->name))) {
+      return std::nullopt;
+    }
+    if (const auto it = state.function_idx.find(target_symbol_name(*name_ref)); it != state.function_idx.end()) {
+      return InPlaceFunction{.function_index = it->second};
+    }
+  }
+  return std::nullopt;
+}
+
+// Runs an inline closure in place on the values in `argument_slots`: one slot per parameter, or for a closure with no
+// parameter the one slot its argument went into. The body sees what it would see as a function value: its captures,
+// in the enclosing slots they come from, and its parameters. It leaves its result on the stack.
+auto emit_closure_in_place(const IRClosureExpr& closure, const std::span<const std::uint32_t> argument_slots,
+                           std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                           Module& bytecode_module) -> EmitResult {
+  LocalSlots closure_locals;
+  for (const auto& capture_name : closure.captures) {
+    const auto local_it = locals.find(capture_name);
+    if (local_it == locals.end()) {
+      return tl::unexpected(make_err("Unsupported closure capture in bytecode compiler: '" + capture_name + "'."));
+    }
+    closure_locals.emplace(capture_name, local_it->second);
+  }
+  if (closure.params.empty()) {
+    // The body's own locals take the slots above the highest one named here, so name the argument's slot, which is
+    // above every slot the enclosing code uses. No name written in source is empty.
+    closure_locals.emplace("", argument_slots.front());
+  } else {
+    for (std::size_t index = 0; index < closure.params.size(); ++index) {
+      closure_locals[closure.params[index].name] = argument_slots[index];
+    }
+  }
+  return emit_expr(*closure.body, out, closure_locals, state, bytecode_module);
+}
+
+// Runs a function in place on the value in `argument_slot`, leaving its result on the stack.
+auto emit_in_place_call(const InPlaceFunction& function, const std::uint32_t argument_slot,
+                        std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                        Module& bytecode_module) -> EmitResult {
+  if (function.closure == nullptr) {
+    out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(argument_slot)});
+    out.push_back(
+        Instruction{.opcode = Opcode::kCallUserFunc, .operand = static_cast<std::int64_t>(function.function_index)});
+    return {};
+  }
+  return emit_closure_in_place(*function.closure, std::span{&argument_slot, 1U}, out, locals, state, bytecode_module);
+}
+
+// A Std.Match handler that can run in place: an inline closure with no parameter, or any in-place function.
+auto in_place_match_handler(const IRExpr& expr, const LocalSlots& locals, const CompileState& state)
+    -> std::optional<InPlaceFunction> {
+  if (const auto* closure_box = std::get_if<IRClosureExprBox>(&expr.node); closure_box != nullptr) {
+    if (const IRClosureExpr& closure = **closure_box;
+        closure.generic_params.empty() && closure.params.empty() && closure.body.has_value()) {
+      return InPlaceFunction{.closure = &closure};
+    }
+  }
+  return in_place_function(expr, locals, state);
+}
+
+auto has_spread_item(const IRTupleExpr& tuple) -> bool {
+  return std::ranges::any_of(tuple.spread_items, [](const bool spread) -> bool { return spread; });
+}
+
+auto jump_to_here(std::vector<Instruction>& out, const std::size_t jump_position) -> void {
+  out[jump_position].operand = static_cast<std::int64_t>(out.size());
+}
+
+// (condition, value, when_true, when_false) -> Std.Branch:
+//   <condition> <value> StoreLocal v  JumpIfNot F  <when_true v>  Jump E  F: <when_false v>  E:
+auto try_emit_branch_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
+                              CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 4U || has_spread_item(tuple)) {
+    return false;
+  }
+  const auto when_true = in_place_function(*tuple.items[2], locals, state);
+  const auto when_false = in_place_function(*tuple.items[3], locals, state);
+  if (!when_true.has_value() || !when_false.has_value()) {
+    return false;
+  }
+
+  for (std::size_t item = 0; item < 2U; ++item) {
+    if (auto emit_result = emit_expr(*tuple.items[item], out, locals, state, bytecode_module); !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+  }
+  // Above every slot the enclosing code uses; the bodies take their own slots above this one.
+  const auto value_slot = next_local_slot(locals);
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(value_slot)});
+  const auto jump_to_false = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
+  if (auto emit_result = emit_in_place_call(*when_true, value_slot, out, locals, state, bytecode_module);
+      !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  const auto jump_to_end = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = 0});
+  jump_to_here(out, jump_to_false);
+  if (auto emit_result = emit_in_place_call(*when_false, value_slot, out, locals, state, bytecode_module);
+      !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  jump_to_here(out, jump_to_end);
+  return true;
+}
+
+// (state, continue_func, step_func) -> Std.Loop:
+//   <state> StoreLocal s  T: <continue_func s>  JumpIfNot E  <step_func s>  StoreLocal s  Jump T  E: LoadLocal s
+auto try_emit_loop_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
+                            CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 3U || has_spread_item(tuple)) {
+    return false;
+  }
+  const auto continue_func = in_place_function(*tuple.items[1], locals, state);
+  const auto step_func = in_place_function(*tuple.items[2], locals, state);
+  if (!continue_func.has_value() || !step_func.has_value()) {
+    return false;
+  }
+
+  if (auto emit_result = emit_expr(*tuple.items[0], out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  const auto state_slot = next_local_slot(locals);
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(state_slot)});
+  const auto loop_top = out.size();
+  if (auto emit_result = emit_in_place_call(*continue_func, state_slot, out, locals, state, bytecode_module);
+      !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  const auto jump_to_end = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
+  if (auto emit_result = emit_in_place_call(*step_func, state_slot, out, locals, state, bytecode_module);
+      !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(state_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = static_cast<std::int64_t>(loop_top)});
+  jump_to_here(out, jump_to_end);
+  out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(state_slot)});
+  return true;
+}
+
+// (items, func) -> Std.Tuple.Map, as a loop over the items whose results collect on the stack. When the loop ends,
+// the index is the number of items:
+//   <items> StoreLocal s  PushConst 0u64 StoreLocal i
+//   T: Iterate s  JumpIfNot E  StoreLocal x  <func x>  Jump T
+//   E: LoadLocal i  BuildTupleCounted
+auto try_emit_map_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
+                           CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 2U || has_spread_item(tuple)) {
+    return false;
+  }
+  const auto function = in_place_function(*tuple.items[1], locals, state);
+  if (!function.has_value()) {
+    return false;
+  }
+
+  if (auto emit_result = emit_expr(*tuple.items[0], out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  // Above every slot the enclosing code uses. kIterate wants the index right after the items; the item slot is the
+  // highest, so the function's body takes its own slots above all three.
+  const auto items_slot = next_local_slot(locals);
+  const auto index_slot = items_slot + 1U;
+  const auto item_slot = items_slot + 2U;
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(items_slot)});
+  const auto zero = CompileState::intern_const(bytecode_module, ConstValue{std::uint64_t{0}});
+  out.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(zero)});
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(index_slot)});
+
+  const auto loop_top = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kIterate, .operand = static_cast<std::int64_t>(items_slot)});
+  const auto jump_to_end = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(item_slot)});
+  if (auto emit_result = emit_in_place_call(*function, item_slot, out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = static_cast<std::int64_t>(loop_top)});
+  jump_to_here(out, jump_to_end);
+  out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(index_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kBuildTupleCounted, .operand = 0});
+  return true;
+}
+
+auto is_match_wildcard_pattern(const IRConstant& constant) -> bool {
+  const auto* text = std::get_if<std::string>(&constant.val);
+  return text != nullptr && *text == common::kMatchWildcardSentinel;
+}
+
+// (subject, (pattern, handler), ...) -> Std.Match, as a chain of tests on the subject. It runs in place when every
+// pattern is `_`, a constant, or a function that can run in place, and every handler can run in place. A constant
+// pattern matches a subject equal to it, by the `==` the builtin uses; a function pattern is called on the subject.
+// The patterns are tested in order, and none after the matching case is evaluated:
+//   <subject> StoreLocal s
+//   constant:  LoadLocal s  <pattern>  CmpEq  JumpIfNot N  <handler s>  Jump E  N:
+//   function:  <pattern s>  JumpIfNot N  <handler s>  Jump E  N:
+//   `_`:       <handler s>
+//   no `_`:    MatchFailed
+//   E:
+auto try_emit_match_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
+                             CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() < 2U || has_spread_item(tuple)) {
+    return false;
+  }
+  struct InPlaceCase {
+    // The pattern when it is a constant, and the function when it is one; neither for `_`.
+    const IRExpr* constant{nullptr};
+    std::optional<InPlaceFunction> predicate{};
+    InPlaceFunction handler{};
+  };
+  std::vector<InPlaceCase> cases;
+  cases.reserve(tuple.items.size() - 1U);
+  for (std::size_t item = 1; item < tuple.items.size(); ++item) {
+    const auto* case_tuple = std::get_if<IRTupleExpr>(&tuple.items[item]->node);
+    if (case_tuple == nullptr || case_tuple->items.size() != 2U || has_spread_item(*case_tuple)) {
+      return false;
+    }
+    const auto handler = in_place_match_handler(*case_tuple->items[1], locals, state);
+    if (!handler.has_value()) {
+      return false;
+    }
+    InPlaceCase match_case{.handler = *handler};
+    const IRExpr& pattern = *case_tuple->items[0];
+    if (const auto* constant = std::get_if<IRConstant>(&pattern.node); constant != nullptr) {
+      if (!is_match_wildcard_pattern(*constant)) {
+        match_case.constant = &pattern;
+      }
+    } else if (auto predicate = in_place_function(pattern, locals, state); predicate.has_value()) {
+      match_case.predicate = predicate;
+    } else {
+      // A local, a value let, or a computed pattern may hold a value or a function: only the builtin can tell which.
+      return false;
+    }
+    cases.push_back(match_case);
+  }
+
+  if (auto emit_result = emit_expr(*tuple.items[0], out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  // Above every slot the enclosing code uses; the patterns and handlers take their own slots above this one.
+  const auto subject_slot = next_local_slot(locals);
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(subject_slot)});
+  std::vector<std::size_t> jumps_to_end;
+  bool has_wildcard = false;
+  for (const auto& match_case : cases) {
+    if (match_case.constant == nullptr && !match_case.predicate.has_value()) {
+      // Lowering keeps `_` the last case.
+      if (auto emit_result = emit_in_place_call(match_case.handler, subject_slot, out, locals, state, bytecode_module);
+          !emit_result) {
+        return tl::unexpected(emit_result.error());
+      }
+      has_wildcard = true;
+      break;
+    }
+    if (match_case.constant != nullptr) {
+      out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(subject_slot)});
+      if (auto emit_result = emit_expr(*match_case.constant, out, locals, state, bytecode_module); !emit_result) {
+        return tl::unexpected(emit_result.error());
+      }
+      out.push_back(Instruction{.opcode = Opcode::kCmpEq, .operand = 0});
+    } else if (auto emit_result =
+                   emit_in_place_call(*match_case.predicate, subject_slot, out, locals, state, bytecode_module);
+               !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+    const auto jump_to_next = out.size();
+    out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
+    if (auto emit_result = emit_in_place_call(match_case.handler, subject_slot, out, locals, state, bytecode_module);
+        !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+    jumps_to_end.push_back(out.size());
+    out.push_back(Instruction{.opcode = Opcode::kJump, .operand = 0});
+    jump_to_here(out, jump_to_next);
+  }
+  if (!has_wildcard) {
+    out.push_back(Instruction{.opcode = Opcode::kMatchFailed, .operand = 0});
+  }
+  for (const auto jump : jumps_to_end) {
+    jump_to_here(out, jump);
+  }
+  return true;
+}
+
+// The arguments of a call written as a list of two or more, with no spread: a call passes them as separate values,
+// which is the same call as with their tuple. Null for any other argument expression.
+auto apply_argument_list(const IRExpr& arguments) -> const IRTupleExpr* {
+  const auto* list = std::get_if<IRTupleExpr>(&arguments.node);
+  return list != nullptr && list->items.size() >= 2U && !list->has_spread() ? list : nullptr;
+}
+
+// (arguments, function) -> Std.Apply, a call of a function value. `arguments` is the argument itself for a function of
+// one parameter, and the tuple of the arguments otherwise. A function written right there runs in place, and no
+// function value is made:
+//   named function:  <arguments> CallUserFunc F,  or  <a1 .. an> CallUserFuncArgs F  with one argument per parameter
+//   inline closure:  <arguments> StoreLocal s  <body>,  or  <a1 .. an> StoreLocal s+n-1 .. StoreLocal s  <body>
+// Any other function is called as a value:
+//   <arguments> <function> CallFunctionValue,  or  <a1 .. an> <function> CallFunctionValueArgs n
+// The arguments are evaluated before the function, as the tuple (arguments, function) evaluates them.
+auto try_emit_apply(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
+                    CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 2U || tuple.has_spread()) {
+    return false;
+  }
+  const IRExpr& arguments = *tuple.items[0];
+  const IRExpr& function = *tuple.items[1];
+  const IRTupleExpr* argument_list = apply_argument_list(arguments);
+
+  if (const auto* closure_box = std::get_if<IRClosureExprBox>(&function.node); closure_box != nullptr) {
+    const IRClosureExpr& closure = **closure_box;
+    const std::size_t param_count = closure.params.size();
+    if (closure.generic_params.empty() && closure.body.has_value() &&
+        std::ranges::none_of(closure.params, [](const IRParam& param) -> bool { return param.type.variadic; }) &&
+        (param_count < 2U || (argument_list != nullptr && argument_list->items.size() == param_count))) {
+      const std::uint32_t first_slot = next_local_slot(locals);
+      std::vector<std::uint32_t> slots;
+      if (param_count < 2U) {
+        if (auto emitted = emit_expr(arguments, out, locals, state, bytecode_module); !emitted) {
+          return tl::unexpected(emitted.error());
+        }
+        slots.push_back(first_slot);
+      } else {
+        // Every argument is evaluated before any is stored: an argument's own code may use the slots above the
+        // enclosing ones.
+        if (auto emitted = emit_tuple_items(*argument_list, out, locals, state, bytecode_module); !emitted) {
+          return tl::unexpected(emitted.error());
+        }
+        for (std::size_t index = 0; index < param_count; ++index) {
+          slots.push_back(first_slot + static_cast<std::uint32_t>(index));
+        }
+      }
+      for (auto slot = slots.rbegin(); slot != slots.rend(); ++slot) {
+        out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(*slot)});
+      }
+      if (auto emitted = emit_closure_in_place(closure, slots, out, locals, state, bytecode_module); !emitted) {
+        return tl::unexpected(emitted.error());
+      }
+      return true;
+    }
+  }
+
+  if (const auto named = in_place_function(function, locals, state);
+      named.has_value() && named->closure == nullptr) {
+    const auto index = named->function_index;
+    if (argument_list != nullptr && index < bytecode_module.functions.size()) {
+      const auto& callee = bytecode_module.functions[index];
+      if (!callee.has_variadic_tail && callee.arity == argument_list->items.size()) {
+        if (auto emitted = emit_tuple_items(*argument_list, out, locals, state, bytecode_module); !emitted) {
+          return tl::unexpected(emitted.error());
+        }
+        out.push_back(Instruction{.opcode = Opcode::kCallUserFuncArgs, .operand = static_cast<std::int64_t>(index)});
+        return true;
+      }
+    }
+    if (auto emitted = emit_expr(arguments, out, locals, state, bytecode_module); !emitted) {
+      return tl::unexpected(emitted.error());
+    }
+    out.push_back(Instruction{.opcode = Opcode::kCallUserFunc, .operand = static_cast<std::int64_t>(index)});
+    return true;
+  }
+
+  if (auto emitted = argument_list != nullptr
+                         ? emit_tuple_items(*argument_list, out, locals, state, bytecode_module)
+                         : emit_expr(arguments, out, locals, state, bytecode_module);
+      !emitted) {
+    return tl::unexpected(emitted.error());
+  }
+  if (auto emitted = emit_expr(function, out, locals, state, bytecode_module); !emitted) {
+    return tl::unexpected(emitted.error());
+  }
+  out.push_back(argument_list != nullptr
+                    ? Instruction{.opcode = Opcode::kCallFunctionValueArgs,
+                                  .operand = static_cast<std::int64_t>(argument_list->items.size())}
+                    : Instruction{.opcode = Opcode::kCallFunctionValue, .operand = 0});
+  return true;
+}
+
 auto try_emit_named_flow_fast_path(const IRFlowExpr& flow, const IRNameRef& name_ref, std::vector<Instruction>& out,
                                    const LocalSlots& locals, CompileState& state, Module& bytecode_module)
     -> tl::expected<bool, CompileError> {
@@ -1816,6 +2094,21 @@ auto try_emit_named_flow_fast_path(const IRFlowExpr& flow, const IRNameRef& name
   }
 
   const std::string full_name = common::full_symbol_name(name_ref.qualifier, name_ref.name);
+
+  if (full_name == "Std.Branch" || full_name == "Std.Loop" || full_name == "Std.Tuple.Map" ||
+      full_name == "Std.Match" || full_name == "Std.Apply") {
+    auto in_place = full_name == "Std.Branch"      ? try_emit_branch_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Loop"      ? try_emit_loop_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Tuple.Map" ? try_emit_map_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Match"     ? try_emit_match_in_place(*tuple, out, locals, state, bytecode_module)
+                                                   : try_emit_apply(*tuple, out, locals, state, bytecode_module);
+    if (!in_place) {
+      return tl::unexpected(in_place.error());
+    }
+    if (*in_place) {
+      return true;
+    }
+  }
 
   const auto emit_fast_path = [&](const bool matched, const Opcode opcode) -> tl::expected<bool, CompileError> {
     if (!matched) {
@@ -1899,24 +2192,6 @@ auto emit_checked_cast_flow(const IRFlowExpr& flow, const IRNameRef& name_ref, s
   return {};
 }
 
-// True for a one-parameter builtin that takes its argument out of a one-item tuple (the builtin calling convention
-// for `unwrap_singleton_arg`). A direct call to one passes its argument in a one-item tuple, so that a value that is
-// itself a one-item tuple is not unwrapped. Which calls take an argument tuple at all is decided by the type checker.
-auto builtin_takes_singleton_tuple(const IRFlowExpr& flow, const CompileState& state) -> bool {
-  const auto symbol_key = builtin_symbol_key_from_call_target(flow.rhs, state);
-  if (!symbol_key.has_value()) {
-    return false;
-  }
-  const auto builtin_id = vm::builtin_id_from_symbol_key(*symbol_key);
-  if (!builtin_id.has_value()) {
-    return false;
-  }
-  const auto contract = vm::builtin_arity_contract(*builtin_id);
-  return contract.kind == vm::BuiltinArityKind::kExact && contract.primary == 1U &&
-         !builtin_dispatch_contract_requires_direct_lhs_unwrap(*builtin_id) &&
-         !unary_intrinsic_builtin_to_opcode(*symbol_key).has_value();
-}
-
 // A parameter list with spreads, as the tuple of its arguments: each plain item becomes a one-item tuple, each spread
 // contributes its tuple, and kConcatTuples joins them.
 auto emit_spread_tuple(const IRTupleExpr& arguments, std::vector<Instruction>& out, const LocalSlots& locals,
@@ -1949,20 +2224,6 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
     return emit_call_target(flow.rhs, out, locals, state, bytecode_module);
   }
 
-  if (flow.call_shape == IRFlowCallShape::kDirectValue && single_parameter_list_item(*flow.lhs) == nullptr &&
-      builtin_takes_singleton_tuple(flow, state)) {
-    // A bare argument: put it in a one-item parameter list, which the builtin receives as its one-item tuple.
-    IRTupleExpr argument_list{.span = flow.lhs->span};
-    argument_list.items.push_back(flow.lhs);
-    const IRFlowExpr wrapped{
-        .lhs = IRExprBox(std::in_place, IRExpr{.node = std::move(argument_list), .span = flow.lhs->span}),
-        .rhs = flow.rhs,
-        .call_shape = IRFlowCallShape::kDirectValue,
-        .span = flow.span,
-    };
-    return emit_flow_expr(wrapped, out, locals, state, bytecode_module);
-  }
-
   auto handled = std::visit(
       common::overloaded{[&](const IROperatorRef& op_ref) -> tl::expected<bool, CompileError> {
                            // The type checker replaces every operator target with a reference to its Std builtin.
@@ -1982,33 +2243,18 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
     return {};
   }
 
-  if (auto emitted_binary_call = try_emit_user_binary_call_fast_path(flow, out, locals, state, bytecode_module);
-      !emitted_binary_call) {
-    return tl::unexpected(emitted_binary_call.error());
-  } else if (*emitted_binary_call) {
+  if (auto emitted_args_call = try_emit_user_args_call_fast_path(flow, out, locals, state, bytecode_module);
+      !emitted_args_call) {
+    return tl::unexpected(emitted_args_call.error());
+  } else if (*emitted_args_call) {
     return {};
   }
 
-  bool emitted_lhs = false;
-  const IRExpr& adapted_user_lhs = adapted_user_flow_lhs_expr(flow);
-  if (const auto user_fn_idx = user_function_index_from_target(flow.rhs, state); user_fn_idx.has_value()) {
-    if (auto wrapped_emit =
-            emit_lhs_for_user_call_with_auto_value_ref(adapted_user_lhs, *user_fn_idx, out, locals, state,
-                                                       bytecode_module);
-        !wrapped_emit) {
-      return tl::unexpected(wrapped_emit.error());
-    } else {
-      emitted_lhs = *wrapped_emit;
-    }
-  }
-
-  if (!emitted_lhs) {
-    if (auto emit_result = emit_expr(user_function_index_from_target(flow.rhs, state).has_value() ? adapted_user_lhs
-                                                                                                   : *flow.lhs,
-                                     out, locals, state, bytecode_module);
-        !emit_result) {
-      return emit_result;
-    }
+  const bool calls_user_function = user_function_index_from_target(flow.rhs, state).has_value();
+  if (auto emit_result = emit_expr(calls_user_function ? adapted_user_flow_lhs_expr(flow) : *flow.lhs, out, locals,
+                                   state, bytecode_module);
+      !emit_result) {
+    return emit_result;
   }
   std::uint32_t builtin_static_argument_count = kUnknownBuiltinStaticArgumentCount;
   std::vector<BuiltinCallableSlotRecord> builtin_callable_slots;
@@ -2067,10 +2313,6 @@ auto emit_expr(const IRExpr& expr, std::vector<Instruction>& out, const LocalSlo
 // BytecodeCompiler::compile
 
 auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& options) const -> CompileResult {
-  if (auto valid_options = validate_compile_options(options); !valid_options) {
-    return tl::unexpected(valid_options.error());
-  }
-
   Module bytecode_module;
   CompileState state;
   initialize_module_header(bytecode_module, state, options);
@@ -2079,7 +2321,6 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
 
   seed_imported_exports(bytecode_module, state, options);
   register_let_definitions(bytecode_module, state, program, options);
-  apply_auto_value_ref_analysis(state, bytecode_module, program, options);
   reserve_inline_closure_capacity(bytecode_module, program);
 
   if (auto emit_result = compile_function_bodies(bytecode_module, state, program); !emit_result) {
@@ -2091,6 +2332,7 @@ auto BytecodeCompiler::compile(const IRProgram& program, const CompileOptions& o
   }
 
   bytecode_module.instructions.push_back(Instruction{.opcode = Opcode::kHalt, .operand = 0});
+  move_last_local_reads(bytecode_module);
   return bytecode_module;
 }
 

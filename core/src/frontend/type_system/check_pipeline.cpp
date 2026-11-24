@@ -682,7 +682,7 @@ auto is_std_apply_target(const ir::IRCallTarget& target) -> bool {
 auto is_match_wildcard_pattern(const ir::IRExpr& expr) -> bool {
   const auto* constant = std::get_if<ir::IRConstant>(&expr.node);
   return constant != nullptr && std::holds_alternative<std::string>(constant->val) &&
-         std::get<std::string>(constant->val) == kMatchWildcardSentinel;
+         std::get<std::string>(constant->val) == common::kMatchWildcardSentinel;
 }
 
 auto merge_match_result_types(const Type& lhs, const Type& rhs) -> std::optional<Type> {

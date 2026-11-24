@@ -12,7 +12,9 @@ enum class BindingPluginStatus : std::uint32_t {
   kRegistrationFailed = 2,
 };
 
-inline constexpr std::uint32_t kBindingPluginAbiVersion = 1;
+// A plugin compiles the runtime's value types inline, so a change to their layout or to how they allocate changes this
+// version.
+inline constexpr std::uint32_t kBindingPluginAbiVersion = 5;
 inline constexpr auto kBindingPluginRegisterEntrypoint = "fleaux_register_bindings_v1";
 
 using RegisterCallableFn = BindingResult (*)(NativeBindingRegistry* registry, NativeBinding binding);

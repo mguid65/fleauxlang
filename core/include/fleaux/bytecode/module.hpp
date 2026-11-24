@@ -45,6 +45,8 @@ struct ExportedSymbol {
 struct Instruction {
   Opcode opcode{Opcode::kNoOp};
   std::int64_t operand{0};
+
+  friend auto operator==(const Instruction&, const Instruction&) -> bool = default;
 };
 
 // A typed constant stored in the constant pool.
@@ -221,7 +223,7 @@ struct Module {
   std::vector<TypeDeclRecord> type_decls{};
   std::vector<AliasDeclRecord> alias_decls{};
 
-  // One record per emitted kCallBuiltin instruction. This metadata is used by
+  // One record per emitted builtin call (kCallBuiltin or kCallBuiltinArgs). This metadata is used by
   // loader-side verification and is intentionally kept parallel to the runtime
   // instruction streams rather than embedded into each instruction.
   std::vector<BuiltinCallsiteRecord> builtin_callsites{};

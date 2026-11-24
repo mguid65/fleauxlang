@@ -28,10 +28,7 @@ using fleaux::bytecode::FunctionDef;
 using fleaux::bytecode::Instruction;
 using fleaux::bytecode::Module;
 using fleaux::bytecode::Opcode;
-using fleaux::runtime::Array;
 using fleaux::runtime::Int;
-using fleaux::runtime::RegisteredCallable;
-using fleaux::runtime::RuntimeCallable;
 using fleaux::runtime::RuntimeExecutionState;
 using fleaux::runtime::Value;
 
@@ -57,28 +54,36 @@ struct BenchmarkResult {
 volatile std::uint64_t g_sink = 0;
 
 void consume_value(const Value& value) {
-  if (value.HasBool()) {
+  if (value.is_bool()) {
     g_sink += fleaux::runtime::as_bool(value) ? 1U : 0U;
     return;
   }
-  if (value.HasNumber()) {
+  if (value.is_number()) {
     g_sink += static_cast<std::uint64_t>(fleaux::runtime::as_int_value(value));
     return;
   }
-  if (value.HasArray()) {
-    g_sink += fleaux::runtime::as_array(value).Size();
+  if (value.is_tuple()) {
+    g_sink += fleaux::runtime::as_tuple(value).size();
     return;
   }
   g_sink += 1U;
 }
 
-auto make_int_tuple(const std::size_t size) -> Value {
-  Array values;
-  values.Reserve(size);
-  for (std::size_t index = 0; index < size; ++index) {
-    values.PushBack(fleaux::runtime::make_int(static_cast<Int>(index)));
+// A function value with a two-argument form, as the VM makes for builtins like Std.Add.
+class BinaryAddCallable final : public fleaux::runtime::Callable {
+public:
+  [[nodiscard]] auto call(Value argument) const -> Value override { return fleaux::runtime::Add(std::move(argument)); }
+  [[nodiscard]] auto call_binary(Value lhs, Value rhs) const -> Value override {
+    return fleaux::runtime::AddBinary(lhs, rhs);
   }
-  return Value{std::move(values)};
+};
+
+auto make_int_tuple(const std::size_t size) -> Value {
+  fleaux::runtime::TupleBuilder values(size);
+  for (std::size_t index = 0; index < size; ++index) {
+    values.push(fleaux::runtime::make_int(static_cast<Int>(index)));
+  }
+  return std::move(values).finish();
 }
 
 auto make_vm_loop_module() -> Module {
@@ -165,7 +170,7 @@ auto make_vm_user_call_module() -> Module {
       Instruction{.opcode = Opcode::kJumpIfNot, .operand = 13},
       Instruction{.opcode = Opcode::kLoadLocal, .operand = 0},
       Instruction{.opcode = Opcode::kPushConst, .operand = 1},
-      Instruction{.opcode = Opcode::kCallUserFuncBinary, .operand = 3},
+      Instruction{.opcode = Opcode::kCallUserFuncArgs, .operand = 3},
       Instruction{.opcode = Opcode::kPop, .operand = 0},
       Instruction{.opcode = Opcode::kLoadLocal, .operand = 0},
       Instruction{.opcode = Opcode::kPushConst, .operand = 1},
@@ -320,10 +325,7 @@ auto main(int argc, char** argv) -> int {
 
     RuntimeExecutionState execution_state;
     fleaux::runtime::ActiveRuntimeExecutionStateScope execution_state_scope(execution_state);
-    fleaux::runtime::CallableRegistryScope callable_scope;
-    fleaux::runtime::ValueRegistryScope value_scope;
-    fleaux::runtime::HandleRegistryScope handle_scope;
-    fleaux::runtime::TaskRegistryScope task_scope;
+    fleaux::runtime::TaskScope task_scope;
     fleaux::runtime::RuntimeOutputStreamScope output_scope(null_output);
     fleaux::runtime::RuntimeInputStreamScope input_scope(null_input);
     fleaux::runtime::RuntimeProcessArgsScope process_args_scope({"<runtime-microbench>"});
@@ -331,41 +333,41 @@ auto main(int argc, char** argv) -> int {
     std::vector<BenchmarkResult> results;
     results.reserve(12);
 
-    const Value increment_ref = fleaux::runtime::make_callable_ref(
+    const Value increment_ref = fleaux::runtime::make_function(
         [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1); });
 
-    results.push_back(run_benchmark("invoke_callable_ref", config.call_iterations, config, [&]() -> void {
+    results.push_back(run_benchmark("invoke_callable", config.call_iterations, config, [&]() -> void {
       Int total = 0;
       for (std::size_t index = 0; index < config.call_iterations; ++index) {
         const Value out =
-            fleaux::runtime::invoke_callable_ref(increment_ref, fleaux::runtime::make_int(static_cast<Int>(index)));
+            fleaux::runtime::invoke_callable(increment_ref, fleaux::runtime::make_int(static_cast<Int>(index)));
         total += fleaux::runtime::as_int_value(out);
       }
       g_sink += static_cast<std::uint64_t>(total);
     }));
 
-    const RuntimeCallable resolved_increment = fleaux::runtime::resolve_callable_ref(increment_ref);
-    results.push_back(run_benchmark("resolved_callable_direct", config.call_iterations, config, [&]() -> void {
+    const fleaux::runtime::Callable& increment = fleaux::runtime::as_callable(increment_ref);
+    results.push_back(run_benchmark("Callable::call", config.call_iterations, config, [&]() -> void {
       Int total = 0;
       for (std::size_t index = 0; index < config.call_iterations; ++index) {
-        const Value out = resolved_increment(fleaux::runtime::make_int(static_cast<Int>(index)));
+        const Value out = increment.call(fleaux::runtime::make_int(static_cast<Int>(index)));
         total += fleaux::runtime::as_int_value(out);
       }
       g_sink += static_cast<std::uint64_t>(total);
     }));
 
     const Value values = make_int_tuple(config.tuple_size);
-    const Value add_one = fleaux::runtime::make_callable_ref(
+    const Value add_one = fleaux::runtime::make_function(
         [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1); });
     results.push_back(run_benchmark("TupleMap", config.tuple_size, config, [&]() -> void {
       const Value mapped = fleaux::runtime::TupleMap(fleaux::runtime::make_tuple(values, add_one));
       consume_value(mapped);
     }));
 
-    const Value sum_pair = fleaux::runtime::make_callable_ref([](Value arg) -> Value {
-      const auto& pair = fleaux::runtime::as_array(arg);
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
-                                       fleaux::runtime::as_int_value(*pair.TryGet(1)));
+    const Value sum_pair = fleaux::runtime::make_function([](Value arg) -> Value {
+      const auto& pair = fleaux::runtime::as_tuple(arg);
+      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(pair[0]) +
+                                       fleaux::runtime::as_int_value(pair[1]));
     });
     results.push_back(run_benchmark("TupleReduce", config.tuple_size, config, [&]() -> void {
       const Value reduced =
@@ -373,19 +375,16 @@ auto main(int argc, char** argv) -> int {
       consume_value(reduced);
     }));
 
-    const Value builtin_style_add = fleaux::runtime::make_callable_ref(RegisteredCallable{
-        .unary = fleaux::runtime::Add,
-        .binary = [](Value lhs, Value rhs) -> Value { return fleaux::runtime::AddBinary(lhs, rhs); },
-    });
+    const Value builtin_style_add = fleaux::runtime::adopt_function(new BinaryAddCallable());
     results.push_back(run_benchmark("TupleReduce builtin-style Add", config.tuple_size, config, [&]() -> void {
       const Value reduced = fleaux::runtime::TupleReduce(
           fleaux::runtime::make_tuple(values, fleaux::runtime::make_int(0), builtin_style_add));
       consume_value(reduced);
     }));
 
-    const Value continue_func = fleaux::runtime::make_callable_ref(
+    const Value continue_func = fleaux::runtime::make_function(
         [](Value arg) -> Value { return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(arg) > 0); });
-    const Value step_func = fleaux::runtime::make_callable_ref(
+    const Value step_func = fleaux::runtime::make_function(
         [](Value arg) -> Value { return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) - 1); });
     results.push_back(run_benchmark("Runtime::Loop", config.call_iterations, config, [&]() -> void {
       const Value loop_result = fleaux::runtime::Loop(fleaux::runtime::make_tuple(
@@ -403,9 +402,9 @@ auto main(int argc, char** argv) -> int {
         .signature = fleaux::embed::BindingSignature{},
         .callable = [](const fleaux::embed::BindingContext&,
                        const fleaux::embed::VmValue& args) -> fleaux::embed::NativeInvokeResult {
-          const auto& pair = fleaux::runtime::as_array(args);
-          return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
-                                           fleaux::runtime::as_int_value(*pair.TryGet(1)));
+          const auto& pair = fleaux::runtime::as_tuple(args);
+          return fleaux::runtime::make_int(fleaux::runtime::as_int_value(pair[0]) +
+                                           fleaux::runtime::as_int_value(pair[1]));
         },
     });
     if (!unary_native_registration) {
@@ -418,9 +417,9 @@ auto main(int argc, char** argv) -> int {
             .signature = fleaux::embed::BindingSignature{},
             .callable = [](const fleaux::embed::BindingContext&,
                            const fleaux::embed::VmValue& args) -> fleaux::embed::NativeInvokeResult {
-              const auto& pair = fleaux::runtime::as_array(args);
-              return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
-                                               fleaux::runtime::as_int_value(*pair.TryGet(1)));
+              const auto& pair = fleaux::runtime::as_tuple(args);
+              return fleaux::runtime::make_int(fleaux::runtime::as_int_value(pair[0]) +
+                                               fleaux::runtime::as_int_value(pair[1]));
             },
         },
         [](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& lhs,

@@ -10,8 +10,6 @@ The current CLI help output includes:
 - --no-run
 - --optimize
 - --no-emit-bytecode
-- --auto-value-ref
-- --value-ref-byte-cutoff N
 - --disassemble
 - --dump-ast
 - --dump-ir
@@ -104,17 +102,16 @@ Example:
 
 This is convenient during experiments where you do not want source runs to update bytecode artifacts.
 
-## Optimization and value-ref options
+## Optimization options
 
 The current CLI also exposes:
 
 - --optimize
-- --auto-value-ref
-- --value-ref-byte-cutoff N
+- --experimental-builtin-reductions
 
-These are more advanced runtime and compilation controls.
+These are more advanced compilation controls.
 For everyday learning, you can ignore them.
-For performance or runtime-behavior experiments, they become more relevant.
+For performance experiments, they become more relevant.
 
 ## Starting the REPL
 

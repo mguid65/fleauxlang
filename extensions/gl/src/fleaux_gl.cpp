@@ -44,16 +44,11 @@ auto fail(std::string message) -> NativeInvokeResult {
   });
 }
 
-auto arg(const VmValue& args, const std::size_t index) -> const VmValue& { return rt::array_at(args, index); }
+auto arg(const VmValue& args, const std::size_t index) -> const VmValue& { return rt::tuple_at(args, index); }
 
 auto int_arg(const VmValue& args, const std::size_t index) -> std::int64_t { return rt::int64_value(arg(args, index)); }
 
-auto float_arg(const VmValue& args, const std::size_t index) -> double {
-  return rt::as_number(arg(args, index))
-      .Visit([](const rt::Int value) -> double { return static_cast<double>(value); },
-             [](const rt::UInt value) -> double { return static_cast<double>(value); },
-             [](const rt::Float value) -> double { return value; });
-}
+auto float_arg(const VmValue& args, const std::size_t index) -> double { return rt::to_double(arg(args, index)); }
 
 auto string_arg(const VmValue& args, const std::size_t index) -> const std::string& {
   return rt::as_string(arg(args, index));
@@ -67,20 +62,16 @@ auto gl_sizei(const std::int64_t value) -> GLsizei { return static_cast<GLsizei>
 
 template <typename T>
 auto tuple_items(const VmValue& tuple, T (*convert)(const VmValue&)) -> std::vector<T> {
-  const auto& items = rt::as_array(tuple);
+  const auto& items = rt::as_tuple(tuple);
   std::vector<T> converted;
-  converted.reserve(items.Size());
-  for (std::size_t index = 0; index < items.Size(); ++index) {
-    converted.push_back(convert(rt::array_at(tuple, index)));
+  converted.reserve(items.size());
+  for (const VmValue& item : items) {
+    converted.push_back(convert(item));
   }
   return converted;
 }
 
-auto to_float(const VmValue& value) -> float {
-  return rt::as_number(value).Visit([](const rt::Int item) -> float { return static_cast<float>(item); },
-                                    [](const rt::UInt item) -> float { return static_cast<float>(item); },
-                                    [](const rt::Float item) -> float { return static_cast<float>(item); });
-}
+auto to_float(const VmValue& value) -> float { return static_cast<float>(rt::to_double(value)); }
 
 auto to_index(const VmValue& value) -> GLuint { return static_cast<GLuint>(rt::int64_value(value)); }
 
@@ -461,13 +452,13 @@ auto update_texture(const BindingContext&, const VmValue& args) -> NativeInvokeR
   return with_window("GL.UpdateTexture", [&]() -> NativeInvokeResult {
     const std::int64_t width = int_arg(args, 1);
     const std::int64_t height = int_arg(args, 2);
-    const auto& values = rt::as_array(arg(args, 3));
-    if (width < 0 || height < 0 || values.Size() != static_cast<std::size_t>(width * height)) {
+    const auto& values = rt::as_tuple(arg(args, 3));
+    if (width < 0 || height < 0 || values.size() != static_cast<std::size_t>(width * height)) {
       return fail(std::format("GL.UpdateTexture: a {} x {} texture takes {} values, but {} were given", width, height,
-                              width * height, values.Size()));
+                              width * height, values.size()));
     }
     std::vector<std::uint8_t> texels;
-    texels.reserve(values.Size());
+    texels.reserve(values.size());
     for (const VmValue& value : values) {
       texels.push_back(static_cast<std::uint8_t>(std::min<std::uint64_t>(rt::uint64_value(value), 255U)));
     }

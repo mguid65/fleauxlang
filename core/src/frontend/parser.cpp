@@ -37,8 +37,7 @@ using PResult = tl::expected<T, ParseError>;
 
 class ParserImpl {
 public:
-  ParserImpl(std::string source, std::string source_name, std::vector<Token> tokens)
-      : source_(std::move(source)), source_name_(std::move(source_name)), tokens_(std::move(tokens)) {
+  ParserImpl(diag::SourceFile file, std::vector<Token> tokens) : file_(std::move(file)), tokens_(std::move(tokens)) {
     classify_source_lines();
   }
 
@@ -52,8 +51,7 @@ public:
 
   auto parse() -> ParseResult {
     model::Program program;
-    program.source_text = source_;
-    program.source_name = source_name_;
+    program.source_name = file_.name();
 
     while (!is(TokenKind::kEof)) {
       FLEAUX_TRY_ASSIGN(parsed_stmt, stmt());
@@ -72,8 +70,8 @@ public:
   }
 
 private:
-  std::string source_;
-  std::string source_name_;
+  // Every span the parser makes shares this one copy of the file.
+  diag::SourceFile file_;
   std::vector<Token> tokens_;
   std::size_t i_ = 0;
   std::vector<std::optional<std::string>> source_line_comment_;
@@ -91,10 +89,11 @@ private:
     source_line_comment_.assign(1, std::nullopt);
 
     std::size_t line_start = 0;
-    while (line_start <= source_.size()) {
-      const std::size_t newline = source_.find('\n', line_start);
-      const std::size_t line_end = newline == std::string::npos ? source_.size() : newline;
-      const std::string_view raw_line(source_.data() + line_start, line_end - line_start);
+    const std::string& source = file_.text();
+    while (line_start <= source.size()) {
+      const std::size_t newline = source.find('\n', line_start);
+      const std::size_t line_end = newline == std::string::npos ? source.size() : newline;
+      const std::string_view raw_line(source.data() + line_start, line_end - line_start);
       const std::string trimmed = trim_copy(raw_line);
 
       if (trimmed.starts_with("//")) {
@@ -155,8 +154,7 @@ private:
 
   [[nodiscard]] auto span_from_token(const Token& token) const -> std::optional<diag::SourceSpan> {
     diag::SourceSpan span;
-    span.source_name = source_name_;
-    span.source_text = source_;
+    span.file = file_;
     span.line = token.line;
     span.col = token.col;
     span.end_line = token.end_line();
@@ -169,8 +167,7 @@ private:
     const Token& end_tok = (i_ > start) ? previous_token() : start_tok;
 
     diag::SourceSpan span;
-    span.source_name = source_name_;
-    span.source_text = source_;
+    span.file = file_;
     span.line = start_tok.line;
     span.col = start_tok.col;
     span.end_line = end_tok.end_line();
@@ -1763,7 +1760,7 @@ auto Parser::parse_program(const std::string& source, const std::string& source_
     return tl::unexpected(tokens.error());
   }
 
-  ParserImpl impl(source, source_name, std::move(*tokens));
+  ParserImpl impl(diag::SourceFile{source_name, source}, std::move(*tokens));
   return impl.parse();
 }
 
@@ -1774,7 +1771,7 @@ auto Parser::parse_type(const std::string& source, const std::string& source_nam
     return tl::unexpected(tokens.error());
   }
 
-  ParserImpl impl(source, source_name, std::move(*tokens));
+  ParserImpl impl(diag::SourceFile{source_name, source}, std::move(*tokens));
   return impl.parse_standalone_type();
 }
 

@@ -1,0 +1,88 @@
+// A fluid in a box, drawn with the OpenGL extension. Drag with the left mouse button to push the fluid and pour dye
+// into it, or with the right button to stir it without dye. While no button is held, a swaying jet at the bottom
+// keeps the fluid moving. Backspace clears the box and Escape quits.
+//
+//   fleaux --extension <directory of the built extension> extensions/gl/samples/fluid/fluid.fleaux
+//
+// Field.fleaux holds the grid, Solver.fleaux steps the fluid, and Render.fleaux draws it.
+
+import Std;
+import GL;
+import Field;
+import Solver;
+import Render;
+
+// The screen, the fluid, the solver's tables, and the pointer's position in cells at the last frame.
+alias World = Tuple<Screen, Fluid, Grid, Float64, Float64>;
+
+// The radius of a push, in cells.
+let PushRadius: Float64 = 4.0;
+// How much of the pointer's motion, in cells per frame, a drag adds to the velocity, and the most it adds.
+let DragForce: Float64 = 0.6;
+let MostForce: Float64 = 2.5;
+// The dye a push adds at its center each step.
+let DyeAmount: Float64 = 0.3;
+
+let Limited(value: Float64): Float64 = (value, (0.0, MostForce) -> -, MostForce) -> Std.Math.Clamp;
+
+// The jet that runs while no button is held: it sways along the bottom and tilts as it goes.
+let Jet(): Push = {
+  let time: Float64 = () -> GL.Time;
+  let columns: Float64 = Field.Columns -> Std.ToFloat64;
+  let rows: Float64 = Field.Rows -> Std.ToFloat64;
+  let x: Float64 =
+    ((columns, 0.5) -> *, ((time, 0.5) -> * -> Std.Math.Sin, (columns, 0.3) -> *) -> *) -> +;
+  (x, (rows, 3.0) -> -, PushRadius, ((time, 1.3) -> * -> Std.Math.Sin, 0.6) -> *, -0.9, DyeAmount);
+};
+
+let KeepFluid(fluid: Fluid): Fluid = fluid;
+
+let Frame(screen: Screen, fluid: Fluid, grid: Grid, last_x: Float64, last_y: Float64): World = {
+  let cursor: Tuple<Float64, Float64> = () -> GL.CursorPosition;
+  let x: Float64 = (0.5, (cursor -> Std.First, Field.Columns -> Std.ToFloat64) -> *) -> +;
+  let y: Float64 = (0.5, (cursor -> Std.Second, Field.Rows -> Std.ToFloat64) -> *) -> +;
+  let pouring: Bool = GL.MouseLeft -> GL.MouseButtonDown;
+  let stirring: Bool = GL.MouseRight -> GL.MouseButtonDown;
+  let drag: Push =
+    (
+      x,
+      y,
+      PushRadius,
+      (((x, last_x) -> -, DragForce) -> *) -> Limited,
+      (((y, last_y) -> -, DragForce) -> *) -> Limited,
+      (pouring, DyeAmount, 0.0) -> Std.Select
+    );
+  let push: Push = ((pouring, stirring) -> ||, drag, () -> Jet) -> Std.Select;
+  let start: Fluid =
+    (GL.KeyBackspace -> GL.KeyDown, fluid, (old: Fluid): Fluid = () -> Solver.Still, KeepFluid)
+      -> Std.Branch;
+  let next: Fluid = (start, grid, push) -> Solver.Step;
+  (
+    screen...,
+    (next, 0u64) -> Std.ElementAt,
+    (next, 1u64) -> Std.ElementAt,
+    (next, 2u64) -> Std.ElementAt,
+    x,
+    y,
+    PushRadius
+  ) -> Render.Draw;
+  () -> GL.SwapBuffers;
+  () -> GL.PollEvents;
+  (screen, next, grid, x, y);
+};
+
+let Running(world: World): Bool =
+  (() -> GL.WindowShouldClose, GL.KeyEscape -> GL.KeyDown) -> Std.Or -> Std.Not;
+
+let Advance(world: World): World = (world...) -> Frame;
+
+let Start(): World = {
+  let screen: Screen = () -> Render.Setup;
+  "Drag with the left mouse button to push the fluid and pour dye, or with the right button to stir it."
+    -> Std.Println;
+  "Backspace clears the box and Escape quits." -> Std.Println;
+  (screen, () -> Solver.Still, () -> Solver.Grid, 0.0, 0.0);
+};
+
+(() -> Start, Running, Advance) -> Std.Loop;
+() -> GL.CloseWindow;

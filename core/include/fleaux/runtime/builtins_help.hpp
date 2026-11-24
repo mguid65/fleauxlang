@@ -23,8 +23,10 @@ struct HelpMetadata {
 
 using HelpMetadataStore = common::TrieMap<HelpMetadata>;
 
+// The store Std.Help reads on this thread. A runtime invocation points it at the Std metadata for as long as it
+// runs; outside one it is the default store, which hosts and tests fill.
 struct HelpMetadataThreadContext {
-  std::reference_wrapper<HelpMetadataStore> active;
+  std::reference_wrapper<const HelpMetadataStore> active;
 };
 
 [[nodiscard]] inline auto default_help_metadata_store() -> HelpMetadataStore& {
@@ -37,13 +39,13 @@ struct HelpMetadataThreadContext {
   return context;
 }
 
-[[nodiscard]] inline auto help_metadata_store() -> HelpMetadataStore& {
+[[nodiscard]] inline auto help_metadata_store() -> const HelpMetadataStore& {
   return help_metadata_thread_context().active.get();
 }
 
 class ActiveHelpMetadataRegistryScope {
 public:
-  explicit ActiveHelpMetadataRegistryScope(HelpMetadataStore& store)
+  explicit ActiveHelpMetadataRegistryScope(const HelpMetadataStore& store)
       : previous_(help_metadata_thread_context().active) {
     help_metadata_thread_context().active = std::ref(store);
   }
@@ -54,10 +56,10 @@ public:
   ~ActiveHelpMetadataRegistryScope() { help_metadata_thread_context().active = previous_; }
 
 private:
-  std::reference_wrapper<HelpMetadataStore> previous_;
+  std::reference_wrapper<const HelpMetadataStore> previous_;
 };
 
-inline auto clear_help_metadata_registry() -> void { help_metadata_store().clear(); }
+inline auto clear_help_metadata_registry() -> void { default_help_metadata_store().clear(); }
 
 inline auto register_help_metadata(HelpMetadataStore& store, HelpMetadata metadata) -> void {
   const auto key = metadata.name;
@@ -65,7 +67,7 @@ inline auto register_help_metadata(HelpMetadataStore& store, HelpMetadata metada
 }
 
 inline auto register_help_metadata(HelpMetadata metadata) -> void {
-  register_help_metadata(help_metadata_store(), std::move(metadata));
+  register_help_metadata(default_help_metadata_store(), std::move(metadata));
 }
 
 namespace detail {
@@ -168,7 +170,7 @@ struct ParsedDoc {
 }  // namespace detail
 
 [[nodiscard]] inline auto Help(Value arg) -> Value {
-  std::string name = detail::trim_copy(to_string(unwrap_singleton_arg(std::move(arg))));
+  std::string name = detail::trim_copy(to_string(arg));
 
   const auto& store = help_metadata_store();
   if (name.empty()) {

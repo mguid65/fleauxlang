@@ -20,10 +20,19 @@ auto owner_label(const BuiltinCallsiteRecord& record) -> std::string {
   return std::format("function {}", record.owner_index);
 }
 
+// Whether an instruction calls a builtin: with an argument tuple or value (kCallBuiltin), or with its arguments on the
+// stack (kCallBuiltinArgs).
+auto is_builtin_call(const Opcode opcode) -> bool {
+  return opcode == Opcode::kCallBuiltin || opcode == Opcode::kCallBuiltinArgs;
+}
+
 auto inferred_static_argument_count(const std::vector<Instruction>& instructions, const std::uint32_t instruction_index,
                                     const vm::BuiltinCallShape call_shape) -> std::uint32_t {
   if (call_shape == vm::BuiltinCallShape::kDirectValue) {
     return 1U;
+  }
+  if (const auto& call = instructions[instruction_index]; call.opcode == Opcode::kCallBuiltinArgs) {
+    return vm::builtin_argument_count_from_operand(call.operand);
   }
 
   if (instruction_index == 0U) {
@@ -158,7 +167,7 @@ void collect_builtin_callsites_for_stream(BuiltinCallsiteList& out, const Builti
   for (std::uint32_t instruction_index = 0; instruction_index < static_cast<std::uint32_t>(instructions.size());
        ++instruction_index) {
     const auto& instruction = instructions[instruction_index];
-    if (instruction.opcode != Opcode::kCallBuiltin) {
+    if (!is_builtin_call(instruction.opcode)) {
       continue;
     }
 
@@ -262,10 +271,18 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
     }
 
     const auto& instruction = (*instructions)[record.instruction_index];
-    if (instruction.opcode != Opcode::kCallBuiltin) {
+    if (!is_builtin_call(instruction.opcode)) {
       return tl::unexpected(VerificationError{.message =
-                                                  std::format("Builtin callsite at {} instruction {} does not target kCallBuiltin.",
+                                                  std::format("Builtin callsite at {} instruction {} does not target a builtin call.",
                                                               owner_label(record), record.instruction_index)});
+    }
+    if (instruction.opcode == Opcode::kCallBuiltinArgs) {
+      const auto called = vm::builtin_id_from_operand(instruction.operand);
+      if (!called.has_value() || !vm::builtin_takes_arguments(*called)) {
+        return tl::unexpected(VerificationError{.message = std::format(
+                                                    "Builtin callsite at {} instruction {} passes stack arguments to a builtin that takes one value.",
+                                                    owner_label(record), record.instruction_index)});
+      }
     }
 
     const auto builtin_id = vm::builtin_id_from_operand(instruction.operand);
@@ -461,7 +478,7 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
   const auto expected_records = collect_builtin_callsites(module);
   if (expected_records.size() != module.builtin_callsites.size()) {
     return tl::unexpected(VerificationError{.message =
-                                                std::format("Builtin callsite metadata count mismatch: expected {} record(s) for kCallBuiltin instructions but found {}.",
+                                                std::format("Builtin callsite metadata count mismatch: expected {} record(s) for builtin calls but found {}.",
                                                             expected_records.size(), module.builtin_callsites.size())});
   }
 

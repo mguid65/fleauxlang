@@ -1,17 +1,9 @@
 #pragma once
 
-// Fleaux runtime layer built on mguid::DataTree.
+// The runtime layer: the helpers builtins and the VM use to build, read, print, and format Values.
 //
-// All runtime builtins are callable objects with the signature:
-//    Value operator()(Value arg) const;
-//
-// The pipeline operator   value | Builtin{}   returns a Value.
-//
-// Fleaux tuples are represented as Value holding an ArrayNodeType.
-// Fleaux primitives are Value holding a ValueNodeType (Int64/UInt64/Float64/Bool/String/Null).
-//
-// Control-flow builtins (Loop, LoopN, Apply, Branch, Select) remain templated
-// because their function arguments are C++ callables, not Values.
+// Builtins take their arguments as one Value and return one: a Fleaux call with several arguments passes them as a
+// tuple. value_core.hpp defines Value itself.
 
 #include <algorithm>
 #include <array>
@@ -25,15 +17,13 @@
 #include <format>
 #include <fstream>
 #include <functional>
-#include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
 #include <ranges>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -41,385 +31,37 @@
 #include <utility>
 #include <vector>
 
-#include "data_tree/data_tree.hpp"
+#include "fleaux/common/overloaded.hpp"
+#include "fleaux/runtime/value_core.hpp"
 
 namespace fleaux::runtime {
 
-// Core type aliases
-
-using Value = mguid::DataTree;
-using Array = mguid::ArrayNodeType;
-using Object = mguid::ObjectNodeType;
-using Generic = mguid::GenericNodeType;
-using ValueNode = mguid::ValueNodeType;
-using Number = mguid::NumberType;
-using Null = mguid::NullType;
-using Bool = mguid::BoolType;
-using String = mguid::StringType;
-
-using Int = mguid::IntegerType;           // int64_t
-using UInt = mguid::UnsignedIntegerType;  // uint64_t
-using Float = mguid::DoubleType;          // double
-
-using RuntimeCallable = std::function<Value(Value)>;
 // An extension function bound to a native function declaration. It receives the declared parameters as one tuple and
 // throws std::exception on failure.
 using NativeFunction = std::function<Value(const Value&)>;
-using BinaryRuntimeCallable = std::function<Value(Value, Value)>;
 
-struct RegisteredCallable {
-  RuntimeCallable unary{};
-  BinaryRuntimeCallable binary{};
-};
+// Execution state
 
-struct TaskControl;
-using TaskControlPtr = std::shared_ptr<TaskControl>;
-struct HandleRegistry;
-struct RuntimeExecutionState;
-
-[[nodiscard]] auto make_default_handle_registry() -> std::unique_ptr<HandleRegistry>;
-
-[[nodiscard]] auto current_runtime_execution_state_id() -> UInt;
-
-// ============================================================================
-// ScopedRegistry<T>
-//
-// General slot+generation+free-list+registration-log registry.
-// Supports:
-//   - Transient registration (logged; cleaned up by ScopedRegistryCheckpoint).
-//   - Pinned registration (not logged; caller owns lifetime).
-//   - Generation-safe lookup: stale ids are always rejected.
-//   - Slot reuse: freed slots are recycled, generation counter prevents ABA.
-// ============================================================================
-
-struct RegistryId {
-  UInt slot;
-  UInt generation;
-};
-
-template <typename T>
-struct ScopedRegistryEntry {
-  T value{};
-  UInt generation{0};
-  bool occupied{false};
-};
-
-template <typename T>
-struct ScopedRegistry {
-  using Entry = ScopedRegistryEntry<T>;
-
-  std::vector<Entry> entries;
-  std::vector<UInt> free_slots;
-  std::vector<UInt> registration_log;
-  std::size_t active_count{0};
-
-  // Insert a value and optionally log it for scope cleanup.
-  auto insert(T val, const bool logged) -> RegistryId {
-    UInt slot = 0;
-    if (!free_slots.empty()) {
-      slot = free_slots.back();
-      free_slots.pop_back();
-      auto& entry = entries.at(static_cast<std::size_t>(slot));
-      entry.value = std::move(val);
-      entry.occupied = true;
-    } else {
-      entries.push_back(Entry{.value = std::move(val), .generation = 0, .occupied = true});
-      slot = static_cast<UInt>(entries.size() - 1);
-    }
-    if (logged) {
-      registration_log.push_back(slot);
-    }
-    ++active_count;
-    return RegistryId{.slot = slot, .generation = entries[static_cast<std::size_t>(slot)].generation};
-  }
-
-  // Retire a slot; bumps generation so existing ids become stale.
-  void retire(const UInt slot) {
-    const auto idx = static_cast<std::size_t>(slot);
-    if (idx >= entries.size()) {
-      return;
-    }
-    auto& entry = entries[idx];
-    if (!entry.occupied) {
-      return;
-    }
-    entry.value = T{};
-    ++entry.generation;
-    entry.occupied = false;
-    free_slots.push_back(slot);
-    if (active_count > 0) {
-      --active_count;
-    }
-  }
-
-  // Look up a value by id; returns nullptr if id is stale or invalid.
-  [[nodiscard]] auto get(const RegistryId& id) const -> const T* {
-    const auto idx = static_cast<std::size_t>(id.slot);
-    if (idx >= entries.size()) {
-      return nullptr;
-    }
-    const auto& entry = entries[idx];
-    if (!entry.occupied || entry.generation != id.generation) {
-      return nullptr;
-    }
-    return &entry.value;
-  }
-
-  void clear() {
-    entries.clear();
-    free_slots.clear();
-    registration_log.clear();
-    active_count = 0;
-  }
-};
-
-// ============================================================================
-// ScopedRegistryCheckpoint
-//
-// RAII scope guard for a ScopedRegistry: snapshots the registration log size
-// on construction, retires all entries added after the checkpoint on destruction.
-// Pinned entries (not in the log) are unaffected.
-// ============================================================================
-
-template <typename T>
-class ScopedRegistryCheckpoint {
-public:
-  explicit ScopedRegistryCheckpoint(ScopedRegistry<T>& registry, std::mutex& mutex)
-      : registry_(&registry), mutex_(&mutex) {
-    std::scoped_lock lock(*mutex_);
-    checkpoint_ = registry_->registration_log.size();
-  }
-
-  ScopedRegistryCheckpoint(const ScopedRegistryCheckpoint&) = delete;
-  auto operator=(const ScopedRegistryCheckpoint&) -> ScopedRegistryCheckpoint& = delete;
-  ScopedRegistryCheckpoint(ScopedRegistryCheckpoint&&) = delete;
-  auto operator=(ScopedRegistryCheckpoint&&) -> ScopedRegistryCheckpoint& = delete;
-
-  ~ScopedRegistryCheckpoint() {
-    std::scoped_lock lock(*mutex_);
-    const auto log_size = registry_->registration_log.size();
-    for (std::size_t i = checkpoint_; i < log_size; ++i) {
-      registry_->retire(registry_->registration_log[i]);
-    }
-    registry_->registration_log.resize(checkpoint_);
-  }
-
-private:
-  ScopedRegistry<T>* registry_;
-  std::mutex* mutex_;
-  std::size_t checkpoint_{0};
-};
-
-// ============================================================================
-// PinnedRegistryRef<T>
-//
-// RAII owner for a pinned (non-logged) registry entry.
-// Releases the slot on destruction or explicit release().
-// ============================================================================
-
-template <typename T>
-class PinnedRegistryRef {
-public:
-  PinnedRegistryRef() = default;
-
-  PinnedRegistryRef(ScopedRegistry<T>& registry, std::mutex& mutex, T val) : registry_(&registry), mutex_(&mutex) {
-    std::scoped_lock lock(*mutex_);
-    id_ = registry_->insert(std::move(val), /*logged=*/false);
-    valid_ = true;
-  }
-
-  PinnedRegistryRef(const PinnedRegistryRef&) = delete;
-  auto operator=(const PinnedRegistryRef&) -> PinnedRegistryRef& = delete;
-
-  PinnedRegistryRef(PinnedRegistryRef&& other) noexcept
-      : registry_(other.registry_), mutex_(other.mutex_), id_(other.id_), valid_(other.valid_) {
-    other.valid_ = false;
-  }
-
-  auto operator=(PinnedRegistryRef&& other) noexcept -> PinnedRegistryRef& {
-    if (this != &other) {
-      if (valid_) {
-        do_release();
-      }
-      registry_ = other.registry_;
-      mutex_ = other.mutex_;
-      id_ = other.id_;
-      valid_ = other.valid_;
-      other.valid_ = false;
-    }
-    return *this;
-  }
-
-  ~PinnedRegistryRef() {
-    if (valid_) {
-      do_release();
-    }
-  }
-
-  void release() {
-    if (valid_) {
-      do_release();
-      valid_ = false;
-    }
-  }
-  [[nodiscard]] auto id() const -> const RegistryId& { return id_; }
-  [[nodiscard]] auto is_valid() const -> bool { return valid_; }
-
-private:
-  void do_release() {
-    std::scoped_lock lock(*mutex_);
-    registry_->retire(id_.slot);
-  }
-
-  ScopedRegistry<T>* registry_{nullptr};
-  std::mutex* mutex_{nullptr};
-  RegistryId id_{.slot = 0, .generation = 0};
-  bool valid_{false};
-};
-
-// ============================================================================
-// Callable registry (ScopedRegistry<RegisteredCallable>)
-// ============================================================================
-
-inline constexpr std::string_view k_callable_tag = "__fleaux_callable__";
-inline constexpr std::string_view k_handle_tag = "__fleaux_handle__";
-inline constexpr std::string_view k_value_ref_tag = "__fleaux_ref__";
-
-[[nodiscard]] inline auto tagged_token_number_as_uint(const Number& number_value) -> std::optional<UInt> {
-  return number_value.Visit(
-      [](const Int signed_value) -> std::optional<UInt> {
-        return signed_value >= 0 ? std::optional<UInt>(static_cast<UInt>(signed_value)) : std::nullopt;
-      },
-      [](const UInt unsigned_value) -> std::optional<UInt> { return unsigned_value; },
-      [](const Float float_value) -> std::optional<UInt> {
-        return float_value >= 0 && std::floor(float_value) == float_value
-                   ? std::optional<UInt>(static_cast<UInt>(float_value))
-                   : std::nullopt;
-      });
-}
-
-[[nodiscard]] inline auto make_tagged_registry_token(const std::string_view tag, const UInt slot, const UInt generation)
-    -> Value {
-  Array token;
-  token.Reserve(4);
-  token.EmplaceBack(String{tag});
-  token.EmplaceBack(current_runtime_execution_state_id());
-  token.EmplaceBack(slot);
-  token.EmplaceBack(generation);
-  return Value{std::move(token)};
-}
-
-[[nodiscard]] inline auto parse_tagged_registry_token_state_id(const Value& token, const std::string_view expected_tag,
-                                                               const bool allow_legacy_generationless = false)
-    -> std::optional<UInt> {
-  const auto& arr = token.TryGetArray();
-  if (!arr || (arr->Size() != 4 && arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
-    return std::nullopt;
-  }
-
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != expected_tag) {
-    return std::nullopt;
-  }
-
-  if (arr->Size() != 4) {
-    return current_runtime_execution_state_id();
-  }
-
-  const auto& state_num = arr->TryGet(1)->TryGetNumber();
-  if (!state_num) {
-    return std::nullopt;
-  }
-  return tagged_token_number_as_uint(*state_num);
-}
-
-[[nodiscard]] inline auto parse_tagged_registry_token(const Value& token, const std::string_view expected_tag,
-                                                      const bool allow_legacy_generationless = false)
-    -> std::optional<RegistryId> {
-  const auto& arr = token.TryGetArray();
-  if (!arr || (arr->Size() != 4 && arr->Size() != 3 && !(allow_legacy_generationless && arr->Size() == 2))) {
-    return std::nullopt;
-  }
-
-  const auto& tag = arr->TryGet(0)->TryGetString();
-  if (!tag || *tag != expected_tag) {
-    return std::nullopt;
-  }
-
-  const auto slot_index = arr->Size() == 4 ? 2U : 1U;
-  const auto generation_index = arr->Size() == 4 ? 3U : 2U;
-
-  const auto& slot_num = arr->TryGet(slot_index)->TryGetNumber();
-  if (!slot_num) {
-    return std::nullopt;
-  }
-  const auto slot = tagged_token_number_as_uint(*slot_num);
-  if (!slot) {
-    return std::nullopt;
-  }
-
-  UInt generation = 0;
-  if (arr->Size() == 4 || arr->Size() == 3) {
-    const auto& generation_num = arr->TryGet(generation_index)->TryGetNumber();
-    if (!generation_num) {
-      return std::nullopt;
-    }
-    const auto parsed_generation = tagged_token_number_as_uint(*generation_num);
-    if (!parsed_generation) {
-      return std::nullopt;
-    }
-    generation = *parsed_generation;
-  }
-
-  return RegistryId{.slot = *slot, .generation = generation};
-}
-
-// Legacy alias kept so external code using CallableId or RegistryId compiles.
-using CallableId = RegistryId;
-
-struct ValueRegistryTelemetry {
-  std::size_t active_count{0};
-  std::size_t peak_active_count{0};
-  std::size_t rejected_allocations{0};
-  std::size_t stale_deref_rejections{0};
-  std::optional<std::size_t> transient_cap{};
-};
-
+// What one run of a module needs beyond its values: the native functions it declares, bound before it starts, and
+// the tasks it spawns, which are settled when it ends.
 struct RuntimeExecutionState {
   RuntimeExecutionState() = default;
   RuntimeExecutionState(const RuntimeExecutionState&) = delete;
   auto operator=(const RuntimeExecutionState&) -> RuntimeExecutionState& = delete;
   RuntimeExecutionState(RuntimeExecutionState&&) = delete;
   auto operator=(RuntimeExecutionState&&) -> RuntimeExecutionState& = delete;
-  ~RuntimeExecutionState();
+  ~RuntimeExecutionState() = default;
 
-  UInt token_state_id{0};
-  ScopedRegistry<RegisteredCallable> callable_registry{};
-  std::mutex callable_registry_mutex{};
-
-  ScopedRegistry<Value> value_registry{};
-  std::mutex value_registry_mutex{};
-  ValueRegistryTelemetry value_registry_telemetry{};
-
-  ScopedRegistry<TaskControlPtr> task_registry{};
-  std::mutex task_registry_mutex{};
-
-  std::unique_ptr<HandleRegistry> handle_registry{make_default_handle_registry()};
-
-  // The running module's native functions, parallel to Module::native_functions. Bound before the module runs.
+  // The running module's native functions, parallel to Module::native_functions.
   std::vector<NativeFunction> native_functions{};
-};
 
-[[nodiscard]] inline auto next_runtime_execution_state_id() -> UInt {
-  static std::atomic<UInt> next_id{1};
-  return next_id.fetch_add(1, std::memory_order_relaxed);
-}
+  // Tasks started with Std.Task.Spawn; see TaskScope in builtins_parallel.hpp.
+  std::mutex task_mutex{};
+  std::vector<Value> spawned_tasks{};
+};
 
 [[nodiscard]] inline auto default_runtime_execution_state() -> RuntimeExecutionState& {
   static RuntimeExecutionState state;
-  if (state.token_state_id == 0) {
-    state.token_state_id = next_runtime_execution_state_id();
-  }
   return state;
 }
 
@@ -433,17 +75,10 @@ struct RuntimeExecutionStateThreadContext {
   return runtime_execution_state_thread_context().active.get();
 }
 
-[[nodiscard]] inline auto current_runtime_execution_state_id() -> UInt {
-  return runtime_execution_state().token_state_id;
-}
-
 class ActiveRuntimeExecutionStateScope {
 public:
   explicit ActiveRuntimeExecutionStateScope(RuntimeExecutionState& state)
       : previous_(runtime_execution_state_thread_context().active) {
-    if (state.token_state_id == 0) {
-      state.token_state_id = next_runtime_execution_state_id();
-    }
     runtime_execution_state_thread_context().active = std::ref(state);
   }
 
@@ -456,13 +91,7 @@ private:
   std::reference_wrapper<RuntimeExecutionState> previous_;
 };
 
-inline auto callable_registry() -> ScopedRegistry<RegisteredCallable>& {
-  return runtime_execution_state().callable_registry;
-}
-
-inline auto callable_registry_mutex() -> std::mutex& { return runtime_execution_state().callable_registry_mutex; }
-
-// Process arguments
+// Streams and process arguments
 
 struct RuntimeThreadContext {
   std::reference_wrapper<std::ostream> output{std::cout};
@@ -562,767 +191,299 @@ private:
   std::vector<std::string> previous_{};
 };
 
-// Callable/Function handling
+// Construction
 
-inline auto register_callable(RegisteredCallable callable) -> CallableId {
-  std::scoped_lock lock(callable_registry_mutex());
-  return callable_registry().insert(std::move(callable), /*logged=*/true);
-}
+[[nodiscard]] inline auto make_null() -> Value { return Value{}; }
+[[nodiscard]] inline auto make_bool(const Bool value) -> Value { return Value::from_bool(value); }
+[[nodiscard]] inline auto make_int(const Int value) -> Value { return Value::from_int(value); }
+[[nodiscard]] inline auto make_uint(const UInt value) -> Value { return Value::from_uint(value); }
+[[nodiscard]] inline auto make_float(const Float value) -> Value { return Value::from_float(value); }
+[[nodiscard]] inline auto make_string(String value) -> Value { return Value::from_string(std::move(value)); }
+[[nodiscard]] inline auto make_random_generator(const UInt state) -> Value { return Value::from_random_state(state); }
+[[nodiscard]] inline auto make_dict(Dict dict = {}) -> Value { return Value::from_dict(std::move(dict)); }
 
-inline auto register_callable(RuntimeCallable fn) -> CallableId {
-  return register_callable(RegisteredCallable{.unary = std::move(fn)});
-}
-
-[[nodiscard]] inline auto callable_registry_size() -> std::size_t {
-  std::scoped_lock lock(callable_registry_mutex());
-  return callable_registry().active_count;
-}
-
-// Discard all registered callables; intended for test isolation only.
-// Any live callable-ref Values become invalid after this call.
-inline void reset_callable_registry() {
-  std::scoped_lock lock(callable_registry_mutex());
-  callable_registry().clear();
-}
-
-// Registers a callable outside the registration log so it survives
-// CallableRegistryScope teardown. The caller owns the returned CallableId and
-// must eventually call release_callable_ref to retire it.
-inline auto register_callable_pinned(RegisteredCallable callable) -> CallableId {
-  std::scoped_lock lock(callable_registry_mutex());
-  return callable_registry().insert(std::move(callable), /*logged=*/false);
-}
-
-inline auto register_callable_pinned(RuntimeCallable fn) -> CallableId {
-  return register_callable_pinned(RegisteredCallable{.unary = std::move(fn)});
-}
-
-// Snapshots callable-registry log position and retires transient entries on scope exit.
-// This is safe for execution scopes where callable-ref Values do not escape.
-class CallableRegistryScope {
-public:
-  CallableRegistryScope() : checkpoint_(callable_registry(), callable_registry_mutex()) {}
-
-  CallableRegistryScope(const CallableRegistryScope&) = delete;
-  auto operator=(const CallableRegistryScope&) -> CallableRegistryScope& = delete;
-  CallableRegistryScope(CallableRegistryScope&&) = delete;
-  auto operator=(CallableRegistryScope&&) -> CallableRegistryScope& = delete;
-
-private:
-  ScopedRegistryCheckpoint<RegisteredCallable> checkpoint_;
-};
-
-// Global function registry stored as GenericNodeType
-inline auto function_registry() -> Value& {
-  static Value registry{mguid::NodeTypeTag::Generic};
-  return registry;
-}
-
-// Explicitly retires a pinned (or any) callable slot by its CallableId.
-// Safe to call multiple times; subsequent calls for the same id are no-ops.
-inline void release_callable_ref(const CallableId& id) {
-  std::scoped_lock lock(callable_registry_mutex());
-  callable_registry().retire(id.slot);
-}
-
-// Forward declaration; full definition follows callable_id_from_value below.
-inline void release_callable_ref(const Value& ref);
-
-// RAII wrapper that pins a callable for its lifetime and releases it on destruction.
-// Construct with make_pinned_callable_ref; do not copy (move is allowed).
-class PinnedCallableRef {
-public:
-  PinnedCallableRef() = default;
-
-  explicit PinnedCallableRef(RegisteredCallable callable)
-      : owner_(callable_registry(), callable_registry_mutex(), std::move(callable)) {
-    ref_ = make_tagged_registry_token(k_callable_tag, owner_.id().slot, owner_.id().generation);
+// A tuple of copies of the items of a sized range of values, such as a TupleView or a slice of one. A range of move
+// iterators moves the items instead.
+template <std::ranges::sized_range Items>
+  requires std::constructible_from<Value, std::ranges::range_reference_t<Items>>
+[[nodiscard]] auto make_tuple_from(Items&& items) -> Value {
+  const auto count = static_cast<std::size_t>(std::ranges::size(items));
+  if (count == 0U) {
+    return empty_tuple();
   }
-
-  explicit PinnedCallableRef(RuntimeCallable fn) : PinnedCallableRef(RegisteredCallable{.unary = std::move(fn)}) {}
-
-  PinnedCallableRef(const PinnedCallableRef&) = delete;
-  auto operator=(const PinnedCallableRef&) -> PinnedCallableRef& = delete;
-  PinnedCallableRef(PinnedCallableRef&&) noexcept = default;
-  auto operator=(PinnedCallableRef&&) noexcept -> PinnedCallableRef& = default;
-
-  // Returns the Value token that can be passed into the runtime.
-  [[nodiscard]] auto token() const -> const Value& { return ref_; }
-
-  // Explicitly release the pinned ref before destruction.
-  void release() { owner_.release(); }
-
-  [[nodiscard]] auto id() const -> const CallableId& { return owner_.id(); }
-  [[nodiscard]] auto is_valid() const -> bool { return owner_.is_valid(); }
-
-private:
-  PinnedRegistryRef<RegisteredCallable> owner_{};
-  Value ref_{};
-};
-
-[[nodiscard]] inline auto make_pinned_callable_ref(RegisteredCallable callable) -> PinnedCallableRef {
-  return PinnedCallableRef(std::move(callable));
+  TupleBuilder tuple(count);
+  for (auto&& item : items) {
+    tuple.push(std::forward<decltype(item)>(item));
+  }
+  return std::move(tuple).finish();
 }
 
-template <typename F>
-[[nodiscard]] auto make_pinned_callable_ref(F&& fn) -> PinnedCallableRef {
-  return PinnedCallableRef(RuntimeCallable(std::forward<F>(fn)));
+// A vector would be copied item by item here: build the tuple with a TupleBuilder instead, or move the items with
+// make_tuple_moved.
+auto make_tuple_from(std::vector<Value>&& items) -> Value = delete;
+
+// A tuple of `items`, moved out of where they are.
+[[nodiscard]] inline auto make_tuple_moved(const std::span<Value> items) -> Value {
+  if (items.empty()) {
+    return empty_tuple();
+  }
+  TupleBuilder tuple(items.size());
+  for (Value& item : items) {
+    tuple.push(std::move(item));
+  }
+  return std::move(tuple).finish();
 }
 
-[[nodiscard]] inline auto make_callable_ref(RegisteredCallable callable) -> Value {
-  const auto [slot, generation] = register_callable(std::move(callable));
-  return make_tagged_registry_token(k_callable_tag, slot, generation);
-}
-
-[[nodiscard]] inline auto make_callable_ref(RuntimeCallable fn) -> Value {
-  const auto [slot, generation] = register_callable(std::move(fn));
-  return make_tagged_registry_token(k_callable_tag, slot, generation);
-}
-
-template <typename F>
-auto make_callable_ref(F&& fn) -> Value {
-  return make_callable_ref(RuntimeCallable(std::forward<F>(fn)));
-}
-
-[[nodiscard]] inline auto callable_id_from_value(const Value& ref) -> std::optional<CallableId> {
-  return parse_tagged_registry_token(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
-}
-
-// Overload of release_callable_ref that accepts a Value token (defined here after
-// callable_id_from_value is available).
-inline void release_callable_ref(const Value& ref) {
-  const auto token_state_id =
-      parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
-  if (!token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+// Pushes the items of `tuple`: moved out of a tuple `tuple` alone refers to, copied out of a shared one.
+inline void push_tuple_items(TupleBuilder& out, Value tuple) {
+  if (tuple.object()->unique()) {
+    for (Value& item : tuple.mutable_tuple()) {
+      out.push(std::move(item));
+    }
     return;
   }
-  const auto id = callable_id_from_value(ref);
-  if (!id) {
-    return;
-  }
-  std::scoped_lock lock(callable_registry_mutex());
-  // Only retire if the generation still matches (idempotent if already retired).
-  auto& call_reg = callable_registry();
-  if (const auto* ptr = call_reg.get(*id); ptr) {
-    call_reg.retire(id->slot);
+  for (const Value& item : tuple.tuple()) {
+    out.push(item);
   }
 }
 
-// ============================================================================
-// ValueRegistry - ScopedRegistry<Value>
-//
-// Stores arbitrary Fleaux Values by reference using slot+generation tokens.
-// Tokens can be passed through the pipeline without deep-copying the stored
-// Value; callers deref when they need the actual value.
-// Use make_value_ref (transient) or make_pinned_value_ref (persistent).
-// ============================================================================
-
-inline auto value_registry() -> ScopedRegistry<Value>& { return runtime_execution_state().value_registry; }
-
-inline auto value_registry_mutex() -> std::mutex& { return runtime_execution_state().value_registry_mutex; };
-
-inline auto value_registry_telemetry_state() -> ValueRegistryTelemetry& {
-  return runtime_execution_state().value_registry_telemetry;
+// The items of `sequence` from `first` up to `last` (first <= last <= size), as a tuple. A tuple `sequence` alone
+// refers to is cut in its own block; only the kept range of a shared one is copied.
+[[nodiscard]] inline auto keep_tuple_items(Value sequence, const std::size_t first, const std::size_t last) -> Value {
+  if (!sequence.object()->unique()) {
+    return make_tuple_from(sequence.tuple().subspan(first, last - first));
+  }
+  const std::size_t size = sequence.tuple().size();
+  TupleBuilder out = TupleBuilder::reopen(std::move(sequence), size);
+  out.erase(last, size);
+  out.erase(0, first);
+  return std::move(out).finish();
 }
 
-inline void set_value_registry_transient_cap(const std::optional<std::size_t> cap) {
-  std::scoped_lock lock(value_registry_mutex());
-  value_registry_telemetry_state().transient_cap = cap;
+// The items of `sequence` without those from `first` up to `last` (first <= last <= size), as a tuple. A tuple
+// `sequence` alone refers to is cut in its own block; the rest of a shared one is copied.
+[[nodiscard]] inline auto remove_tuple_items(Value sequence, const std::size_t first, const std::size_t last) -> Value {
+  if (sequence.object()->unique()) {
+    TupleBuilder out = TupleBuilder::reopen(std::move(sequence), 0U);
+    out.erase(first, last);
+    return std::move(out).finish();
+  }
+  const TupleView items = sequence.tuple();
+  TupleBuilder out(items.size() - (last - first));
+  for (const Value& item : items.first(first)) {
+    out.push(item);
+  }
+  for (const Value& item : items.subspan(last)) {
+    out.push(item);
+  }
+  return std::move(out).finish();
 }
-
-[[nodiscard]] inline auto value_registry_telemetry() -> ValueRegistryTelemetry {
-  std::scoped_lock lock(value_registry_mutex());
-  auto snapshot = value_registry_telemetry_state();
-  snapshot.active_count = value_registry().active_count;
-  return snapshot;
-}
-
-inline void reset_value_registry_telemetry_for_tests() {
-  std::scoped_lock lock(value_registry_mutex());
-  value_registry_telemetry_state() = ValueRegistryTelemetry{};
-}
-
-inline void reset_value_registry_for_tests() {
-  std::scoped_lock lock(value_registry_mutex());
-  value_registry().clear();
-  value_registry_telemetry_state() = ValueRegistryTelemetry{};
-}
-
-// Returns a Value token for a stored value (transient; cleaned up by ValueRegistryScope).
-[[nodiscard]] inline auto make_value_ref(Value val) -> Value {
-  const auto [slot, generation] = [&]() -> RegistryId {
-    std::scoped_lock lock(value_registry_mutex());
-    auto& telemetry = value_registry_telemetry_state();
-    auto& reg = value_registry();
-    if (telemetry.transient_cap.has_value() && reg.active_count >= *telemetry.transient_cap) {
-      ++telemetry.rejected_allocations;
-      throw std::runtime_error{"make_value_ref: value-ref transient cap reached"};
-    }
-    const auto inserted = reg.insert(std::move(val), /*logged=*/true);
-    telemetry.peak_active_count = std::max(telemetry.peak_active_count, reg.active_count);
-    return inserted;
-  }();
-  return make_tagged_registry_token(k_value_ref_tag, slot, generation);
-}
-
-[[nodiscard]] inline auto value_ref_id_from_token(const Value& token) -> std::optional<RegistryId> {
-  return parse_tagged_registry_token(token, k_value_ref_tag);
-}
-
-// Returns a copy of the stored value; throws if token is stale.
-[[nodiscard]] inline auto deref_value_ref(const Value& token) -> Value {
-  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_value_ref_tag);
-      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
-    throw std::runtime_error{"deref_value_ref: stale or unknown value-ref token"};
-  }
-  const auto id = value_ref_id_from_token(token);
-  if (!id) {
-    throw std::runtime_error{"deref_value_ref: not a value-ref token"};
-  }
-  std::scoped_lock lock(value_registry_mutex());
-  auto& telemetry = value_registry_telemetry_state();
-  const Value* ptr = value_registry().get(*id);
-  if (!ptr) {
-    ++telemetry.stale_deref_rejections;
-    throw std::runtime_error{"deref_value_ref: stale or unknown value-ref token"};
-  }
-  return *ptr;
-}
-
-// Explicitly retire a value ref token. Idempotent.
-inline void release_value_ref(const Value& token) {
-  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_value_ref_tag);
-      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
-    return;
-  }
-  const auto id = value_ref_id_from_token(token);
-  if (!id) {
-    return;
-  }
-  std::scoped_lock lock(value_registry_mutex());
-  auto& reg = value_registry();
-  if (reg.get(*id)) {
-    reg.retire(id->slot);
-  }
-}
-
-// RAII scope: retires all transient value-refs created within this scope on exit.
-class ValueRegistryScope {
-public:
-  ValueRegistryScope() : checkpoint_(value_registry(), value_registry_mutex()) {}
-
-  ValueRegistryScope(const ValueRegistryScope&) = delete;
-  auto operator=(const ValueRegistryScope&) -> ValueRegistryScope& = delete;
-  ValueRegistryScope(ValueRegistryScope&&) = delete;
-  auto operator=(ValueRegistryScope&&) -> ValueRegistryScope& = delete;
-
-private:
-  ScopedRegistryCheckpoint<Value> checkpoint_;
-};
-
-// RAII pinned value ref: stored value outlives any ValueRegistryScope.
-class PinnedValueRef {
-public:
-  PinnedValueRef() = default;
-
-  explicit PinnedValueRef(Value val) : owner_(value_registry(), value_registry_mutex(), std::move(val)) {
-    token_ = make_tagged_registry_token(k_value_ref_tag, owner_.id().slot, owner_.id().generation);
-  }
-
-  PinnedValueRef(const PinnedValueRef&) = delete;
-  auto operator=(const PinnedValueRef&) -> PinnedValueRef& = delete;
-  PinnedValueRef(PinnedValueRef&&) noexcept = default;
-  auto operator=(PinnedValueRef&&) noexcept -> PinnedValueRef& = default;
-
-  [[nodiscard]] auto token() const -> const Value& { return token_; }
-  [[nodiscard]] auto id() const -> const RegistryId& { return owner_.id(); }
-  [[nodiscard]] auto is_valid() const -> bool { return owner_.is_valid(); }
-
-  void release() { owner_.release(); }
-
-  // Returns a copy of the stored value.
-  [[nodiscard]] auto get() const -> Value {
-    if (!is_valid()) {
-      throw std::runtime_error{"PinnedValueRef::get: already released"};
-    }
-    return deref_value_ref(token_);
-  }
-
-private:
-  PinnedRegistryRef<Value> owner_{};
-  Value token_{};
-};
-
-// File handle registry
-
-struct HandleEntry {
-  std::fstream stream;
-  std::string path;
-  std::string mode;
-  bool closed{false};
-  UInt generation{0};
-};
-
-struct HandleRegistry {
-  std::vector<HandleEntry> entries;
-  std::vector<UInt> registration_log;
-  std::mutex mtx;
-
-  [[nodiscard]] auto log_checkpoint() -> std::size_t {
-    std::scoped_lock lock(mtx);
-    return registration_log.size();
-  }
-
-  auto open(const std::string& path, const std::string& mode) -> UInt {
-    std::scoped_lock lock(mtx);
-    // find a closed slot to reuse
-    for (std::size_t slot_index = 0; slot_index < entries.size(); ++slot_index) {
-      if (entries[slot_index].closed) {
-        auto& entry = entries[slot_index];
-        entry.generation++;
-        entry.closed = false;
-        entry.path = path;
-        entry.mode = mode;
-        open_stream(entry);
-        registration_log.push_back(static_cast<UInt>(slot_index));
-        return static_cast<UInt>(slot_index);
-      }
-    }
-
-    entries.push_back({});
-    auto& entry = entries.back();
-    entry.path = path;
-    entry.mode = mode;
-    entry.generation = 0;
-    open_stream(entry);
-    const auto slot = entries.size() - 1;
-    registration_log.push_back(slot);
-    return slot;
-  }
-
-  static void open_stream(HandleEntry& entry) {
-    std::ios::openmode flags{};
-
-    const bool is_read = (entry.mode.find('r') != std::string::npos);
-    const bool is_write = (entry.mode.find('w') != std::string::npos);
-    const bool is_append = (entry.mode.find('a') != std::string::npos);
-    const bool is_binary = (entry.mode.find('b') != std::string::npos);
-
-    if (is_read)
-      flags |= std::ios::in;
-    if (is_write)
-      flags |= std::ios::out | std::ios::trunc;
-    if (is_append)
-      flags |= std::ios::out | std::ios::app;
-    if (is_binary)
-      flags |= std::ios::binary;
-    if (!is_read && !is_write && !is_append)
-      flags |= std::ios::in;
-
-    entry.stream.open(entry.path, flags);
-    if (!entry.stream.is_open()) {
-      throw std::runtime_error{"FileOpen: cannot open '" + entry.path + "' with mode '" + entry.mode + "'"};
-    }
-  }
-
-  // Returns a raw pointer to the entry; callers must not concurrently call
-  // open() or close() while the pointer is in use.
-  [[nodiscard]] auto get(const UInt slot, const UInt gen) -> HandleEntry* {
-    if (slot >= entries.size())
-      return nullptr;
-    auto& entry = entries[static_cast<std::size_t>(slot)];
-    if (entry.closed || entry.generation != gen)
-      return nullptr;
-    return &entry;
-  }
-
-  auto close(const UInt slot, const UInt gen) -> bool {
-    std::scoped_lock lock(mtx);
-    if (slot >= entries.size())
-      return false;
-    auto& entry = entries[static_cast<std::size_t>(slot)];
-    if (entry.closed || entry.generation != gen)
-      return false;
-    entry.stream.close();
-    entry.closed = true;
-    return true;
-  }
-
-  void close_logged_since(const std::size_t checkpoint) {
-    std::scoped_lock lock(mtx);
-    const auto log_size = registration_log.size();
-    for (std::size_t i = checkpoint; i < log_size; ++i) {
-      if (const auto slot = static_cast<std::size_t>(registration_log[i]); slot < entries.size()) {
-        if (auto& entry = entries[slot]; !entry.closed) {
-          entry.stream.close();
-          entry.closed = true;
-        }
-      }
-    }
-    registration_log.resize(checkpoint);
-  }
-
-  void reset_for_tests() {
-    std::scoped_lock lock(mtx);
-    for (auto& entry : entries) {
-      if (!entry.closed && entry.stream.is_open()) {
-        entry.stream.close();
-      }
-      entry.closed = true;
-    }
-    entries.clear();
-    registration_log.clear();
-  }
-};
-
-[[nodiscard]] inline auto make_default_handle_registry() -> std::unique_ptr<HandleRegistry> {
-  return std::make_unique<HandleRegistry>();
-}
-
-inline RuntimeExecutionState::~RuntimeExecutionState() = default;
-
-inline auto handle_registry() -> HandleRegistry& { return *runtime_execution_state().handle_registry; }
-
-inline void reset_handle_registry_for_tests() { handle_registry().reset_for_tests(); }
-
-// RAII scope: closes any file handles opened after the checkpoint on scope exit.
-// Handles explicitly closed before scope exit are skipped (idempotent).
-class HandleRegistryScope {
-public:
-  HandleRegistryScope() : checkpoint_(handle_registry().log_checkpoint()) {}
-
-  HandleRegistryScope(const HandleRegistryScope&) = delete;
-  auto operator=(const HandleRegistryScope&) -> HandleRegistryScope& = delete;
-  HandleRegistryScope(HandleRegistryScope&&) = delete;
-  auto operator=(HandleRegistryScope&&) -> HandleRegistryScope& = delete;
-
-  ~HandleRegistryScope() { handle_registry().close_logged_since(checkpoint_); }
-
-private:
-  std::size_t checkpoint_{0};
-};
-
-// Handle token with type checking
-struct HandleId {
-  UInt slot;
-  UInt gen;
-};
-
-[[nodiscard]] inline auto make_handle_token(const UInt slot, const UInt gen) -> Value {
-  return make_tagged_registry_token(k_handle_tag, slot, gen);
-}
-
-[[nodiscard]] inline auto handle_id_from_value(const Value& value) -> std::optional<HandleId> {
-  const auto parsed = parse_tagged_registry_token(value, k_handle_tag);
-  if (!parsed) {
-    return std::nullopt;
-  }
-  return HandleId{.slot = parsed->slot, .gen = parsed->generation};
-}
-
-// The token is a FileHandle by type; what can still fail is that it belongs to another run or was closed.
-[[nodiscard]] inline auto require_handle(const Value& token, const char* op) -> HandleEntry& {
-  const auto token_state_id = parse_tagged_registry_token_state_id(token, k_handle_tag);
-  const auto id = handle_id_from_value(token);
-  HandleEntry* entry = token_state_id && id && *token_state_id == runtime_execution_state().token_state_id
-                           ? handle_registry().get(id->slot, id->gen)
-                           : nullptr;
-  if (entry == nullptr) {
-    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
-  }
-  return *entry;
-}
-
-[[nodiscard]] inline auto resolve_registered_callable_ref(const Value& ref) -> RegisteredCallable {
-  // The value is a callable by type; what can still fail is that it belongs to another run or was released.
-  const auto token_state_id =
-      parse_tagged_registry_token_state_id(ref, k_callable_tag, /*allow_legacy_generationless=*/true);
-  const auto id = callable_id_from_value(ref);
-  if (!token_state_id || !id || *token_state_id != runtime_execution_state().token_state_id) {
-    throw std::runtime_error{"Unknown callable reference"};
-  }
-
-  std::scoped_lock lock(callable_registry_mutex());
-  const RegisteredCallable* ptr = callable_registry().get(*id);
-  if (!ptr) {
-    throw std::runtime_error{"Unknown callable reference"};
-  }
-  return *ptr;
-}
-
-[[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value;
-
-[[nodiscard]] inline auto resolve_callable_ref(const Value& ref) -> RuntimeCallable {
-  const auto [unary, binary] = resolve_registered_callable_ref(ref);
-  std::ignore = binary;
-  if (!unary) {
-    throw std::runtime_error{"Unknown callable reference"};
-  }
-  return [unary = unary](Value arg) -> Value { return unary(std::move(arg)); };
-}
-
-[[nodiscard]] inline auto invoke_binary_callable(const RegisteredCallable& callable, Value lhs, Value rhs) -> Value {
-  if (callable.binary) {
-    return callable.binary(std::move(lhs), std::move(rhs));
-  }
-  if (!callable.unary) {
-    throw std::runtime_error{"Unknown callable reference"};
-  }
-  Array pair_args;
-  pair_args.Reserve(2U);
-  pair_args.EmplaceBack(std::move(lhs));
-  pair_args.EmplaceBack(std::move(rhs));
-  return callable.unary(Value{std::move(pair_args)});
-}
-
-[[nodiscard]] inline auto invoke_binary_callable_ref(const Value& ref, Value lhs, Value rhs) -> Value {
-  const RegisteredCallable callable = resolve_registered_callable_ref(ref);
-  return invoke_binary_callable(callable, std::move(lhs), std::move(rhs));
-}
-
-[[nodiscard]] inline auto invoke_callable_ref(const Value& ref, Value arg) -> Value {
-  const RuntimeCallable callable = resolve_callable_ref(ref);
-  return callable(std::move(arg));
-}
-
-/**
- * @brief A node has a call operator that accepts a Value and returns a Value
- */
-template <typename Node>
-concept NodeLike = requires(Node&& node, Value arg) {
-  { std::invoke(std::forward<Node>(node), std::move(arg)) } -> std::same_as<Value>;
-};
-
-// Pipeline for builtins that receive a Value and return a Value.
-template <NodeLike Node>
-auto operator|(Value arg, Node&& node) -> Value {
-  return std::invoke(std::forward<Node>(node), std::move(arg));
-}
-
-inline auto operator|(Value arg, const Value& callable_ref) -> Value {
-  return invoke_callable_ref(callable_ref, std::move(arg));
-}
-
-// Construction helpers
-
-inline auto make_null() -> Value { return Value{Null{}}; }
-inline auto make_bool(bool value) -> Value { return Value{value}; }
-inline auto make_int(Int value) -> Value { return Value{value}; }
-inline auto make_uint(UInt value) -> Value { return Value{value}; }
-inline auto make_float(Float value) -> Value { return Value{value}; }
-inline auto make_string(String value) -> Value { return Value{std::move(value)}; }
-inline auto make_array() -> Value { return Value{Array{}}; }
-
-// Build a tuple Value from a variadic list of Values.
 
 template <typename MaybeValue>
-concept ValueLike = requires(MaybeValue&& vals) { requires(std::same_as<std::remove_cvref_t<MaybeValue>, Value>); };
+concept ValueLike = std::same_as<std::remove_cvref_t<MaybeValue>, Value>;
 
+// A tuple of the arguments, each one a Value.
 template <ValueLike... Values>
-auto make_tuple(Values&&... vals) -> Value {
-  Array arr;
-  arr.Reserve(sizeof...(Values));
-  (arr.EmplaceBack(std::forward<Values>(vals)), ...);
-  return Value{std::move(arr)};
+[[nodiscard]] auto make_tuple(Values&&... values) -> Value {
+  if constexpr (sizeof...(Values) == 0U) {
+    return empty_tuple();
+  } else {
+    TupleBuilder tuple(sizeof...(Values));
+    (tuple.push(std::forward<Values>(values)), ...);
+    return std::move(tuple).finish();
+  }
 }
 
-// Extraction helpers
-//
-// Values share their data until one of them is written (copy-on-write), so the as_* helpers only read: reading a
-// shared value never copies it. The mutable_* helpers give a reference for writing, and give the value its own copy of
-// shared data first.
-
-[[nodiscard]] inline auto as_array(const Value& value) -> const Array& {
-  auto result = value.TryGetArray();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Array"};
-  return *result;
+// A function value that calls `function`, any C++ callable taking and returning a Value.
+template <typename Function>
+[[nodiscard]] auto make_function(Function&& function) -> Value {
+  using Stored = std::decay_t<Function>;
+  return Value::adopt(ValueKind::kFunction, new FunctionCallable<Stored>(std::forward<Function>(function)));
 }
 
-[[nodiscard]] inline auto mutable_array(Value& value) -> Array& {
-  auto result = value.TryGetArray();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Array"};
-  return *result;
+// A function value for a Callable allocated with new, whose one reference the value takes over.
+[[nodiscard]] inline auto adopt_function(Callable* callable) -> Value {
+  return Value::adopt(ValueKind::kFunction, callable);
 }
 
-[[nodiscard]] inline auto as_number(const Value& value) -> const Number& {
-  auto result = value.TryGetNumber();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
-  return *result;
-}
+// Reading values. Each helper throws when the value is not of the kind it reads.
 
-[[nodiscard]] inline auto mutable_number(Value& value) -> Number& {
-  auto result = value.TryGetNumber();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Int64, UInt64, or Float64"};
-  return *result;
+[[nodiscard]] inline auto kind_error(const std::string_view expected) -> std::runtime_error {
+  return std::runtime_error{std::format("fleaux::runtime: expected {}", expected)};
 }
 
 [[nodiscard]] inline auto as_bool(const Value& value) -> Bool {
-  auto result = value.TryGetBool();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Bool"};
-  return *result;
-}
-
-[[nodiscard]] inline auto mutable_bool(Value& value) -> Bool& {
-  auto result = value.TryGetBool();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Bool"};
-  return *result;
+  if (!value.is_bool()) {
+    throw kind_error("Bool");
+  }
+  return value.bool_value();
 }
 
 [[nodiscard]] inline auto as_string(const Value& value) -> const String& {
-  auto result = value.TryGetString();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected String"};
-  return *result;
+  if (!value.is_string()) {
+    throw kind_error("String");
+  }
+  return value.string_value();
 }
 
-[[nodiscard]] inline auto mutable_string(Value& value) -> String& {
-  auto result = value.TryGetString();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected String"};
-  return *result;
+[[nodiscard]] inline auto as_tuple(const Value& value) -> TupleView {
+  if (!value.is_tuple()) {
+    throw kind_error("Tuple");
+  }
+  return value.tuple();
 }
 
-[[nodiscard]] inline auto as_object(const Value& value) -> const Object& {
-  auto result = value.TryGetObject();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Object"};
-  return *result;
+[[nodiscard]] inline auto as_dict(const Value& value) -> const Dict& {
+  if (!value.is_dict()) {
+    throw kind_error("Dict");
+  }
+  return value.dict();
 }
 
-[[nodiscard]] inline auto mutable_object(Value& value) -> Object& {
-  auto result = value.TryGetObject();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Object"};
-  return *result;
+[[nodiscard]] inline auto as_callable(const Value& value) -> const Callable& {
+  if (!value.is_function()) {
+    throw kind_error("a function");
+  }
+  return value.callable();
 }
 
-// Get the Nth element of an Array Value (throws on out-of-range).
-[[nodiscard]] inline auto array_at(const Value& value, const std::size_t index) -> const Value& {
-  auto result = as_array(value).TryGet(index);
-  if (!result)
-    throw std::out_of_range{"fleaux::runtime: array index out of range"};
-  return *result;
+// Item `index` of a tuple.
+[[nodiscard]] inline auto tuple_at(const Value& value, const std::size_t index) -> const Value& {
+  const TupleView items = as_tuple(value);
+  if (index >= items.size()) {
+    throw std::out_of_range{"fleaux::runtime: tuple index out of range"};
+  }
+  return items[index];
 }
 
-[[nodiscard]] inline auto mutable_array_at(Value& value, const std::size_t index) -> Value& {
-  auto result = value.TryGetArray();
-  if (!result)
-    throw std::runtime_error{"fleaux::runtime: expected Array"};
-  Array& arr = *result;
-  if (index >= arr.Size())
-    throw std::out_of_range{"fleaux::runtime: array index out of range"};
-  return arr[index];
+// Item `index` of a tuple the caller owns: moved out when nothing else refers to the tuple, and copied when other
+// values share it.
+[[nodiscard]] inline auto take_tuple_item(Value& value, const std::size_t index) -> Value {
+  const Value& item = tuple_at(value, index);
+  if (!value.object()->unique()) {
+    return item;
+  }
+  return std::move(value.mutable_tuple()[index]);
 }
 
-// Convert any numeric Value to double.
-[[nodiscard]] inline auto to_double(const Value& val) -> double {
-  return as_number(val).Visit([](const Int signed_value) -> double { return static_cast<double>(signed_value); },
-                              [](const UInt unsigned_value) -> double { return static_cast<double>(unsigned_value); },
-                              [](const Float float_value) -> double { return float_value; });
+// The arguments of a call of a builtin that takes other than one: values the call owns, which the builtin reads
+// (args[i]) or moves out (args.take(i)). The VM passes the values on its stack. A call that has its arguments as one
+// tuple (an argument list with spreads, a builtin called as a function value) passes the tuple, which the arguments
+// keep alive and lend the items of: a tuple nothing else refers to lends its own, and a shared one is copied first.
+// A value that is not a tuple is one argument.
+class Arguments {
+public:
+  explicit Arguments(const std::span<Value> values) noexcept : values_(values) {}
+
+  // NOLINTNEXTLINE(google-explicit-constructor): a builtin taking Arguments is called with an argument tuple as well.
+  Arguments(Value tuple) : held_(std::move(tuple)) {
+    values_ = held_.is_tuple() ? held_.mutable_tuple() : std::span<Value>{&held_, 1U};
+  }
+
+  Arguments(const Arguments&) = delete;
+  auto operator=(const Arguments&) -> Arguments& = delete;
+  Arguments(Arguments&& other) noexcept : held_(std::move(other.held_)), values_(other.values_) {
+    // A lone value is held here, so the view follows it.
+    if (other.values_.data() == &other.held_) {
+      values_ = std::span<Value>{&held_, 1U};
+    }
+  }
+  auto operator=(Arguments&&) -> Arguments& = delete;
+  ~Arguments() = default;
+
+  [[nodiscard]] auto size() const noexcept -> std::size_t { return values_.size(); }
+
+  [[nodiscard]] auto operator[](const std::size_t index) const -> const Value& { return at(index); }
+
+  // Moves argument `index` out; the builtin must not read it again.
+  [[nodiscard]] auto take(const std::size_t index) const -> Value { return std::move(at(index)); }
+
+  [[nodiscard]] auto items() const noexcept -> TupleView { return values_; }
+
+private:
+  [[nodiscard]] auto at(const std::size_t index) const -> Value& {
+    if (index >= values_.size()) {
+      throw std::out_of_range{"fleaux::runtime: argument index out of range"};
+    }
+    return values_[index];
+  }
+
+  // The argument tuple or lone value the arguments came as, if they did not come as values on the VM stack.
+  Value held_;
+  std::span<Value> values_;
+};
+
+// Calls `int_case`, `uint_case`, or `float_case` (or one overload set) with a number's value.
+template <typename... Cases>
+auto visit_number(const Value& value, Cases&&... cases) -> decltype(auto) {
+  const common::overloaded visitor{std::forward<Cases>(cases)...};
+  switch (value.kind()) {
+    case ValueKind::kInt:
+      return visitor(value.int_value());
+    case ValueKind::kUInt:
+      return visitor(value.uint_value());
+    case ValueKind::kFloat:
+      return visitor(value.float_value());
+    default:
+      throw kind_error("Int64, UInt64, or Float64");
+  }
 }
 
-[[nodiscard]] inline auto is_uint_number(const Value& val) -> bool {
-  return as_number(val).Visit([](const Int) -> bool { return false; }, [](const UInt) -> bool { return true; },
-                              [](const Float) -> bool { return false; });
+// Numbers
+
+[[nodiscard]] inline auto to_double(const Value& value) -> double {
+  return visit_number(value, [](const auto number) -> double { return static_cast<double>(number); });
 }
 
-[[nodiscard]] inline auto is_int_number(const Value& val) -> bool {
-  return as_number(val).Visit([](const Int) -> bool { return true; }, [](const UInt) -> bool { return false; },
-                              [](const Float) -> bool { return false; });
-}
-
-[[nodiscard]] inline auto is_float_number(const Value& val) -> bool {
-  return as_number(val).Visit([](const Int) -> bool { return false; }, [](const UInt) -> bool { return false; },
-                              [](const Float) -> bool { return true; });
-}
+[[nodiscard]] inline auto is_uint_number(const Value& value) -> bool { return value.is_uint(); }
+[[nodiscard]] inline auto is_int_number(const Value& value) -> bool { return value.is_int(); }
+[[nodiscard]] inline auto is_float_number(const Value& value) -> bool { return value.is_float(); }
 
 [[nodiscard]] inline auto compare_numbers(const Value& lhs, const Value& rhs) -> int {
-  const bool lhs_float = is_float_number(lhs);
-  if (const bool rhs_float = is_float_number(rhs); lhs_float || rhs_float) {
-    const double lhs_value = to_double(lhs);
-    const double rhs_value = to_double(rhs);
-    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  const auto order = [](const auto left, const auto right) -> int {
+    return (left < right) ? -1 : ((left > right) ? 1 : 0);
+  };
+  if (lhs.is_float() || rhs.is_float()) {
+    return order(to_double(lhs), to_double(rhs));
   }
-
-  if (is_int_number(lhs) && is_int_number(rhs)) {
-    const Int lhs_value =
-        as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
-    const Int rhs_value =
-        as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
-    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  if (lhs.is_int() && rhs.is_int()) {
+    return order(lhs.int_value(), rhs.int_value());
   }
-
-  if (is_uint_number(lhs) && is_uint_number(rhs)) {
-    const UInt lhs_value = as_number(lhs).Visit([](const Int) -> UInt { return 0; },
-                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-                                                [](const Float) -> UInt { return 0; });
-    const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
-                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-                                                [](const Float) -> UInt { return 0; });
-    return (lhs_value < rhs_value) ? -1 : ((lhs_value > rhs_value) ? 1 : 0);
+  if (lhs.is_uint() && rhs.is_uint()) {
+    return order(lhs.uint_value(), rhs.uint_value());
   }
-
-  if (is_int_number(lhs) && is_uint_number(rhs)) {
-    const Int lhs_value =
-        as_number(lhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
-    const UInt rhs_value = as_number(rhs).Visit([](const Int) -> UInt { return 0; },
-                                                [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-                                                [](const Float) -> UInt { return 0; });
-    if (lhs_value < 0) {
-      return -1;
-    }
-    const UInt lhs_as_uint = static_cast<UInt>(lhs_value);
-    return (lhs_as_uint < rhs_value) ? -1 : ((lhs_as_uint > rhs_value) ? 1 : 0);
+  if (lhs.is_int() && rhs.is_uint()) {
+    return lhs.int_value() < 0 ? -1 : order(static_cast<UInt>(lhs.int_value()), rhs.uint_value());
   }
-
-  const UInt lhs_value = as_number(lhs).Visit([](const Int) -> UInt { return 0; },
-                                              [](const UInt unsigned_value) -> UInt { return unsigned_value; },
-                                              [](const Float) -> UInt { return 0; });
-  const Int rhs_value = as_number(rhs).Visit([](const Int signed_value) -> Int { return signed_value; },
-                                             [](const UInt) -> Int { return 0; }, [](const Float) -> Int { return 0; });
-  if (rhs_value < 0) {
-    return 1;
+  if (lhs.is_uint() && rhs.is_int()) {
+    return rhs.int_value() < 0 ? 1 : order(lhs.uint_value(), static_cast<UInt>(rhs.int_value()));
   }
-  const UInt rhs_as_uint = static_cast<UInt>(rhs_value);
-  return (lhs_value < rhs_as_uint) ? -1 : ((lhs_value > rhs_as_uint) ? 1 : 0);
+  throw kind_error("Int64, UInt64, or Float64");
 }
 
-// Extract the integer index embedded in a numeric (Int64/UInt64/Float64) Value.
-[[nodiscard]] inline auto as_index(const Value& val) -> std::size_t {
-  return as_number(val).Visit(
-      [](const Int signed_value) -> std::size_t { return static_cast<std::size_t>(signed_value); },
-      [](const UInt unsigned_value) -> std::size_t { return static_cast<std::size_t>(unsigned_value); },
-      [](const Float float_value) -> std::size_t { return static_cast<std::size_t>(float_value); });
+// The integer index embedded in a number, converted as by a C++ cast.
+[[nodiscard]] inline auto as_index(const Value& value) -> std::size_t {
+  return visit_number(value, [](const auto number) -> std::size_t { return static_cast<std::size_t>(number); });
 }
 
-[[nodiscard]] inline auto as_int_value(const Value& val) -> Int {
-  return as_number(val).Visit([](const Int signed_value) -> Int { return signed_value; },
-                              [](const UInt unsigned_value) -> Int { return static_cast<Int>(unsigned_value); },
-                              [](const Float float_value) -> Int { return static_cast<Int>(float_value); });
+[[nodiscard]] inline auto as_int_value(const Value& value) -> Int {
+  return visit_number(value, [](const auto number) -> Int { return static_cast<Int>(number); });
 }
 
 // Reads of a parameter whose numeric type the Std signature fixes. The type checker, or the host entry check for
 // host calls, guarantees the value's kind, so these do not validate it. A C++ caller that bypasses both and passes
 // another numeric kind gets the value converted as by a C++ cast.
-[[nodiscard]] inline auto int64_value(const Value& val) -> Int {
-  return as_number(val).Visit([](const Int value) -> Int { return value; },
-                              [](const UInt value) -> Int { return static_cast<Int>(value); },
-                              [](const Float value) -> Int { return static_cast<Int>(value); });
+[[nodiscard]] inline auto int64_value(const Value& value) -> Int {
+  return value.is_int() ? value.int_value() : as_int_value(value);
 }
-[[nodiscard]] inline auto uint64_value(const Value& val) -> UInt {
-  return as_number(val).Visit([](const Int value) -> UInt { return static_cast<UInt>(value); },
-                              [](const UInt value) -> UInt { return value; },
-                              [](const Float value) -> UInt { return static_cast<UInt>(value); });
+
+[[nodiscard]] inline auto uint64_value(const Value& value) -> UInt {
+  if (value.is_uint()) {
+    return value.uint_value();
+  }
+  return visit_number(value, [](const auto number) -> UInt { return static_cast<UInt>(number); });
 }
+
 // A UInt as a container index. On targets with a 32-bit std::size_t, such as wasm32, a value too large for it becomes
 // the largest index, which no container reaches, so bounds checks still reject it instead of wrapping around.
 [[nodiscard]] inline auto to_index(const UInt value) -> std::size_t {
@@ -1333,280 +494,283 @@ auto make_tuple(Values&&... vals) -> Value {
   }
   return static_cast<std::size_t>(value);
 }
-[[nodiscard]] inline auto uint64_index(const Value& val) -> std::size_t { return to_index(uint64_value(val)); }
 
-[[nodiscard]] inline auto as_int_value_strict(const Value& val, const std::string_view name) -> Int {
-  return as_number(val).Visit([&](const Int signed_value) -> Int { return signed_value; },
-                              [&](const UInt unsigned_value) -> Int {
-                                if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
-                                  throw std::out_of_range(std::format("{} out of Int64 range", name));
-                                }
-                                return static_cast<Int>(unsigned_value);
-                              },
-                              [&](const Float float_value) -> Int {
-                                if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
-                                  throw std::invalid_argument(std::format("{} expects an integer value", name));
-                                }
-                                if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
-                                    float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
-                                  throw std::out_of_range(std::format("{} out of Int64 range", name));
-                                }
-                                return static_cast<Int>(float_value);
-                              });
+[[nodiscard]] inline auto uint64_index(const Value& value) -> std::size_t { return to_index(uint64_value(value)); }
+
+[[nodiscard]] inline auto as_int_value_strict(const Value& value, const std::string_view name) -> Int {
+  return visit_number(
+      value, [&](const Int signed_value) -> Int { return signed_value; },
+      [&](const UInt unsigned_value) -> Int {
+        if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
+          throw std::out_of_range(std::format("{} out of Int64 range", name));
+        }
+        return static_cast<Int>(unsigned_value);
+      },
+      [&](const Float float_value) -> Int {
+        if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
+          throw std::invalid_argument(std::format("{} expects an integer value", name));
+        }
+        if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
+            float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
+          throw std::out_of_range(std::format("{} out of Int64 range", name));
+        }
+        return static_cast<Int>(float_value);
+      });
 }
 
-[[nodiscard]] inline auto as_index_strict(const Value& val, const std::string_view name) -> std::size_t {
-  const Int index_value = as_int_value_strict(val, name);
+[[nodiscard]] inline auto as_index_strict(const Value& value, const std::string_view name) -> std::size_t {
+  const Int index_value = as_int_value_strict(value, name);
   if (index_value < 0) {
     throw std::out_of_range(std::format("{} expects non-negative integer", name));
   }
   return static_cast<std::size_t>(index_value);
 }
 
-// Python make_node semantics: when one argument is provided, the callee sees
-// the scalar value instead of a 1-tuple wrapper.
-[[nodiscard]] inline auto unwrap_singleton_arg(Value val) -> Value {
-  if (val.HasArray()) {
-    if (const auto& arr = as_array(val); arr.Size() == 1) {
-      return *arr.TryGet(0);
+// A call with one argument passes that argument itself rather than a one-item tuple.
+// Function values
+
+[[nodiscard]] inline auto invoke_callable(const Value& function, Value argument) -> Value {
+  return as_callable(function).call(std::move(argument));
+}
+
+[[nodiscard]] inline auto invoke_binary_callable(const Value& function, Value lhs, Value rhs) -> Value {
+  return as_callable(function).call_binary(std::move(lhs), std::move(rhs));
+}
+
+// A builtin node: anything that can be called with a Value and returns one.
+template <typename Node>
+concept NodeLike = requires(Node&& node, Value arg) {
+  { std::invoke(std::forward<Node>(node), std::move(arg)) } -> std::same_as<Value>;
+};
+
+// The pipeline `value | node` calls the node with the value.
+template <NodeLike Node>
+auto operator|(Value arg, Node&& node) -> Value {
+  return std::invoke(std::forward<Node>(node), std::move(arg));
+}
+
+inline auto operator|(Value arg, const Value& function) -> Value { return invoke_callable(function, std::move(arg)); }
+
+// File handles
+
+// Opens `path` with a mode made of the letters r, w, a, and b. With none of r, w, or a it reads.
+[[nodiscard]] inline auto open_file_handle(const std::string& path, const std::string& mode) -> Value {
+  auto* handle = new FileHandleObject;
+  Value value = Value::adopt(ValueKind::kFileHandle, handle);
+  handle->path = path;
+  handle->mode = mode;
+  std::ios::openmode flags{};
+  const bool is_read = mode.find('r') != std::string::npos;
+  const bool is_write = mode.find('w') != std::string::npos;
+  const bool is_append = mode.find('a') != std::string::npos;
+  if (is_read) {
+    flags |= std::ios::in;
+  }
+  if (is_write) {
+    flags |= std::ios::out | std::ios::trunc;
+  }
+  if (is_append) {
+    flags |= std::ios::out | std::ios::app;
+  }
+  if (mode.find('b') != std::string::npos) {
+    flags |= std::ios::binary;
+  }
+  if (!is_read && !is_write && !is_append) {
+    flags |= std::ios::in;
+  }
+  handle->stream.open(path, flags);
+  if (!handle->stream.is_open()) {
+    throw std::runtime_error{"FileOpen: cannot open '" + path + "' with mode '" + mode + "'"};
+  }
+  return value;
+}
+
+// The open file a handle refers to. The value is a FileHandle by type; what can still fail is that it was closed.
+[[nodiscard]] inline auto require_handle(const Value& handle, const char* op) -> FileHandleObject& {
+  if (!handle.is_file_handle() || handle.file_handle().closed) {
+    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+  }
+  return handle.file_handle();
+}
+
+// Printing
+
+// Appends a number's text to `out`.
+inline void append_number(std::string& out, const Value& number) {
+  visit_number(number, [&out](const auto value) { std::format_to(std::back_inserter(out), "{}", value); });
+}
+
+[[nodiscard]] inline auto format_number(const Value& number) -> std::string {
+  std::string text;
+  append_number(text, number);
+  return text;
+}
+
+// Appends the text of `value` to `out`: what Std.Println shows and Std.ToString returns. Values are written into a
+// string rather than a stream, because a stream costs more to set up than most values cost to write.
+inline void append_value_repr(std::string& out, const Value& value) {
+  switch (value.kind()) {
+    case ValueKind::kNull:
+      out += "null";
+      return;
+    case ValueKind::kBool:
+      out += value.bool_value() ? "True" : "False";
+      return;
+    case ValueKind::kInt:
+    case ValueKind::kUInt:
+    case ValueKind::kFloat:
+      append_number(out, value);
+      return;
+    case ValueKind::kString:
+      out += value.string_value();
+      return;
+    case ValueKind::kTuple: {
+      const TupleView items = value.tuple();
+      out += '(';
+      for (std::size_t index = 0; index < items.size(); ++index) {
+        if (index > 0) {
+          out += ", ";
+        }
+        append_value_repr(out, items[index]);
+      }
+      if (items.size() == 1) {
+        out += ',';
+      }
+      out += ')';
+      return;
     }
-  }
-  return val;
-}
-
-// Value printing
-
-[[nodiscard]] inline auto format_number(const Number& number_value) -> std::string {
-  return number_value.Visit([](const Int signed_value) -> std::string { return std::format("{}", signed_value); },
-                            [](const UInt unsigned_value) -> std::string { return std::format("{}", unsigned_value); },
-                            [](const Float float_value) -> std::string { return std::format("{}", float_value); });
-}
-
-// Print a Value as a scalar/tuple repr for the C++ runtime.
-// Dictionary keys are stored as strings with a one-letter type prefix, so keys of different types never collide and
-// every key decodes back to a value of its original type:
-//   "s:" String, "i:" Int64, "u:" UInt64, "f:" Float64 (shortest round-trip text), "b:" Bool, "z:" Null.
-[[nodiscard]] inline auto encode_number_dict_key(const Number& number) -> std::string {
-  return number.Visit([](const Int value) -> std::string { return "i:" + std::to_string(value); },
-                      [](const UInt value) -> std::string { return "u:" + std::to_string(value); },
-                      [](const Float value) -> std::string {
-                        std::array<char, 32> buffer{};
-                        const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-                        (void)error;
-                        return "f:" + std::string(buffer.data(), end);
-                      });
-}
-
-// The key value an internal dictionary key stands for, or nullopt when the key has no known prefix.
-[[nodiscard]] inline auto decode_dict_key(const std::string& internal_key) -> std::optional<Value> {
-  if (internal_key.size() < 2U || internal_key[1] != ':') {
-    return std::nullopt;
-  }
-  const std::string_view payload = std::string_view{internal_key}.substr(2);
-  const auto parse = [&]<typename T>(T value) -> std::optional<T> {
-    const auto* const end = payload.data() + payload.size();
-    const auto [ptr, error] = std::from_chars(payload.data(), end, value);
-    if (error != std::errc{} || ptr != end) {
-      return std::nullopt;
+    case ValueKind::kDict: {
+      out += '{';
+      bool first = true;
+      for (const auto& [key, item] : value.dict()) {
+        if (!first) {
+          out += ", ";
+        }
+        first = false;
+        append_value_repr(out, key);
+        out += ": ";
+        append_value_repr(out, item);
+      }
+      out += '}';
+      return;
     }
-    return value;
-  };
-  switch (internal_key[0]) {
-    case 's':
-      return Value{String{payload}};
-    case 'b':
-      return Value{payload == "true"};
-    case 'z':
-      return Value{Null{}};
-    case 'i':
-      if (const auto value = parse(Int{0})) {
-        return Value{*value};
-      }
-      return std::nullopt;
-    case 'u':
-      if (const auto value = parse(UInt{0})) {
-        return Value{*value};
-      }
-      return std::nullopt;
-    case 'f':
-      if (const auto value = parse(Float{0.0})) {
-        return Value{*value};
-      }
-      return std::nullopt;
-    default:
-      return std::nullopt;
+    case ValueKind::kFunction:
+      out += "<function>";
+      return;
+    case ValueKind::kFileHandle:
+      out += "<file ";
+      out += value.file_handle().path;
+      out += '>';
+      return;
+    case ValueKind::kTask:
+      out += "<task>";
+      return;
+    case ValueKind::kRandomGenerator:
+      out += "<random generator>";
+      return;
   }
+}
+
+[[nodiscard]] inline auto to_string(const Value& value) -> std::string {
+  std::string text;
+  append_value_repr(text, value);
+  return text;
 }
 
 inline void print_value_repr(std::ostream& os, const Value& value) {
-  value.Visit(
-      [&](const Array& arr) -> void {
-        os << '(';
-        for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-          if (element_index > 0) {
-            os << ", ";
-          }
-          print_value_repr(os, *arr.TryGet(element_index));
-        }
-        if (arr.Size() == 1) {
-          os << ',';
-        }
-        os << ')';
-      },
-      [&](const Object& obj) -> void {
-        // Objects are the backing store for Fleaux dicts.
-        // Keys carry a type prefix (see encode_number_dict_key) so that
-        // different key types never collide (e.g. int 1 vs string "1").
-        os << '{';
-        // Collect and sort internal keys so output is deterministic.
-        std::vector<std::string> sorted_keys;
-        sorted_keys.reserve(obj.Size());
-        for (const auto& internal_key : obj | std::views::keys)
-          sorted_keys.push_back(internal_key);
-        std::ranges::sort(sorted_keys);
-        bool first = true;
-        for (const auto& ikey : sorted_keys) {
-          if (!first)
-            os << ", ";
-          first = false;
-          // Render the original key value.
-          if (const auto key = decode_dict_key(ikey)) {
-            print_value_repr(os, *key);
-          } else {
-            os << ikey;
-          }
-          os << ": ";
-          if (const auto got = obj.TryGet(ikey))
-            print_value_repr(os, *got);
-        }
-        os << '}';
-      },
-      [&](const Generic& /*gen*/) -> void { os << "<generic>"; },
-      [&](const ValueNode& vn) -> void {
-        vn.Visit([&](const Null&) -> void { os << "null"; },
-                 [&](const Bool val) -> void { os << (val ? "True" : "False"); },
-                 [&](const Number& val) -> void { os << format_number(val); },
-                 [&](const String& val) -> void { os << val; });
-      });
+  if (value.is_string()) {
+    os << value.string_value();
+    return;
+  }
+  os << to_string(value);
 }
 
-// Tuple args are printed as varargs, space-separated.
+// A tuple argument prints as its items, separated by spaces.
 inline void print_value_varargs(std::ostream& os, const Value& value) {
-  if (!value.HasArray()) {
+  if (!value.is_tuple()) {
     print_value_repr(os, value);
     return;
   }
-
-  const auto& arr = as_array(value);
-  for (std::size_t element_index = 0; element_index < arr.Size(); ++element_index) {
-    if (element_index > 0) {
-      os << ' ';
+  std::string text;
+  const TupleView items = value.tuple();
+  for (std::size_t index = 0; index < items.size(); ++index) {
+    if (index > 0) {
+      text += ' ';
     }
-    print_value_repr(os, *arr.TryGet(element_index));
+    append_value_repr(text, items[index]);
   }
-}
-
-inline auto to_string(const Value& value) -> std::string {
-  std::ostringstream oss;
-  print_value_repr(oss, value);
-  return oss.str();
+  os << text;
 }
 
 [[nodiscard]] inline auto type_name(const Value& value) -> std::string {
-  if (callable_id_from_value(value).has_value()) {
-    return "Callable";
+  switch (value.kind()) {
+    case ValueKind::kNull:
+      return "Null";
+    case ValueKind::kBool:
+      return "Bool";
+    case ValueKind::kInt:
+      return "Int64";
+    case ValueKind::kUInt:
+      return "UInt64";
+    case ValueKind::kFloat:
+      return "Float64";
+    case ValueKind::kString:
+      return "String";
+    case ValueKind::kTuple:
+      return "Tuple";
+    case ValueKind::kDict:
+      return "Dict";
+    case ValueKind::kFunction:
+      return "Callable";
+    case ValueKind::kFileHandle:
+      return "Handle";
+    case ValueKind::kTask:
+      return "TaskHandle";
+    case ValueKind::kRandomGenerator:
+      return "RandomGenerator";
   }
-  if (handle_id_from_value(value).has_value()) {
-    return "Handle";
-  }
-
-  return value.Visit(
-      [](const Array&) -> std::string { return "Tuple"; }, [](const Generic&) -> std::string { return "Generic"; },
-      [](const Object&) -> std::string { return "Dict"; },
-      [](const ValueNode& vn) -> std::string {
-        return vn.Visit([](const Null&) -> std::string { return "Null"; },
-                        [](const Bool&) -> std::string { return "Bool"; },
-                        [](const Number& number_value) -> std::string {
-                          return number_value.Visit([](const Int) -> std::string { return "Int64"; },
-                                                    [](const UInt) -> std::string { return "UInt64"; },
-                                                    [](const Float) -> std::string { return "Float64"; });
-                        },
-                        [](const String&) -> std::string { return "String"; });
-      });
+  return "Unknown";
 }
 
-enum class SortTag {
-  kArray,
-  kGeneric,
-  kObject,
-  kNull,
-  kBool,
-  kNumber,
-  kString,
-};
-
-[[nodiscard]] inline auto sort_tag_of(const Value& value) -> SortTag {
-  const auto tag = value.Visit([](const Array&) -> SortTag { return SortTag::kArray; },
-                               [](const Generic&) -> SortTag { return SortTag::kGeneric; },
-                               [](const Object&) -> SortTag { return SortTag::kObject; },
-                               [](const ValueNode& vn) -> SortTag {
-                                 return vn.Visit([](const Null&) -> SortTag { return SortTag::kNull; },
-                                                 [](const Bool&) -> SortTag { return SortTag::kBool; },
-                                                 [](const Number&) -> SortTag { return SortTag::kNumber; },
-                                                 [](const String&) -> SortTag { return SortTag::kString; });
-                               });
-  return tag;
-}
+// Ordering
 
 [[nodiscard]] inline auto compare_values_for_sort(const Value& lhs, const Value& rhs) -> int;
 
-[[nodiscard]] inline auto compare_arrays_for_sort(const Array& lhs, const Array& rhs) -> int {
-  const std::size_t min_size = std::min(lhs.Size(), rhs.Size());
-  for (std::size_t element_index = 0; element_index < min_size; ++element_index) {
-    if (const int cmp = compare_values_for_sort(*lhs.TryGet(element_index), *rhs.TryGet(element_index)); cmp != 0) {
+[[nodiscard]] inline auto compare_tuples_for_sort(const TupleView lhs, const TupleView rhs) -> int {
+  const std::size_t shared = std::min(lhs.size(), rhs.size());
+  for (std::size_t index = 0; index < shared; ++index) {
+    if (const int cmp = compare_values_for_sort(lhs[index], rhs[index]); cmp != 0) {
       return cmp;
     }
   }
-  if (lhs.Size() < rhs.Size()) {
-    return -1;
-  }
-  if (lhs.Size() > rhs.Size()) {
-    return 1;
-  }
-  return 0;
+  return (lhs.size() < rhs.size()) ? -1 : ((lhs.size() > rhs.size()) ? 1 : 0);
 }
 
 // Orders two values of one Comparable type (Std.Tuple.Sort, Min, Max): the <T: Comparable> bound on Tuple<T...>
 // guarantees both values have the same kind, so the kinds are not compared here.
 [[nodiscard]] inline auto compare_values_for_sort(const Value& lhs, const Value& rhs) -> int {
-  switch (sort_tag_of(lhs)) {
-    case SortTag::kNull:
+  switch (lhs.kind()) {
+    case ValueKind::kNull:
       return 0;
-    case SortTag::kBool: {
-      const bool lhs_bool = as_bool(lhs);
-      const bool rhs_bool = as_bool(rhs);
-      return (lhs_bool < rhs_bool) ? -1 : ((lhs_bool > rhs_bool) ? 1 : 0);
-    }
-    case SortTag::kNumber: {
+    case ValueKind::kBool:
+      return static_cast<int>(as_bool(lhs)) - static_cast<int>(as_bool(rhs));
+    case ValueKind::kInt:
+    case ValueKind::kUInt:
+    case ValueKind::kFloat:
       return compare_numbers(lhs, rhs);
+    case ValueKind::kString: {
+      const int cmp = as_string(lhs).compare(as_string(rhs));
+      return (cmp < 0) ? -1 : ((cmp > 0) ? 1 : 0);
     }
-    case SortTag::kString: {
-      const String& lhs_string = as_string(lhs);
-      const String& rhs_string = as_string(rhs);
-      return (lhs_string < rhs_string) ? -1 : ((lhs_string > rhs_string) ? 1 : 0);
-    }
-    case SortTag::kArray:
-      return compare_arrays_for_sort(as_array(lhs), as_array(rhs));
-    case SortTag::kGeneric:
-    case SortTag::kObject:
+    case ValueKind::kTuple:
+      return compare_tuples_for_sort(lhs.tuple(), as_tuple(rhs));
+    default:
       break;
   }
   throw std::logic_error{"TupleSort invariant violated: expected Comparable values"};
 }
 
-[[nodiscard]] inline auto as_path_string_unary(Value arg) -> std::string {
-  return as_string(unwrap_singleton_arg(std::move(arg)));
-}
+// Text helpers
 
 [[nodiscard]] inline auto random_suffix(const std::size_t size = 12) -> std::string {
   thread_local std::mt19937_64 rng{std::random_device{}()};
@@ -1639,77 +803,51 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
   return text;
 }
 
-[[nodiscard]] inline auto format_value_plain(const Value& value) -> std::string {
-  return value.Visit([&](const Array&) -> std::string { return to_string(value); },
-                     [&](const Object&) -> std::string { return to_string(value); },
-                     [&](const Generic&) -> std::string { return to_string(value); },
-                     [&](const ValueNode& value_node) -> std::string {
-                       return value_node.Visit([&](const Null&) -> std::string { return to_string(value); },
-                                               [&](const Bool bool_value) -> std::string {
-                                                 return std::vformat("{}", std::make_format_args(bool_value));
-                                               },
-                                               [&](const Number& number_value) -> std::string {
-                                                 return number_value.Visit(
-                                                     [&](const Int signed_value) -> std::string {
-                                                       return std::vformat("{}", std::make_format_args(signed_value));
-                                                     },
-                                                     [&](const UInt unsigned_value) -> std::string {
-                                                       return std::vformat("{}", std::make_format_args(unsigned_value));
-                                                     },
-                                                     [&](const Float float_value) -> std::string {
-                                                       return std::vformat("{}", std::make_format_args(float_value));
-                                                     });
-                                               },
-                                               [&](const String& string_value) -> std::string {
-                                                 return std::vformat("{}", std::make_format_args(string_value));
-                                               });
-                     });
-}
+// Formatting
 
+// A value formatted with `spec`, as by "{:spec}". Scalars format natively; other values format as their printed text.
 [[nodiscard]] inline auto format_value_with_spec(const Value& value, const std::string& spec) -> std::string {
   const std::string single_fmt = std::format("{{0:{}}}", spec);
-  return value.Visit(
-      [&](const Array&) -> std::string {
-        const std::string repr = to_string(value);
-        return std::vformat(single_fmt, std::make_format_args(repr));
-      },
-      [&](const Object&) -> std::string {
-        const std::string repr = to_string(value);
-        return std::vformat(single_fmt, std::make_format_args(repr));
-      },
-      [&](const Generic&) -> std::string {
-        const std::string repr = to_string(value);
-        return std::vformat(single_fmt, std::make_format_args(repr));
-      },
-      [&](const ValueNode& value_node) -> std::string {
-        return value_node.Visit(
-            [&](const Null&) -> std::string {
-              const std::string repr = to_string(value);
-              return std::vformat(single_fmt, std::make_format_args(repr));
-            },
-            [&](const Bool bool_value) -> std::string {
-              return std::vformat(single_fmt, std::make_format_args(bool_value));
-            },
-            [&](const Number& number_value) -> std::string {
-              return number_value.Visit(
-                  [&](const Int signed_value) -> std::string {
-                    return std::vformat(single_fmt, std::make_format_args(signed_value));
-                  },
-                  [&](const UInt unsigned_value) -> std::string {
-                    return std::vformat(single_fmt, std::make_format_args(unsigned_value));
-                  },
-                  [&](const Float float_value) -> std::string {
-                    return std::vformat(single_fmt, std::make_format_args(float_value));
-                  });
-            },
-            [&](const String& string_value) -> std::string {
-              return std::vformat(single_fmt, std::make_format_args(string_value));
-            });
-      });
+  switch (value.kind()) {
+    case ValueKind::kBool: {
+      const Bool flag = value.bool_value();
+      return std::vformat(single_fmt, std::make_format_args(flag));
+    }
+    case ValueKind::kInt: {
+      const Int number = value.int_value();
+      return std::vformat(single_fmt, std::make_format_args(number));
+    }
+    case ValueKind::kUInt: {
+      const UInt number = value.uint_value();
+      return std::vformat(single_fmt, std::make_format_args(number));
+    }
+    case ValueKind::kFloat: {
+      const Float number = value.float_value();
+      return std::vformat(single_fmt, std::make_format_args(number));
+    }
+    case ValueKind::kString:
+      return std::vformat(single_fmt, std::make_format_args(value.string_value()));
+    default: {
+      const std::string repr = to_string(value);
+      return std::vformat(single_fmt, std::make_format_args(repr));
+    }
+  }
 }
 
-[[nodiscard]] inline auto format_values_fallback(const std::string& fmt, const std::vector<Value>& values)
-    -> std::string {
+[[nodiscard]] inline auto format_value_plain(const Value& value) -> std::string {
+  switch (value.kind()) {
+    case ValueKind::kBool:
+    case ValueKind::kInt:
+    case ValueKind::kUInt:
+    case ValueKind::kFloat:
+    case ValueKind::kString:
+      return format_value_with_spec(value, "");
+    default:
+      return to_string(value);
+  }
+}
+
+[[nodiscard]] inline auto format_values(const std::string& fmt, const TupleView values) -> std::string {
   std::string out;
   out.reserve(fmt.size());
 
@@ -1776,12 +914,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
         throw std::invalid_argument{"Format string references a missing argument"};
       }
 
-      if (spec.empty()) {
-        out += format_value_plain(values[index]);
-      } else {
-        out += format_value_with_spec(values[index], spec);
-      }
-
+      out += spec.empty() ? format_value_plain(values[index]) : format_value_with_spec(values[index], spec);
       cursor = close + 1;
       continue;
     }
@@ -1798,15 +931,11 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
   return out;
 }
 
-[[nodiscard]] inline auto format_values(const std::string& fmt, const std::vector<Value>& values) -> std::string {
-  return format_values_fallback(fmt, values);
-}
-
 [[nodiscard]] inline auto format_values(const std::string& fmt, const std::vector<std::string>& values) -> std::string {
   std::vector<Value> wrapped;
   wrapped.reserve(values.size());
-  for (const auto& s : values) {
-    wrapped.push_back(make_string(s));
+  for (const auto& text : values) {
+    wrapped.push_back(make_string(text));
   }
   return format_values(fmt, wrapped);
 }

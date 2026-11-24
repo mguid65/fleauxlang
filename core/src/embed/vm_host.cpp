@@ -315,9 +315,6 @@ auto VmHost::run_file(const std::filesystem::path& path) -> VmResult {
                             .write_bytecode_cache = true,
                             .enable_experimental_builtin_reductions =
                                 impl_->config.compile_options.enable_experimental_builtin_reductions,
-                            .enable_value_ref_gate = impl_->config.compile_options.enable_value_ref_gate,
-                            .enable_auto_value_ref = impl_->config.compile_options.enable_auto_value_ref,
-                            .value_ref_byte_cutoff = impl_->config.compile_options.value_ref_byte_cutoff,
                             .import_search_paths = impl_->config.import_roots,
                         });
     if (!module_result) {
@@ -369,9 +366,6 @@ auto VmHost::run_source(const std::string_view module_name, const std::string_vi
         .source_text = std::string{source_text},
         .module_name = std::string{module_name},
         .imported_modules = {},
-        .enable_value_ref_gate = impl_->config.compile_options.enable_value_ref_gate,
-        .enable_auto_value_ref = impl_->config.compile_options.enable_auto_value_ref,
-        .value_ref_byte_cutoff = impl_->config.compile_options.value_ref_byte_cutoff,
     };
 
     constexpr bytecode::BytecodeCompiler compiler;

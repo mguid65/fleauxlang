@@ -20,7 +20,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Requiring an explicit `import Std;` before `Std.*` resolution is also a
 // bytecode-cache compatibility boundary because older caches may have been
 // compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 31;
+constexpr std::uint32_t BYTECODE_VERSION = 41;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
@@ -477,8 +477,16 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
       }
       return std::format("builtin={}", fleaux::vm::builtin_name(*builtin_id));
     }
+    case Opcode::kCallBuiltinArgs: {
+      const auto builtin_id = fleaux::vm::builtin_id_from_operand(instruction.operand);
+      if (!builtin_id.has_value()) {
+        return std::format("invalid builtin id {}", instruction.operand);
+      }
+      return std::format("builtin={}, arguments={}", fleaux::vm::builtin_name(*builtin_id),
+                         fleaux::vm::builtin_argument_count_from_operand(instruction.operand));
+    }
     case Opcode::kCallUserFunc:
-    case Opcode::kCallUserFuncBinary:
+    case Opcode::kCallUserFuncArgs:
     case Opcode::kMakeUserFuncRef: {
       if (!valid_index(instruction.operand, module.functions.size())) {
         return index_label(instruction.operand, module.functions.size(), "function");
@@ -514,11 +522,14 @@ auto describe_operand(const Module& module, const std::vector<Instruction>& stre
                          module.native_functions[static_cast<std::size_t>(instruction.operand)].symbol);
     }
     case Opcode::kLoadLocal:
+    case Opcode::kTakeLocal:
       return std::format("local[{}]", instruction.operand);
     case Opcode::kBuildTuple:
       return std::format("tuple_size={}", instruction.operand);
     case Opcode::kConcatTuples:
       return std::format("pieces={}", instruction.operand);
+    case Opcode::kCallFunctionValueArgs:
+      return std::format("arguments={}", instruction.operand);
     case Opcode::kJump:
     case Opcode::kJumpIf:
     case Opcode::kJumpIfNot: {

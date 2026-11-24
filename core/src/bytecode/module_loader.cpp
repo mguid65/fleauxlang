@@ -92,10 +92,8 @@ auto hash_text(const std::string& text) -> std::uint64_t {
   return hash;
 }
 
-auto value_ref_cache_compatible(const ModuleLoadOptions& options) -> bool {
-  return !options.enable_experimental_builtin_reductions && !options.enable_value_ref_gate &&
-         !options.enable_auto_value_ref;
-}
+// The bytecode cache holds modules compiled with the default options only.
+auto cache_compatible(const ModuleLoadOptions& options) -> bool { return !options.enable_experimental_builtin_reductions; }
 
 auto let_identity_key(const frontend::ir::IRLet& let) -> std::string {
   if (!let.symbol_key.empty()) {
@@ -165,10 +163,11 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
         operand = static_cast<std::int64_t>(maps.constants[static_cast<std::size_t>(operand)]);
         break;
       case Opcode::kCallBuiltin:
+      case Opcode::kCallBuiltinArgs:
       case Opcode::kMakeBuiltinFuncRef:
         break;
       case Opcode::kCallUserFunc:
-      case Opcode::kCallUserFuncBinary:
+      case Opcode::kCallUserFuncArgs:
       case Opcode::kMakeUserFuncRef:
         operand = static_cast<std::int64_t>(maps.functions[static_cast<std::size_t>(operand)]);
         break;
@@ -319,7 +318,7 @@ auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions&
 
 auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOptions& options)
     -> tl::expected<std::optional<Module>, ModuleLoadError> {
-  if (!paths.bytecode.has_value() || (paths.source.has_value() && !value_ref_cache_compatible(options))) {
+  if (!paths.bytecode.has_value() || (paths.source.has_value() && !cache_compatible(options))) {
     return std::optional<Module>{};
   }
 
@@ -634,9 +633,6 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
                      .module_name = paths.source->stem().string(),
                      .imported_modules = std::move(loaded_imports.modules),
                       .enable_experimental_builtin_reductions = options.enable_experimental_builtin_reductions,
-                     .enable_value_ref_gate = options.enable_value_ref_gate || options.enable_auto_value_ref,
-                     .enable_auto_value_ref = options.enable_auto_value_ref,
-                     .value_ref_byte_cutoff = options.value_ref_byte_cutoff,
                  });
   if (!compiled) {
     return tl::unexpected(make_error(compiled.error().message));
@@ -649,7 +645,7 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
     return tl::unexpected(make_error(optimized.error().message));
   }
 
-  if (options.write_bytecode_cache && paths.bytecode.has_value() && value_ref_cache_compatible(options)) {
+  if (options.write_bytecode_cache && paths.bytecode.has_value() && cache_compatible(options)) {
     if (const auto serialized = serialize_module(mod); serialized) {
       write_binary_file(*paths.bytecode, *serialized);
     }

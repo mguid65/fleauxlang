@@ -666,746 +666,105 @@ TEST_CASE("RuntimeSession Std.Help shows canonical stdlib docs", "[vm][repl][hel
   REQUIRE_THAT(output.str(), Catch::Matchers::ContainsSubstring("Parameters:"));
 }
 
-TEST_CASE("VM executes value-ref opcodes round-trip", "[vm][lifetime][value_ref]") {
-  fleaux::bytecode::Module bytecode_module;
-  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
-  const auto c10 = push_i64_const(bytecode_module, 10);
+namespace {
 
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
-      {.opcode = fleaux::bytecode::Opcode::kMakeValueRef, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kDerefValueRef, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
-      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-
-  REQUIRE(result.has_value());
-  REQUIRE(output.str() == "10\n");
+auto open_file_count() -> std::size_t {
+  std::size_t count = 0;
+  fleaux::runtime::open_files().for_each([&count](const fleaux::runtime::FileHandleObject&) -> void { ++count; });
+  return count;
 }
 
-TEST_CASE("VM execute reclaims transient callable refs", "[vm][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::bytecode::Module bytecode_module;
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = builtin(fleaux::vm::BuiltinId::UnaryPlus)},
-      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = builtin(fleaux::vm::BuiltinId::UnaryPlus)},
-      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-
-  const auto first = runtime.execute(bytecode_module, output);
-  REQUIRE(first.has_value());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  const auto second = runtime.execute(bytecode_module, output);
-  REQUIRE(second.has_value());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+auto push_string_const(fleaux::bytecode::Module& bytecode_module, std::string value) -> std::int64_t {
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::move(value)});
+  return static_cast<std::int64_t>(bytecode_module.constants.size() - 1U);
 }
 
-TEST_CASE("RuntimeSession run_snippet reclaims transient callable refs across runs", "[vm][repl][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+}  // namespace
 
-  const fleaux::vm::Runtime runtime;
-  const auto session = runtime.create_session({});
-
-  const std::string snippet =
-      "import Std;\n"
-      "let MakeAdder(n: Float64): (Float64) => Float64 = (x: Float64): Float64 = (x, n) -> Std.Add;\n"
-      "(10.0, (4.0) -> MakeAdder) -> Std.Apply -> Std.Println;\n";
-
-  for (int iter = 0; iter < 25; ++iter) {
-    std::ostringstream output;
-    const auto result = session.run_snippet(snippet, output);
-    REQUIRE(result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  }
-}
-
-TEST_CASE("VM execute invalidates escaped transient callable refs", "[vm][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::bytecode::Module bytecode_module;
-  bytecode_module.instructions = {
-      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = builtin(fleaux::vm::BuiltinId::UnaryPlus)},
-      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
-      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
-  };
-
-  std::ostringstream output;
-  const fleaux::vm::Runtime runtime;
-  const auto result = runtime.execute(bytecode_module, output);
-  REQUIRE(result.has_value());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::Array escaped_ref;
-  escaped_ref.Reserve(2);
-  escaped_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::String{fleaux::runtime::k_callable_tag}});
-  escaped_ref.PushBack(fleaux::runtime::Value{fleaux::runtime::UInt{0}});
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(fleaux::runtime::Value{std::move(escaped_ref)},
-                                                           fleaux::runtime::make_int(7)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("Callable refs reject stale generations after slot reuse", "[vm][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::Value stale_ref;
-  fleaux::runtime::CallableId stale_id{.slot = 0, .generation = 0};
+TEST_CASE("File handles close when the last value holding them goes away", "[vm][lifetime][handle]") {
+  const auto path =
+      std::filesystem::temp_directory_path() / ("fleaux_handle_lifetime_" + fleaux::runtime::random_suffix() + ".txt");
+  const auto open_before = open_file_count();
   {
-    fleaux::runtime::CallableRegistryScope scope;
-    stale_ref =
-        fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-
-    const auto parsed = fleaux::runtime::callable_id_from_value(stale_ref);
-    REQUIRE(parsed.has_value());
-    stale_id = *parsed;
-    const auto stale_result = fleaux::runtime::invoke_callable_ref(stale_ref, fleaux::runtime::make_int(9));
-    REQUIRE(fleaux::runtime::as_int_value(stale_result) == 9);
+    const auto handle = fleaux::runtime::FileOpen(
+        fleaux::runtime::make_tuple(fleaux::runtime::make_string(path.string()), fleaux::runtime::make_string("w")));
+    REQUIRE(open_file_count() == open_before + 1U);
+    const auto copy = handle;
+    REQUIRE(open_file_count() == open_before + 1U);
   }
+  REQUIRE(open_file_count() == open_before);
 
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::Value live_ref;
-  fleaux::runtime::CallableId live_id{.slot = 0, .generation = 0};
-  {
-    fleaux::runtime::CallableRegistryScope scope;
-    live_ref =
-        fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-
-    const auto parsed = fleaux::runtime::callable_id_from_value(live_ref);
-    REQUIRE(parsed.has_value());
-    live_id = *parsed;
-    REQUIRE(stale_id.slot == live_id.slot);
-    REQUIRE(stale_id.generation != live_id.generation);
-
-    REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(stale_ref, fleaux::runtime::make_int(1)),
-                        Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-    const auto live_result = fleaux::runtime::invoke_callable_ref(live_ref, fleaux::runtime::make_int(11));
-    REQUIRE(fleaux::runtime::as_int_value(live_result) == 11);
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+  // Windows refuses to delete a file that is still open.
+  std::filesystem::remove(path);
+  REQUIRE_FALSE(std::filesystem::exists(path));
 }
 
-TEST_CASE("PinnedCallableRef survives CallableRegistryScope teardown", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
+TEST_CASE("Closing a file handle closes it for every value holding it", "[vm][lifetime][handle]") {
+  const auto path =
+      std::filesystem::temp_directory_path() / ("fleaux_handle_close_" + fleaux::runtime::random_suffix() + ".txt");
+  {
+    std::ofstream out(path);
+    out << "line\n";
+  }
 
-  auto pinned = fleaux::runtime::make_pinned_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-    return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) * 3);
+  const auto handle = fleaux::runtime::FileOpen(
+      fleaux::runtime::make_tuple(fleaux::runtime::make_string(path.string()), fleaux::runtime::make_string("r")));
+  const auto copy = handle;
+  REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::FileClose(copy)));
+  REQUIRE_THROWS_WITH(fleaux::runtime::FileReadLine(handle), Catch::Matchers::ContainsSubstring("closed"));
+  REQUIRE_FALSE(fleaux::runtime::as_bool(fleaux::runtime::FileClose(handle)));
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("VM execute closes the files a program leaves open", "[vm][lifetime][handle]") {
+  const auto path =
+      std::filesystem::temp_directory_path() / ("fleaux_handle_program_" + fleaux::runtime::random_suffix() + ".txt");
+  fleaux::bytecode::Module bytecode_module;
+  const auto path_const = push_string_const(bytecode_module, path.string());
+  const auto mode_const = push_string_const(bytecode_module, "w");
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = path_const},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = mode_const},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = builtin(fleaux::vm::BuiltinId::FileOpen)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  const auto open_before = open_file_count();
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(bytecode_module, output).has_value());
+  REQUIRE(open_file_count() == open_before);
+
+  std::filesystem::remove(path);
+  REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE("VM invoke_symbol does not hand a function value to the host", "[vm][lifetime]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "MakeFunction",
+      .link_name = "MakeFunction",
+      .kind = fleaux::bytecode::ExportKind::kFunction,
+      .index = 0,
   });
 
-  REQUIRE(pinned.is_valid());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-  {
-    // Transient callables created inside this scope must be cleaned up.
-    fleaux::runtime::CallableRegistryScope scope;
-    fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-    fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-    REQUIRE(fleaux::runtime::callable_registry_size() == 3U);
-  }
-
-  // Transients gone; pinned ref must still be alive.
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-  REQUIRE(pinned.is_valid());
-
-  const auto result = fleaux::runtime::invoke_callable_ref(pinned.token(), fleaux::runtime::make_int(7));
-  REQUIRE(fleaux::runtime::as_int_value(result) == 21);
-}
-
-TEST_CASE("PinnedCallableRef explicit release invalidates the token", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  auto pinned = fleaux::runtime::make_pinned_callable_ref(
-      [](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-
-  REQUIRE(pinned.is_valid());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-  const auto token_copy = pinned.token();
-  pinned.release();
-
-  REQUIRE_FALSE(pinned.is_valid());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(token_copy, fleaux::runtime::make_int(1)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("PinnedCallableRef RAII releases on destruction", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::Value token_copy;
-  {
-    auto pinned = fleaux::runtime::make_pinned_callable_ref(
-        [](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-    REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-    token_copy = pinned.token();
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(token_copy, fleaux::runtime::make_int(1)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("PinnedCallableRef slot is reused by transient after release", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::CallableId pinned_id{};
-  fleaux::runtime::Value stale_token;
-  {
-    auto pinned = fleaux::runtime::make_pinned_callable_ref(
-        [](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-    pinned_id = pinned.id();
-    stale_token = pinned.token();
-    // pinned destroyed here
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  // A new transient callable must reuse the freed slot.
-  fleaux::runtime::Value live_token;
-  fleaux::runtime::CallableId live_id{};
-  {
-    fleaux::runtime::CallableRegistryScope scope;
-    live_token = fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 100);
-    });
-    const auto parsed = fleaux::runtime::callable_id_from_value(live_token);
-    REQUIRE(parsed.has_value());
-    live_id = *parsed;
-
-    // Same slot, different generation.
-    REQUIRE(live_id.slot == pinned_id.slot);
-    REQUIRE(live_id.generation != pinned_id.generation);
-
-    // Stale token must be rejected.
-    REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(stale_token, fleaux::runtime::make_int(1)),
-                        Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-
-    // Live token works fine.
-    const auto result = fleaux::runtime::invoke_callable_ref(live_token, fleaux::runtime::make_int(5));
-    REQUIRE(fleaux::runtime::as_int_value(result) == 105);
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-}
-
-TEST_CASE("release_callable_ref Value overload retires pinned slot", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  const auto id = fleaux::runtime::register_callable_pinned(
-      [](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-  fleaux::runtime::Array token_arr;
-  token_arr.Reserve(3);
-  token_arr.PushBack(fleaux::runtime::Value{fleaux::runtime::String{fleaux::runtime::k_callable_tag}});
-  token_arr.PushBack(fleaux::runtime::Value{id.slot});
-  token_arr.PushBack(fleaux::runtime::Value{id.generation});
-  const fleaux::runtime::Value token{std::move(token_arr)};
-
-  REQUIRE_NOTHROW(fleaux::runtime::invoke_callable_ref(token, fleaux::runtime::make_null()));
-
-  fleaux::runtime::release_callable_ref(token);
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(token, fleaux::runtime::make_null()),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("Nested CallableRegistryScope keeps outer transient callable alive until outer teardown", "[vm][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-
-  fleaux::runtime::Value outer_token;
-  fleaux::runtime::Value inner_token;
-  {
-    fleaux::runtime::CallableRegistryScope outer_scope;
-    outer_token = fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 1);
-    });
-    REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-    {
-      fleaux::runtime::CallableRegistryScope inner_scope;
-      inner_token = fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 10);
-      });
-      REQUIRE(fleaux::runtime::callable_registry_size() == 2U);
-      REQUIRE(fleaux::runtime::as_int_value(
-                  fleaux::runtime::invoke_callable_ref(outer_token, fleaux::runtime::make_int(4))) == 5);
-      REQUIRE(fleaux::runtime::as_int_value(
-                  fleaux::runtime::invoke_callable_ref(inner_token, fleaux::runtime::make_int(4))) == 14);
-    }
-
-    REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-    REQUIRE(fleaux::runtime::as_int_value(
-                fleaux::runtime::invoke_callable_ref(outer_token, fleaux::runtime::make_int(9))) == 10);
-    REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(inner_token, fleaux::runtime::make_int(1)),
-                        Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(outer_token, fleaux::runtime::make_int(1)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("PinnedCallableRef move assignment preserves token validity and single ownership", "[vm][lifetime][pinned]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
-  fleaux::runtime::PinnedCallableRef moved;
-  fleaux::runtime::Value token_copy;
-  {
-    auto pinned = fleaux::runtime::make_pinned_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) * 4);
-    });
-    token_copy = pinned.token();
-    moved = std::move(pinned);
-
-    REQUIRE_FALSE(pinned.is_valid());
-    REQUIRE(moved.is_valid());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-  }
-
-  REQUIRE(fleaux::runtime::as_int_value(
-              fleaux::runtime::invoke_callable_ref(moved.token(), fleaux::runtime::make_int(6))) == 24);
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-  moved.release();
-  REQUIRE_FALSE(moved.is_valid());
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(token_copy, fleaux::runtime::make_int(1)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-}
-
-TEST_CASE("Tagged token helpers preserve callable, value-ref, and handle ids", "[vm][lifetime][tokens]") {
-  fleaux::runtime::reset_callable_registry();
-  {
-    fleaux::runtime::CallableRegistryScope scope;
-    const auto callable_token =
-        fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value { return arg; });
-    const auto callable_id = fleaux::runtime::callable_id_from_value(callable_token);
-    REQUIRE(callable_id.has_value());
-
-    fleaux::runtime::Array legacy_callable_token;
-    legacy_callable_token.Reserve(2);
-    legacy_callable_token.EmplaceBack(fleaux::runtime::String{fleaux::runtime::k_callable_tag});
-    legacy_callable_token.EmplaceBack(callable_id->slot);
-
-    const auto legacy_callable_id =
-        fleaux::runtime::callable_id_from_value(fleaux::runtime::Value{std::move(legacy_callable_token)});
-    REQUIRE(legacy_callable_id.has_value());
-    REQUIRE(legacy_callable_id->slot == callable_id->slot);
-    REQUIRE(legacy_callable_id->generation == 0U);
-  }
-
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    const auto value_ref_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(123));
-    const auto value_ref_id = fleaux::runtime::value_ref_id_from_token(value_ref_token);
-    REQUIRE(value_ref_id.has_value());
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(value_ref_token)) == 123);
-  }
-
-  const auto handle_id = fleaux::runtime::handle_id_from_value(fleaux::runtime::make_handle_token(5U, 7U));
-  REQUIRE(handle_id.has_value());
-  REQUIRE(handle_id->slot == 5U);
-  REQUIRE(handle_id->gen == 7U);
-}
-
-// ============================================================================
-// ValueRegistry tests
-// ============================================================================
-
-TEST_CASE("ValueRegistryScope cleans up transient value refs", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::Value stale_token;
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    stale_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(42));
-    const auto val = fleaux::runtime::deref_value_ref(stale_token);
-    REQUIRE(fleaux::runtime::as_int_value(val) == 42);
-  }
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(stale_token),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-}
-
-TEST_CASE("PinnedValueRef survives ValueRegistryScope teardown", "[vm][lifetime][value_ref]") {
-  auto pinned = fleaux::runtime::PinnedValueRef{fleaux::runtime::make_int(99)};
-  REQUIRE(pinned.is_valid());
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    const auto transient_a = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(1));
-    const auto transient_b = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(2));
-    REQUIRE(transient_a.HasArray());
-    REQUIRE(transient_b.HasArray());
-  }
-  // Pinned value must still be reachable.
-  REQUIRE(pinned.is_valid());
-  REQUIRE(fleaux::runtime::as_int_value(pinned.get()) == 99);
-}
-
-TEST_CASE("PinnedValueRef explicit release invalidates token", "[vm][lifetime][value_ref]") {
-  auto pinned = fleaux::runtime::PinnedValueRef{fleaux::runtime::make_string("hello")};
-  const auto token_copy = pinned.token();
-  pinned.release();
-  REQUIRE_FALSE(pinned.is_valid());
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(token_copy),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-}
-
-TEST_CASE("PinnedValueRef RAII releases on destruction", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::Value token_copy;
-  {
-    auto pinned = fleaux::runtime::PinnedValueRef{fleaux::runtime::make_bool(true)};
-    token_copy = pinned.token();
-    REQUIRE(fleaux::runtime::deref_value_ref(token_copy).TryGetBool().has_value());
-  }
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(token_copy),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-}
-
-TEST_CASE("Nested ValueRegistryScope keeps outer transient value alive until outer teardown",
-          "[vm][lifetime][value_ref]") {
-  fleaux::runtime::reset_value_registry_for_tests();
-
-  fleaux::runtime::Value outer_token;
-  fleaux::runtime::Value inner_token;
-  {
-    fleaux::runtime::ValueRegistryScope outer_scope;
-    outer_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(12));
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(outer_token)) == 12);
-
-    {
-      fleaux::runtime::ValueRegistryScope inner_scope;
-      inner_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(34));
-      REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(inner_token)) == 34);
-      REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(outer_token)) == 12);
-    }
-
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(outer_token)) == 12);
-    REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(inner_token),
-                        Catch::Matchers::ContainsSubstring("stale or unknown"));
-  }
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(outer_token),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-  fleaux::runtime::reset_value_registry_for_tests();
-}
-
-TEST_CASE("PinnedValueRef move assignment preserves token validity and single ownership", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::reset_value_registry_for_tests();
-
-  fleaux::runtime::PinnedValueRef moved;
-  fleaux::runtime::Value token_copy;
-  {
-    auto pinned = fleaux::runtime::PinnedValueRef{fleaux::runtime::make_string("kept")};
-    token_copy = pinned.token();
-    moved = std::move(pinned);
-
-    REQUIRE_FALSE(pinned.is_valid());
-    REQUIRE(moved.is_valid());
-  }
-
-  REQUIRE(fleaux::runtime::as_string(moved.get()) == "kept");
-  moved.release();
-  REQUIRE_FALSE(moved.is_valid());
-  REQUIRE_THROWS_WITH(moved.get(), Catch::Matchers::ContainsSubstring("already released"));
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(token_copy),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-  fleaux::runtime::reset_value_registry_for_tests();
-}
-
-TEST_CASE("ActiveRuntimeExecutionStateScope isolates callable and value registries from the default state",
-          "[vm][lifetime][execution_state]") {
-  fleaux::runtime::reset_callable_registry();
-  fleaux::runtime::reset_value_registry_for_tests();
-
-  auto default_callable =
-      fleaux::runtime::make_pinned_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) + 100);
-      });
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-
-  fleaux::runtime::Value isolated_callable;
-  fleaux::runtime::Value isolated_value_ref;
-  fleaux::runtime::RuntimeExecutionState isolated_state;
-  {
-    fleaux::runtime::ActiveRuntimeExecutionStateScope state_scope(isolated_state);
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-    REQUIRE(fleaux::runtime::value_registry_telemetry().active_count == 0U);
-
-    fleaux::runtime::CallableRegistryScope callable_scope;
-    fleaux::runtime::ValueRegistryScope value_scope;
-
-    isolated_callable = fleaux::runtime::make_callable_ref([](fleaux::runtime::Value arg) -> fleaux::runtime::Value {
-      return fleaux::runtime::make_int(fleaux::runtime::as_int_value(arg) * 5);
-    });
-    isolated_value_ref = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(77));
-
-    REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-    REQUIRE(fleaux::runtime::as_int_value(
-                fleaux::runtime::invoke_callable_ref(isolated_callable, fleaux::runtime::make_int(4))) == 20);
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(isolated_value_ref)) == 77);
-  }
-
-  REQUIRE(fleaux::runtime::callable_registry_size() == 1U);
-  REQUIRE(fleaux::runtime::as_int_value(
-              fleaux::runtime::invoke_callable_ref(default_callable.token(), fleaux::runtime::make_int(1))) == 101);
-  REQUIRE_THROWS_WITH(fleaux::runtime::invoke_callable_ref(isolated_callable, fleaux::runtime::make_int(1)),
-                      Catch::Matchers::ContainsSubstring("Unknown callable reference"));
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(isolated_value_ref),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-
-  default_callable.release();
-  fleaux::runtime::reset_callable_registry();
-  fleaux::runtime::reset_value_registry_for_tests();
-}
-
-TEST_CASE("ValueRegistry slot reuse produces different generation", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::Value stale_token;
-  fleaux::runtime::RegistryId first_id{};
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    stale_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(7));
-    const auto parsed = fleaux::runtime::value_ref_id_from_token(stale_token);
-    REQUIRE(parsed.has_value());
-    first_id = *parsed;
-  }
-
-  fleaux::runtime::Value second_token;
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    second_token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(8));
-    const auto parsed = fleaux::runtime::value_ref_id_from_token(second_token);
-    REQUIRE(parsed.has_value());
-    REQUIRE(parsed->slot == first_id.slot);
-    REQUIRE(parsed->generation != first_id.generation);
-
-    REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(stale_token),
-                        Catch::Matchers::ContainsSubstring("stale or unknown"));
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(second_token)) == 8);
-  }
-}
-
-TEST_CASE("release_value_ref explicitly retires a value ref token", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::ValueRegistryScope scope;
-  const auto token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(55));
-  REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(token)) == 55);
-  fleaux::runtime::release_value_ref(token);
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(token), Catch::Matchers::ContainsSubstring("stale or unknown"));
-}
-
-TEST_CASE("ValueRegistry telemetry tracks peak active count and stale deref rejections", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::reset_value_registry_for_tests();
-
-  const auto initial = fleaux::runtime::value_registry_telemetry();
-  REQUIRE(initial.active_count == 0U);
-  REQUIRE(initial.peak_active_count == 0U);
-  REQUIRE(initial.rejected_allocations == 0U);
-  REQUIRE(initial.stale_deref_rejections == 0U);
-  REQUIRE_FALSE(initial.transient_cap.has_value());
-
-  fleaux::runtime::Value stale_token;
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    const auto token_a = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(1));
-    const auto token_b = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(2));
-    stale_token = token_a;
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(token_b)) == 2);
-
-    const auto during = fleaux::runtime::value_registry_telemetry();
-    REQUIRE(during.active_count >= 2U);
-    REQUIRE(during.peak_active_count >= 2U);
-  }
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::deref_value_ref(stale_token),
-                      Catch::Matchers::ContainsSubstring("stale or unknown"));
-
-  const auto after = fleaux::runtime::value_registry_telemetry();
-  REQUIRE(after.active_count == 0U);
-  REQUIRE(after.peak_active_count >= 2U);
-  REQUIRE(after.stale_deref_rejections >= 1U);
-
-  fleaux::runtime::reset_value_registry_for_tests();
-}
-
-TEST_CASE("ValueRegistry transient cap rejects new refs and tracks rejections", "[vm][lifetime][value_ref]") {
-  fleaux::runtime::reset_value_registry_for_tests();
-  fleaux::runtime::set_value_registry_transient_cap(1U);
-
-  {
-    fleaux::runtime::ValueRegistryScope scope;
-    const auto token = fleaux::runtime::make_value_ref(fleaux::runtime::make_int(7));
-    REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::deref_value_ref(token)) == 7);
-
-    REQUIRE_THROWS_WITH(fleaux::runtime::make_value_ref(fleaux::runtime::make_int(8)),
-                        Catch::Matchers::ContainsSubstring("transient cap reached"));
-  }
-
-  const auto telemetry = fleaux::runtime::value_registry_telemetry();
-  REQUIRE(telemetry.rejected_allocations >= 1U);
-  REQUIRE(telemetry.transient_cap.has_value());
-  REQUIRE(*telemetry.transient_cap == 1U);
-
-  fleaux::runtime::set_value_registry_transient_cap(std::nullopt);
-  fleaux::runtime::reset_value_registry_for_tests();
-}
-
-// ============================================================================
-// HandleRegistryScope tests
-// ============================================================================
-
-TEST_CASE("HandleRegistryScope closes abandoned file handles on scope exit", "[vm][lifetime][handle]") {
-  const auto tmp =
-      std::filesystem::temp_directory_path() / ("fleaux_handle_scope_" + std::to_string(::getpid()) + ".txt");
-  std::filesystem::remove(tmp);
-
-  fleaux::runtime::HandleId leaked_id{.slot = 0, .gen = 0};
-  {
-    fleaux::runtime::HandleRegistryScope scope;
-    auto& reg = fleaux::runtime::handle_registry();
-    const auto slot = reg.open(tmp.string(), "w");
-    leaked_id = fleaux::runtime::HandleId{.slot = slot, .gen = reg.entries[static_cast<std::size_t>(slot)].generation};
-    // Do NOT close; scope destructor must handle it.
-  }
-
-  // After scope exit the handle must be closed.
-  auto* entry = fleaux::runtime::handle_registry().get(leaked_id.slot, leaked_id.gen);
-  REQUIRE(entry == nullptr);
-
-  std::filesystem::remove(tmp);
-}
-
-TEST_CASE("HandleRegistryScope does not disturb handles opened before checkpoint", "[vm][lifetime][handle]") {
-  const auto tmp =
-      std::filesystem::temp_directory_path() / ("fleaux_handle_scope_pre_" + std::to_string(::getpid()) + ".txt");
-  std::filesystem::remove(tmp);
-
-  auto& reg = fleaux::runtime::handle_registry();
-  const auto pre_slot = reg.open(tmp.string(), "w");
-  const auto pre_gen = reg.entries[static_cast<std::size_t>(pre_slot)].generation;
-
-  {
-    fleaux::runtime::HandleRegistryScope scope;
-    // Nothing opened inside scope.
-  }
-
-  // Pre-existing handle must still be alive.
-  REQUIRE(fleaux::runtime::handle_registry().get(pre_slot, pre_gen) != nullptr);
-  fleaux::runtime::handle_registry().close(pre_slot, pre_gen);
-  std::filesystem::remove(tmp);
-}
-
-TEST_CASE("Nested HandleRegistryScope keeps outer handle alive until outer teardown", "[vm][lifetime][handle]") {
-  const auto outer_tmp =
-      std::filesystem::temp_directory_path() / ("fleaux_handle_scope_outer_" + std::to_string(::getpid()) + ".txt");
-  const auto inner_tmp =
-      std::filesystem::temp_directory_path() / ("fleaux_handle_scope_inner_" + std::to_string(::getpid()) + ".txt");
-  std::filesystem::remove(outer_tmp);
-  std::filesystem::remove(inner_tmp);
-
-  auto& reg = fleaux::runtime::handle_registry();
-  fleaux::runtime::HandleId outer_id{.slot = 0, .gen = 0};
-  fleaux::runtime::HandleId inner_id{.slot = 0, .gen = 0};
-  {
-    fleaux::runtime::HandleRegistryScope outer_scope;
-    const auto outer_slot = reg.open(outer_tmp.string(), "w");
-    outer_id = fleaux::runtime::HandleId{.slot = outer_slot,
-                                         .gen = reg.entries[static_cast<std::size_t>(outer_slot)].generation};
-    REQUIRE(reg.get(outer_id.slot, outer_id.gen) != nullptr);
-
-    {
-      fleaux::runtime::HandleRegistryScope inner_scope;
-      const auto inner_slot = reg.open(inner_tmp.string(), "w");
-      inner_id = fleaux::runtime::HandleId{.slot = inner_slot,
-                                           .gen = reg.entries[static_cast<std::size_t>(inner_slot)].generation};
-      REQUIRE(reg.get(inner_id.slot, inner_id.gen) != nullptr);
-    }
-
-    REQUIRE(reg.get(outer_id.slot, outer_id.gen) != nullptr);
-    REQUIRE(reg.get(inner_id.slot, inner_id.gen) == nullptr);
-  }
-
-  REQUIRE(reg.get(outer_id.slot, outer_id.gen) == nullptr);
-
-  std::filesystem::remove(outer_tmp);
-  std::filesystem::remove(inner_tmp);
-}
-
-TEST_CASE("ActiveRuntimeExecutionStateScope isolates handle registry from the default state",
-          "[vm][lifetime][handle][execution_state]") {
-  fleaux::runtime::reset_handle_registry_for_tests();
-
-  const auto temp_dir =
-      std::filesystem::temp_directory_path() / ("fleaux_handle_state_" + fleaux::runtime::random_suffix());
-  std::filesystem::create_directories(temp_dir);
-  const auto outer_file = temp_dir / "outer.txt";
-  const auto inner_file = temp_dir / "inner.txt";
-
-  {
-    std::ofstream out(outer_file);
-    out << "outer\n";
-  }
-  {
-    std::ofstream out(inner_file);
-    out << "inner\n";
-  }
-
-  const auto default_token = fleaux::runtime::FileOpen(fleaux::runtime::make_tuple(
-      fleaux::runtime::make_string(outer_file.string()), fleaux::runtime::make_string("r")));
-  fleaux::runtime::Value isolated_token = fleaux::runtime::make_null();
-
-  {
-    fleaux::runtime::RuntimeExecutionState isolated_state;
-    fleaux::runtime::ActiveRuntimeExecutionStateScope state_scope(isolated_state);
-    fleaux::runtime::HandleRegistryScope handle_scope;
-
-    isolated_token = fleaux::runtime::FileOpen(fleaux::runtime::make_tuple(
-        fleaux::runtime::make_string(inner_file.string()), fleaux::runtime::make_string("r")));
-
-    const auto isolated_read = fleaux::runtime::FileReadLine(isolated_token);
-    REQUIRE(fleaux::runtime::as_string(fleaux::runtime::array_at(isolated_read, 1)) == "inner");
-
-    REQUIRE_THROWS_WITH(fleaux::runtime::FileReadLine(default_token),
-                        Catch::Matchers::ContainsSubstring("closed or invalid"));
-    REQUIRE_FALSE(fleaux::runtime::as_bool(fleaux::runtime::FileClose(default_token)));
-  }
-
-  const auto default_read = fleaux::runtime::FileReadLine(default_token);
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::array_at(default_read, 1)) == "outer");
-
-  REQUIRE_THROWS_WITH(fleaux::runtime::FileReadLine(isolated_token),
-                      Catch::Matchers::ContainsSubstring("closed or invalid"));
-  REQUIRE_FALSE(fleaux::runtime::as_bool(fleaux::runtime::FileClose(isolated_token)));
-  REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::FileClose(default_token)));
-
-  fleaux::runtime::reset_handle_registry_for_tests();
-  std::error_code ec;
-  std::filesystem::remove(outer_file, ec);
-  std::filesystem::remove(inner_file, ec);
-  std::filesystem::remove_all(temp_dir, ec);
+  fleaux::bytecode::FunctionDef make_function;
+  make_function.name = "MakeFunction";
+  make_function.arity = 1;
+  make_function.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,
+       .operand = builtin(fleaux::vm::BuiltinId::UnaryPlus)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(make_function));
+
+  const fleaux::vm::Runtime runtime;
+  const auto invoked = runtime.invoke_symbol(bytecode_module, "MakeFunction", fleaux::runtime::make_int(1));
+  REQUIRE_FALSE(invoked.has_value());
+  REQUIRE_THAT(invoked.error().message, Catch::Matchers::ContainsSubstring("returned a function value"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2371,8 +1730,8 @@ TEST_CASE("VM executes exact-1 Std.Task.Await builtin refs with direct-value tas
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
-                          fleaux::runtime::make_string("Task.Await: invalid task handle"))));
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(
+                          fleaux::runtime::make_string("Task.Await: invalid task handle")));
 }
 
 TEST_CASE("VM executes exact-1 Std.Task.AwaitAll builtin refs with direct-value tuple arguments", "[vm]") {
@@ -2582,8 +1941,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Tuple.Reverse builtin aliases with ex
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 3U);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 0)) == 3.0);
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 3U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(*invoked, 0)) == 3.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Tuple.Range builtin aliases", "[vm]") {
@@ -2606,8 +1965,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Tuple.Range builtin aliases", "[vm]")
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 3U);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 2)) == 1.0);
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 3U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(*invoked, 2)) == 1.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Result builtin aliases with exact-1 direct-value shape", "[vm]") {
@@ -2665,7 +2024,7 @@ TEST_CASE("VM invoke_symbol dispatches Std.Random.NextBool builtin aliases with 
   const fleaux::vm::Runtime runtime;
   auto invoked = runtime.invoke_symbol(
       bytecode_module, "StepRandomBool",
-      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL))));
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_uint(123456789ULL)));
 
   if (!invoked.has_value()) {
     INFO(invoked.error().message);
@@ -2709,7 +2068,7 @@ TEST_CASE("VM invoke_symbol dispatches Std.Random.Split builtin aliases with exa
   const fleaux::vm::Runtime runtime;
   auto invoked = runtime.invoke_symbol(
       bytecode_module, "SplitRandom",
-      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL))));
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_uint(123456789ULL)));
 
   if (!invoked.has_value()) {
     INFO(invoked.error().message);
@@ -2743,8 +2102,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Dict.Keys builtin aliases with exact-
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 1U);
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::array_at(*invoked, 0)) == "answer");
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 1U);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::tuple_at(*invoked, 0)) == "answer");
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Dict.Contains builtin aliases", "[vm]") {
@@ -2794,8 +2153,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Array.Slice builtin aliases", "[vm]")
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(*invoked, 0)) == 2.0);
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(*invoked, 0)) == 2.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Array.Reshape builtin aliases", "[vm]") {
@@ -2820,8 +2179,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Array.Reshape builtin aliases", "[vm]
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::array_at(*invoked, 1), 1)) == 4.0);
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(fleaux::runtime::tuple_at(*invoked, 1), 1)) == 4.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Array.Transpose2D builtin aliases with exact-1 direct-value shape", "[vm]") {
@@ -2844,8 +2203,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Array.Transpose2D builtin aliases wit
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(fleaux::runtime::as_array(*invoked).Size() == 2U);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::array_at(*invoked, 1), 0)) == 2.0);
+  REQUIRE(fleaux::runtime::as_tuple(*invoked).size() == 2U);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(fleaux::runtime::tuple_at(*invoked, 1), 0)) == 2.0);
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Array.GetAtND builtin aliases", "[vm]") {
@@ -2892,8 +2251,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Task.Await builtin aliases with exact
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
-                          fleaux::runtime::make_string("Task.Await: invalid task handle"))));
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(
+                          fleaux::runtime::make_string("Task.Await: invalid task handle")));
 }
 
 TEST_CASE("VM invoke_symbol dispatches Std.Task.Cancel builtin aliases with exact-1 direct-value shape", "[vm]") {
@@ -2935,8 +2294,8 @@ TEST_CASE("VM invoke_symbol dispatches Std.Task.WithTimeout builtin aliases", "[
     INFO(invoked.error().message);
   }
   REQUIRE(invoked.has_value());
-  REQUIRE(*invoked == fleaux::runtime::ResultErr(fleaux::runtime::make_tuple(
-                          fleaux::runtime::make_string("Task.WithTimeout: invalid task handle"))));
+  REQUIRE(*invoked == fleaux::runtime::ResultErr(
+                          fleaux::runtime::make_string("Task.WithTimeout: invalid task handle")));
 }
 
 TEST_CASE("VM nested callable refs preserve local state across reused invocation scratch", "[vm][closure]") {
@@ -3595,7 +2954,6 @@ TEST_CASE("VM kCallBuiltin executes unary builtins through primary builtin dispa
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kUnaryPlusBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
@@ -3860,7 +3218,7 @@ TEST_CASE("VM kCallUserFunc binds fixed-arity tuple arguments", "[vm]") {
   REQUIRE(output.str() == "42\n");
 }
 
-TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
+TEST_CASE("VM kCallUserFuncArgs binds binary arguments directly", "[vm]") {
   fleaux::bytecode::Module bytecode_module;
   constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
   const auto c10 = push_i64_const(bytecode_module, 10);
@@ -3880,7 +3238,7 @@ TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
   bytecode_module.instructions = {
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c10},
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c32},
-      {.opcode = fleaux::bytecode::Opcode::kCallUserFuncBinary, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFuncArgs, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
       {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
@@ -3895,6 +3253,308 @@ TEST_CASE("VM kCallUserFuncBinary binds binary arguments directly", "[vm]") {
   }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "42\n");
+}
+
+TEST_CASE("VM kCallUserFuncArgs binds three or more arguments in order", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto c100 = push_i64_const(bytecode_module, 100);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+
+  // (a - b) - c: the result shows the order the arguments were bound in.
+  fleaux::bytecode::FunctionDef sub3;
+  sub3.name = "Sub3";
+  sub3.arity = 3;
+  sub3.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kSub, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kSub, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(sub3));
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFuncArgs, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "77\n");
+
+  SECTION("Fewer values on the stack than parameters is an underflow") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+        {.opcode = fleaux::bytecode::Opcode::kCallUserFuncArgs, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto underflow = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(underflow.has_value());
+    REQUIRE_THAT(underflow.error().message, Catch::Matchers::ContainsSubstring("stack underflow on call_user_func_args"));
+  }
+
+  SECTION("A one-parameter function is refused") {
+    bytecode_module.functions.front().arity = 1;
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+        {.opcode = fleaux::bytecode::Opcode::kCallUserFuncArgs, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto refused = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE_THAT(refused.error().message, Catch::Matchers::ContainsSubstring("two or more parameters"));
+  }
+}
+
+TEST_CASE("VM kCallFunctionValue calls user functions, closures, and builtins", "[vm][function_values]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto c1 = push_i64_const(bytecode_module, 1);
+  const auto c41 = push_i64_const(bytecode_module, 41);
+  const auto c5 = push_i64_const(bytecode_module, 5);
+  const auto c100 = push_i64_const(bytecode_module, 100);
+  const auto c7 = push_i64_const(bytecode_module, 7);
+
+  // Inc(x) = x + 1, and a closure body that adds its one capture (slot 0) to its parameter (slot 1).
+  fleaux::bytecode::FunctionDef inc;
+  inc.name = "Inc";
+  inc.arity = 1;
+  inc.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(inc));
+  fleaux::bytecode::FunctionDef add_captured;
+  add_captured.name = "__closure_1";
+  add_captured.arity = 2;
+  add_captured.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(add_captured));
+  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
+      .function_index = 1, .capture_count = 1, .declared_arity = 1, .declared_has_variadic_tail = false});
+
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c41},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallFunctionValue, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kMakeClosureRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallFunctionValue, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef,
+       .operand = builtin_direct(fleaux::vm::BuiltinId::UnaryMinus)},
+      {.opcode = fleaux::bytecode::Opcode::kCallFunctionValue, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "42\n105\n-7\n");
+
+  SECTION("A value that is not a function is refused") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c5},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c7},
+        {.opcode = fleaux::bytecode::Opcode::kCallFunctionValue, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto refused = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE_THAT(refused.error().message,
+                 Catch::Matchers::ContainsSubstring("call_function_value expects a function value"));
+  }
+
+  SECTION("A function value without its argument is an underflow") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallFunctionValue, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto underflow = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(underflow.has_value());
+    REQUIRE_THAT(underflow.error().message, Catch::Matchers::ContainsSubstring("stack underflow on call_function_value"));
+  }
+}
+
+TEST_CASE("VM kCallFunctionValueArgs binds arguments from the stack", "[vm][function_values]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto c100 = push_i64_const(bytecode_module, 100);
+  const auto c20 = push_i64_const(bytecode_module, 20);
+  const auto c3 = push_i64_const(bytecode_module, 3);
+
+  // Sub3(a, b, c) = (a - b) - c shows the order of the arguments, and of a capture before them. Rest(first, rest...)
+  // returns its variadic tuple.
+  fleaux::bytecode::FunctionDef sub3;
+  sub3.name = "Sub3";
+  sub3.arity = 3;
+  sub3.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kSub, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kSub, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(sub3));
+  fleaux::bytecode::FunctionDef rest;
+  rest.name = "Rest";
+  rest.arity = 2;
+  rest.has_variadic_tail = true;
+  rest.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(rest));
+  bytecode_module.closures.push_back(fleaux::bytecode::ClosureDef{
+      .function_index = 0, .capture_count = 1, .declared_arity = 2, .declared_has_variadic_tail = false});
+
+  const auto push_arguments = [&](std::vector<fleaux::bytecode::Instruction>& out) {
+    out.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100});
+    out.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20});
+    out.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3});
+  };
+  const auto print = [&](std::vector<fleaux::bytecode::Instruction>& out) {
+    out.push_back({.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin});
+    out.push_back({.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0});
+  };
+  std::vector<fleaux::bytecode::Instruction> program;
+  // Sub3 by name: (100 - 20) - 3.
+  push_arguments(program);
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 3});
+  print(program);
+  // Rest collects the arguments after the first.
+  push_arguments(program);
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 1});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 3});
+  print(program);
+  // A closure of Sub3 that captured 100, called with 20 and 3.
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c3});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kMakeClosureRef, .operand = 0});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 2});
+  print(program);
+  // A builtin takes the tuple of the arguments: 100 - 20.
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20});
+  program.push_back(
+      {.opcode = fleaux::bytecode::Opcode::kMakeBuiltinFuncRef, .operand = builtin(fleaux::vm::BuiltinId::Subtract)});
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 2});
+  print(program);
+  program.push_back({.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0});
+  bytecode_module.instructions = program;
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "77\n20 3\n77\n80\n");
+
+  SECTION("Fewer arguments than the function's parameters are refused") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c20},
+        {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 2},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto refused = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE(refused.error().message == "function value 'Sub3' takes 3 arguments, but was called with 2");
+  }
+
+  SECTION("Fewer values on the stack than arguments is an underflow") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+        {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 3},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto underflow = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(underflow.has_value());
+    REQUIRE_THAT(underflow.error().message,
+                 Catch::Matchers::ContainsSubstring("stack underflow on call_function_value_args"));
+  }
+
+  SECTION("Fewer than two arguments is refused") {
+    bytecode_module.instructions = {
+        {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c100},
+        {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+        {.opcode = fleaux::bytecode::Opcode::kCallFunctionValueArgs, .operand = 1},
+        {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+    };
+    const auto refused = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE_THAT(refused.error().message, Catch::Matchers::ContainsSubstring("two or more arguments"));
+  }
+}
+
+TEST_CASE("VM invoke_symbol gives each call the module's string constants", "[vm]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{.data = std::string{"a constant long enough to need a buffer"}});
+  fleaux::bytecode::FunctionDef greet;
+  greet.name = "Greet";
+  greet.arity = 1;
+  greet.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
+  };
+  bytecode_module.functions.push_back(std::move(greet));
+  bytecode_module.exports.push_back(fleaux::bytecode::ExportedSymbol{
+      .name = "Greet",
+      .link_name = "Greet",
+      .kind = fleaux::bytecode::ExportKind::kFunction,
+      .index = 0,
+  });
+
+  const fleaux::vm::Runtime runtime;
+  for (int call = 0; call < 3; ++call) {
+    INFO("call " << call);
+    const auto invoked = runtime.invoke_symbol(bytecode_module, "Greet", fleaux::runtime::make_int(call));
+    if (!invoked.has_value()) {
+      INFO(invoked.error().message);
+    }
+    REQUIRE(invoked.has_value());
+    REQUIRE(*invoked == fleaux::runtime::make_string("a constant long enough to need a buffer"));
+  }
 }
 
 TEST_CASE("VM kCallUserFunc binds variadic tail from owned tuple arguments", "[vm][variadic]") {
@@ -5593,56 +5253,48 @@ TEST_CASE("VM kCallBuiltin executes core sequence helpers and math helpers throu
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c9},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSqrtBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kSinBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kCosBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c0},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kTanBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFloatTwoPointNine},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kFloorBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFloatTwoPointOne},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kCeilBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = cFloatNegativeSevenPointFive},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kAbsBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
       {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
 
       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = c1},
-      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kLogBuiltin},
       {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
 
@@ -6431,7 +6083,7 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(require_builtin("Std.String.Regex.Find") == fleaux::vm::BuiltinId::StringRegexFind);
 
   REQUIRE(fleaux::runtime::to_double(
-              fleaux::runtime::UnaryPlus(fleaux::runtime::make_tuple(fleaux::runtime::make_int(7)))) == 7.0);
+              fleaux::runtime::UnaryPlus(fleaux::runtime::make_int(7))) == 7.0);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::UnaryMinus(fleaux::runtime::make_int(7))) == -7.0);
 
   const auto sum =
@@ -6449,19 +6101,19 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
           20.0);
 
   const auto add_one =
-      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+      fleaux::runtime::make_function([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
         return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) + 1);
       });
   const auto sub_one =
-      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+      fleaux::runtime::make_function([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
         return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
       });
-  const auto even_handler = fleaux::runtime::make_callable_ref(
+  const auto even_handler = fleaux::runtime::make_function(
       [](const fleaux::runtime::Value&) -> fleaux::runtime::Value { return fleaux::runtime::make_string("even"); });
-  const auto odd_handler = fleaux::runtime::make_callable_ref(
+  const auto odd_handler = fleaux::runtime::make_function(
       [](const fleaux::runtime::Value&) -> fleaux::runtime::Value { return fleaux::runtime::make_string("odd"); });
   const auto is_even =
-      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+      fleaux::runtime::make_function([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
         return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) % 2 == 0);
       });
 
@@ -6477,22 +6129,21 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto appended = fleaux::runtime::TupleAppend(fleaux::runtime::make_tuple(
       fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2)),
       fleaux::runtime::make_int(3)));
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(appended, 2)) == 3.0);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(appended, 2)) == 3.0);
 
   const auto array_value = fleaux::runtime::ArrayGetAt(fleaux::runtime::make_tuple(
       fleaux::runtime::make_tuple(fleaux::runtime::make_int(10), fleaux::runtime::make_int(20)),
       fleaux::runtime::make_int(1)));
   REQUIRE(fleaux::runtime::to_double(array_value) == 20.0);
 
-  fleaux::runtime::Value base{fleaux::runtime::Object{}};
-  fleaux::runtime::mutable_object(base)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
-      fleaux::runtime::make_int(1);
-  fleaux::runtime::Value overlay{fleaux::runtime::Object{}};
-  fleaux::runtime::mutable_object(overlay)[fleaux::runtime::dict_key_from_validated_value(fleaux::runtime::make_string("shared"), "test")] =
-      fleaux::runtime::make_int(2);
+  fleaux::runtime::Value base = fleaux::runtime::make_dict();
+  base.mutable_dict().set(fleaux::runtime::make_string("shared"), fleaux::runtime::make_int(1));
+  fleaux::runtime::Value overlay = fleaux::runtime::make_dict();
+  overlay.mutable_dict().set(fleaux::runtime::make_string("shared"), fleaux::runtime::make_int(2));
 
   const auto merged = fleaux::runtime::DictMerge(fleaux::runtime::make_tuple(base, overlay));
-  REQUIRE(fleaux::runtime::to_double(*fleaux::runtime::as_object(merged).TryGet("s:shared")) == 2.0);
+  REQUIRE(fleaux::runtime::to_double(*fleaux::runtime::as_dict(merged).find(fleaux::runtime::make_string("shared"))) ==
+          2.0);
 
   const auto ok = fleaux::runtime::ResultOk(fleaux::runtime::make_int(5));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultTag(ok)));
@@ -6502,27 +6153,27 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::ResultUnwrap(try_result)) == 42.0);
 
   REQUIRE(fleaux::runtime::as_int_value(fleaux::runtime::StringParseInt64(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_string("-42")))) == -42);
+              fleaux::runtime::make_string("-42"))) == -42);
   REQUIRE(fleaux::runtime::is_uint_number(
-      fleaux::runtime::StringParseUInt64(fleaux::runtime::make_tuple(fleaux::runtime::make_string("42")))));
+      fleaux::runtime::StringParseUInt64(fleaux::runtime::make_string("42"))));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::StringParseFloat64(
-              fleaux::runtime::make_tuple(fleaux::runtime::make_string("6.25e1")))) == 62.5);
+              fleaux::runtime::make_string("6.25e1"))) == 62.5);
 
   const auto mapped = fleaux::runtime::ParallelMap(fleaux::runtime::make_tuple(
       fleaux::runtime::make_tuple(fleaux::runtime::make_int(1), fleaux::runtime::make_int(2),
                                   fleaux::runtime::make_int(3)),
       add_one));
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultIsOk(mapped)));
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(fleaux::runtime::ResultUnwrap(mapped), 2)) == 4.0);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(fleaux::runtime::ResultUnwrap(mapped), 2)) == 4.0);
 
-  fleaux::runtime::TaskRegistryScope task_scope;
+  fleaux::runtime::TaskScope task_scope;
   const auto task = fleaux::runtime::TaskSpawn(fleaux::runtime::make_tuple(add_one, fleaux::runtime::make_int(41)));
-  const auto awaited = fleaux::runtime::TaskAwait(fleaux::runtime::make_tuple(task));
+  const auto awaited = fleaux::runtime::TaskAwait(task);
   REQUIRE(fleaux::runtime::as_bool(fleaux::runtime::ResultIsOk(awaited)));
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::ResultUnwrap(awaited)) == 42.0);
 
   const auto wrapped = fleaux::runtime::Wrap(fleaux::runtime::make_int(7));
-  REQUIRE(fleaux::runtime::as_array(wrapped).Size() == 1);
+  REQUIRE(fleaux::runtime::as_tuple(wrapped).size() == 1);
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Unwrap(wrapped)) == 7.0);
 
   const auto pair = fleaux::runtime::make_tuple(fleaux::runtime::make_int(7), fleaux::runtime::make_string("rng"));
@@ -6535,11 +6186,11 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(
               fleaux::runtime::ElementAt(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1)))) == 20.0);
   REQUIRE(
-      fleaux::runtime::as_array(fleaux::runtime::Take(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(2))))
-          .Size() == 2);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
+      fleaux::runtime::as_tuple(fleaux::runtime::Take(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(2))))
+          .size() == 2);
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(
               fleaux::runtime::Drop(fleaux::runtime::make_tuple(seq, fleaux::runtime::make_int(1))), 0)) == 20.0);
-  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::array_at(
+  REQUIRE(fleaux::runtime::to_double(fleaux::runtime::tuple_at(
               fleaux::runtime::SliceTupleUInt64UInt64UInt64(fleaux::runtime::make_tuple(
                   seq, fleaux::runtime::make_int(0), fleaux::runtime::make_int(3), fleaux::runtime::make_int(2))),
               1)) == 30.0);
@@ -6556,14 +6207,14 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   REQUIRE(fleaux::runtime::to_double(as_float) == 7.0);
 
   const auto generator =
-      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(123456789ULL)));
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_uint(123456789ULL));
   const auto random_uint = fleaux::runtime::RandomNextUInt64(generator);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_uint))) == "UInt64");
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_uint))) ==
           "2466975172287755897");
 
   const auto random_int = fleaux::runtime::RandomNextInt64(
-      fleaux::runtime::RandomCreate(fleaux::runtime::make_tuple(fleaux::runtime::make_uint(0ULL))));
+      fleaux::runtime::RandomCreate(fleaux::runtime::make_uint(0ULL)));
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::First(random_int))) == "Int64");
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::ToString(fleaux::runtime::First(random_int))) ==
           "-2152535657050944081");
@@ -6585,28 +6236,28 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
           "15883818742529415426");
 
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::Sqrt(fleaux::runtime::make_tuple(fleaux::runtime::make_int(9)))) -
+                       fleaux::runtime::Sqrt(fleaux::runtime::make_int(9))) -
                    3.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::Sin(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+                       fleaux::runtime::Sin(fleaux::runtime::make_int(0))) -
                    0.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::Cos(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+                       fleaux::runtime::Cos(fleaux::runtime::make_int(0))) -
                    1.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::Tan(fleaux::runtime::make_tuple(fleaux::runtime::make_int(0)))) -
+                       fleaux::runtime::Tan(fleaux::runtime::make_int(0))) -
                    0.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::MathFloor(fleaux::runtime::make_tuple(fleaux::runtime::make_float(2.9)))) -
+                       fleaux::runtime::MathFloor(fleaux::runtime::make_float(2.9))) -
                    2.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::MathCeil(fleaux::runtime::make_tuple(fleaux::runtime::make_float(2.1)))) -
+                       fleaux::runtime::MathCeil(fleaux::runtime::make_float(2.1))) -
                    3.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::MathAbs(fleaux::runtime::make_tuple(fleaux::runtime::make_float(-7.5)))) -
+                       fleaux::runtime::MathAbs(fleaux::runtime::make_float(-7.5))) -
                    7.5) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(
-                       fleaux::runtime::MathLog(fleaux::runtime::make_tuple(fleaux::runtime::make_int(1)))) -
+                       fleaux::runtime::MathLog(fleaux::runtime::make_int(1))) -
                    0.0) < 1e-12);
   REQUIRE(std::abs(fleaux::runtime::to_double(fleaux::runtime::MathClamp(fleaux::runtime::make_tuple(
                        fleaux::runtime::make_int(9), fleaux::runtime::make_int(0), fleaux::runtime::make_int(5)))) -
@@ -6615,7 +6266,7 @@ TEST_CASE("VM builtin catalog resolves callable builtin names and direct runtime
   const auto stringified = fleaux::runtime::ToString(fleaux::runtime::make_int(42));
   REQUIRE(fleaux::runtime::as_string(stringified) == "42");
 
-  const auto numeric = fleaux::runtime::ToNum(fleaux::runtime::make_tuple(fleaux::runtime::make_string("42.5")));
+  const auto numeric = fleaux::runtime::ToNum(fleaux::runtime::make_string("42.5"));
   REQUIRE(fleaux::runtime::to_double(numeric) == 42.5);
 
   const auto uppercased = fleaux::runtime::StringUpper(fleaux::runtime::make_string("hElLo"));
@@ -6676,14 +6327,14 @@ TEST_CASE(
 
   const auto printf_result = fleaux::runtime::Printf(fleaux::runtime::make_tuple(
       fleaux::runtime::make_string("{} + {}"), fleaux::runtime::make_int(1), fleaux::runtime::make_int(2)));
-  REQUIRE(fleaux::runtime::as_array(printf_result).Size() == 3U);
+  REQUIRE(fleaux::runtime::as_tuple(printf_result).size() == 3U);
   const auto printf_literal = fleaux::runtime::Printf(fleaux::runtime::make_string("hello"));
-  REQUIRE(fleaux::runtime::as_array(printf_literal).Size() == 1U);
+  REQUIRE(fleaux::runtime::as_tuple(printf_literal).size() == 1U);
   REQUIRE(fleaux::runtime::as_string(fleaux::runtime::Type(fleaux::runtime::make_uint(7))) == "UInt64");
 
   const auto args = fleaux::runtime::GetArgs(fleaux::runtime::make_tuple());
-  REQUIRE(fleaux::runtime::as_array(args).Size() == 3U);
-  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::array_at(args, 2)) == "--flag");
+  REQUIRE(fleaux::runtime::as_tuple(args).size() == 3U);
+  REQUIRE(fleaux::runtime::as_string(fleaux::runtime::tuple_at(args, 2)) == "--flag");
 
   const auto help = fleaux::runtime::Help(fleaux::runtime::make_string("Std.Add"));
   REQUIRE_THAT(fleaux::runtime::as_string(help), Catch::Matchers::ContainsSubstring("Help on function Std.Add"));
@@ -6692,11 +6343,11 @@ TEST_CASE(
   REQUIRE(fleaux::runtime::as_string(input_value) == "Ada");
 
   const auto continue_func =
-      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+      fleaux::runtime::make_function([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
         return fleaux::runtime::make_bool(fleaux::runtime::as_int_value(value) > 0);
       });
   const auto step_func =
-      fleaux::runtime::make_callable_ref([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
+      fleaux::runtime::make_function([](const fleaux::runtime::Value& value) -> fleaux::runtime::Value {
         return fleaux::runtime::make_int(fleaux::runtime::as_int_value(value) - 1);
       });
   REQUIRE(fleaux::runtime::to_double(fleaux::runtime::Loop(
@@ -7114,4 +6765,82 @@ TEST_CASE("Whole-number Float64 builtin results keep their fractions in later ar
   }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "30\n2.5\n42.5\n");
+}
+
+TEST_CASE("VM kTakeLocal moves a local's value out and leaves the slot null", "[vm][locals]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto text = push_string_const(bytecode_module, "moved");
+  bytecode_module.instructions = {
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = text},
+      {.opcode = fleaux::bytecode::Opcode::kStoreLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kTakeLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "moved\nnull\n");
+}
+
+TEST_CASE("VM kCallBuiltinArgs calls a builtin on the stack values", "[vm][builtins][arguments]") {
+  fleaux::bytecode::Module bytecode_module;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  const auto key = push_string_const(bytecode_module, "key");
+  const auto value = push_i64_const(bytecode_module, 42);
+  using fleaux::bytecode::Opcode;
+  using fleaux::vm::builtin_operand_with_arguments;
+  bytecode_module.instructions = {
+      {.opcode = Opcode::kCallBuiltinArgs, .operand = builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictCreateVoid, 0U)},
+      {.opcode = Opcode::kPushConst, .operand = key},
+      {.opcode = Opcode::kPushConst, .operand = value},
+      {.opcode = Opcode::kCallBuiltinArgs, .operand = builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictSet, 3U)},
+      {.opcode = Opcode::kPushConst, .operand = key},
+      {.opcode = Opcode::kCallBuiltinArgs, .operand = builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictGet, 2U)},
+      {.opcode = Opcode::kBuildTuple, .operand = 1},
+      {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+      {.opcode = Opcode::kPop, .operand = 0},
+      {.opcode = Opcode::kHalt, .operand = 0},
+  };
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "42\n");
+
+  SECTION("Too few values on the stack are an underflow") {
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = key},
+        {.opcode = Opcode::kCallBuiltinArgs, .operand = builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictSet, 3U)},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    const auto underflow = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(underflow.has_value());
+    REQUIRE(underflow.error().message == "stack underflow on call_builtin_args");
+  }
+
+  SECTION("A builtin of one parameter is refused") {
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = key},
+        {.opcode = Opcode::kCallBuiltinArgs, .operand = builtin_operand_with_arguments(fleaux::vm::BuiltinId::StringUpper, 1U)},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    const auto refused = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE(refused.error().message == "builtin 'Std.String.Upper' does not take its arguments from the stack");
+  }
 }

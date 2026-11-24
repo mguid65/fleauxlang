@@ -9,6 +9,7 @@
 
 #include <tl/expected.hpp>
 
+#include "fleaux/common/match_wildcard.hpp"
 #include "fleaux/frontend/type_system/checker.hpp"
 #include "fleaux/frontend/type_system/function_index.hpp"
 
@@ -95,8 +96,6 @@ struct BindingQuality {
   std::size_t total_bindings{0U};
   std::size_t complexity{0U};
 };
-
-inline constexpr std::string_view kMatchWildcardSentinel = "__fleaux_match_wildcard__";
 
 [[nodiscard]] auto make_error(const std::string& message, const std::optional<std::string>& hint,
                               const std::optional<diag::SourceSpan>& span) -> type_check::AnalysisError;

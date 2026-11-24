@@ -803,6 +803,9 @@ static_assert(builtin_spec_tables_match_enum_order(),
 
 inline constexpr std::uint64_t kBuiltinOperandIdMask = 0xFFFF'FFFFULL;
 inline constexpr std::uint64_t kBuiltinOperandDirectValueBit = 1ULL << 32U;
+// kCallBuiltinArgs keeps its argument count in the 16 bits above the direct-value bit.
+inline constexpr unsigned kBuiltinOperandArgumentCountShift = 33U;
+inline constexpr std::uint64_t kBuiltinOperandArgumentCountMask = 0xFFFFULL;
 
 [[nodiscard]] constexpr auto builtin_operand(const BuiltinId id,
                                              const BuiltinCallShape shape = BuiltinCallShape::kTupleExpanded)
@@ -867,6 +870,27 @@ inline constexpr std::uint64_t kBuiltinOperandDirectValueBit = 1ULL << 32U;
     return BuiltinCallShape::kDirectValue;
   }
   return BuiltinCallShape::kTupleExpanded;
+}
+
+// Whether the builtin takes runtime::Arguments: every builtin but those of exactly one parameter, which take their
+// argument as a value, and Std.Println and Std.Printf, which return their argument tuple and so take it whole.
+[[nodiscard]] constexpr auto builtin_takes_arguments(const BuiltinId id) -> bool {
+  if (id == BuiltinId::Println || id == BuiltinId::Printf) {
+    return false;
+  }
+  return builtin_callable_call_shape(id) == BuiltinCallShape::kTupleExpanded;
+}
+
+// The operand of a kCallBuiltinArgs: the builtin and the number of argument values on the stack.
+[[nodiscard]] constexpr auto builtin_operand_with_arguments(const BuiltinId id, const std::uint16_t argument_count)
+    -> std::int64_t {
+  return static_cast<std::int64_t>(static_cast<std::uint64_t>(builtin_operand(id)) |
+                                   (static_cast<std::uint64_t>(argument_count) << kBuiltinOperandArgumentCountShift));
+}
+
+[[nodiscard]] constexpr auto builtin_argument_count_from_operand(const std::int64_t operand) -> std::uint16_t {
+  return static_cast<std::uint16_t>((static_cast<std::uint64_t>(operand) >> kBuiltinOperandArgumentCountShift) &
+                                    kBuiltinOperandArgumentCountMask);
 }
 
 [[nodiscard]] constexpr auto builtin_has_arity_contract(const BuiltinId id) -> bool {

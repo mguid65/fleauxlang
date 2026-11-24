@@ -4,6 +4,7 @@
 // #include "fleaux/runtime/value.hpp"
 #include <array>
 #include <cstdio>
+#include <sstream>
 #if !defined(_WIN32)
 #include <sys/wait.h>
 #endif
@@ -169,74 +170,66 @@ inline void ensure_runtime_filesystem_ready() {}
 
 #if defined(_WIN32)
 inline void close_runtime_handles_for_path(const std::filesystem::path& target_path) {
-  auto& registry = handle_registry();
-  std::scoped_lock lock(registry.mtx);
   const auto normalized_target = target_path.lexically_normal();
-  for (auto& entry : registry.entries) {
-    if (entry.closed) {
-      continue;
+  open_files().for_each([&](FileHandleObject& handle) {
+    if (!handle.closed && std::filesystem::path(handle.path).lexically_normal() == normalized_target) {
+      handle.stream.close();
+      handle.closed = true;
     }
-    if (std::filesystem::path(entry.path).lexically_normal() != normalized_target) {
-      continue;
-    }
-    entry.stream.close();
-    entry.closed = true;
-  }
+  });
 }
 #endif
 #endif
 
 }  // namespace detail
 
-[[nodiscard]] inline auto Cwd(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto Cwd(const Arguments& /*args*/) -> Value {
   return make_string(detail::current_working_directory_path().string());
 }
 
-[[nodiscard]] inline auto PathJoin(Value arg) -> Value {
-  // arg = [seg0, seg1, ...] with at least 2 validated segments.
-  const auto& args = as_array(arg);
-  if (args.Size() < 2U) {
+[[nodiscard]] inline auto PathJoin(const Arguments& args) -> Value {
+  // args = [seg0, seg1, ...] with at least 2 validated segments.
+  if (args.size() < 2U) {
     throw std::logic_error{"internal error: PathJoin called with unexpected validated arity"};
   }
-  std::filesystem::path result = as_string(array_at(arg, 0));
-  for (std::size_t segment_index = 1; segment_index < args.Size(); ++segment_index) {
-    result /= as_string(array_at(arg, segment_index));
+  std::filesystem::path result = as_string(args[0]);
+  for (std::size_t segment_index = 1; segment_index < args.size(); ++segment_index) {
+    result /= as_string(args[segment_index]);
   }
   return make_string(result.string());
 }
 
 [[nodiscard]] inline auto PathNormalize(Value arg) -> Value {
-  return make_string(std::filesystem::path(as_path_string_unary(std::move(arg))).lexically_normal().string());
+  return make_string(std::filesystem::path(as_string(arg)).lexically_normal().string());
 }
 
 [[nodiscard]] inline auto PathBasename(Value arg) -> Value {
-  return make_string(std::filesystem::path(as_path_string_unary(std::move(arg))).filename().string());
+  return make_string(std::filesystem::path(as_string(arg)).filename().string());
 }
 
 [[nodiscard]] inline auto PathDirname(Value arg) -> Value {
-  return make_string(std::filesystem::path(as_path_string_unary(std::move(arg))).parent_path().string());
+  return make_string(std::filesystem::path(as_string(arg)).parent_path().string());
 }
 
 [[nodiscard]] inline auto PathExists(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  return make_bool(std::filesystem::exists(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
+  return make_bool(std::filesystem::exists(detail::resolve_runtime_path(as_string(arg))));
 }
 
 [[nodiscard]] inline auto PathIsFile(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   return make_bool(
-      std::filesystem::is_regular_file(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
+      std::filesystem::is_regular_file(detail::resolve_runtime_path(as_string(arg))));
 }
 
 [[nodiscard]] inline auto PathIsDir(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  return make_bool(std::filesystem::is_directory(detail::resolve_runtime_path(as_path_string_unary(std::move(arg)))));
+  return make_bool(std::filesystem::is_directory(detail::resolve_runtime_path(as_string(arg))));
 }
 
 [[nodiscard]] inline auto PathAbsolute(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
+  const auto path = detail::resolve_runtime_path(as_string(arg));
 #if defined(__EMSCRIPTEN__)
   return make_string(path.string());
 #else
@@ -245,16 +238,16 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto PathExtension(Value arg) -> Value {
-  return make_string(std::filesystem::path(as_path_string_unary(std::move(arg))).extension().string());
+  return make_string(std::filesystem::path(as_string(arg)).extension().string());
 }
 
 [[nodiscard]] inline auto PathStem(Value arg) -> Value {
-  return make_string(std::filesystem::path(as_path_string_unary(std::move(arg))).stem().string());
+  return make_string(std::filesystem::path(as_string(arg)).stem().string());
 }
 
-[[nodiscard]] inline auto PathWithExtension(Value arg) -> Value {
-  std::filesystem::path path = as_string(array_at(arg, 0));
-  std::string extension = as_string(array_at(arg, 1));
+[[nodiscard]] inline auto PathWithExtension(const Arguments& args) -> Value {
+  std::filesystem::path path = as_string(args[0]);
+  std::string extension = as_string(args[1]);
   if (!extension.empty() && extension[0] != '.') {
     extension.insert(extension.begin(), '.');
   }
@@ -262,15 +255,15 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   return make_string(path.string());
 }
 
-[[nodiscard]] inline auto PathWithBasename(Value arg) -> Value {
-  std::filesystem::path path = as_string(array_at(arg, 0));
-  path.replace_filename(as_string(array_at(arg, 1)));
+[[nodiscard]] inline auto PathWithBasename(const Arguments& args) -> Value {
+  std::filesystem::path path = as_string(args[0]);
+  path.replace_filename(as_string(args[1]));
   return make_string(path.string());
 }
 
 [[nodiscard]] inline auto FileReadText(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
+  std::ifstream in(detail::resolve_runtime_path(as_string(arg)));
   if (!in) {
     throw std::runtime_error{"FileReadText failed"};
   }
@@ -279,45 +272,45 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   return make_string(ss.str());
 }
 
-[[nodiscard]] inline auto FileWriteText(Value arg) -> Value {
+[[nodiscard]] inline auto FileWriteText(const Arguments& args) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(as_string(array_at(arg, 0)));
+  const auto path = detail::resolve_runtime_path(as_string(args[0]));
   std::ofstream out(path, std::ios::trunc);
   if (!out) {
     throw std::runtime_error{"FileWriteText failed"};
   }
-  out << as_string(array_at(arg, 1));
+  out << as_string(args[1]);
   return make_string(path.string());
 }
 
-[[nodiscard]] inline auto FileAppendText(Value arg) -> Value {
+[[nodiscard]] inline auto FileAppendText(const Arguments& args) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(as_string(array_at(arg, 0)));
+  const auto path = detail::resolve_runtime_path(as_string(args[0]));
   std::ofstream out(path, std::ios::app);
   if (!out) {
     throw std::runtime_error{"FileAppendText failed"};
   }
-  out << as_string(array_at(arg, 1));
+  out << as_string(args[1]);
   return make_string(path.string());
 }
 
 [[nodiscard]] inline auto FileReadLines(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  std::ifstream in(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))));
+  std::ifstream in(detail::resolve_runtime_path(as_string(arg)));
   if (!in) {
     throw std::runtime_error{"FileReadLines failed"};
   }
-  Array out;
+  TupleBuilder out(4U);
   std::string line;
   while (std::getline(in, line)) {
-    out.PushBack(make_string(line));
+    out.push(make_string(line));
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
 [[nodiscard]] inline auto FileDelete(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
+  const auto path = detail::resolve_runtime_path(as_string(arg));
   std::error_code ec;
   bool removed = std::filesystem::remove(path, ec);
 #if defined(_WIN32)
@@ -336,12 +329,12 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 [[nodiscard]] inline auto FileSize(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   return make_int(
-      static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))));
+      static_cast<Int>(std::filesystem::file_size(detail::resolve_runtime_path(as_string(arg)))));
 }
 
 [[nodiscard]] inline auto DirCreate(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
-  const auto path = detail::resolve_runtime_path(as_path_string_unary(std::move(arg)));
+  const auto path = detail::resolve_runtime_path(as_string(arg));
   std::filesystem::create_directories(path);
   return make_string(path.string());
 }
@@ -350,7 +343,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   detail::ensure_runtime_filesystem_ready();
   std::error_code ec;
   const auto removed =
-      std::filesystem::remove_all(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))), ec);
+      std::filesystem::remove_all(detail::resolve_runtime_path(as_string(arg)), ec);
   throw_if_filesystem_error(ec, "DirDelete");
   return make_bool(removed > 0);
 }
@@ -359,34 +352,32 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   detail::ensure_runtime_filesystem_ready();
   std::vector<std::string> names;
   for (const auto& entry :
-       std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
+       std::filesystem::directory_iterator(detail::resolve_runtime_path(as_string(arg)))) {
     names.push_back(entry.path().filename().string());
   }
-  Array out;
-  out.Reserve(names.size());
+  TupleBuilder out(names.size());
   for (const auto& name : names) {
-    out.PushBack(make_string(name));
+    out.push(make_string(name));
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
 [[nodiscard]] inline auto DirListFull(Value arg) -> Value {
   detail::ensure_runtime_filesystem_ready();
   std::vector<std::string> names;
   for (const auto& entry :
-       std::filesystem::directory_iterator(detail::resolve_runtime_path(as_path_string_unary(std::move(arg))))) {
+       std::filesystem::directory_iterator(detail::resolve_runtime_path(as_string(arg)))) {
     names.push_back(entry.path().string());
   }
-  Array out;
-  out.Reserve(names.size());
+  TupleBuilder out(names.size());
   for (const auto& name : names) {
-    out.PushBack(make_string(name));
+    out.push(make_string(name));
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
 [[nodiscard]] inline auto OSEnv(Value arg) -> Value {
-  const std::string key = as_path_string_unary(std::move(arg));
+  const std::string key = as_string(arg);
 #if defined(__EMSCRIPTEN__)
   if (const auto emulated = detail::web_env_value(key); emulated.has_value()) {
     return make_string(*emulated);
@@ -401,7 +392,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSHasEnv(Value arg) -> Value {
-  const std::string key = as_path_string_unary(std::move(arg));
+  const std::string key = as_string(arg);
 #if defined(__EMSCRIPTEN__)
   return make_bool(detail::web_env_value(key).has_value());
 #else
@@ -409,9 +400,9 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSSetEnv(Value arg) -> Value {
-  const std::string key = as_string(array_at(arg, 0));
-  const std::string value = as_string(array_at(arg, 1));
+[[nodiscard]] inline auto OSSetEnv(const Arguments& args) -> Value {
+  const std::string key = as_string(args[0]);
+  const std::string value = as_string(args[1]);
 #if defined(__EMSCRIPTEN__)
   detail::set_web_env_value(key, value);
   return make_string(value);
@@ -430,7 +421,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 }
 
 [[nodiscard]] inline auto OSUnsetEnv(Value arg) -> Value {
-  const std::string key = as_path_string_unary(std::move(arg));
+  const std::string key = as_string(arg);
 #if defined(__EMSCRIPTEN__)
   return make_bool(detail::unset_web_env_value(key));
 #else
@@ -448,8 +439,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSIsWindows(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSIsWindows(const Arguments& /*args*/) -> Value {
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(_WIN32)
@@ -459,8 +449,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSIsLinux(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSIsLinux(const Arguments& /*args*/) -> Value {
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(__linux__)
@@ -470,8 +459,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSIsMacOS(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSIsMacOS(const Arguments& /*args*/) -> Value {
 #if defined(__EMSCRIPTEN__)
   return make_bool(false);
 #elif defined(__APPLE__)
@@ -481,8 +469,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSHome(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSHome(const Arguments& /*args*/) -> Value {
 #if defined(__EMSCRIPTEN__)
   return make_string(detail::web_home_directory_path().string());
 #else
@@ -507,8 +494,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSTempDir(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSTempDir(const Arguments& /*args*/) -> Value {
 #if defined(__EMSCRIPTEN__)
   return make_string(detail::web_temp_directory_path().string());
 #else
@@ -516,8 +502,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 #endif
 }
 
-[[nodiscard]] inline auto OSMakeTempFile(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSMakeTempFile(const Arguments& /*args*/) -> Value {
   std::error_code ec;
 #if defined(__EMSCRIPTEN__)
   const auto dir = detail::web_temp_directory_path();
@@ -538,8 +523,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
   return make_null();
 }
 
-[[nodiscard]] inline auto OSMakeTempDir(Value arg) -> Value {
-  (void)arg;
+[[nodiscard]] inline auto OSMakeTempDir(const Arguments& /*args*/) -> Value {
   std::error_code ec;
 #if defined(__EMSCRIPTEN__)
   const auto dir = detail::web_temp_directory_path();
@@ -560,7 +544,7 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 
 [[nodiscard]] inline auto OSExec(Value arg) -> Value {
   // arg = command -> (exit_code, combined_output)
-  const std::string command = as_path_string_unary(std::move(arg));
+  const std::string command = as_string(arg);
 
 #if defined(__EMSCRIPTEN__)
   return make_tuple(
@@ -602,19 +586,17 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
 
 // File streaming builtins
 
-[[nodiscard]] inline auto FileOpen(Value arg) -> Value {
-  // arg = (path, mode)
+[[nodiscard]] inline auto FileOpen(const Arguments& args) -> Value {
+  // args = (path, mode)
   detail::ensure_runtime_filesystem_ready();
-  const std::string path = as_string(array_at(arg, 0));
-  const std::string mode = as_string(array_at(arg, 1));
-  const UInt slot = handle_registry().open(detail::resolve_runtime_path(path).string(), mode);
-  const UInt gen = handle_registry().entries[static_cast<std::size_t>(slot)].generation;
-  return make_handle_token(slot, gen);
+  const std::string path = as_string(args[0]);
+  const std::string mode = as_string(args[1]);
+  return open_file_handle(detail::resolve_runtime_path(path).string(), mode);
 }
 
 [[nodiscard]] inline auto FileReadLine(Value arg) -> Value {
   // arg = handle_token   ->  (handle_token, line, eof_bool)
-  const Value token = unwrap_singleton_arg(std::move(arg));
+  const Value token = std::move(arg);
   auto& handle_entry = require_handle(token, "FileReadLine");
   if (handle_entry.mode.find('r') == std::string::npos) {
     throw std::runtime_error{"FileReadLine: read failed"};
@@ -629,74 +611,73 @@ inline void close_runtime_handles_for_path(const std::filesystem::path& target_p
       throw std::runtime_error{"FileReadLine: read failed"};
     }
   }
-  auto [slot, gen] = handle_id_from_value(token).value();
-  return make_tuple(make_handle_token(slot, gen), make_string(std::move(line)), make_bool(eof));
+  return make_tuple(Value{token}, make_string(std::move(line)), make_bool(eof));
 }
 
-[[nodiscard]] inline auto FileReadChunk(Value arg) -> Value {
-  // arg = (handle_token, nbytes)  ->  (handle_token, chunk_string, eof_bool)
-  auto& handle_entry = require_handle(array_at(arg, 0), "FileReadChunk");
-  const std::size_t nbytes = uint64_index(array_at(arg, 1));
+[[nodiscard]] inline auto FileReadChunk(const Arguments& args) -> Value {
+  // args = (handle_token, nbytes)  ->  (handle_token, chunk_string, eof_bool)
+  auto& handle_entry = require_handle(args[0], "FileReadChunk");
+  const std::size_t nbytes = uint64_index(args[1]);
   std::string buf(nbytes, '\0');
   handle_entry.stream.read(buf.data(), static_cast<std::streamsize>(nbytes));
   const std::streamsize bytes_read = handle_entry.stream.gcount();
   buf.resize(static_cast<std::size_t>(bytes_read));
   const bool eof = (bytes_read == 0 || handle_entry.stream.eof());
-  auto [slot, gen] = handle_id_from_value(array_at(arg, 0)).value();
-  return make_tuple(make_handle_token(slot, gen), make_string(std::move(buf)), make_bool(eof));
+  return make_tuple(Value{args[0]}, make_string(std::move(buf)), make_bool(eof));
 }
 
-[[nodiscard]] inline auto FileWriteChunk(Value arg) -> Value {
-  // arg = (handle_token, data_string)  ->  handle_token
-  auto& handle_entry = require_handle(array_at(arg, 0), "FileWriteChunk");
-  const std::string& data = as_string(array_at(arg, 1));
+[[nodiscard]] inline auto FileWriteChunk(const Arguments& args) -> Value {
+  // args = (handle_token, data_string)  ->  handle_token
+  auto& handle_entry = require_handle(args[0], "FileWriteChunk");
+  const std::string& data = as_string(args[1]);
   handle_entry.stream.write(data.data(), static_cast<std::streamsize>(data.size()));
   if (!handle_entry.stream)
     throw std::runtime_error{"FileWriteChunk: write failed"};
-  auto [slot, gen] = handle_id_from_value(array_at(arg, 0)).value();
-  return make_handle_token(slot, gen);
+  return args[0];
 }
 
 [[nodiscard]] inline auto FileFlush(Value arg) -> Value {
   // arg = handle_token ->  handle_token
-  const Value token = unwrap_singleton_arg(std::move(arg));
+  const Value token = std::move(arg);
   auto& handle_entry = require_handle(token, "FileFlush");
   handle_entry.stream.flush();
   if (!handle_entry.stream)
     throw std::runtime_error{"FileFlush: flush failed"};
-  auto [slot, gen] = handle_id_from_value(token).value();
-  return make_handle_token(slot, gen);
+  return token;
 }
 
 [[nodiscard]] inline auto FileClose(Value arg) -> Value {
   // arg = handle_token  ->  Bool (true if was open, false if already closed)
-  const Value token = unwrap_singleton_arg(std::move(arg));
-  if (const auto token_state_id = parse_tagged_registry_token_state_id(token, k_handle_tag);
-      !token_state_id || *token_state_id != runtime_execution_state().token_state_id) {
+  const Value token = std::move(arg);
+  if (!token.is_file_handle() || token.file_handle().closed) {
     return make_bool(false);
   }
-  const auto id = handle_id_from_value(token);
-  if (!id)
-    return make_bool(false);
-  return make_bool(handle_registry().close(id->slot, id->gen));
+  FileHandleObject& handle = token.file_handle();
+  handle.stream.close();
+  handle.closed = true;
+  return make_bool(true);
 }
 
-[[nodiscard]] inline auto FileWithOpen(Value arg) -> Value {
-  // arg = (path, mode, func_ref)  ->  result of func_ref(handle_token)
+[[nodiscard]] inline auto FileWithOpen(const Arguments& args) -> Value {
+  // args = (path, mode, func_ref)  ->  result of func_ref(handle_token)
   // Guarantees close even if func throws.
   detail::ensure_runtime_filesystem_ready();
-  const std::string path = detail::resolve_runtime_path(as_string(array_at(arg, 0))).string();
-  const std::string mode = as_string(array_at(arg, 1));
-  const Value& fn = array_at(arg, 2);
-  const UInt slot = handle_registry().open(path, mode);
-  const UInt gen = handle_registry().entries[static_cast<std::size_t>(slot)].generation;
-  const Value token = make_handle_token(slot, gen);
+  const std::string path = detail::resolve_runtime_path(as_string(args[0])).string();
+  const std::string mode = as_string(args[1]);
+  const Value& fn = args[2];
+  const Value handle = open_file_handle(path, mode);
+  const auto close = [&handle]() -> void {
+    if (FileHandleObject& file = handle.file_handle(); !file.closed) {
+      file.stream.close();
+      file.closed = true;
+    }
+  };
   try {
-    Value result = invoke_callable_ref(fn, token);
-    handle_registry().close(slot, gen);
+    Value result = invoke_callable(fn, handle);
+    close();
     return result;
   } catch (...) {
-    handle_registry().close(slot, gen);
+    close();
     throw;
   }
 }

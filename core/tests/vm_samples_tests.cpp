@@ -626,9 +626,6 @@ TEST_CASE("VM Std.Println returns the expected tuple shape", "[vm][samples][prin
 }
 
 TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samples][lifetime]") {
-  fleaux::runtime::reset_callable_registry();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_closure_dict_churn";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "closure_dict_churn.fleaux";
@@ -657,19 +654,13 @@ TEST_CASE("Nested closure dict capture churn stays stable in the VM", "[vm][samp
       INFO("vm churn error: " << runtime_result.error().message);
     }
     REQUIRE(runtime_result.has_value());
-    REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
   }
 }
 
-TEST_CASE("Task and Parallel samples keep VM registry stability", "[vm][samples][lifetime][concurrency]") {
-  fleaux::runtime::reset_callable_registry();
-  fleaux::runtime::reset_value_registry_for_tests();
-  fleaux::runtime::reset_task_registry_for_tests();
-  REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-  REQUIRE(fleaux::runtime::value_registry_telemetry().active_count == 0U);
-  REQUIRE(fleaux::runtime::value_registry_telemetry().rejected_allocations == 0U);
-  REQUIRE(fleaux::runtime::value_registry_telemetry().stale_deref_rejections == 0U);
-  REQUIRE(fleaux::runtime::task_registry_size() == 0U);
+TEST_CASE("Task and Parallel samples run repeatedly without leaving spawned tasks behind",
+          "[vm][samples][lifetime][concurrency]") {
+  fleaux::runtime::reset_spawned_tasks_for_tests();
+  REQUIRE(fleaux::runtime::spawned_task_count() == 0U);
 
   constexpr std::array<std::string_view, 4> kConcurrencySamples = {
       "35_concurrency_tasks.fleaux",
@@ -699,12 +690,7 @@ TEST_CASE("Task and Parallel samples keep VM registry stability", "[vm][samples]
         INFO("vm concurrency sample error: " << runtime_result.error().message);
       }
       REQUIRE(runtime_result.has_value());
-      REQUIRE(fleaux::runtime::callable_registry_size() == 0U);
-      REQUIRE(fleaux::runtime::task_registry_size() == 0U);
-      const auto vm_telemetry = fleaux::runtime::value_registry_telemetry();
-      REQUIRE(vm_telemetry.active_count == 0U);
-      REQUIRE(vm_telemetry.rejected_allocations == 0U);
-      REQUIRE(vm_telemetry.stale_deref_rejections == 0U);
+      REQUIRE(fleaux::runtime::spawned_task_count() == 0U);
     }
   }
 }

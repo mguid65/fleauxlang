@@ -1,0 +1,220 @@
+// Jos Stam's stable fluids on the grid of Field.fleaux. A step carries the velocity and the dye along the velocity,
+// adds the push, and then makes the velocity divergence-free: it solves for a pressure with Jacobi iterations and
+// subtracts the pressure's gradient. Velocities are in cells per step.
+//
+// The walls hold the fluid in: velocity and dye are zero in them, and the pressure in a wall equals the pressure in
+// the cell next to it, so no fluid flows through.
+
+import Std;
+import Field;
+
+// The lookup tables the solver reads: which cells are inside, each cell's nearest inside cell, and each cell's
+// column and row.
+alias Grid = Tuple<Flags, Indices, Field, Field>;
+
+// The horizontal velocity, the vertical velocity, the dye, and the pressure from the last step, which starts the
+// next step's pressure solve.
+alias Fluid = Tuple<Field, Field, Field, Field>;
+
+// A push at column x and row y, reaching `radius` cells: it adds (dx, dy) to the velocity and `dye` to the dye at
+// its center, fading to nothing at the edge.
+alias Push = Tuple<Float64, Float64, Float64, Float64, Float64, Float64>;
+
+let Solver.PressureIterations: Int64 = 10;
+
+// How much of the velocity and the dye is left after a step.
+let Solver.KeepVelocity: Float64 = 0.999;
+let Solver.KeepDye: Float64 = 0.993;
+
+let Solver.Grid(): Grid = (() -> Field.Inside, () -> Field.Inward, () -> Field.Xs, () -> Field.Ys);
+
+let Solver.Still(): Fluid =
+  (0.0 -> Field.Filled, 0.0 -> Field.Filled, 0.0 -> Field.Filled, 0.0 -> Field.Filled);
+
+// No push.
+let Solver.NoPush: Push = (0.0, 0.0, 1.0, 0.0, 0.0, 0.0);
+
+// The field `carried` moved one step along the velocity (u, v), times `keep`, plus `added` near the push. Each cell
+// takes the value from where its fluid was a step ago, interpolated between the four cells around that point.
+let Solver.Advect(
+  carried: Field,
+  u: Field,
+  v: Field,
+  inside: Flags,
+  xs: Field,
+  ys: Field,
+  push_x: Float64,
+  push_y: Float64,
+  radius: Float64,
+  added: Float64,
+  keep: Float64
+): Field = {
+  let width: UInt64 = Field.Width -> Std.ToUInt64;
+  let span: Float64 = Field.Width -> Std.ToFloat64;
+  let max_x: Float64 = (Field.Columns -> Std.ToFloat64, 0.5) -> +;
+  let max_y: Float64 = (Field.Rows -> Std.ToFloat64, 0.5) -> +;
+  let reach: Float64 = (radius, radius) -> *;
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Float64 = {
+      let k: UInt64 = i -> Std.ToUInt64;
+      (
+        (inside, k) -> Std.ElementAt,
+        0.0,
+        (unused: Float64): Float64 = {
+          let x: Float64 = (xs, k) -> Std.ElementAt;
+          let y: Float64 = (ys, k) -> Std.ElementAt;
+          let from_x: Float64 = ((x, (u, k) -> Std.ElementAt) -> -, 0.5, max_x) -> Std.Math.Clamp;
+          let from_y: Float64 = ((y, (v, k) -> Std.ElementAt) -> -, 0.5, max_y) -> Std.Math.Clamp;
+          let left: Float64 = from_x -> Std.Math.Floor;
+          let top: Float64 = from_y -> Std.Math.Floor;
+          let s: Float64 = (from_x, left) -> -;
+          let t: Float64 = (from_y, top) -> -;
+          let corner: UInt64 = ((top, span) -> *, left) -> + -> Std.ToUInt64;
+          let below: UInt64 = (corner, width) -> +;
+          let a: Float64 = (carried, corner) -> Std.ElementAt;
+          let b: Float64 = (carried, (corner, 1u64) -> +) -> Std.ElementAt;
+          let c: Float64 = (carried, below) -> Std.ElementAt;
+          let d: Float64 = (carried, (below, 1u64) -> +) -> Std.ElementAt;
+          let upper: Float64 = (a, ((b, a) -> -, s) -> *) -> +;
+          let lower: Float64 = (c, ((d, c) -> -, s) -> *) -> +;
+          let moved: Float64 = (upper, ((lower, upper) -> -, t) -> *) -> +;
+          let dx: Float64 = (x, push_x) -> -;
+          let dy: Float64 = (y, push_y) -> -;
+          let near: Float64 =
+            ((1.0, (((dx, dx) -> *, (dy, dy) -> *) -> +, reach) -> /) -> -, 0.0, 1.0)
+              -> Std.Math.Clamp;
+          ((moved, keep) -> *, ((near, near) -> *, added) -> *) -> +;
+        },
+        (unused: Float64): Float64 = 0.0
+      ) -> Std.Branch;
+    }
+  ) -> Std.Tuple.Map;
+};
+
+// How much fluid flows out of each cell, negated and halved, as the pressure solve wants it.
+let Solver.Divergence(u: Field, v: Field, inside: Flags): Field = {
+  let width: UInt64 = Field.Width -> Std.ToUInt64;
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Float64 = {
+      let k: UInt64 = i -> Std.ToUInt64;
+      (
+        (inside, k) -> Std.ElementAt,
+        0.0,
+        (unused: Float64): Float64 = {
+          let across: Float64 =
+            ((u, (k, 1u64) -> +) -> Std.ElementAt, (u, (k, 1u64) -> -) -> Std.ElementAt) -> -;
+          let down: Float64 =
+            ((v, (k, width) -> +) -> Std.ElementAt, (v, (k, width) -> -) -> Std.ElementAt) -> -;
+          ((across, down) -> +, -0.5) -> *;
+        },
+        (unused: Float64): Float64 = 0.0
+      ) -> Std.Branch;
+    }
+  ) -> Std.Tuple.Map;
+};
+
+// One Jacobi iteration of the pressure solve: each inside cell becomes the average of its neighbours and its
+// divergence, and each wall takes the pressure of the cell next to it.
+let Solver.Relax(pressure: Field, divergence: Field, inside: Flags, inward: Indices): Field = {
+  let width: UInt64 = Field.Width -> Std.ToUInt64;
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Float64 = {
+      let k: UInt64 = i -> Std.ToUInt64;
+      (
+        (inside, k) -> Std.ElementAt,
+        0.0,
+        (unused: Float64): Float64 = {
+          let sides: Float64 =
+            (
+              (pressure, (k, 1u64) -> -) -> Std.ElementAt,
+              (pressure, (k, 1u64) -> +) -> Std.ElementAt
+            ) -> +;
+          let ends: Float64 =
+            (
+              (pressure, (k, width) -> -) -> Std.ElementAt,
+              (pressure, (k, width) -> +) -> Std.ElementAt
+            ) -> +;
+          (((sides, ends) -> +, (divergence, k) -> Std.ElementAt) -> +, 0.25) -> *;
+        },
+        (unused: Float64): Float64 = (pressure, (inward, k) -> Std.ElementAt) -> Std.ElementAt
+      ) -> Std.Branch;
+    }
+  ) -> Std.Tuple.Map;
+};
+
+let Solver.Pressure(start: Field, divergence: Field, inside: Flags, inward: Indices): Field = {
+  let iterations: Int64 = Solver.PressureIterations;
+  let solved: Tuple<Int64, Field> =
+    (
+      (0, start),
+      (state: Tuple<Int64, Field>): Bool = (state -> Std.First, iterations) -> <,
+      (state: Tuple<Int64, Field>): Tuple<Int64, Field> =
+        (
+          (state -> Std.First, 1) -> +,
+          (state -> Std.Second, divergence, inside, inward) -> Solver.Relax
+        )
+    ) -> Std.Loop;
+  solved -> Std.Second;
+};
+
+// One velocity component minus the pressure's slope along it; `step` is 1 for the horizontal component and
+// Field.Width for the vertical one.
+let Solver.SubtractSlope(component: Field, pressure: Field, inside: Flags, step: UInt64): Field =
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Float64 = {
+      let k: UInt64 = i -> Std.ToUInt64;
+      (
+        (inside, k) -> Std.ElementAt,
+        0.0,
+        (unused: Float64): Float64 = {
+          let slope: Float64 =
+            (
+              (pressure, (k, step) -> +) -> Std.ElementAt,
+              (pressure, (k, step) -> -) -> Std.ElementAt
+            ) -> -;
+          ((component, k) -> Std.ElementAt, (slope, 0.5) -> *) -> -;
+        },
+        (unused: Float64): Float64 = 0.0
+      ) -> Std.Branch;
+    }
+  ) -> Std.Tuple.Map;
+
+let Solver.StepParts(
+  u: Field,
+  v: Field,
+  dye: Field,
+  pressure: Field,
+  inside: Flags,
+  inward: Indices,
+  xs: Field,
+  ys: Field,
+  x: Float64,
+  y: Float64,
+  radius: Float64,
+  dx: Float64,
+  dy: Float64,
+  amount: Float64
+): Fluid = {
+  let moved_u: Field =
+    (u, u, v, inside, xs, ys, x, y, radius, dx, Solver.KeepVelocity) -> Solver.Advect;
+  let moved_v: Field =
+    (v, u, v, inside, xs, ys, x, y, radius, dy, Solver.KeepVelocity) -> Solver.Advect;
+  let moved_dye: Field =
+    (dye, u, v, inside, xs, ys, x, y, radius, amount, Solver.KeepDye) -> Solver.Advect;
+  let solved: Field =
+    (pressure, (moved_u, moved_v, inside) -> Solver.Divergence, inside, inward) -> Solver.Pressure;
+  (
+    (moved_u, solved, inside, 1u64) -> Solver.SubtractSlope,
+    (moved_v, solved, inside, Field.Width -> Std.ToUInt64) -> Solver.SubtractSlope,
+    moved_dye,
+    solved
+  );
+};
+
+// One step of the fluid, with a push.
+let Solver.Step(fluid: Fluid, grid: Grid, push: Push): Fluid =
+  (fluid..., grid..., push...) -> Solver.StepParts;

@@ -35,7 +35,7 @@ Key ideas:
 The native CLI executable is fleaux.
 Current help output shows these core forms:
 
-    fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] [--auto-value-ref] [--value-ref-byte-cutoff N] [file.fleaux|file.fleaux.bc] [-- <arg1> <arg2> ...]
+    fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] [-- <arg1> <arg2> ...]
 
 Common workflows:
 

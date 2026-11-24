@@ -50,11 +50,11 @@ auto starts_with(const std::string_view haystack, const std::size_t index, const
   return haystack.compare(index, needle.size(), needle) == 0;
 }
 
+// The span of a token the lexer reports an error at. Errors are rare, so each one copies the file for its span.
 auto span_from_token(const Token& token, const std::string& source_name, const std::string& source_text)
     -> std::optional<diag::SourceSpan> {
   diag::SourceSpan span;
-  span.source_name = source_name;
-  span.source_text = source_text;
+  span.file = diag::SourceFile{source_name, source_text};
   span.line = token.line;
   span.col = token.col;
   span.end_line = token.end_line();

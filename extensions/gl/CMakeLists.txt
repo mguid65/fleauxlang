@@ -13,7 +13,7 @@ set(FLEAUX_GL_EXTENSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/fleaux_gl")
 
 add_library(fleaux_gl SHARED src/fleaux_gl.cpp)
 target_include_directories(fleaux_gl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../core/include")
-target_link_libraries(fleaux_gl PRIVATE tl_expected datatree glfw glad::glad)
+target_link_libraries(fleaux_gl PRIVATE fleaux_heap tl_expected glfw glad::glad)
 fleaux_set_project_warnings(fleaux_gl WARNINGS_AS_ERRORS)
 
 # One library in the directory, so that the directory alone names the extension. The import library goes elsewhere.

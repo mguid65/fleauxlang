@@ -170,9 +170,9 @@ TEST_CASE("VmHost call_native_binary falls back to unary tuple invocation", "[em
       .callable = [unary_calls](const fleaux::embed::BindingContext&, const fleaux::embed::VmValue& args)
           -> fleaux::embed::NativeInvokeResult {
         ++*unary_calls;
-        const auto& pair = fleaux::runtime::as_array(args);
-        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(*pair.TryGet(0)) +
-                                         fleaux::runtime::as_int_value(*pair.TryGet(1)));
+        const auto& pair = fleaux::runtime::as_tuple(args);
+        return fleaux::runtime::make_int(fleaux::runtime::as_int_value(pair[0]) +
+                                         fleaux::runtime::as_int_value(pair[1]));
       },
   });
   REQUIRE(registration.has_value());

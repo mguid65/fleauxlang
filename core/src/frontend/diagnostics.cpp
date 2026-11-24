@@ -1,18 +1,37 @@
 #include "fleaux/frontend/diagnostics.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 namespace fleaux::frontend::diag {
 
+struct SourceFile::Contents {
+  std::string name;
+  std::string text;
+};
+
+SourceFile::SourceFile(std::string name, std::string text)
+    : contents_(std::make_shared<const Contents>(Contents{.name = std::move(name), .text = std::move(text)})) {}
+
+auto SourceFile::name() const noexcept -> const std::string& {
+  static const std::string no_name;
+  return contents_ != nullptr ? contents_->name : no_name;
+}
+
+auto SourceFile::text() const noexcept -> const std::string& {
+  static const std::string no_text;
+  return contents_ != nullptr ? contents_->text : no_text;
+}
+
 auto SourceSpan::source_line() const -> std::optional<std::string> {
-  if (source_text.empty()) {
+  if (source_text().empty()) {
     return std::nullopt;
   }
 
-  std::istringstream in(source_text);
+  std::istringstream in(source_text());
   std::string line_text;
   int current = 1;
   while (std::getline(in, line_text)) {
@@ -102,8 +121,8 @@ void append_diagnostic_note(std::ostringstream& out, const std::optional<std::st
 
 void append_diagnostic_location(std::ostringstream& out, const SourceSpan& span) {
   out << "\n   --> ";
-  if (!span.source_name.empty()) {
-    out << span.source_name << ":";
+  if (!span.source_name().empty()) {
+    out << span.source_name() << ":";
   }
   out << span.line << ":" << span.col;
 }
@@ -119,11 +138,11 @@ void emit_source_context_line(std::ostringstream& out, const std::vector<std::st
 }
 
 void append_diagnostic_source_context(std::ostringstream& out, const SourceSpan& span) {
-  if (span.source_text.empty() || span.line < 1) {
+  if (span.source_text().empty() || span.line < 1) {
     return;
   }
 
-  const auto lines = split_source_lines(span.source_text);
+  const auto lines = split_source_lines(span.source_text());
   const int error_line = span.line;
   const int line_count = static_cast<int>(lines.size());
 

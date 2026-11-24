@@ -13,6 +13,7 @@
 #include <utility>
 #include <variant>
 
+#include "fleaux/common/match_wildcard.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/common/symbol_name.hpp"
 #include "fleaux/common/utility.hpp"
@@ -23,8 +24,6 @@ namespace {
 const std::unordered_set<std::string> kOperators = {
     "^", "/", "*", "%", "+", "-", "==", "!=", "<", ">", ">=", "<=", "!", "&&", "||",
 };
-
-const std::string kMatchWildcardSentinel = "__fleaux_match_wildcard__";
 
 constexpr std::string_view kVariadicTypeSuffix = "...";
 
@@ -253,7 +252,7 @@ auto rewrite_match_wildcards(ir::IRExpr& match_lhs, const std::optional<diag::So
 
       if (is_wildcard_pattern) {
         ir::IRConstant wildcard;
-        wildcard.val = kMatchWildcardSentinel;
+        wildcard.val = std::string{common::kMatchWildcardSentinel};
         wildcard.span = pattern_name->span;
         pattern_expr->node = std::move(wildcard);
       }

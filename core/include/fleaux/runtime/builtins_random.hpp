@@ -9,8 +9,6 @@ namespace fleaux::runtime {
 namespace detail {
 
 inline constexpr UInt k_random_gamma = 0x9E3779B97F4A7C15ULL;
-inline constexpr std::string_view k_random_generator_tag = "__fleaux_rng__";
-inline constexpr UInt k_random_generator_version = 1ULL;
 inline constexpr UInt k_random_split_left_salt = 0xA0761D6478BD642FULL;
 inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
 
@@ -23,41 +21,20 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
 
 // The seed is a UInt64 by type.
 [[nodiscard]] inline auto random_seed_from_arg(Value arg) -> UInt {
-  return uint64_value(unwrap_singleton_arg(std::move(arg)));
+  return uint64_value(arg);
 }
 
 [[nodiscard]] inline auto random_unit_float(const UInt seed) -> double {
   return std::ldexp(static_cast<double>(seed >> 11U), -53);
 }
 
-[[nodiscard]] inline auto make_random_generator(const UInt state) -> Value {
-  Array token;
-  token.Reserve(3);
-  token.EmplaceBack(String{k_random_generator_tag});
-  token.EmplaceBack(k_random_generator_version);
-  token.EmplaceBack(state);
-  return Value{std::move(token)};
-}
-
-// The generator is a RandomGenerator by type: every generator reaching a builtin was built by make_random_generator
-// or passed is_valid_random_generator in a cast or host entry check.
+// The generator is a RandomGenerator by type, which the type checker or a host entry check guarantees.
 [[nodiscard]] inline auto random_generator_state_from_arg(Value arg) -> UInt {
-  const Value generator = unwrap_singleton_arg(std::move(arg));
-  return uint64_value(*as_array(generator).TryGet(2));
-}
-
-// True for a well-formed generator token: (tag, version, state) with an unsigned version equal to the current one
-// and an unsigned state, exactly as make_random_generator builds it.
-[[nodiscard]] inline auto is_valid_random_generator(const Value& value) -> bool {
-  const auto& token = value.TryGetArray();
-  if (!token || token->Size() != 3U) {
-    return false;
+  const Value generator = std::move(arg);
+  if (!generator.is_random_generator()) {
+    throw kind_error("RandomGenerator");
   }
-  const auto& tag = token->TryGet(0)->TryGetString();
-  const auto& version = token->TryGet(1)->TryGetNumber();
-  const auto& state = token->TryGet(2)->TryGetNumber();
-  return tag && *tag == k_random_generator_tag && version && version->IsUInt() &&
-         *version->GetUInt() == k_random_generator_version && state && state->IsUInt();
+  return generator.random_state();
 }
 
 [[nodiscard]] inline auto random_step_pair(const UInt state) -> std::pair<UInt, Value> {
@@ -68,7 +45,7 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
 }  // namespace detail
 
 [[nodiscard]] inline auto RandomCreate(Value arg) -> Value {
-  return detail::make_random_generator(detail::random_seed_from_arg(std::move(arg)));
+  return make_random_generator(detail::random_seed_from_arg(std::move(arg)));
 }
 
 [[nodiscard]] inline auto RandomNextUInt64(Value arg) -> Value {
@@ -99,7 +76,7 @@ inline constexpr UInt k_random_split_right_salt = 0xE7037ED1A0B428DBULL;
   const UInt state = detail::random_generator_state_from_arg(std::move(arg));
   const UInt left_state = detail::random_seed_step(state ^ detail::k_random_split_left_salt);
   const UInt right_state = detail::random_seed_step(state ^ detail::k_random_split_right_salt);
-  return make_tuple(detail::make_random_generator(left_state), detail::make_random_generator(right_state));
+  return make_tuple(make_random_generator(left_state), make_random_generator(right_state));
 }
 
 }  // namespace fleaux::runtime

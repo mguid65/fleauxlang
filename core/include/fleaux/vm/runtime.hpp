@@ -32,9 +32,6 @@ using RuntimeValueResult = tl::expected<runtime::Value, RuntimeError>;
 
 struct RuntimeCompileOptions {
   bool enable_experimental_builtin_reductions{false};
-  bool enable_value_ref_gate{false};
-  bool enable_auto_value_ref{false};
-  std::size_t value_ref_byte_cutoff{256};
 };
 
 // Finds the extension function for a native function symbol, or nothing when no loaded extension provides it.

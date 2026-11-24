@@ -7,7 +7,7 @@
 //
 // Or include individual sub-headers for finer-grained dependencies.
 
-#include "fleaux/runtime/builtins_array.hpp"     // Array utilities
+#include "fleaux/runtime/builtins_array.hpp"     // Tuple utilities
 #include "fleaux/runtime/builtins_core.hpp"      // Comparison, logical, Wrap/Unwrap/sequence, output, control flow
 #include "fleaux/runtime/builtins_dict.hpp"      // Dict builtins
 #include "fleaux/runtime/builtins_help.hpp"      // Help/introspection

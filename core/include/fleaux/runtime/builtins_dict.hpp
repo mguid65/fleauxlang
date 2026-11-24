@@ -1,182 +1,148 @@
 #pragma once
 // Dictionary builtins (Create, Set, Get, Delete, Keys, Values, Entries, etc.).
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
+//
+// A dict keeps its entries in the order their keys were first set. The builtins that return a changed dict take the
+// dict out of their argument tuple, so a dict no other value holds is changed in place rather than copied.
 #include "fleaux/runtime/value.hpp"
 
 namespace fleaux::runtime {
-// Dictionary builtins
 
-// Keys are stored as type-prefixed strings; see encode_number_dict_key in value.hpp for the encoding.
-[[nodiscard]] inline auto dict_key_from_validated_value(const Value& key_val, const std::string_view builtin_name)
-    -> std::string {
-  switch (sort_tag_of(key_val)) {
-    case SortTag::kString:
-      return "s:" + as_string(key_val);
-    case SortTag::kNumber:
-      return encode_number_dict_key(as_number(key_val));
-    case SortTag::kBool:
-      return std::string{"b:"} + (as_bool(key_val) ? "true" : "false");
-    case SortTag::kNull:
-      return "z:";
-    case SortTag::kArray:
-    case SortTag::kObject:
-    case SortTag::kGeneric:
+// A dict key is a scalar (Null, Bool, a number, or a String) by type.
+[[nodiscard]] inline auto validated_dict_key(const Value& key, const std::string_view builtin_name) -> const Value& {
+  switch (key.kind()) {
+    case ValueKind::kNull:
+    case ValueKind::kBool:
+    case ValueKind::kInt:
+    case ValueKind::kUInt:
+    case ValueKind::kFloat:
+    case ValueKind::kString:
+      return key;
+    default:
       throw std::logic_error(std::format("{} invariant violated: expected validated scalar Dict key", builtin_name));
   }
-  throw std::logic_error(std::format("{} invariant violated: Dict key conversion failed", builtin_name));
 }
 
-[[nodiscard]] inline auto validated_dict_object(const Value& dict_val, const std::string_view builtin_name) -> const Object& {
-  const auto object = dict_val.TryGetObject();
-  if (!object) {
+[[nodiscard]] inline auto validated_dict(const Value& dict, const std::string_view builtin_name) -> const Dict& {
+  if (!dict.is_dict()) {
     throw std::logic_error(std::format("{} invariant violated: expected validated Dict value", builtin_name));
   }
-  return *object;
+  return dict.dict();
 }
 
-// Returns the raw (prefixed) internal keys, sorted.
-[[nodiscard]] inline auto sorted_dict_keys(const Object& obj) -> std::vector<std::string> {
-  std::vector<std::string> keys;
-  keys.reserve(obj.Size());
-  for (const auto& internal_key : obj | std::views::keys) {
-    keys.push_back(internal_key);
-  }
-  std::ranges::sort(keys);
-  return keys;
+// args = () -> {}
+[[nodiscard]] inline auto DictCreate_Void(const Arguments& /*args*/) -> Value {
+  return make_dict();
 }
 
-// Strips the type prefix added by dict_key_from_validated_value and converts back to a
-// Fleaux Value so callers (DictKeys, DictEntries) expose the original key type.
-[[nodiscard]] inline auto dict_key_to_value(const std::string& internal_key) -> Value {
-  if (auto key = decode_dict_key(internal_key)) {
-    return std::move(*key);
-  }
-  throw std::logic_error("Dict invariant violated: unrecognised internal key '" + internal_key + "'");
-}
-
-[[nodiscard]] inline auto merge_dict_objects(Object base, const Object& overlay) -> Object {
-  for (const auto& [internal_key, mapped_value] : overlay) {
-    base[internal_key] = mapped_value;
-  }
-  return base;
-}
-
-[[nodiscard]] inline auto merge_dict_values(const Value& base_dict, const Value& overlay_dict) -> Value {
-  return Value{merge_dict_objects(as_object(base_dict), as_object(overlay_dict))};
-}
-
-// arg = () -> {}
-[[nodiscard]] inline auto DictCreate_Void(Value arg) -> Value {
-  (void)arg;
-  return Value{Object{}};
-}
-
-// arg = (dict,) or dict -> clone(dict)
+// arg = (dict,) or dict -> the same dict
 [[nodiscard]] inline auto DictCreate_Dict(Value arg) -> Value {
-  return Value{validated_dict_object(unwrap_singleton_arg(std::move(arg)), "Std.Dict.Create")};
+  Value dict = std::move(arg);
+  (void)validated_dict(dict, "Std.Dict.Create");
+  return dict;
 }
 
-// arg = (dict, key, value) -> new_dict
-[[nodiscard]] inline auto DictSet(Value arg) -> Value {
-  Object out = validated_dict_object(array_at(arg, 0), "Std.Dict.Set");
-  out[dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Set")] = array_at(arg, 2);
-  return Value{std::move(out)};
+// args = (dict, key, value) -> new_dict
+[[nodiscard]] inline auto DictSet(const Arguments& args) -> Value {
+  Value dict = args.take(0);
+  (void)validated_dict(dict, "Std.Dict.Set");
+  dict.mutable_dict().set(validated_dict_key(args[1], "Std.Dict.Set"), args.take(2));
+  return dict;
 }
 
-// arg = (dict, key) -> value
-[[nodiscard]] inline auto DictGet(Value arg) -> Value {
-  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.Get");
-  const auto key = dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Get");
-  const auto got = obj.TryGet(key);
-  if (!got) {
+// args = (dict, key) -> value
+[[nodiscard]] inline auto DictGet(const Arguments& args) -> Value {
+  const Dict& dict = validated_dict(args[0], "Std.Dict.Get");
+  const Value* found = dict.find(validated_dict_key(args[1], "Std.Dict.Get"));
+  if (found == nullptr) {
     throw std::runtime_error{"DictGet: key not found"};
   }
-  return *got;
+  return *found;
 }
 
-// arg = (dict, key, default) -> value_or_default
-[[nodiscard]] inline auto DictGetDefault(Value arg) -> Value {
-  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.GetDefault");
-  const auto key = dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.GetDefault");
-  const auto got = obj.TryGet(key);
-  if (!got) {
-    return array_at(arg, 2);
+// args = (dict, key, default) -> value_or_default
+[[nodiscard]] inline auto DictGetDefault(const Arguments& args) -> Value {
+  const Dict& dict = validated_dict(args[0], "Std.Dict.GetDefault");
+  const Value* found = dict.find(validated_dict_key(args[1], "Std.Dict.GetDefault"));
+  return found == nullptr ? args[2] : *found;
+}
+
+// args = (dict, key) -> bool
+[[nodiscard]] inline auto DictContains(const Arguments& args) -> Value {
+  const Dict& dict = validated_dict(args[0], "Std.Dict.Contains");
+  return make_bool(dict.contains(validated_dict_key(args[1], "Std.Dict.Contains")));
+}
+
+// args = (dict, key) -> new_dict
+[[nodiscard]] inline auto DictDelete(const Arguments& args) -> Value {
+  Value dict = args.take(0);
+  const Value& key = validated_dict_key(args[1], "Std.Dict.Delete");
+  if (validated_dict(dict, "Std.Dict.Delete").contains(key)) {
+    dict.mutable_dict().erase(key);
   }
-  return *got;
+  return dict;
 }
 
-// arg = (dict, key) -> bool
-[[nodiscard]] inline auto DictContains(Value arg) -> Value {
-  const auto& obj = validated_dict_object(array_at(arg, 0), "Std.Dict.Contains");
-  return make_bool(obj.Contains(dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Contains")));
-}
-
-// arg = (dict, key) -> new_dict
-[[nodiscard]] inline auto DictDelete(Value arg) -> Value {
-  Object out = validated_dict_object(array_at(arg, 0), "Std.Dict.Delete");
-  out.Erase(dict_key_from_validated_value(array_at(arg, 1), "Std.Dict.Delete"));
-  return Value{std::move(out)};
-}
-
-// arg = (dict) or dict -> (k1, k2, ...), sorted by key
+// arg = (dict) or dict -> (k1, k2, ...), in insertion order
 [[nodiscard]] inline auto DictKeys(Value arg) -> Value {
-  const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Keys");
-  const auto keys = sorted_dict_keys(obj);
-  Array out;
-  out.Reserve(keys.size());
-  for (const auto& key : keys) {
-    out.PushBack(dict_key_to_value(key));
+  const Value dict_value = std::move(arg);
+  const Dict& dict = validated_dict(dict_value, "Std.Dict.Keys");
+  TupleBuilder out(dict.size());
+  for (const auto& [key, item] : dict) {
+    out.push(key);
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
-// arg = (dict) or dict -> values sorted by key
+// arg = (dict) or dict -> (v1, v2, ...), in insertion order
 [[nodiscard]] inline auto DictValues(Value arg) -> Value {
-  const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Values");
-  const auto keys = sorted_dict_keys(obj);
-  Array out;
-  out.Reserve(keys.size());
-  for (const auto& key : keys) {
-    if (const auto got = obj.TryGet(key))
-      out.PushBack(*got);
+  const Value dict_value = std::move(arg);
+  const Dict& dict = validated_dict(dict_value, "Std.Dict.Values");
+  TupleBuilder out(dict.size());
+  for (const auto& [key, item] : dict) {
+    out.push(item);
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
-// arg = (dict) or dict -> ((k1,v1), (k2,v2), ...), sorted by key
+// arg = (dict) or dict -> ((k1, v1), (k2, v2), ...), in insertion order
 [[nodiscard]] inline auto DictEntries(Value arg) -> Value {
-  const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  const auto& obj = validated_dict_object(dict_val, "Std.Dict.Entries");
-  const auto keys = sorted_dict_keys(obj);
-  Array out;
-  out.Reserve(keys.size());
-  for (const auto& key : keys) {
-    if (const auto got = obj.TryGet(key))
-      out.PushBack(make_tuple(dict_key_to_value(key), *got));
+  const Value dict_value = std::move(arg);
+  const Dict& dict = validated_dict(dict_value, "Std.Dict.Entries");
+  TupleBuilder out(dict.size());
+  for (const auto& [key, item] : dict) {
+    out.push(make_tuple(Value{key}, Value{item}));
   }
-  return Value{std::move(out)};
+  return std::move(out).finish();
 }
 
 // arg = (dict) or dict -> {}
 [[nodiscard]] inline auto DictClear(Value arg) -> Value {
-  const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  (void)validated_dict_object(dict_val, "Std.Dict.Clear");
-  return Value{Object{}};
+  const Value dict_value = std::move(arg);
+  (void)validated_dict(dict_value, "Std.Dict.Clear");
+  return make_dict();
 }
 
-// arg = (dict_base, dict_overlay) -> new_dict
-// Keys in dict_overlay overwrite those in dict_base.
-[[nodiscard]] inline auto DictMerge(Value arg) -> Value {
-  Object base = validated_dict_object(array_at(arg, 0), "Std.Dict.Merge");
-  return Value{merge_dict_objects(std::move(base), validated_dict_object(array_at(arg, 1), "Std.Dict.Merge"))};
+// args = (dict_base, dict_overlay) -> new_dict
+// Keys in dict_overlay overwrite those in dict_base, keeping their place in it.
+[[nodiscard]] inline auto DictMerge(const Arguments& args) -> Value {
+  Value base = args.take(0);
+  (void)validated_dict(base, "Std.Dict.Merge");
+  const Dict& overlay = validated_dict(args[1], "Std.Dict.Merge");
+  if (overlay.empty()) {
+    return base;
+  }
+  Dict& merged = base.mutable_dict();
+  for (const auto& [key, item] : overlay) {
+    merged.set(key, item);
+  }
+  return base;
 }
 
 // arg = (dict) or dict -> Int64 (count of entries)
 [[nodiscard]] inline auto DictLength(Value arg) -> Value {
-  const Value dict_val = unwrap_singleton_arg(std::move(arg));
-  return make_int(static_cast<Int>(validated_dict_object(dict_val, "Std.Dict.Length").Size()));
+  const Value dict_value = std::move(arg);
+  return make_int(static_cast<Int>(validated_dict(dict_value, "Std.Dict.Length").size()));
 }
 
 }  // namespace fleaux::runtime

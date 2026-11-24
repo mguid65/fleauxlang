@@ -1258,21 +1258,21 @@ let Std.Dict.Delete<K, V>(dict: Dict<K, V>, key: K) : Dict<K, V> :: __builtin__;
 // @return A value of type Dict<K, V>.
 let Std.Dict.Merge<K, V>(dict_base: Dict<K, V>, dict_overlay: Dict<K, V>) : Dict<K, V> :: __builtin__;
 
-// @brief Return dictionary keys in sorted key order.
+// @brief Return dictionary keys in the order they were first set.
 // @tparam K Generic dictionary key type.
 // @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict<K, V>.
 // @return A value of type Tuple<K...>.
 let Std.Dict.Keys<K, V>(dict: Dict<K, V>) : Tuple<K...> :: __builtin__;
 
-// @brief Return dictionary values in sorted key order.
+// @brief Return dictionary values in the order their keys were first set.
 // @tparam K Generic dictionary key type.
 // @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict<K, V>.
 // @return A value of type Tuple<V...>.
 let Std.Dict.Values<K, V>(dict: Dict<K, V>) : Tuple<V...> :: __builtin__;
 
-// @brief Return dictionary entries in sorted key order.
+// @brief Return dictionary entries in the order their keys were first set.
 // @tparam K Generic dictionary key type.
 // @tparam V Generic dictionary value type.
 // @param dict Input dictionary value. Type: Dict<K, V>.

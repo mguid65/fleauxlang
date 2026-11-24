@@ -1,0 +1,137 @@
+// Drawing the fluid. Every frame the dye and the speed go to one texture, one byte a cell: the dye fills the top
+// Field.Height rows and the speed the rows below. A single quad over the window draws them, and its fragment shader
+// interpolates between cells and colors the dye by how fast it moves.
+
+import Std;
+import GL;
+import Field;
+
+// The shader program, the texture, and the locations of the `pointer` and `time` uniforms.
+alias Screen = Tuple<Int64, Int64, Int64, Int64>;
+
+// Window pixels along each side of a cell.
+let Render.CellPixels: Int64 = 11;
+
+// Speeds, in cells per step, drawn as the brightest byte.
+let Render.TopSpeed: Float64 = 1.5;
+
+let Render.VertexSource: String = """
+  #version 330 core
+  layout(location = 0) in vec2 corner;
+  out vec2 uv;
+  void main() {
+    uv = corner * 0.5 + 0.5;
+    gl_Position = vec4(corner, 0.0, 1.0);
+  }
+  """;
+
+// `pointer` is the pointer's position in cells and the radius of its push; `time` is in seconds.
+let Render.FragmentSource: String = """
+  #version 330 core
+  in vec2 uv;
+  uniform sampler2D cells;
+  uniform vec3 pointer;
+  uniform float time;
+  out vec4 fragment_color;
+
+  // A channel's value at a point in cell coordinates, interpolated between the four nearest cells. `row` is where
+  // the channel's rows start in the texture.
+  float sample_channel(vec2 point, int rows, int row) {
+    ivec2 size = textureSize(cells, 0);
+    vec2 corner = floor(point);
+    vec2 t = point - corner;
+    ivec2 c = clamp(ivec2(corner), ivec2(0), ivec2(size.x - 2, rows - 2));
+    float a = texelFetch(cells, ivec2(c.x, row + c.y), 0).r;
+    float b = texelFetch(cells, ivec2(c.x + 1, row + c.y), 0).r;
+    float d = texelFetch(cells, ivec2(c.x, row + c.y + 1), 0).r;
+    float e = texelFetch(cells, ivec2(c.x + 1, row + c.y + 1), 0).r;
+    return mix(mix(a, b, t.x), mix(d, e, t.x), t.y);
+  }
+
+  void main() {
+    ivec2 size = textureSize(cells, 0);
+    int rows = size.y / 2;
+    vec2 inner = vec2(size.x - 2, rows - 2);
+    vec2 point = vec2(0.5) + vec2(uv.x, 1.0 - uv.y) * inner;
+
+    float dye = sample_channel(point, rows, 0);
+    float speed = sample_channel(point, rows, rows);
+
+    vec3 background = mix(vec3(0.015, 0.02, 0.05), vec3(0.04, 0.05, 0.11), uv.y);
+    vec3 slow = vec3(0.12, 0.38, 0.98);
+    vec3 fast = vec3(1.0, 0.42, 0.12);
+    vec3 ink = mix(slow, fast, smoothstep(0.05, 0.7, speed));
+    float amount = 1.0 - exp(-2.5 * dye);
+    vec3 color = mix(background, ink, amount);
+    color += vec3(1.0, 0.92, 0.8) * smoothstep(0.75, 1.0, dye) * 0.35;
+
+    float ring = 1.0 - smoothstep(0.0, 0.12, abs(distance(point, pointer.xy) - pointer.z));
+    color = mix(color, vec3(1.0), 0.25 * ring);
+    fragment_color = vec4(color, 1.0);
+  }
+  """;
+
+// A quad over the whole window, as a triangle strip.
+let Render.Corners: Tuple<Float64...> = (-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0);
+
+// Opens the window, sized to the grid, and sets up the shader, the quad, and the texture.
+let Render.Setup(): Screen = {
+  ("Fleaux: Fluid", (Field.Columns, Render.CellPixels) -> *, (Field.Rows, Render.CellPixels) -> *)
+    -> GL.OpenWindow;
+  let program: Int64 =
+    (Render.VertexSource, Render.FragmentSource) -> GL.CompileProgram -> Std.Result.Unwrap;
+  () -> GL.CreateVertexArray;
+  Render.Corners -> GL.CreateBuffer;
+  (0, 2, 2, 0) -> GL.VertexAttribute;
+  program -> GL.UseProgram;
+  (
+    program,
+    (Field.Width, (Field.Height, 2) -> *) -> GL.CreateTexture,
+    (program, "pointer") -> GL.UniformLocation,
+    (program, "time") -> GL.UniformLocation
+  );
+};
+
+// A field as texture bytes: `scale` maps to 255.
+let Render.Bytes(values: Field, scale: Float64): Tuple<UInt64...> = {
+  let factor: Float64 = (255.0, scale) -> /;
+  (
+    values,
+    (value: Float64): UInt64 =
+      ((value, factor) -> *, 0.0, 255.0) -> Std.Math.Clamp -> Std.Math.Floor -> Std.ToUInt64
+  ) -> Std.Tuple.Map;
+};
+
+// Each cell's speed.
+let Render.Speeds(u: Field, v: Field): Field =
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Float64 = {
+      let k: UInt64 = i -> Std.ToUInt64;
+      let x: Float64 = (u, k) -> Std.ElementAt;
+      let y: Float64 = (v, k) -> Std.ElementAt;
+      ((x, x) -> *, (y, y) -> *) -> + -> Std.Math.Sqrt;
+    }
+  ) -> Std.Tuple.Map;
+
+// Draws the dye, colored by speed, and the pointer's ring at (x, y) in cells.
+let Render.Draw(
+  program: Int64,
+  texture: Int64,
+  pointer_location: Int64,
+  time_location: Int64,
+  u: Field,
+  v: Field,
+  dye: Field,
+  x: Float64,
+  y: Float64,
+  radius: Float64
+): Null = {
+  let bytes: Tuple<UInt64...> =
+    ((dye, 1.0) -> Render.Bytes, ((u, v) -> Render.Speeds, Render.TopSpeed) -> Render.Bytes)
+      -> Std.Array.Concat;
+  (texture, Field.Width, (Field.Height, 2) -> *, bytes) -> GL.UpdateTexture;
+  (pointer_location, x, y, radius) -> GL.Uniform3f;
+  (time_location, () -> GL.Time) -> GL.Uniform1f;
+  (GL.TriangleStrip, 0, 4) -> GL.DrawArrays;
+};

@@ -357,7 +357,7 @@ The installed development package includes:
 - public headers under `include/`
 - the exported `fleaux` CMake package under `lib/cmake/fleaux/`
 - the native embedding/static libraries
-- bundled `tl` and `data_tree` headers used by the public embedding surface
+- bundled `tl` headers used by the public embedding surface
 
 ## Current limitations
 

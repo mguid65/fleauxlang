@@ -189,8 +189,6 @@ Current help output supports these useful modes:
 - --no-run
 - --optimize
 - --no-emit-bytecode
-- --auto-value-ref
-- --value-ref-byte-cutoff N
 - --disassemble
 - --dump-ast
 - --dump-ir

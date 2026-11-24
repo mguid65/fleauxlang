@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -756,4 +757,24 @@ TEST_CASE("A multi-line raw string token ends on its closing line", "[parser][ra
   CHECK(semicolon.text == ";");
   CHECK(semicolon.line == 3);
   CHECK(semicolon.col == 6);
+}
+
+TEST_CASE("Spans from one parse share one copy of the source file", "[parser][spans]") {
+  const std::string source = "import Std;\nlet Twice(x: Int64): Int64 = (x, 2) -> Std.Multiply;\n(3) -> Twice;\n";
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(source, "spans.fleaux");
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->statements.size() == 3U);
+
+  const auto statement_span = [](const auto& statement) -> const fleaux::frontend::diag::SourceSpan& {
+    return *std::visit([](const auto& node) -> const std::optional<fleaux::frontend::diag::SourceSpan>& {
+      return node.span;
+    }, statement);
+  };
+  const auto& first = statement_span(parsed->statements[0]);
+  const auto& last = statement_span(parsed->statements[2]);
+
+  REQUIRE(first.source_name() == "spans.fleaux");
+  REQUIRE(first.source_text() == source);
+  REQUIRE(&first.source_text() == &last.source_text());
 }

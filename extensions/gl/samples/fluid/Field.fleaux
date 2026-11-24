@@ -1,0 +1,71 @@
+// The fluid's grid: Field.Columns x Field.Rows cells inside a border one cell wide, stored as one flat tuple, row
+// after row from the top. Cell k is at column k mod Field.Width and row k / Field.Width, and the border cells are the
+// walls. Keeping the border in the tuple lets every inside cell read its four neighbours at k - 1, k + 1,
+// k - Field.Width, and k + Field.Width without checking where it is.
+
+import Std;
+
+// One value per cell.
+alias Field = Tuple<Float64...>;
+// One flag per cell.
+alias Flags = Tuple<Bool...>;
+// One cell index per cell.
+alias Indices = Tuple<UInt64...>;
+
+let Field.Columns: Int64 = 72;
+let Field.Rows: Int64 = 54;
+
+// The grid's size with its border.
+let Field.Width: Int64 = (Field.Columns, 2) -> +;
+let Field.Height: Int64 = (Field.Rows, 2) -> +;
+let Field.Count: Int64 = (Field.Width, Field.Height) -> *;
+
+// A field holding `value` in every cell.
+let Field.Filled(value: Float64): Field =
+  (Field.Count -> Std.Tuple.Range, (i: Int64): Float64 = value) -> Std.Tuple.Map;
+
+// Whether each cell is inside the walls.
+let Field.Inside(): Flags = {
+  let width: Int64 = Field.Width;
+  let columns: Int64 = Field.Columns;
+  let rows: Int64 = Field.Rows;
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): Bool = {
+      let x: Int64 = (i, width) -> Std.Mod;
+      let y: Int64 = (i, width) -> /;
+      (((x, 1) -> >=, (x, columns) -> <=) -> &&, ((y, 1) -> >=, (y, rows) -> <=) -> &&) -> &&;
+    }
+  ) -> Std.Tuple.Map;
+};
+
+// For each cell, the inside cell nearest to it: itself for an inside cell, the cell next to it for a wall.
+let Field.Inward(): Indices = {
+  let width: Int64 = Field.Width;
+  let columns: Int64 = Field.Columns;
+  let rows: Int64 = Field.Rows;
+  (
+    Field.Count -> Std.Tuple.Range,
+    (i: Int64): UInt64 = {
+      let x: Int64 = (i, width) -> Std.Mod;
+      let y: Int64 = (i, width) -> /;
+      let inside_x: Int64 =
+        ((x, 1) -> <, 1, ((x, columns) -> >, columns, x) -> Std.Select) -> Std.Select;
+      let inside_y: Int64 = ((y, 1) -> <, 1, ((y, rows) -> >, rows, y) -> Std.Select) -> Std.Select;
+      ((inside_y, width) -> *, inside_x) -> + -> Std.ToUInt64;
+    }
+  ) -> Std.Tuple.Map;
+};
+
+// Each cell's column and row, as numbers.
+let Field.Xs(): Field = {
+  let width: Int64 = Field.Width;
+  (Field.Count -> Std.Tuple.Range, (i: Int64): Float64 = (i, width) -> Std.Mod -> Std.ToFloat64)
+    -> Std.Tuple.Map;
+};
+
+let Field.Ys(): Field = {
+  let width: Int64 = Field.Width;
+  (Field.Count -> Std.Tuple.Range, (i: Int64): Float64 = (i, width) -> / -> Std.ToFloat64)
+    -> Std.Tuple.Map;
+};

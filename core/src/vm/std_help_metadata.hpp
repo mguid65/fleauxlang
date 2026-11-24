@@ -150,9 +150,10 @@ inline auto register_help_for_let(runtime::HelpMetadataStore& store, const front
   return store;
 }
 
+// Points Std.Help at the Std metadata for as long as it lives. The metadata is built once and shared, never copied.
 class StdHelpMetadataScope {
 public:
-  StdHelpMetadataScope() : store_(cached_std_help_metadata_store()), registry_scope_(store_) {}
+  StdHelpMetadataScope() : registry_scope_(cached_std_help_metadata_store()) {}
 
   StdHelpMetadataScope(const StdHelpMetadataScope&) = delete;
   auto operator=(const StdHelpMetadataScope&) -> StdHelpMetadataScope& = delete;
@@ -160,7 +161,6 @@ public:
   auto operator=(StdHelpMetadataScope&&) -> StdHelpMetadataScope& = delete;
 
 private:
-  runtime::HelpMetadataStore store_{};
   runtime::ActiveHelpMetadataRegistryScope registry_scope_;
 };
 

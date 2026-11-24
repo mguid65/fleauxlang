@@ -40,9 +40,10 @@ struct ConstantPoolDeduplicationPass {
   void run(Module& module) const;
 };
 
-// Tier A pass: removes {kPushConst | kLoadLocal} immediately followed by kPop.
+// Tier A pass: removes {kPushConst | kLoadLocal | kTakeLocal} immediately followed by kPop.
 // The value is pushed and immediately discarded, so both instructions are dead.
-// Semantics-safe because neither push opcode has side effects.
+// Semantics-safe because no program observes these pushes: a kTakeLocal that goes leaves its value in a slot that
+// nothing reads again.
 struct DeadPushEliminationPass {
   void run(Module& module) const;
 };

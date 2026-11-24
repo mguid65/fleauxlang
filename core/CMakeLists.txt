@@ -67,6 +67,10 @@ if(FLEAUX_SANITIZERS)
 
   list(JOIN FLEAUX_SANITIZERS "," FLEAUX_SANITIZER_FLAG)
   add_compile_options(-fno-omit-frame-pointer -fsanitize=${FLEAUX_SANITIZER_FLAG})
+  # The value allocator takes every block from operator new, so that the sanitizer sees each allocation.
+  if(FLEAUX_ENABLE_ASAN OR FLEAUX_ENABLE_TSAN)
+    add_compile_definitions(FLEAUX_HEAP_SYSTEM_ALLOCATOR)
+  endif()
   add_link_options(-fno-omit-frame-pointer -fsanitize=${FLEAUX_SANITIZER_FLAG})
   message(STATUS "Fleaux native sanitizers enabled: ${FLEAUX_SANITIZER_FLAG}")
 endif()
@@ -102,13 +106,6 @@ set_target_properties(tl_expected PROPERTIES EXPORT_NAME tl_expected)
 target_include_directories(tl_expected INTERFACE
     $<BUILD_INTERFACE:${THIRD_PARTY}/tl/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-
-add_library(datatree INTERFACE)
-set_target_properties(datatree PROPERTIES EXPORT_NAME datatree)
-target_include_directories(datatree INTERFACE
-    $<BUILD_INTERFACE:${THIRD_PARTY}/datatree/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(datatree INTERFACE tl_expected)
 
 function(fleaux_set_project_warnings project_name)
   set(options WARNINGS_AS_ERRORS)
@@ -231,7 +228,7 @@ target_include_directories(fleaux_frontend_diagnostics PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_diagnostics PRIVATE ${FLEAUX_FRONTEND_DIAGNOSTICS_SOURCES})
-target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected datatree)
+target_link_libraries(fleaux_frontend_diagnostics PUBLIC tl_expected)
 fleaux_set_project_warnings(fleaux_frontend_diagnostics WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_diagnostics PUBLIC fleaux_emscripten_threads)
@@ -250,7 +247,7 @@ target_include_directories(fleaux_frontend_parser PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_parser PRIVATE ${FLEAUX_FRONTEND_PARSER_SOURCES})
-target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected datatree)
+target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_frontend_diagnostics tl_expected)
 fleaux_set_project_warnings(fleaux_frontend_parser WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_parser PUBLIC fleaux_emscripten_threads)
@@ -275,7 +272,7 @@ target_include_directories(fleaux_frontend_lowering PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_frontend_lowering PRIVATE ${FLEAUX_FRONTEND_LOWERING_SOURCES})
-target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected datatree)
+target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_frontend_parser fleaux_frontend_diagnostics tl_expected)
 fleaux_set_project_warnings(fleaux_frontend_lowering WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_frontend_lowering PUBLIC fleaux_emscripten_threads)
@@ -302,6 +299,7 @@ if(BUILD_TESTING)
       tests/test_main.cpp
       tests/diagnostics_tests.cpp
       tests/embed_api_surface_tests.cpp
+      tests/heap_tests.cpp
       tests/parser_tests.cpp
       tests/parser_type_syntax_tests.cpp
       tests/formatter_tests.cpp
@@ -319,8 +317,7 @@ if(BUILD_TESTING)
       fleaux_common
       fleaux_frontend_diagnostics
       fleaux_frontend_parser
-      fleaux_frontend_lowering
-      datatree)
+      fleaux_frontend_lowering)
   fleaux_set_project_warnings(fleaux_core_tests WARNINGS_AS_ERRORS)
 
   catch_discover_tests(fleaux_core_tests
@@ -329,9 +326,21 @@ if(BUILD_TESTING)
       EXTRA_ARGS --reporter compact)
 endif()
 
+# The allocator for the runtime's values (include/fleaux/runtime/heap.hpp). Everything that makes values links it,
+# extensions included: each library gets its own copy, and the copies share blocks.
+add_library(fleaux_heap STATIC src/runtime/heap.cpp)
+set_target_properties(fleaux_heap PROPERTIES EXPORT_NAME heap)
+target_include_directories(fleaux_heap PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+fleaux_set_project_warnings(fleaux_heap WARNINGS_AS_ERRORS)
+if(TARGET fleaux_emscripten_threads)
+  target_link_libraries(fleaux_heap PUBLIC fleaux_emscripten_threads)
+endif()
+
 set(FLEAUX_BYTECODE_SOURCES
         src/bytecode/compiler.cpp
-        src/bytecode/escape_analyzer.cpp
+        src/bytecode/local_liveness.cpp
         src/bytecode/optimizer.cpp
         src/bytecode/serialization.cpp
         src/bytecode/verifier.cpp
@@ -344,7 +353,7 @@ target_include_directories(fleaux_bytecode PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_sources(fleaux_bytecode PRIVATE ${FLEAUX_BYTECODE_SOURCES})
-target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering tl_expected datatree)
+target_link_libraries(fleaux_bytecode PUBLIC fleaux_frontend_lowering fleaux_heap tl_expected)
 fleaux_set_project_warnings(fleaux_bytecode WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_bytecode PUBLIC fleaux_emscripten_threads)
@@ -364,7 +373,7 @@ if(FLEAUX_PCRE2_TARGET)
   )
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
-  target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected datatree ${FLEAUX_PCRE2_TARGET})
+  target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected ${FLEAUX_PCRE2_TARGET})
   fleaux_set_project_warnings(fleaux_vm WARNINGS_AS_ERRORS)
   if(TARGET fleaux_emscripten_threads)
     target_link_libraries(fleaux_vm PUBLIC fleaux_emscripten_threads)
@@ -416,7 +425,6 @@ if(EMSCRIPTEN AND FLEAUX_BUILD_WASM_COORDINATOR)
       fleaux_frontend_lowering
       fleaux_frontend_diagnostics
       fleaux_bytecode
-      datatree
       tl_expected)
   fleaux_set_project_warnings(fleaux_wasm_coordinator WARNINGS_AS_ERRORS)
   if(TARGET fleaux_emscripten_threads)
@@ -460,31 +468,31 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
   add_library(fleaux_test_binding_plugin SHARED
       tests/fixtures/binding_plugin_echo.cpp)
   target_include_directories(fleaux_test_binding_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin PRIVATE tl_expected datatree)
+  target_link_libraries(fleaux_test_binding_plugin PRIVATE fleaux_heap tl_expected)
   fleaux_set_project_warnings(fleaux_test_binding_plugin WARNINGS_AS_ERRORS)
 
   add_library(fleaux_test_binding_plugin_abi_mismatch SHARED
       tests/fixtures/binding_plugin_abi_mismatch.cpp)
   target_include_directories(fleaux_test_binding_plugin_abi_mismatch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_abi_mismatch PRIVATE tl_expected datatree)
+  target_link_libraries(fleaux_test_binding_plugin_abi_mismatch PRIVATE fleaux_heap tl_expected)
   fleaux_set_project_warnings(fleaux_test_binding_plugin_abi_mismatch WARNINGS_AS_ERRORS)
 
   add_library(fleaux_test_binding_plugin_missing_entrypoint SHARED
       tests/fixtures/binding_plugin_missing_entrypoint.cpp)
   target_include_directories(fleaux_test_binding_plugin_missing_entrypoint PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_missing_entrypoint PRIVATE tl_expected datatree)
+  target_link_libraries(fleaux_test_binding_plugin_missing_entrypoint PRIVATE fleaux_heap tl_expected)
   fleaux_set_project_warnings(fleaux_test_binding_plugin_missing_entrypoint WARNINGS_AS_ERRORS)
 
   add_library(fleaux_test_binding_plugin_registration_failed SHARED
       tests/fixtures/binding_plugin_registration_failed.cpp)
   target_include_directories(fleaux_test_binding_plugin_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_registration_failed PRIVATE tl_expected datatree)
+  target_link_libraries(fleaux_test_binding_plugin_registration_failed PRIVATE fleaux_heap tl_expected)
   fleaux_set_project_warnings(fleaux_test_binding_plugin_registration_failed WARNINGS_AS_ERRORS)
 
   add_library(fleaux_test_binding_plugin_partial_registration_failed SHARED
       tests/fixtures/binding_plugin_partial_registration_failed.cpp)
   target_include_directories(fleaux_test_binding_plugin_partial_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_partial_registration_failed PRIVATE tl_expected datatree)
+  target_link_libraries(fleaux_test_binding_plugin_partial_registration_failed PRIVATE fleaux_heap tl_expected)
   fleaux_set_project_warnings(fleaux_test_binding_plugin_partial_registration_failed WARNINGS_AS_ERRORS)
 
   target_sources(fleaux_core_tests PRIVATE
@@ -517,7 +525,7 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
 endif()
 
 set(FLEAUX_INSTALL_TARGETS)
-set(FLEAUX_DEVELOPMENT_TARGETS tl_expected datatree fleaux_common fleaux_frontend_diagnostics fleaux_frontend_parser fleaux_frontend_lowering fleaux_bytecode)
+set(FLEAUX_DEVELOPMENT_TARGETS tl_expected fleaux_common fleaux_frontend_diagnostics fleaux_frontend_parser fleaux_frontend_lowering fleaux_heap fleaux_bytecode)
 
 # The libraries pass -pthread on to their users through this target, so it is exported with them.
 if(TARGET fleaux_emscripten_threads)
@@ -563,10 +571,6 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
 
 install(DIRECTORY ${THIRD_PARTY}/tl/include/tl/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tl
-    COMPONENT Development)
-
-install(DIRECTORY ${THIRD_PARTY}/datatree/include/data_tree/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/data_tree
     COMPONENT Development)
 
 if(FLEAUX_DEVELOPMENT_TARGETS)

@@ -214,7 +214,6 @@ using Statement = std::variant<ImportStatement, TypeStatement, AliasStatement, L
 
 struct Program {
   std::string source_name{};
-  std::string source_text{};
   std::vector<Statement> statements{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };

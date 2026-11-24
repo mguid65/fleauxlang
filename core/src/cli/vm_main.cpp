@@ -1,10 +1,13 @@
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <sstream>
+#include <streambuf>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,8 +33,6 @@ struct CliOptions {
   bool optimize = false;
   bool write_bytecode_cache = true;
   bool enable_experimental_builtin_reductions = false;
-  bool enable_auto_value_ref = false;
-  std::size_t value_ref_byte_cutoff = 256;
   bool no_color = false;
   bool repl = false;
   bool show_help = false;
@@ -42,6 +43,8 @@ struct CliOptions {
   bool format_write = false;
   bool format_check = false;
   std::vector<std::filesystem::path> extensions;
+  // Runs the program this many times and reports the run times instead of showing its output.
+  std::optional<std::size_t> bench_runs;
 };
 
 struct CliError {
@@ -85,10 +88,9 @@ auto dedupe_hint_if_embedded(const std::string& message, const std::optional<std
 
 auto usage_text() -> std::string {
   return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--format [--write|--check]] "
-         "[--extension PATH]... "
+         "[--extension PATH]... [--bench N] "
          "[--no-emit-bytecode] [--no-color] "
          "[--experimental-builtin-reductions] "
-         "[--auto-value-ref] [--value-ref-byte-cutoff N] "
          "[file.fleaux|file.fleaux.bc] "
          "[-- "
          "<arg1> <arg2> ...]";
@@ -105,12 +107,11 @@ void print_help() {
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
             << "  --experimental-builtin-reductions\n"
             << "                         Enable experimental reduction of selected builtin-call chains to equivalent single calls\n"
-            << "  --auto-value-ref       Enable automatic by-ref promotion for large safe arguments\n"
-            << "  --value-ref-byte-cutoff N\n"
-            << "                         Set the byte-size cutoff used by --auto-value-ref (default: 256)\n"
             << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
             << "  --dump-ast             Parse a .fleaux source file, print the AST, and exit\n"
             << "  --dump-ir              Parse/lower a .fleaux source file, print the IR, and exit\n"
+            << "  --bench N              Run the program N times with its output discarded and print the fastest\n"
+            << "                         and median run time; loading and compiling happen once and are not timed\n"
             << "  --extension PATH       Load a native extension: its library, or a directory holding one library.\n"
             << "                         Its directory is searched for imports. May be given more than once.\n"
             << "  --format               Print a .fleaux source file formatted, and exit\n"
@@ -284,10 +285,46 @@ auto find_extension_library(const std::filesystem::path& extension) -> tl::expec
   return std::filesystem::weakly_canonical(libraries.front());
 }
 
+// A stream that discards everything written to it.
+class DiscardingBuffer final : public std::streambuf {
+protected:
+  auto overflow(const int_type character) -> int_type override { return traits_type::not_eof(character); }
+  auto xsputn(const char_type* /*text*/, const std::streamsize count) -> std::streamsize override { return count; }
+};
+
+// Runs a loaded program `runs` times with its output discarded and no input, and prints the fastest and the median
+// run time to stderr. Only the runs are timed: loading, linking, and compiling happened before.
+auto bench_vm(const fleaux::vm::Runtime& runtime, const fleaux::bytecode::Module& module,
+              const fleaux::vm::RuntimeInvocationOptions& base_options, const std::size_t runs)
+    -> tl::expected<void, CliError> {
+  DiscardingBuffer discarding_buffer;
+  std::ostream discarded(&discarding_buffer);
+  std::vector<double> microseconds;
+  microseconds.reserve(runs);
+  for (std::size_t run = 0; run < runs; ++run) {
+    std::istringstream no_input;
+    auto options = base_options;
+    options.input = std::ref(no_input);
+    options.output = std::ref(discarded);
+    const auto started = std::chrono::steady_clock::now();
+    const auto executed = runtime.execute(module, options);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    if (!executed) {
+      return tl::unexpected(CliError{.message = executed.error().message, .hint = executed.error().hint,
+                                     .span = executed.error().span});
+    }
+    microseconds.push_back(std::chrono::duration<double, std::micro>(elapsed).count());
+  }
+  std::ranges::sort(microseconds);
+  std::cerr << std::format("bench: {} runs, fastest {:.3f} us, median {:.3f} us\n", runs, microseconds.front(),
+                           microseconds[microseconds.size() / 2]);
+  return {};
+}
+
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
             const bool write_bytecode_cache, const bool enable_experimental_builtin_reductions,
-            const bool enable_auto_value_ref, const std::size_t value_ref_byte_cutoff,
-            const std::vector<std::filesystem::path>& extensions) -> tl::expected<void, CliError> {
+            const std::vector<std::filesystem::path>& extensions, const std::optional<std::size_t> bench_runs)
+    -> tl::expected<void, CliError> {
   // Extensions load into a host whose bindings the program's native functions call. Each extension's directory is
   // searched for the modules that declare them.
   fleaux::embed::NativeBindingRegistry registry;
@@ -314,9 +351,6 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
                                         : fleaux::bytecode::OptimizationMode::kBaseline,
                        .write_bytecode_cache = write_bytecode_cache,
                        .enable_experimental_builtin_reductions = enable_experimental_builtin_reductions,
-                       .enable_value_ref_gate = enable_auto_value_ref,
-                       .enable_auto_value_ref = enable_auto_value_ref,
-                       .value_ref_byte_cutoff = value_ref_byte_cutoff,
                        .import_search_paths = extension_directories,
                    });
   if (!module_result) {
@@ -331,11 +365,14 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
   auto module = std::move(module_result.value());
 
   const fleaux::vm::Runtime runtime(process_args);
-  if (const auto exec = runtime.execute(module, fleaux::vm::RuntimeInvocationOptions{
-                                                    .entry_label = source_file.string(),
-                                                    .native_resolver = extension_host.native_function_resolver(),
-                                                });
-      !exec) {
+  const fleaux::vm::RuntimeInvocationOptions options{
+      .entry_label = source_file.string(),
+      .native_resolver = extension_host.native_function_resolver(),
+  };
+  if (bench_runs.has_value()) {
+    return bench_vm(runtime, module, options, *bench_runs);
+  }
+  if (const auto exec = runtime.execute(module, options); !exec) {
     return tl::unexpected(CliError{
         .message = exec.error().message,
         .hint = exec.error().hint.has_value() ? exec.error().hint : vm_runtime_hint_for(exec.error().message),
@@ -404,47 +441,21 @@ auto run(const std::optional<std::filesystem::path>& source_path, const std::str
   return 0;
 }
 
-auto make_repl_compile_options(const bool enable_experimental_builtin_reductions, const bool enable_auto_value_ref,
-                               const std::size_t value_ref_byte_cutoff)
-    -> fleaux::vm::RuntimeCompileOptions {
-  return fleaux::vm::RuntimeCompileOptions{
-      .enable_experimental_builtin_reductions = enable_experimental_builtin_reductions,
-      .enable_value_ref_gate = enable_auto_value_ref,
-      .enable_auto_value_ref = enable_auto_value_ref,
-      .value_ref_byte_cutoff = value_ref_byte_cutoff,
-  };
-}
-
 auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_args, const bool no_color,
-                   const bool enable_experimental_builtin_reductions, const bool enable_auto_value_ref,
-                   const std::size_t value_ref_byte_cutoff) -> int {
+                   const bool enable_experimental_builtin_reductions) -> int {
   if (no_run) {
     std::cout << "[vm] skipped run (--no-run): <repl>\n";
     return 0;
   }
 
   constexpr fleaux::cli::ReplDriver repl_driver;
-  return repl_driver.run(process_args, !no_color,
-                         make_repl_compile_options(enable_experimental_builtin_reductions, enable_auto_value_ref,
-                                                   value_ref_byte_cutoff));
+  return repl_driver.run(
+      process_args, !no_color,
+      fleaux::vm::RuntimeCompileOptions{.enable_experimental_builtin_reductions = enable_experimental_builtin_reductions});
 }
 
 auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
   CliOptions options;
-
-  const auto parse_size = [](const std::string_view token) -> tl::expected<std::size_t, CliError> {
-    std::size_t value = 0;
-    const auto* begin = token.data();
-    const auto* end = token.data() + token.size();
-    if (const auto [ptr, ec] = std::from_chars(begin, end, value); ec != std::errc{} || ptr != end) {
-      return tl::unexpected(CliError{
-          .message = std::string("invalid value-ref byte cutoff: ") + std::string(token),
-          .hint = "pass a non-negative integer to --value-ref-byte-cutoff",
-          .span = std::nullopt,
-      });
-    }
-    return value;
-  };
 
   if (argc < 2) {
     options.repl = true;
@@ -488,11 +499,6 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
       continue;
     }
 
-    if (token == "--auto-value-ref") {
-      options.enable_auto_value_ref = true;
-      continue;
-    }
-
     if (token == "--dump-ast") {
       options.dump_ast = true;
       continue;
@@ -500,23 +506,6 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
 
     if (token == "--dump-ir") {
       options.dump_ir = true;
-      continue;
-    }
-
-    if (token == "--value-ref-byte-cutoff") {
-      if (arg_index + 1 >= argc) {
-        return tl::unexpected(CliError{
-            .message = "missing value for --value-ref-byte-cutoff",
-            .hint = "pass a non-negative integer after --value-ref-byte-cutoff",
-            .span = std::nullopt,
-        });
-      }
-      const auto parsed_cutoff = parse_size(argv[++arg_index]);
-      if (!parsed_cutoff) {
-        return tl::unexpected(parsed_cutoff.error());
-      }
-      options.enable_auto_value_ref = true;
-      options.value_ref_byte_cutoff = *parsed_cutoff;
       continue;
     }
 
@@ -537,6 +526,22 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
 
     if (token == "--format") {
       options.format = true;
+      continue;
+    }
+
+    if (token == "--bench") {
+      std::size_t runs = 0;
+      const std::string_view count = arg_index + 1 < argc ? std::string_view{argv[arg_index + 1]} : std::string_view{};
+      if (const auto [end, error] = std::from_chars(count.data(), count.data() + count.size(), runs);
+          count.empty() || error != std::errc{} || end != count.data() + count.size() || runs == 0U) {
+        return tl::unexpected(CliError{
+            .message = "--bench needs a run count",
+            .hint = "pass a whole number of runs greater than zero after --bench",
+            .span = std::nullopt,
+        });
+      }
+      ++arg_index;
+      options.bench_runs = runs;
       continue;
     }
 
@@ -634,9 +639,8 @@ auto main(int argc, char** argv) -> int {
   }
 
   const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache,
-               enable_experimental_builtin_reductions, enable_auto_value_ref,
-               value_ref_byte_cutoff, no_color, repl, show_help, disassemble, dump_ast, dump_ir, format, format_write,
-               format_check, extensions] = *parsed;
+               enable_experimental_builtin_reductions, no_color, repl, show_help, disassemble, dump_ast, dump_ir, format, format_write,
+               format_check, extensions, bench_runs] = *parsed;
   if (show_help) {
     print_help();
     return 0;
@@ -672,8 +676,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (repl) {
-    return run_repl_mode(no_run, process_args, no_color, enable_experimental_builtin_reductions,
-                         enable_auto_value_ref, value_ref_byte_cutoff);
+    return run_repl_mode(no_run, process_args, no_color, enable_experimental_builtin_reductions);
   }
 
   if (!source_path.has_value()) {
@@ -690,8 +693,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache,
-                                 enable_experimental_builtin_reductions, enable_auto_value_ref,
-                                 value_ref_byte_cutoff, extensions);
+                                 enable_experimental_builtin_reductions, extensions, bench_runs);
       !result) {
     return print_diag_and_return("vm-run", result.error());
   }

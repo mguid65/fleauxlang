@@ -17,8 +17,7 @@ TEST_CASE("SourceSpan caret width follows span bounds", "[diagnostics]") {
 
 TEST_CASE("format_diagnostic includes location and hint", "[diagnostics]") {
   fleaux::frontend::diag::SourceSpan span;
-  span.source_name = "sample.fleaux";
-  span.source_text = "let x: Float64 = 1;\n";
+  span.file = fleaux::frontend::diag::SourceFile{"sample.fleaux", "let x: Float64 = 1;\n"};
   span.line = 1;
   span.col = 5;
   span.end_line = 1;
@@ -38,8 +37,7 @@ TEST_CASE("format_diagnostic includes location and hint", "[diagnostics]") {
 
 TEST_CASE("format_diagnostic shows context lines around the error", "[diagnostics]") {
   fleaux::frontend::diag::SourceSpan span;
-  span.source_name = "ctx.fleaux";
-  span.source_text = "import Std;\nlet Bad = 1;\n(1) -> Std.Println;\n";
+  span.file = fleaux::frontend::diag::SourceFile{"ctx.fleaux", "import Std;\nlet Bad = 1;\n(1) -> Std.Println;\n"};
   span.line = 2;
   span.col = 9;
   span.end_line = 2;
@@ -67,8 +65,7 @@ TEST_CASE("format_diagnostic without span omits location section", "[diagnostics
 
 TEST_CASE("format_diagnostic caret spans multi-character tokens", "[diagnostics]") {
   fleaux::frontend::diag::SourceSpan span;
-  span.source_name = "width.fleaux";
-  span.source_text = "let Foo(): Any = bar;\n";
+  span.file = fleaux::frontend::diag::SourceFile{"width.fleaux", "let Foo(): Any = bar;\n"};
   span.line = 1;
   span.col = 18;
   span.end_line = 1;
@@ -77,4 +74,21 @@ TEST_CASE("format_diagnostic caret spans multi-character tokens", "[diagnostics]
   const std::string rendered = fleaux::frontend::diag::format_diagnostic("parse", "Undefined name", span);
 
   REQUIRE(rendered.find("^~~") != std::string::npos);
+}
+
+TEST_CASE("Copies of a SourceFile share its contents", "[diagnostics]") {
+  const fleaux::frontend::diag::SourceFile file{"shared.fleaux", "let x: Int64 = 1;\n"};
+  const fleaux::frontend::diag::SourceFile copy = file;  // NOLINT(performance-unnecessary-copy-initialization)
+
+  REQUIRE(&copy.text() == &file.text());
+  REQUIRE(&copy.name() == &file.name());
+  REQUIRE(copy.name() == "shared.fleaux");
+}
+
+TEST_CASE("A default SourceFile has an empty name and text", "[diagnostics]") {
+  const fleaux::frontend::diag::SourceSpan span;
+
+  REQUIRE(span.source_name().empty());
+  REQUIRE(span.source_text().empty());
+  REQUIRE_FALSE(span.source_line().has_value());
 }

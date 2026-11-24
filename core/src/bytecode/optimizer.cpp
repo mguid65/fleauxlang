@@ -26,10 +26,81 @@ void for_each_stream(Module& module, Fn&& fn) {
   }
 }
 
+constexpr auto is_jump(const Opcode op) -> bool {
+  return op == Opcode::kJump || op == Opcode::kJumpIf || op == Opcode::kJumpIfNot;
+}
+
+// Rebuilds one instruction stream while keeping its jumps pointing at the same code. A pass walks the old stream in
+// order and, for each position, keeps the instruction, drops a run of instructions, or replaces a run with one new
+// instruction. Every old position records where its code now starts, and finish() moves each jump to the new
+// position of its target. A run may begin at a jump target but must not contain one after its first instruction,
+// since the code a jump lands on would then be gone; replaceable() tells a pass whether that holds.
+class StreamRewrite {
+public:
+  explicit StreamRewrite(const std::vector<Instruction>& old)
+      : old_(old), targeted_(old.size() + 1U, false), new_position_(old.size() + 1U, 0U) {
+    rewritten_.reserve(old.size());
+    for (const auto& [opcode, operand] : old) {
+      if (is_jump(opcode) && operand >= 0 && static_cast<std::size_t>(operand) <= old.size()) {
+        targeted_[static_cast<std::size_t>(operand)] = true;
+      }
+    }
+  }
+
+  [[nodiscard]] auto replaceable(const std::size_t first, const std::size_t count) const -> bool {
+    for (std::size_t position = first + 1U; position < first + count; ++position) {
+      if (targeted_[position]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void keep(const std::size_t position) {
+    new_position_[position] = rewritten_.size();
+    rewritten_.push_back(old_[position]);
+  }
+
+  void drop(const std::size_t first, const std::size_t count) {
+    for (std::size_t position = first; position < first + count; ++position) {
+      new_position_[position] = rewritten_.size();
+    }
+  }
+
+  void replace(const std::size_t first, const std::size_t count, const Instruction replacement) {
+    drop(first, count);
+    rewritten_.push_back(replacement);
+  }
+
+  [[nodiscard]] auto finish() -> std::vector<Instruction> {
+    new_position_[old_.size()] = rewritten_.size();
+    for (auto& [opcode, operand] : rewritten_) {
+      if (is_jump(opcode) && operand >= 0 && static_cast<std::size_t>(operand) <= old_.size()) {
+        operand = static_cast<std::int64_t>(new_position_[static_cast<std::size_t>(operand)]);
+      }
+    }
+    return std::move(rewritten_);
+  }
+
+private:
+  const std::vector<Instruction>& old_;
+  std::vector<bool> targeted_;
+  std::vector<std::size_t> new_position_;
+  std::vector<Instruction> rewritten_;
+};
+
 // NoOpEliminationPass helpers
 
 void erase_noops(std::vector<Instruction>& instrs) {
-  std::erase_if(instrs, [](const Instruction& i) -> bool { return i.opcode == Opcode::kNoOp; });
+  StreamRewrite rewrite(instrs);
+  for (std::size_t position = 0; position < instrs.size(); ++position) {
+    if (instrs[position].opcode == Opcode::kNoOp) {
+      rewrite.drop(position, 1U);
+    } else {
+      rewrite.keep(position);
+    }
+  }
+  instrs = rewrite.finish();
 }
 
 // ConstantPoolDeduplicationPass helpers
@@ -92,31 +163,23 @@ void rewrite_push_const_operands(std::vector<Instruction>& instrs, const std::ve
 // DeadPushEliminationPass helpers
 
 constexpr auto is_side_effect_free_push(const Opcode op) -> bool {
-  return op == Opcode::kPushConst || op == Opcode::kLoadLocal;
+  return op == Opcode::kPushConst || op == Opcode::kLoadLocal || op == Opcode::kTakeLocal;
 }
 
+// A side-effect-free push directly followed by kPop does nothing, so both go.
 void eliminate_dead_pushes(std::vector<Instruction>& instrs) {
-  // Mark indices to remove, then erase in one pass.
-  // We scan forward: if instrs[i] is a side-effect-free push and instrs[i+1]
-  // is kPop, both are dead. Skip i+1 after marking both.
-  std::vector<bool> dead(instrs.size(), false);
-  for (std::size_t i = 0; i + 1 < instrs.size(); ++i) {
-    if (dead[i]) {
+  StreamRewrite rewrite(instrs);
+  for (std::size_t position = 0; position < instrs.size();) {
+    if (position + 1U < instrs.size() && is_side_effect_free_push(instrs[position].opcode) &&
+        instrs[position + 1U].opcode == Opcode::kPop && rewrite.replaceable(position, 2U)) {
+      rewrite.drop(position, 2U);
+      position += 2U;
       continue;
     }
-    if (is_side_effect_free_push(instrs[i].opcode) && instrs[i + 1].opcode == Opcode::kPop) {
-      dead[i] = true;
-      dead[i + 1] = true;
-      ++i;  // skip the kPop we just marked
-    }
+    rewrite.keep(position);
+    ++position;
   }
-  std::size_t write = 0;
-  for (std::size_t read = 0; read < instrs.size(); ++read) {
-    if (!dead[read]) {
-      instrs[write++] = instrs[read];
-    }
-  }
-  instrs.resize(write);
+  instrs = rewrite.finish();
 }
 
 // ConstantFoldingPass helpers
@@ -265,66 +328,62 @@ auto try_fold_binary(const Opcode opcode, const ConstValue& left, const ConstVal
   return std::nullopt;
 }
 
-void fold_constants_in_stream(std::vector<Instruction>& instrs, std::vector<ConstValue>& constants) {
-  std::vector<Instruction> folded;
-  folded.reserve(instrs.size());
+auto push_new_constant(std::vector<ConstValue>& constants, const ConstValue& value) -> Instruction {
+  const auto const_index = static_cast<std::uint32_t>(constants.size());
+  constants.push_back(value);
+  return Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(const_index)};
+}
 
+void fold_constants_in_stream(std::vector<Instruction>& instrs, std::vector<ConstValue>& constants) {
+  StreamRewrite rewrite(instrs);
   for (std::size_t index = 0; index < instrs.size();) {
-    if (index + 1 < instrs.size() && instrs[index].opcode == Opcode::kPushConst) {
-      const auto unary_fold =
-          try_fold_unary(instrs[index + 1].opcode, constants[static_cast<std::size_t>(instrs[index].operand)]);
-      if (unary_fold.has_value()) {
-        const auto const_index = static_cast<std::uint32_t>(constants.size());
-        constants.push_back(*unary_fold);
-        folded.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(const_index)});
+    if (index + 1 < instrs.size() && instrs[index].opcode == Opcode::kPushConst && rewrite.replaceable(index, 2U)) {
+      if (const auto unary_fold =
+              try_fold_unary(instrs[index + 1].opcode, constants[static_cast<std::size_t>(instrs[index].operand)]);
+          unary_fold.has_value()) {
+        rewrite.replace(index, 2U, push_new_constant(constants, *unary_fold));
         index += 2;
         continue;
       }
     }
 
     if (index + 2 < instrs.size() && instrs[index].opcode == Opcode::kPushConst &&
-        instrs[index + 1].opcode == Opcode::kPushConst) {
-      const auto binary_fold =
-          try_fold_binary(instrs[index + 2].opcode, constants[static_cast<std::size_t>(instrs[index].operand)],
-                          constants[static_cast<std::size_t>(instrs[index + 1].operand)]);
-      if (binary_fold.has_value()) {
-        const auto const_index = static_cast<std::uint32_t>(constants.size());
-        constants.push_back(*binary_fold);
-        folded.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(const_index)});
+        instrs[index + 1].opcode == Opcode::kPushConst && rewrite.replaceable(index, 3U)) {
+      if (const auto binary_fold =
+              try_fold_binary(instrs[index + 2].opcode, constants[static_cast<std::size_t>(instrs[index].operand)],
+                              constants[static_cast<std::size_t>(instrs[index + 1].operand)]);
+          binary_fold.has_value()) {
+        rewrite.replace(index, 3U, push_new_constant(constants, *binary_fold));
         index += 3;
         continue;
       }
     }
 
-    folded.push_back(instrs[index]);
+    rewrite.keep(index);
     ++index;
   }
-
-  instrs = std::move(folded);
+  instrs = rewrite.finish();
 }
 
 void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, const std::vector<ConstValue>& constants) {
-  std::vector<Instruction> propagated;
-  propagated.reserve(instrs.size());
-
+  StreamRewrite rewrite(instrs);
   for (std::size_t index = 0; index < instrs.size();) {
     if (index + 3 < instrs.size() && instrs[index].opcode == Opcode::kPushConst &&
         instrs[index + 1].opcode == Opcode::kPushConst && instrs[index + 2].opcode == Opcode::kPushConst &&
-        instrs[index + 3].opcode == Opcode::kSelect) {
+        instrs[index + 3].opcode == Opcode::kSelect && rewrite.replaceable(index, 4U)) {
       const auto& [data] = constants[static_cast<std::size_t>(instrs[index].operand)];
       if (const auto* condition = std::get_if<bool>(&data); condition != nullptr) {
         const auto chosen_operand = *condition ? instrs[index + 1].operand : instrs[index + 2].operand;
-        propagated.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = chosen_operand});
+        rewrite.replace(index, 4U, Instruction{.opcode = Opcode::kPushConst, .operand = chosen_operand});
         index += 4;
         continue;
       }
     }
 
-    propagated.push_back(instrs[index]);
+    rewrite.keep(index);
     ++index;
   }
-
-  instrs = std::move(propagated);
+  instrs = rewrite.finish();
 }
 
 }  // namespace

@@ -68,15 +68,15 @@ struct TextFileReadError {
 }
 
 [[nodiscard]] inline auto type_decl_identity_key(const ir::IRTypeDecl& type_decl) -> std::string {
-  if (type_decl.span.has_value() && !type_decl.span->source_name.empty()) {
-    return type_decl.span->source_name + "::" + type_decl.name;
+  if (type_decl.span.has_value() && !type_decl.span->source_name().empty()) {
+    return type_decl.span->source_name() + "::" + type_decl.name;
   }
   return type_decl.name;
 }
 
 [[nodiscard]] inline auto alias_decl_identity_key(const ir::IRAliasDecl& alias_decl) -> std::string {
-  if (alias_decl.span.has_value() && !alias_decl.span->source_name.empty()) {
-    return alias_decl.span->source_name + "::" + alias_decl.name;
+  if (alias_decl.span.has_value() && !alias_decl.span->source_name().empty()) {
+    return alias_decl.span->source_name() + "::" + alias_decl.name;
   }
   return alias_decl.name;
 }
@@ -86,7 +86,7 @@ struct TextFileReadError {
   if (!type_decl.span.has_value()) {
     return false;
   }
-  return std::filesystem::path(type_decl.span->source_name) == source_file;
+  return std::filesystem::path(type_decl.span->source_name()) == source_file;
 }
 
 [[nodiscard]] inline auto alias_decl_declared_in_source(const ir::IRAliasDecl& alias_decl,
@@ -94,7 +94,7 @@ struct TextFileReadError {
   if (!alias_decl.span.has_value()) {
     return false;
   }
-  return std::filesystem::path(alias_decl.span->source_name) == source_file;
+  return std::filesystem::path(alias_decl.span->source_name()) == source_file;
 }
 
 struct DirectImportInputs {
@@ -112,7 +112,7 @@ struct DirectImportInputs {
   if (!let.span.has_value()) {
     return false;
   }
-  return std::filesystem::path(let.span->source_name) == source_file;
+  return std::filesystem::path(let.span->source_name()) == source_file;
 }
 
 [[nodiscard]] inline auto make_direct_import_inputs(const std::unordered_set<std::string>& extra_imported_symbols,
