@@ -28,12 +28,43 @@ This guide helps contributors identify exactly where to implement a feature in `
   - `core/src/bytecode/compiler.cpp`
   - `core/src/bytecode/optimizer.cpp`: every pass builds its output through `StreamRewrite`, which keeps jump
     targets pointing at the same code and refuses to remove or fold a run that a jump lands inside.
+  - Reads of an item of a tuple in a local, such as `(s, 0u64) -> Std.ElementAt`, run as one instruction that does
+    not copy the tuple. A copy costs an atomic increment and decrement, and a loop that carries its state in a tuple
+    reads it several times per iteration.
+    - **The pass.** `LocalItemReadFusionPass` turns `LoadLocal s; PushConst k; ElementAt` with a UInt64 constant `k`
+      into `kLoadLocalItem`, and the same read starting with `kTakeLocal` into `kTakeLocalItem`. It is always on, and
+      runs after the other passes because folding can make an index constant.
+    - **The operand.** The slot in the low 32 bits and the index in the 31 above (`local_item_operand` in
+      `opcode.hpp`). The index is not a constant pool index, so linking leaves the operand alone.
+    - **The VM.** The two cases sit at the end of `run_loop`'s switch: next to `kTakeLocal`, they made other programs
+      4 to 7% slower from layout alone.
+    - **Where it runs.** Only the module loader runs the optimizer, so code compiled for the REPL or
+      `VmHost::run_source` keeps the three instructions.
   - `Std.Branch`, `Std.Loop`, and `Std.Tuple.Map` run in place when their functions are inline one-parameter closures
     or named user functions (`try_emit_branch_in_place`, `try_emit_loop_in_place`, `try_emit_map_in_place` in
     `compiler.cpp`): the argument goes into a local slot and the code jumps between the bodies, so calls stay in one
     interpreter loop. A map steps through its items with `kIterate` and collects the results with
     `kBuildTupleCounted`. Other function arguments use the `kBranchCall` and `kLoopCall` opcodes and the
     `Std.Tuple.Map` builtin.
+  - `Std.Tuple.Filter` and `Std.Tuple.Reduce` run in place only when their function is an inline closure
+    (`try_emit_filter_in_place`, `try_emit_reduce_in_place`); any other function goes to the builtin. Run in place, a
+    named function costs a `kCallUserFunc` per item, as much as the builtin's call of it.
+    - **Filter** uses Map's loop and pushes each item it keeps. It does not count them: `kMarkStack` stores the stack's
+      height in a slot before the loop, and `kBuildTupleSinceMark` builds the tuple of everything above it after.
+    - **Reduce** keeps its accumulator in a slot and stores the closure's result back each time. The closure's last
+      read of the accumulator moves it, so an accumulator held once is still changed in place.
+    - **The slots.** The mark and the accumulator go in the slot below the loop's three, so the item slot stays the
+      highest and the closure's own locals cannot overwrite them.
+  - Calls of small named functions are inlined (`try_emit_inlined_call`, and `emit_in_place_call` for the named
+    functions Map, Loop, Branch and Match run in place): the body is emitted in place of `kCallUserFunc`, with the
+    arguments in slots above the caller's. A call that is not inlined costs about 9 ns.
+    - **Which.** A function of the module being compiled, with one or more parameters, none variadic and no hidden
+      operator parameters, whose body has at most `kInlineBodyNodeLimit` (32) IR nodes. Never the function being
+      compiled or one being inlined, so recursion stays a call, and at most `kInlineDepthLimit` (3) deep. A call of
+      several parameters is inlined only when it writes one argument per parameter.
+    - **Still compiled as functions**, for function values, host calls, exports, imports, recursion, and calls with an
+      argument tuple.
+    - **Tests** of call instructions and of the VM's calls compile with `CompileOptions::inline_functions` off.
   - `Std.Match` runs in place (`try_emit_match_in_place`) when every pattern is `_`, a constant, or a function that
     can run in place, and every handler can run in place or is an inline closure with no parameter. It becomes a
     chain of tests on a subject slot: `kCmpEq` for a constant, a call for a predicate, and `kMatchFailed` at the end
@@ -54,7 +85,8 @@ This guide helps contributors identify exactly where to implement a feature in `
     on write) and `core/include/fleaux/runtime/value.hpp` (construction, reading, printing). Function values are
     `Callable` subclasses; the VM's own (`CompiledFunctionValue` for named functions and closures alike, and
     `BuiltinCallable`) are in `runtime.cpp` and refer to the module of the invocation that made them, so
-    `Runtime::invoke_symbol` never returns one to the host.
+    `Runtime::invoke_symbol` never returns one to the host. A Bool is 0 or 1 in the payload's whole 64 bits: stored in
+    one byte of a zeroed payload, it stalled the next 8-byte copy of the value on a failed store-to-load forward.
   - A tuple is one heap block: a 16-byte header (`TupleObject`: the reference count, and the size and capacity as
     32-bit counts, so a tuple holds at most 4,294,967,295 items) and then the items. Code reads a tuple as a
     `TupleView` (`std::span<const Value>`) and builds one with a `TupleBuilder`, which constructs the items in the
@@ -72,16 +104,27 @@ This guide helps contributors identify exactly where to implement a feature in `
     copy only shared data. `TupleBuilder::reopen` continues a tuple in its own block (`push`, `insert`, `erase`), so
     `Std.Tuple.Append` and `Std.Array.Concat` grow in amortized constant time. `First`, `Second`, `ElementAt`,
     spreads, and in-place `Std.Tuple.Map` move items out of a tuple held once.
+  - An in-place `Std.Tuple.Map` (`try_emit_map_in_place`) is a loop tested at the bottom:
+    `Jump C  B: <func x>  C: Iterate s  JumpIf B`.
+    - **`kIterate`.** It stores the next item in the slot after the index (`s + 2`), so the item never goes through the
+      stack. It reaches its three slots with one lookup.
+    - **Moving or copying.** It moves the item out of a tuple held once through `Value::unshared_tuple_items()`, and
+      copies from a shared one through `take_tuple_item`. The copy stays a call on purpose: inlined as well, it made
+      `run_loop` big enough that GCC stopped inlining other hot code.
   - Every empty tuple is one shared value (`empty_tuple()` in `value_core.hpp`): `make_tuple()`, `BuildTuple 0`, and a
     builder that finishes empty allocate nothing.
   - A dict of up to `Dict::kLinearEntries` (8) entries finds keys by comparing them with each entry's and has no hash
     index; the index is built when a ninth key arrives and dropped when an erase brings the dict back to 8.
   - Heap objects come from the runtime's allocator (`core/include/fleaux/runtime/heap.hpp`, with its slow paths in
     `core/src/runtime/heap.cpp`, library `fleaux_heap`):
-    - **Blocks.** Blocks of up to 256 bytes come from 16 size classes, kept on a free list per thread, with a shared
-      depot for the blocks a thread does not keep; bigger blocks come from `operator new`. `TupleObject::allocate`,
-      `HeapObject`'s `operator new` and sized `operator delete`, and a dict's entries and index (`heap::Allocator`)
-      use it.
+    - **Blocks.** Blocks of up to 8 KiB come from 36 size classes: 16 bytes apart up to 256, then four for each
+      doubling. They are kept on a free list per thread, with a shared depot for the blocks a thread does not keep;
+      bigger blocks come from `operator new`. `TupleObject::allocate`, `HeapObject`'s `operator new` and sized
+      `operator delete`, and a dict's entries and index (`heap::Allocator`) use it.
+    - **Classes and the ABI.** Every library must map a size to the same class, so changing the classes changes
+      `kBindingPluginAbiVersion`.
+    - **Releasing.** `HeapObject::release()` skips the atomic decrement when the count reads 1. The caller then holds
+      the only reference, and no other thread can change the count.
     - **Libraries.** Chunks are never freed, and a block's class follows from the size handed back with it, so each
       library's copy of the allocator (the host's, and each extension's) frees the others' blocks. Everything that
       makes values links `fleaux_heap`.
@@ -107,6 +150,16 @@ This guide helps contributors identify exactly where to implement a feature in `
   - Values become text by `append_value_repr` (`value.hpp`), which writes into a `std::string`: `to_string`,
     `print_value_repr`, `Std.String.Join`, and `Std.ToString` all use it. Building a `std::ostringstream` costs more
     than writing most values, so the runtime does not make one per value.
+  - `Std.Task.*` and `Std.Parallel.*` run on one shared pool of up to 16 workers (`TaskRuntime` in
+    `core/include/fleaux/runtime/builtins_parallel.hpp`), one task per item.
+    - **A parallel map's items.** `Std.Parallel.Map` and `ForEach` queue every item at once through `submit_all`: one
+      lock, and as many `notify_one` calls as there are items, up to the worker count. Submitted one at a time, items
+      shorter than a submission left the workers asleep between them, and each item cost about 4.7 us; waking every
+      worker made runs with a few tasks up to 2.3 times slower.
+    - **A window.** `Std.Parallel.WithOptions` with a `max_workers` below the item count submits each item as the
+      one `max_workers` before it finishes.
+    - **The job's context.** Each job carries the submitting run's execution state, streams, and process arguments;
+      the jobs of one `submit_all` share one copy of the arguments.
   - A failure inside a function value reaches `Std.Try` and the task worker as a value where it can:
     `Callable::call_or_fail` returns no value and the error text instead of throwing, for the VM's builtins
     (`BuiltinCallable`) and compiled functions (`CompiledFunctionValue::run_or_fail`). A function value made from C++
@@ -132,9 +185,13 @@ This guide helps contributors identify exactly where to implement a feature in `
       new one after it.
   - `Value`'s assignments take the new contents first and release the old object last, without a temporary
     (`Value::release`, `destroy_object`).
-  - GCC does not inline the loop's helpers into `run_loop`: value assignment, the stack's `push_back`, and
-    `get_or_create_local`. The reason is that `runtime.cpp` reaches GCC's `inline-unit-growth` cap.
-    `internal_docs/vm_loop_overhead_plan_2026-11-23.md` measures raising the cap for that file, which was not done.
+  - Under GCC, `runtime.cpp` compiles with `--param=inline-unit-growth=400` (set in `core/CMakeLists.txt`).
+    - **Why.** The file compiles the whole runtime, and at GCC's default cap the loop's helpers (value assignment,
+      the stack's `push_back`, `get_or_create_local`) stayed calls. With the larger cap, tight loops are a quarter to
+      a third faster (`internal_docs/vm_loop_overhead_plan_2026-11-23.md`).
+    - **Checking.** `-fopt-info-inline-missed` shows what GCC still leaves out of line.
+    - **Warnings it exposes.** More inlining can turn up `-Wnull-dereference` reports. Fix them where the pointer is
+      dereferenced, as `Value::callable_if_function()` does for function values, rather than turning the warning off.
   - Each invocation runs a `RunningModule` (`runtime.cpp`): the bytecode with its constant pool made into values
     once, at the start, so `kPushConst` copies a value instead of building one (a string only gains a reference).
     It is made before the invocation's `TaskScope`, so tasks still running at the end can use it.

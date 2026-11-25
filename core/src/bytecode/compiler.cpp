@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -83,7 +84,12 @@ struct CompileState {
   // Maps a short/full name to the stdlib builtin it aliases (from is_builtin lets).
   std::unordered_map<std::string, std::string> builtin_alias;
   bool enable_experimental_builtin_reductions{false};
+  bool inline_functions{true};
   std::optional<std::uint32_t> current_function_idx;
+  // The IR of each function this module compiles, by index into Module::functions, for inlining its calls, and the
+  // functions whose bodies are being inlined, innermost last.
+  std::unordered_map<std::uint32_t, const IRLet*> function_lets;
+  std::vector<std::uint32_t> inlining;
 
   static auto intern_const(Module& bytecode_module, ConstValue c) -> std::uint32_t {
     const auto idx = static_cast<std::uint32_t>(bytecode_module.constants.size());
@@ -592,6 +598,7 @@ auto count_inline_closures(const IRExpr& expr) -> std::size_t;
 
 void initialize_module_header(Module& bytecode_module, CompileState& state, const CompileOptions& options) {
   state.enable_experimental_builtin_reductions = options.enable_experimental_builtin_reductions;
+  state.inline_functions = options.inline_functions;
   bytecode_module.header.module_name = options.module_name.value_or(
       options.source_path.has_value() ? options.source_path->stem().string() : std::string{});
   bytecode_module.header.source_path = options.source_path.has_value() ? options.source_path->string() : std::string{};
@@ -738,6 +745,12 @@ auto compile_native_function_body(Module& bytecode_module, CompileState& state, 
 }
 
 auto compile_function_bodies(Module& bytecode_module, CompileState& state, const IRProgram& program) -> EmitResult {
+  // Every function's IR is known before any body is compiled, so a call can inline a function defined after it.
+  for (const auto& let : program.lets) {
+    if (!let.is_builtin && !let.is_native && !let.is_value_binding && let.body.has_value()) {
+      state.function_lets[state.function_idx.at(internal_symbol_name(let))] = &let;
+    }
+  }
   for (const auto& let : program.lets) {
     if (let.is_builtin)
       continue;
@@ -1660,12 +1673,89 @@ auto emit_block_expr(const IRBlockExpr& block, std::vector<Instruction>& out, co
   return emit_expr(*block.result, out, block_locals, state, bytecode_module);
 }
 
-// Branch, Loop, Map, Match, and Apply in place
+// Branch, Loop, Map, Filter, Reduce, Match, and Apply in place
 //
 // When the functions passed to Std.Branch, Std.Loop, Std.Tuple.Map, Std.Match, or Std.Apply are written inline, or
 // name a user function, the compiler runs them in the current function instead of making function values for the
 // builtin to call: the argument goes into a local slot, and the code jumps between the bodies. Calls then stay in one
-// interpreter loop.
+// interpreter loop. Std.Tuple.Filter and Std.Tuple.Reduce run in place with an inline closure only.
+
+// Named functions inlined
+//
+// A call of a small named function of this module emits the function's body in place of kCallUserFunc: its arguments
+// go into slots above the caller's, as an inline closure's do in place, and the body sees only its parameters. A call
+// costs about 9 ns, most of it its own three instructions (kCallUserFunc, the read of the parameter, kReturn). Each
+// function is still compiled as a function too, for function values, host calls, exports, imports, and recursion.
+
+// The largest body inlined, in IR nodes, and the deepest inlining. With 32, the falling-sand program's bytecode grows
+// by 61%, and the Std.Tuple.Map stress program's loop step, which a limit of 16 leaves a call, is inlined.
+constexpr std::size_t kInlineBodyNodeLimit = 32U;
+constexpr std::size_t kInlineDepthLimit = 3U;
+
+// The number of IR nodes in an expression.
+auto ir_node_count(const IRExpr& expr) -> std::size_t {
+  return std::visit(
+      common::overloaded{[](const IRFlowExpr& flow) -> std::size_t { return 1U + ir_node_count(*flow.lhs); },
+                         [](const IRTupleExpr& tuple) -> std::size_t {
+                           std::size_t total = 1U;
+                           for (const auto& item : tuple.items) {
+                             total += ir_node_count(*item);
+                           }
+                           return total;
+                         },
+                         [](const IRClosureExprBox& closure_ptr) -> std::size_t {
+                           return 1U + (closure_ptr->body.has_value() ? ir_node_count(*closure_ptr->body) : 0U);
+                         },
+                         [](const IRBlockExprBox& block_ptr) -> std::size_t {
+                           std::size_t total = 1U;
+                           for (const auto& item : block_ptr->items) {
+                             std::visit(
+                                 common::overloaded{[&](const IRLocalLet& local_let) -> void { total += ir_node_count(*local_let.expr); },
+                                                    [&](const IRBlockExprStatement& stmt) -> void { total += ir_node_count(*stmt.expr); }},
+                                 item);
+                           }
+                           return total + ir_node_count(*block_ptr->result);
+                         },
+                         [](auto&&) -> std::size_t { return 1U; }},
+      expr.node);
+}
+
+// The IR of the function at `index` when a call of it can be inlined: a function of this module with one or more
+// parameters, none variadic, no hidden operator parameters, and a body of at most kInlineBodyNodeLimit nodes. Never
+// the function being compiled, nor one whose body is being inlined, so no recursion is ever inlined.
+auto inlinable_function(const std::uint32_t index, const CompileState& state) -> const IRLet* {
+  if (!state.inline_functions) {
+    return nullptr;
+  }
+  const auto found = state.function_lets.find(index);
+  if (found == state.function_lets.end()) {
+    return nullptr;
+  }
+  const IRLet& let = *found->second;
+  if (let.params.empty() || let.hidden_operator_params != 0U || !let.operator_requirements.empty() || !let.body.has_value() ||
+      std::ranges::any_of(let.params, [](const IRParam& param) -> bool { return param.type.variadic; }) ||
+      ir_node_count(*let.body) > kInlineBodyNodeLimit) {
+    return nullptr;
+  }
+  if (state.current_function_idx == index || std::ranges::find(state.inlining, index) != state.inlining.end() ||
+      state.inlining.size() >= kInlineDepthLimit) {
+    return nullptr;
+  }
+  return &let;
+}
+
+// Emits the body of the function at `index` with its parameters in `slots`, leaving its result on the stack.
+auto emit_inlined_body(const IRLet& let, const std::uint32_t index, const std::span<const std::uint32_t> slots,
+                       std::vector<Instruction>& out, CompileState& state, Module& bytecode_module) -> EmitResult {
+  LocalSlots parameters;
+  for (std::size_t position = 0; position < let.params.size(); ++position) {
+    parameters[let.params[position].name] = slots[position];
+  }
+  state.inlining.push_back(index);
+  auto emitted = emit_expr(*let.body, out, parameters, state, bytecode_module);
+  state.inlining.pop_back();
+  return emitted;
+}
 
 // A function that can run in place: an inline closure with one parameter, or a named user function. A Std.Match
 // handler may also be an inline closure with no parameter.
@@ -1723,11 +1813,15 @@ auto emit_closure_in_place(const IRClosureExpr& closure, const std::span<const s
   return emit_expr(*closure.body, out, closure_locals, state, bytecode_module);
 }
 
-// Runs a function in place on the value in `argument_slot`, leaving its result on the stack.
+// Runs a function in place on the value in `argument_slot`, leaving its result on the stack. A named function's body
+// is inlined when it can be, with its parameter in that slot.
 auto emit_in_place_call(const InPlaceFunction& function, const std::uint32_t argument_slot,
                         std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
                         Module& bytecode_module) -> EmitResult {
   if (function.closure == nullptr) {
+    if (const IRLet* let = inlinable_function(function.function_index, state); let != nullptr && let->params.size() == 1U) {
+      return emit_inlined_body(*let, function.function_index, std::span{&argument_slot, 1U}, out, state, bytecode_module);
+    }
     out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(argument_slot)});
     out.push_back(
         Instruction{.opcode = Opcode::kCallUserFunc, .operand = static_cast<std::int64_t>(function.function_index)});
@@ -1830,11 +1924,13 @@ auto try_emit_loop_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& 
   return true;
 }
 
-// (items, func) -> Std.Tuple.Map, as a loop over the items whose results collect on the stack. When the loop ends,
-// the index is the number of items:
-//   <items> StoreLocal s  PushConst 0u64 StoreLocal i
-//   T: Iterate s  JumpIfNot E  StoreLocal x  <func x>  Jump T
-//   E: LoadLocal i  BuildTupleCounted
+// (items, func) -> Std.Tuple.Map, as a loop over the items whose results collect on the stack, tested at the bottom.
+// kIterate stores the next item in x and pushes true, or pushes false when the items have run out, so the loop runs
+// two instructions per item besides the function's. When the loop ends, the index is the number of items:
+//   <items> StoreLocal s  PushConst 0u64 StoreLocal i  Jump C
+//   B: <func x>
+//   C: Iterate s  JumpIf B
+//      LoadLocal i  BuildTupleCounted
 auto try_emit_map_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals,
                            CompileState& state, Module& bytecode_module) -> tl::expected<bool, CompileError> {
   if (tuple.items.size() != 2U || has_spread_item(tuple)) {
@@ -1848,8 +1944,8 @@ auto try_emit_map_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& o
   if (auto emit_result = emit_expr(*tuple.items[0], out, locals, state, bytecode_module); !emit_result) {
     return tl::unexpected(emit_result.error());
   }
-  // Above every slot the enclosing code uses. kIterate wants the index right after the items; the item slot is the
-  // highest, so the function's body takes its own slots above all three.
+  // Above every slot the enclosing code uses. kIterate wants the index right after the items and the item after the
+  // index; the item slot is the highest, so the function's body takes its own slots above all three.
   const auto items_slot = next_local_slot(locals);
   const auto index_slot = items_slot + 1U;
   const auto item_slot = items_slot + 2U;
@@ -1858,18 +1954,131 @@ auto try_emit_map_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& o
   out.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(zero)});
   out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(index_slot)});
 
-  const auto loop_top = out.size();
-  out.push_back(Instruction{.opcode = Opcode::kIterate, .operand = static_cast<std::int64_t>(items_slot)});
-  const auto jump_to_end = out.size();
-  out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
-  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(item_slot)});
+  const auto jump_to_test = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = 0});
+  const auto body = out.size();
   if (auto emit_result = emit_in_place_call(*function, item_slot, out, locals, state, bytecode_module); !emit_result) {
     return tl::unexpected(emit_result.error());
   }
-  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = static_cast<std::int64_t>(loop_top)});
-  jump_to_here(out, jump_to_end);
+  jump_to_here(out, jump_to_test);
+  out.push_back(Instruction{.opcode = Opcode::kIterate, .operand = static_cast<std::int64_t>(items_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kJumpIf, .operand = static_cast<std::int64_t>(body)});
   out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(index_slot)});
   out.push_back(Instruction{.opcode = Opcode::kBuildTupleCounted, .operand = 0});
+  return true;
+}
+
+// Filter and Reduce run in place only with an inline closure. Run in place, a named function is called with
+// kCallUserFunc, which costs as much as the builtin's call of it, and the loop's own instructions come on top.
+
+// The inline closure of `expr` when it has `param_count` parameters, none variadic, and no generic parameters.
+auto inline_closure_with_params(const IRExpr& expr, const std::size_t param_count) -> const IRClosureExpr* {
+  const auto* closure_box = std::get_if<IRClosureExprBox>(&expr.node);
+  if (closure_box == nullptr) {
+    return nullptr;
+  }
+  const IRClosureExpr& closure = **closure_box;
+  if (!closure.generic_params.empty() || closure.params.size() != param_count || !closure.body.has_value() ||
+      std::ranges::any_of(closure.params, [](const IRParam& param) -> bool { return param.type.variadic; })) {
+    return nullptr;
+  }
+  return &closure;
+}
+
+// (items, pred) -> Std.Tuple.Filter, as the loop of an in-place Std.Tuple.Map that pushes the items the predicate
+// keeps. They are counted by the stack's height, marked in m before the loop:
+//   <items> StoreLocal s  PushConst 0u64 StoreLocal i  MarkStack m  Jump C
+//   B: <pred x>  JumpIfNot C  LoadLocal x
+//   C: Iterate s  JumpIf B
+//      BuildTupleSinceMark m
+auto try_emit_filter_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                              Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 2U || has_spread_item(tuple)) {
+    return false;
+  }
+  const IRClosureExpr* predicate = inline_closure_with_params(*tuple.items[1], 1U);
+  if (predicate == nullptr) {
+    return false;
+  }
+
+  if (auto emit_result = emit_expr(*tuple.items[0], out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  // The mark goes below the loop's three slots, so that the item slot is the highest and the predicate's own locals,
+  // which take the slots above it, cannot overwrite the mark.
+  const auto mark_slot = next_local_slot(locals);
+  const auto items_slot = mark_slot + 1U;
+  const auto index_slot = items_slot + 1U;
+  const auto item_slot = items_slot + 2U;
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(items_slot)});
+  const auto zero = CompileState::intern_const(bytecode_module, ConstValue{std::uint64_t{0}});
+  out.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(zero)});
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(index_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kMarkStack, .operand = static_cast<std::int64_t>(mark_slot)});
+
+  const auto jump_to_test = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = 0});
+  const auto body = out.size();
+  if (auto emit_result = emit_closure_in_place(*predicate, std::span{&item_slot, 1U}, out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  const auto jump_past_keep = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJumpIfNot, .operand = 0});
+  out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(item_slot)});
+  jump_to_here(out, jump_to_test);
+  jump_to_here(out, jump_past_keep);
+  out.push_back(Instruction{.opcode = Opcode::kIterate, .operand = static_cast<std::int64_t>(items_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kJumpIf, .operand = static_cast<std::int64_t>(body)});
+  out.push_back(Instruction{.opcode = Opcode::kBuildTupleSinceMark, .operand = static_cast<std::int64_t>(mark_slot)});
+  return true;
+}
+
+// (items, initial, func) -> Std.Tuple.Reduce, as the loop of an in-place Std.Tuple.Map that stores each result of the
+// function in the accumulator a:
+//   <items> <initial> StoreLocal a  StoreLocal s  PushConst 0u64 StoreLocal i  Jump C
+//   B: <func a x>  StoreLocal a
+//   C: Iterate s  JumpIf B
+//      LoadLocal a
+auto try_emit_reduce_in_place(const IRTupleExpr& tuple, std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                              Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  if (tuple.items.size() != 3U || has_spread_item(tuple)) {
+    return false;
+  }
+  const IRClosureExpr* function = inline_closure_with_params(*tuple.items[2], 2U);
+  if (function == nullptr) {
+    return false;
+  }
+
+  // The items and the initial value are both evaluated before either is stored: the initial value's own code may use
+  // the slots above the enclosing ones.
+  for (std::size_t item = 0; item < 2U; ++item) {
+    if (auto emit_result = emit_expr(*tuple.items[item], out, locals, state, bytecode_module); !emit_result) {
+      return tl::unexpected(emit_result.error());
+    }
+  }
+  // The accumulator goes below the loop's three slots, as Filter's mark does.
+  const auto accumulator_slot = next_local_slot(locals);
+  const auto items_slot = accumulator_slot + 1U;
+  const auto index_slot = items_slot + 1U;
+  const auto item_slot = items_slot + 2U;
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(accumulator_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(items_slot)});
+  const auto zero = CompileState::intern_const(bytecode_module, ConstValue{std::uint64_t{0}});
+  out.push_back(Instruction{.opcode = Opcode::kPushConst, .operand = static_cast<std::int64_t>(zero)});
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(index_slot)});
+
+  const auto jump_to_test = out.size();
+  out.push_back(Instruction{.opcode = Opcode::kJump, .operand = 0});
+  const auto body = out.size();
+  const std::array<std::uint32_t, 2> argument_slots{accumulator_slot, item_slot};
+  if (auto emit_result = emit_closure_in_place(*function, argument_slots, out, locals, state, bytecode_module); !emit_result) {
+    return tl::unexpected(emit_result.error());
+  }
+  out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(accumulator_slot)});
+  jump_to_here(out, jump_to_test);
+  out.push_back(Instruction{.opcode = Opcode::kIterate, .operand = static_cast<std::int64_t>(items_slot)});
+  out.push_back(Instruction{.opcode = Opcode::kJumpIf, .operand = static_cast<std::int64_t>(body)});
+  out.push_back(Instruction{.opcode = Opcode::kLoadLocal, .operand = static_cast<std::int64_t>(accumulator_slot)});
   return true;
 }
 
@@ -2095,13 +2304,15 @@ auto try_emit_named_flow_fast_path(const IRFlowExpr& flow, const IRNameRef& name
 
   const std::string full_name = common::full_symbol_name(name_ref.qualifier, name_ref.name);
 
-  if (full_name == "Std.Branch" || full_name == "Std.Loop" || full_name == "Std.Tuple.Map" ||
-      full_name == "Std.Match" || full_name == "Std.Apply") {
-    auto in_place = full_name == "Std.Branch"      ? try_emit_branch_in_place(*tuple, out, locals, state, bytecode_module)
-                    : full_name == "Std.Loop"      ? try_emit_loop_in_place(*tuple, out, locals, state, bytecode_module)
-                    : full_name == "Std.Tuple.Map" ? try_emit_map_in_place(*tuple, out, locals, state, bytecode_module)
-                    : full_name == "Std.Match"     ? try_emit_match_in_place(*tuple, out, locals, state, bytecode_module)
-                                                   : try_emit_apply(*tuple, out, locals, state, bytecode_module);
+  if (full_name == "Std.Branch" || full_name == "Std.Loop" || full_name == "Std.Tuple.Map" || full_name == "Std.Tuple.Filter" ||
+      full_name == "Std.Tuple.Reduce" || full_name == "Std.Match" || full_name == "Std.Apply") {
+    auto in_place = full_name == "Std.Branch"         ? try_emit_branch_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Loop"         ? try_emit_loop_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Tuple.Map"    ? try_emit_map_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Tuple.Filter" ? try_emit_filter_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Tuple.Reduce" ? try_emit_reduce_in_place(*tuple, out, locals, state, bytecode_module)
+                    : full_name == "Std.Match"        ? try_emit_match_in_place(*tuple, out, locals, state, bytecode_module)
+                                                      : try_emit_apply(*tuple, out, locals, state, bytecode_module);
     if (!in_place) {
       return tl::unexpected(in_place.error());
     }
@@ -2209,6 +2420,57 @@ auto emit_spread_tuple(const IRTupleExpr& arguments, std::vector<Instruction>& o
   return {};
 }
 
+// A direct call of a named function, `args -> F`, with F's body in place of the call when F can be inlined. A function
+// of several parameters is inlined only when the call writes one argument per parameter, as kCallUserFuncArgs needs.
+// The arguments are evaluated in order and stored, last first, before the body:
+//   <a1 .. an> StoreLocal s+n-1 .. StoreLocal s  <body>
+auto try_emit_inlined_call(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals, CompileState& state,
+                           Module& bytecode_module) -> tl::expected<bool, CompileError> {
+  // A local of the same name is a function value, not this function.
+  const auto* name_ref = std::get_if<IRNameRef>(&flow.rhs);
+  if (name_ref == nullptr || name_ref->materialize_as_value || !name_ref->bound_operator_args.empty() ||
+      (!name_ref->qualifier.has_value() && locals.contains(name_ref->name))) {
+    return false;
+  }
+  const auto index = user_function_index_from_target(flow.rhs, state);
+  if (!index.has_value()) {
+    return false;
+  }
+  const IRLet* let = inlinable_function(*index, state);
+  if (let == nullptr) {
+    return false;
+  }
+
+  const IRExpr& arguments = adapted_user_flow_lhs_expr(flow);
+  const auto first_slot = next_local_slot(locals);
+  std::vector<std::uint32_t> slots;
+  if (let->params.size() == 1U) {
+    if (auto emitted = emit_expr(arguments, out, locals, state, bytecode_module); !emitted) {
+      return tl::unexpected(emitted.error());
+    }
+    slots.push_back(first_slot);
+  } else {
+    const auto* argument_list = std::get_if<IRTupleExpr>(&arguments.node);
+    if (argument_list == nullptr || argument_list->items.size() != let->params.size() || argument_list->has_spread()) {
+      return false;
+    }
+    // Every argument is evaluated before any is stored: an argument's own code may use the slots above the caller's.
+    if (auto emitted = emit_tuple_items(*argument_list, out, locals, state, bytecode_module); !emitted) {
+      return tl::unexpected(emitted.error());
+    }
+    for (std::size_t position = 0; position < let->params.size(); ++position) {
+      slots.push_back(first_slot + static_cast<std::uint32_t>(position));
+    }
+  }
+  for (auto slot = slots.rbegin(); slot != slots.rend(); ++slot) {
+    out.push_back(Instruction{.opcode = Opcode::kStoreLocal, .operand = static_cast<std::int64_t>(*slot)});
+  }
+  if (auto emitted = emit_inlined_body(*let, *index, slots, out, state, bytecode_module); !emitted) {
+    return tl::unexpected(emitted.error());
+  }
+  return true;
+}
+
 auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const LocalSlots& locals,
                     CompileState& state, Module& bytecode_module) -> EmitResult {
   if (const auto* name_ref = std::get_if<IRNameRef>(&flow.rhs);
@@ -2240,6 +2502,12 @@ auto emit_flow_expr(const IRFlowExpr& flow, std::vector<Instruction>& out, const
     return tl::unexpected(handled.error());
   }
   if (*handled) {
+    return {};
+  }
+
+  if (auto inlined = try_emit_inlined_call(flow, out, locals, state, bytecode_module); !inlined) {
+    return tl::unexpected(inlined.error());
+  } else if (*inlined) {
     return {};
   }
 

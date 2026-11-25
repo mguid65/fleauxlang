@@ -23,6 +23,9 @@ struct CompileOptions {
   std::optional<std::string> module_name{std::nullopt};
   std::vector<Module> imported_modules{};
   bool enable_experimental_builtin_reductions{false};
+  // Calls of small named functions compile to the function's body in place of the call. Off, every call is a call,
+  // which the tests of the VM's calls rely on.
+  bool inline_functions{true};
 };
 
 using CompileResult = tl::expected<Module, CompileError>;

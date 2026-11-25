@@ -1,0 +1,12 @@
+// Ten calls of Std.Println.
+import Std;
+1 -> Std.Println;
+2 -> Std.Println;
+3 -> Std.Println;
+4 -> Std.Println;
+5 -> Std.Println;
+6 -> Std.Println;
+7 -> Std.Println;
+8 -> Std.Println;
+9 -> Std.Println;
+10 -> Std.Println;

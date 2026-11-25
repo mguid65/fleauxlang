@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace fleaux::bytecode {
@@ -181,6 +182,23 @@ enum class Opcode {
   // one parameter (vm::builtin_takes_arguments).
   // operand = vm::builtin_operand_with_arguments(builtin, argument count).
   kCallBuiltinArgs,
+
+  // Reads of an item of a tuple in a local slot, which the optimizer puts in place of a kLoadLocal or kTakeLocal, a
+  // kPushConst of a UInt64 index, and a kElementAt (LocalItemReadFusionPass). They fail as kElementAt does.
+  // operand = local_item_operand(slot, item index).
+  // kLoadLocalItem pushes a copy of the item and leaves the tuple in the slot, its count untouched.
+  kLoadLocalItem,
+  // kTakeLocalItem is the last read of the slot: it pushes the item, moved out when the slot holds the only reference
+  // to the tuple and copied otherwise, and leaves the slot null.
+  kTakeLocalItem,
+
+  // A tuple of the values a stretch of code leaves on the stack, however many there are (an in-place
+  // Std.Tuple.Filter):
+  // kMarkStack stores the height of the operand stack, as a UInt64, in the local slot `operand`.
+  kMarkStack,
+  // kBuildTupleSinceMark pops every value above the height in the local slot `operand` and pushes one tuple of them,
+  // the first deepest.
+  kBuildTupleSinceMark,
 };
 
 inline constexpr std::array opcode_names{
@@ -238,8 +256,28 @@ inline constexpr std::array opcode_names{
   std::string_view{"CallFunctionValue"},
   std::string_view{"CallFunctionValueArgs"},
   std::string_view{"TakeLocal"},
-  std::string_view{"CallBuiltinArgs"}
+  std::string_view{"CallBuiltinArgs"},
+  std::string_view{"LoadLocalItem"},
+  std::string_view{"TakeLocalItem"},
+  std::string_view{"MarkStack"},
+  std::string_view{"BuildTupleSinceMark"}
 };
+
+// The operand of kLoadLocalItem and kTakeLocalItem: the local slot in the low 32 bits and the item's index in the 31
+// above them, so that the operand is never negative.
+inline constexpr std::uint32_t kMaxLocalItemIndex = 0x7FFF'FFFFU;
+
+[[nodiscard]] constexpr auto local_item_operand(const std::uint32_t slot, const std::uint32_t item) -> std::int64_t {
+  return static_cast<std::int64_t>((static_cast<std::uint64_t>(item) << 32U) | slot);
+}
+
+[[nodiscard]] constexpr auto local_item_slot(const std::int64_t operand) -> std::uint32_t {
+  return static_cast<std::uint32_t>(static_cast<std::uint64_t>(operand));
+}
+
+[[nodiscard]] constexpr auto local_item_index(const std::int64_t operand) -> std::uint32_t {
+  return static_cast<std::uint32_t>(static_cast<std::uint64_t>(operand) >> 32U);
+}
 
 [[nodiscard]] inline constexpr auto opcode_index_is_valid(const std::size_t opcode_index) -> bool {
   return opcode_index < opcode_names.size();

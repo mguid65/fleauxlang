@@ -3,6 +3,7 @@
 // The type checker builds one for each Std.Cast or Std.TryCast whose argument has static type Any, and one for each
 // parameter of a function the host can call (HostEntryCheck). The compiler stores them in the bytecode module.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -49,7 +50,21 @@ struct RuntimeTypeCheck {
   bool variadic_tail{false};
   std::uint32_t type_param{0};
 
-  friend auto operator==(const RuntimeTypeCheck&, const RuntimeTypeCheck&) -> bool = default;
+  // Compares every member; a new member must be compared here too. It is written out because GCC, at -O3, reported a
+  // null dereference in the defaulted comparison: when one check's items are known to be empty, it does not see that
+  // equal sizes keep the comparison out of their (null) storage. Bounding the loop by both sizes makes that visible.
+  friend auto operator==(const RuntimeTypeCheck& lhs, const RuntimeTypeCheck& rhs) -> bool {
+    if (lhs.kind != rhs.kind || lhs.variadic_tail != rhs.variadic_tail || lhs.type_param != rhs.type_param ||
+        lhs.items.size() != rhs.items.size()) {
+      return false;
+    }
+    for (std::size_t index = 0; index < lhs.items.size() && index < rhs.items.size(); ++index) {
+      if (!(lhs.items[index] == rhs.items[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
 
 // Checks for the argument of a function called by the host, one per declared parameter. When `variadic_tail` is

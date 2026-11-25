@@ -3,8 +3,9 @@
 // The allocator for the runtime's heap objects: tuples, strings, dicts with their entries, function values, file
 // handles, and tasks.
 //
-// Blocks of up to kMaxBlockBytes come from kClassCount size classes, kGranule bytes apart; bigger ones come from
-// operator new. Each thread keeps a free list for each size class. Allocating pops a block from the calling thread's
+// Blocks of up to kMaxBlockBytes come from kClassCount size classes: kGranule bytes apart up to kSmallMaxBytes, then
+// four for each doubling, so that a block above kSmallMaxBytes wastes at most a quarter of its size. Bigger blocks come
+// from operator new. Each thread keeps a free list for each size class. Allocating pops a block from the calling thread's
 // list, and freeing pushes the block onto the list of the thread that frees it, whichever thread allocated it. A list
 // that runs empty takes a batch of blocks from a depot the threads share, or cuts a new chunk into blocks; a list that
 // grows past its limit gives half of its blocks to the depot; a thread's lists go to the depot when the thread ends.
@@ -19,6 +20,7 @@
 // builds), every block comes from operator new, so that the sanitizers see each allocation.
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -30,8 +32,11 @@
 namespace fleaux::runtime::heap {
 
 inline constexpr std::size_t kGranule = 16U;
-inline constexpr std::size_t kClassCount = 16U;
-inline constexpr std::size_t kMaxBlockBytes = kGranule * kClassCount;
+inline constexpr std::size_t kSmallClassCount = 16U;
+inline constexpr std::size_t kSmallMaxBytes = kGranule * kSmallClassCount;
+inline constexpr std::size_t kLargeClassCount = 20U;
+inline constexpr std::size_t kClassCount = kSmallClassCount + kLargeClassCount;
+inline constexpr std::size_t kMaxBlockBytes = std::size_t{8U} * 1024U;
 inline constexpr std::size_t kChunkBytes = std::size_t{64U} * 1024U;
 
 // Every block is aligned to this.
@@ -43,9 +48,39 @@ inline constexpr std::size_t kCheckBytes = 0U;
 inline constexpr std::size_t kCheckBytes = kGranule;
 #endif
 
+namespace detail {
+
+// The bytes of a block of the class.
+[[nodiscard]] constexpr auto block_bytes(const std::size_t size_class) noexcept -> std::size_t {
+  if (size_class < kSmallClassCount) {
+    return (size_class + 1U) * kGranule;
+  }
+  const std::size_t index = size_class - kSmallClassCount;
+  const std::size_t power = std::bit_width(kSmallMaxBytes) - 1U + index / 4U;
+  return (std::size_t{1U} << power) + (index % 4U + 1U) * (std::size_t{1U} << (power - 2U));
+}
+
+// The class of a block of `total` bytes, its Debug check included, for 0 < total <= kMaxBlockBytes. Above
+// kSmallMaxBytes, `total` lies in (2^power, 2^(power + 1)], and the two bits below its top bit pick the quarter.
+[[nodiscard]] constexpr auto class_of_total(const std::size_t total) noexcept -> std::size_t {
+  if (total <= kSmallMaxBytes) {
+    return (total - 1U) / kGranule;
+  }
+  const std::size_t last = total - 1U;
+  const std::size_t power = std::bit_width(last) - 1U;
+  return kSmallClassCount + (power - (std::bit_width(kSmallMaxBytes) - 1U)) * 4U + ((last >> (power - 2U)) & 3U);
+}
+
+}  // namespace detail
+
+static_assert(detail::block_bytes(kClassCount - 1U) == kMaxBlockBytes, "the last class holds kMaxBlockBytes");
+static_assert(detail::class_of_total(kMaxBlockBytes) == kClassCount - 1U);
+static_assert(detail::class_of_total(kSmallMaxBytes + 1U) == kSmallClassCount);
+
 // The size class of a block of `bytes`, or kClassCount for one that comes from operator new.
 [[nodiscard]] constexpr auto size_class_of(const std::size_t bytes) noexcept -> std::size_t {
-  return bytes != 0U && bytes <= kMaxBlockBytes - kCheckBytes ? (bytes + kCheckBytes - 1U) / kGranule : kClassCount;
+  return bytes != 0U && bytes <= kMaxBlockBytes - kCheckBytes ? detail::class_of_total(bytes + kCheckBytes)
+                                                              : kClassCount;
 }
 
 namespace detail {
@@ -62,10 +97,6 @@ struct FreeList {
 struct ThreadLists {
   std::array<FreeList, kClassCount> lists{};
 };
-
-[[nodiscard]] constexpr auto block_bytes(const std::size_t size_class) noexcept -> std::size_t {
-  return (size_class + 1U) * kGranule;
-}
 
 // The most blocks a thread's list keeps: one chunk's worth.
 inline constexpr auto kListLimits = [] {

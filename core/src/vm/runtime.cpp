@@ -156,6 +156,18 @@ auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeEr
   }
 }
 
+// Why a kLoadLocalItem or kTakeLocalItem of `local` failed, with kLoadLocal's message for a slot past the frame's
+// locals and kElementAt's otherwise.
+auto local_item_read_error(const Value* local) -> RuntimeError {
+  if (local == nullptr) {
+    return make_runtime_error("local slot index out of range");
+  }
+  if (!local->is_tuple()) {
+    return make_runtime_error(std::string("native 'element_at' threw: ") + runtime::kind_error("Tuple").what());
+  }
+  return make_runtime_error("native 'element_at' threw: ElementAt: index out of range");
+}
+
 // The helpers below run for every arithmetic, comparison, and logic opcode, so they fail with a message rather than a
 // RuntimeError: GCC zero-fills all 128 bytes of a tl::expected<void, RuntimeError> on every success, which costs more
 // than an addition. The loop makes the RuntimeError when one fails.
@@ -1138,15 +1150,25 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (operand < 0) {
           return tl::unexpected(make_runtime_error("iterate slot index out of range"));
         }
-        // The index first: making its slot can move the locals, which would leave a pointer to the tuple dangling.
-        Value& index = get_or_create_local(*frame, items_slot + 1U);
-        Value* items = try_get_local(*frame, items_slot);
-        if (items == nullptr || !items->is_tuple() || !index.is_uint()) {
+        // The items, the index, and the item are three slots in a row. Making the item's, the highest, makes the other
+        // two and keeps the locals in the frame's vector, so one lookup finds all three.
+        (void)get_or_create_local(*frame, items_slot + 2U);
+        Value* const slots = frame->locals.data() + items_slot;
+        Value& items = slots[0];
+        Value& index = slots[1];
+        Value& item = slots[2];
+        if (!items.is_tuple() || !index.is_uint()) {
           return tl::unexpected(make_runtime_error("iterate expects a tuple and a UInt64 index"));
         }
-        if (const auto position = runtime::to_index(index.uint_value()); position < items->tuple().size()) {
-          // Nothing but this loop reads the slot, so the items move out of a tuple nothing else refers to.
-          stack.push_back(runtime::take_tuple_item(*items, position));
+        if (const auto position = runtime::to_index(index.uint_value()); position < items.tuple().size()) {
+          // Nothing but this loop reads the slot, so the items move out of a tuple nothing else refers to. The copy
+          // from a shared tuple stays a call: inlined as well, it made run_loop big enough that GCC stopped inlining
+          // other hot code in it.
+          if (items.object()->unique()) {
+            item = std::move(items.unshared_tuple_items()[position]);
+          } else {
+            item = runtime::take_tuple_item(items, position);
+          }
           index = runtime::make_uint(index.uint_value() + 1U);
           stack.push_back(runtime::make_bool(true));
         } else {
@@ -1722,6 +1744,46 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
           return tl::unexpected(make_runtime_error(applied.error()));
         }
         break;
+
+      // The item reads and the stack mark sit at the end of the switch: placed next to kTakeLocal, the item reads made
+      // other programs 4 to 7% slower, from the layout of run_loop alone.
+      case bytecode::Opcode::kLoadLocalItem: {
+        const Value* local = try_get_local(*frame, bytecode::local_item_slot(operand));
+        const std::size_t position = bytecode::local_item_index(operand);
+        if (local == nullptr || !local->is_tuple() || position >= local->tuple().size()) [[unlikely]] {
+          return tl::unexpected(local_item_read_error(local));
+        }
+        stack.push_back(local->tuple()[position]);
+        break;
+      }
+
+      case bytecode::Opcode::kTakeLocalItem: {
+        Value* local = try_get_local(*frame, bytecode::local_item_slot(operand));
+        const std::size_t position = bytecode::local_item_index(operand);
+        if (local == nullptr || !local->is_tuple() || position >= local->tuple().size()) [[unlikely]] {
+          return tl::unexpected(local_item_read_error(local));
+        }
+        if (local->object()->unique()) {
+          stack.push_back(std::move(local->unshared_tuple_items()[position]));
+        } else {
+          stack.push_back(local->tuple()[position]);
+        }
+        *local = Value{};
+        break;
+      }
+
+      case bytecode::Opcode::kMarkStack:
+        get_or_create_local(*frame, static_cast<std::size_t>(operand)) = runtime::make_uint(stack.size());
+        break;
+
+      case bytecode::Opcode::kBuildTupleSinceMark: {
+        const Value* mark = try_get_local(*frame, static_cast<std::size_t>(operand));
+        if (mark == nullptr || !mark->is_uint() || runtime::to_index(mark->uint_value()) > stack.size()) [[unlikely]] {
+          return tl::unexpected(make_runtime_error("build_tuple_since_mark expects a stack height in its slot"));
+        }
+        collapse_stack_tail_into_tuple(stack, stack.size() - runtime::to_index(mark->uint_value()));
+        break;
+      }
 
       case bytecode::Opcode::kMatchFailed:
         return tl::unexpected(make_runtime_error(std::string{runtime::k_match_no_case_message}));

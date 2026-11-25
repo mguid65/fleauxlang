@@ -10,7 +10,7 @@
 TEST_CASE("All opcodes can be serialized", "[bytecode][opcodes][stringify]") {
   using namespace fleaux::bytecode;
 
-  REQUIRE(opcode_names.size() == static_cast<std::size_t>(Opcode::kCallBuiltinArgs) + 1U);
+  REQUIRE(opcode_names.size() == static_cast<std::size_t>(Opcode::kBuildTupleSinceMark) + 1U);
 
   Module module;
   module.instructions.reserve(opcode_names.size());
@@ -50,6 +50,27 @@ TEST_CASE("All opcodes can be serialized", "[bytecode][opcodes][stringify]") {
     INFO("expected opcode name = " << expected_name);
     REQUIRE(dumped.find(std::string{expected_name}) != std::string::npos);
   }
+}
+
+TEST_CASE("Item reads of a local keep their slot and index in the operand", "[bytecode][opcodes][stringify]") {
+  using namespace fleaux::bytecode;
+
+  constexpr auto kLargest = local_item_operand(0xFFFF'FFFFU, kMaxLocalItemIndex);
+  STATIC_REQUIRE(kLargest >= 0);
+  STATIC_REQUIRE(local_item_slot(kLargest) == 0xFFFF'FFFFU);
+  STATIC_REQUIRE(local_item_index(kLargest) == kMaxLocalItemIndex);
+  STATIC_REQUIRE(local_item_slot(local_item_operand(2U, 3U)) == 2U);
+  STATIC_REQUIRE(local_item_index(local_item_operand(2U, 3U)) == 3U);
+
+  Module module;
+  module.instructions = {{.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(2U, 3U)},
+                         {.opcode = Opcode::kTakeLocalItem, .operand = local_item_operand(0U, kMaxLocalItemIndex)},
+                         {.opcode = Opcode::kHalt, .operand = 0}};
+  std::ostringstream dump;
+  REQUIRE(disassemble_module(module, dump).has_value());
+  const auto dumped = dump.str();
+  REQUIRE(dumped.find("(local[2] item 3)") != std::string::npos);
+  REQUIRE(dumped.find("(local[0] item 2147483647)") != std::string::npos);
 }
 
 TEST_CASE("Invalid opcodes stringify safely and disassemble without throwing", "[bytecode][opcodes][stringify]") {

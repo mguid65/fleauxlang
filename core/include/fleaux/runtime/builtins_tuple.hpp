@@ -15,10 +15,10 @@ namespace fleaux::runtime {
 
 [[nodiscard]] inline auto validated_callable_ref(const Value& value, const std::string_view builtin_name)
     -> const Callable& {
-  if (!value.is_function()) {
-    throw std::logic_error(std::format("{} invariant violated: expected validated callable reference", builtin_name));
+  if (const Callable* callable = value.callable_if_function(); callable != nullptr) {
+    return *callable;
   }
-  return value.callable();
+  throw std::logic_error(std::format("{} invariant violated: expected validated callable reference", builtin_name));
 }
 
 template <typename Visitor>

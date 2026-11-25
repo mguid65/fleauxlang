@@ -244,6 +244,28 @@ TEST_CASE("RuntimeSession scopes configured process args to snippet execution", 
   REQUIRE(ambient_args[1] == "persisted");
 }
 
+TEST_CASE("Parallel items and tasks see the run's process arguments and output", "[vm][parallel]") {
+  // A parallel map's jobs share one copy of the process arguments; a task has its own.
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({"inner", "beta"});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let ArgCount(x: Int64): Int64 = () -> Std.GetArgs -> Std.Length;\n"
+      "((1, 2, 3), ArgCount) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Println;\n"
+      "(ArgCount, 0) -> Std.Task.Spawn -> Std.Task.Await -> Std.Result.Unwrap -> Std.Println;\n"
+      "((7, 7), (x: Int64): Int64 = x -> Std.Println -> Std.Length) -> Std.Parallel.ForEach -> Std.Result.IsOk\n"
+      "    -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "(3, 3, 3)\n3\n7\n7\nTrue\n");
+}
+
 TEST_CASE("RuntimeSession scopes explicit input to snippet execution", "[vm][repl]") {
   std::istringstream ambient_input{"Outer\n"};
   fleaux::runtime::RuntimeInputStreamScope ambient_scope(ambient_input);
@@ -6791,6 +6813,239 @@ TEST_CASE("VM kTakeLocal moves a local's value out and leaves the slot null", "[
   }
   REQUIRE(result.has_value());
   REQUIRE(output.str() == "moved\nnull\n");
+}
+
+namespace {
+
+// Runs `instructions` after storing the tuple (10, 20) in local slot 0, and returns what they print.
+auto run_with_pair_in_slot_0(fleaux::bytecode::Module& bytecode_module, std::vector<fleaux::bytecode::Instruction> instructions)
+    -> std::string {
+  using fleaux::bytecode::Opcode;
+  const auto ten = push_i64_const(bytecode_module, 10);
+  const auto twenty = push_i64_const(bytecode_module, 20);
+  bytecode_module.instructions = {
+      {.opcode = Opcode::kPushConst, .operand = ten},
+      {.opcode = Opcode::kPushConst, .operand = twenty},
+      {.opcode = Opcode::kBuildTuple, .operand = 2},
+      {.opcode = Opcode::kStoreLocal, .operand = 0},
+  };
+  bytecode_module.instructions.insert(bytecode_module.instructions.end(), instructions.begin(), instructions.end());
+  bytecode_module.instructions.push_back({.opcode = Opcode::kHalt, .operand = 0});
+
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto result = runtime.execute(bytecode_module, output);
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  return output.str();
+}
+
+// The error message of running `instructions` after storing `stored` in local slot 0.
+auto local_read_error(const fleaux::bytecode::ConstValue& stored, std::vector<fleaux::bytecode::Instruction> instructions) -> std::string {
+  using fleaux::bytecode::Opcode;
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.constants.push_back(stored);
+  bytecode_module.instructions = {
+      {.opcode = Opcode::kPushConst, .operand = 0},
+      {.opcode = Opcode::kStoreLocal, .operand = 0},
+  };
+  for (auto instruction : instructions) {
+    if (instruction.opcode == Opcode::kPushConst) {
+      instruction.operand = static_cast<std::int64_t>(bytecode_module.constants.size());
+      bytecode_module.constants.push_back(fleaux::bytecode::ConstValue{std::uint64_t{2}});
+    }
+    bytecode_module.instructions.push_back(instruction);
+  }
+  bytecode_module.instructions.push_back({.opcode = Opcode::kHalt, .operand = 0});
+
+  const fleaux::vm::Runtime runtime;
+  std::ostringstream output;
+  const auto result = runtime.execute(bytecode_module, output);
+  REQUIRE_FALSE(result.has_value());
+  return result.error().message;
+}
+
+}  // namespace
+
+TEST_CASE("VM kLoadLocalItem pushes an item and leaves the tuple in its slot", "[vm][locals]") {
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  fleaux::bytecode::Module bytecode_module;
+  REQUIRE(run_with_pair_in_slot_0(bytecode_module, {
+                                                       {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 1U)},
+                                                       {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                       {.opcode = Opcode::kPop, .operand = 0},
+                                                       {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 0U)},
+                                                       {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                       {.opcode = Opcode::kPop, .operand = 0},
+                                                       {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                                       {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                       {.opcode = Opcode::kPop, .operand = 0},
+                                                   }) == "20\n10\n10 20\n");
+}
+
+TEST_CASE("VM kTakeLocalItem pushes an item and leaves its slot null", "[vm][locals]") {
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+
+  SECTION("From a tuple the slot holds alone") {
+    fleaux::bytecode::Module bytecode_module;
+    REQUIRE(run_with_pair_in_slot_0(bytecode_module, {
+                                                         {.opcode = Opcode::kTakeLocalItem, .operand = local_item_operand(0U, 1U)},
+                                                         {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                         {.opcode = Opcode::kPop, .operand = 0},
+                                                         {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                                         {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                         {.opcode = Opcode::kPop, .operand = 0},
+                                                     }) == "20\nnull\n");
+  }
+
+  SECTION("From a tuple another slot shares, which keeps it as it was") {
+    fleaux::bytecode::Module bytecode_module;
+    REQUIRE(run_with_pair_in_slot_0(bytecode_module, {
+                                                         {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                                         {.opcode = Opcode::kStoreLocal, .operand = 1},
+                                                         {.opcode = Opcode::kTakeLocalItem, .operand = local_item_operand(0U, 0U)},
+                                                         {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                         {.opcode = Opcode::kPop, .operand = 0},
+                                                         {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                                         {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                         {.opcode = Opcode::kPop, .operand = 0},
+                                                         {.opcode = Opcode::kLoadLocal, .operand = 1},
+                                                         {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+                                                         {.opcode = Opcode::kPop, .operand = 0},
+                                                     }) == "10\nnull\n10 20\n");
+  }
+}
+
+TEST_CASE("VM item reads of a local fail as the reads they replace", "[vm][locals]") {
+  // Each fused read fails with the message of kLoadLocal or kTakeLocal, kPushConst of the index 2, and kElementAt:
+  // here for a slot that holds no tuple and for a slot past the frame's locals.
+  using fleaux::bytecode::ConstValue;
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  const ConstValue not_a_tuple{std::int64_t{5}};
+  for (const auto [read, fused] :
+       {std::pair{Opcode::kLoadLocal, Opcode::kLoadLocalItem}, std::pair{Opcode::kTakeLocal, Opcode::kTakeLocalItem}}) {
+    INFO("fused opcode " << fleaux::bytecode::stringify_opcode(fused));
+    const auto expected = local_read_error(
+        not_a_tuple,
+        {{.opcode = read, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0}});
+    REQUIRE(expected.find("expected Tuple") != std::string::npos);
+    REQUIRE(local_read_error(not_a_tuple, {{.opcode = fused, .operand = local_item_operand(0U, 2U)}}) == expected);
+
+    const auto past_the_frame = local_read_error(
+        not_a_tuple,
+        {{.opcode = read, .operand = 3}, {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0}});
+    REQUIRE(past_the_frame.find("local slot index out of range") != std::string::npos);
+    REQUIRE(local_read_error(not_a_tuple, {{.opcode = fused, .operand = local_item_operand(3U, 2U)}}) == past_the_frame);
+  }
+}
+
+TEST_CASE("VM item reads of a local report an index past the end as kElementAt does", "[vm][locals]") {
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  const auto error_of = [](std::vector<fleaux::bytecode::Instruction> reads) -> std::string {
+    fleaux::bytecode::Module bytecode_module;
+    const auto ten = push_i64_const(bytecode_module, 10);
+    const auto index = push_u64_const(bytecode_module, 2U);
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = ten},
+        {.opcode = Opcode::kPushConst, .operand = ten},
+        {.opcode = Opcode::kBuildTuple, .operand = 2},
+        {.opcode = Opcode::kStoreLocal, .operand = 0},
+    };
+    for (auto read : reads) {
+      if (read.opcode == Opcode::kPushConst) {
+        read.operand = index;
+      }
+      bytecode_module.instructions.push_back(read);
+    }
+    bytecode_module.instructions.push_back({.opcode = Opcode::kHalt, .operand = 0});
+    const fleaux::vm::Runtime runtime;
+    std::ostringstream output;
+    const auto result = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(result.has_value());
+    return result.error().message;
+  };
+
+  for (const auto [read, fused] :
+       {std::pair{Opcode::kLoadLocal, Opcode::kLoadLocalItem}, std::pair{Opcode::kTakeLocal, Opcode::kTakeLocalItem}}) {
+    INFO("fused opcode " << fleaux::bytecode::stringify_opcode(fused));
+    const auto expected = error_of(
+        {{.opcode = read, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0}});
+    REQUIRE(expected.find("ElementAt: index out of range") != std::string::npos);
+    REQUIRE(error_of({{.opcode = fused, .operand = local_item_operand(0U, 2U)}}) == expected);
+  }
+}
+
+TEST_CASE("VM kBuildTupleSinceMark builds a tuple of the values above a stack mark", "[vm][tuples]") {
+  using fleaux::bytecode::Opcode;
+  constexpr auto kPrintBuiltin = builtin(fleaux::vm::BuiltinId::Println);
+  fleaux::bytecode::Module bytecode_module;
+  const auto below = push_i64_const(bytecode_module, 9);
+  const auto one = push_i64_const(bytecode_module, 1);
+  const auto two = push_i64_const(bytecode_module, 2);
+  const auto three = push_i64_const(bytecode_module, 3);
+  // The value below the mark stays on the stack and is printed last.
+  const auto run = [&](const std::vector<std::int64_t>& above) -> std::string {
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = below},
+        {.opcode = Opcode::kMarkStack, .operand = 0},
+    };
+    for (const auto constant : above) {
+      bytecode_module.instructions.push_back({.opcode = Opcode::kPushConst, .operand = constant});
+    }
+    const std::vector<fleaux::bytecode::Instruction> print_both{
+        {.opcode = Opcode::kBuildTupleSinceMark, .operand = 0},
+        {.opcode = Opcode::kBuildTuple, .operand = 1},
+        {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+        {.opcode = Opcode::kPop, .operand = 0},
+        {.opcode = Opcode::kCallBuiltin, .operand = kPrintBuiltin},
+        {.opcode = Opcode::kPop, .operand = 0},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    bytecode_module.instructions.insert(bytecode_module.instructions.end(), print_both.begin(), print_both.end());
+    std::ostringstream output;
+    const fleaux::vm::Runtime runtime;
+    const auto result = runtime.execute(bytecode_module, output);
+    if (!result.has_value()) {
+      INFO(result.error().message);
+    }
+    REQUIRE(result.has_value());
+    return output.str();
+  };
+
+  REQUIRE(run({}) == "()\n9\n");
+  REQUIRE(run({one}) == "(1,)\n9\n");
+  REQUIRE(run({one, two, three}) == "(1, 2, 3)\n9\n");
+}
+
+TEST_CASE("VM kBuildTupleSinceMark needs a stack height in its slot", "[vm][tuples]") {
+  using fleaux::bytecode::Opcode;
+  const auto error_of = [](const fleaux::bytecode::ConstValue& stored) -> std::string {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants.push_back(stored);
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = 0},
+        {.opcode = Opcode::kStoreLocal, .operand = 0},
+        {.opcode = Opcode::kBuildTupleSinceMark, .operand = 0},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    const fleaux::vm::Runtime runtime;
+    std::ostringstream output;
+    const auto result = runtime.execute(bytecode_module, output);
+    REQUIRE_FALSE(result.has_value());
+    return result.error().message;
+  };
+
+  // An Int64 is not a height, and a UInt64 above the empty stack is not one of this stack's.
+  REQUIRE(error_of(fleaux::bytecode::ConstValue{std::int64_t{0}}).find("build_tuple_since_mark") != std::string::npos);
+  REQUIRE(error_of(fleaux::bytecode::ConstValue{std::uint64_t{5}}).find("build_tuple_since_mark") != std::string::npos);
 }
 
 TEST_CASE("VM kCallBuiltinArgs calls a builtin on the stack values", "[vm][builtins][arguments]") {

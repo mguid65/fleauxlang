@@ -1,0 +1,4 @@
+// A parallel map over 512 items that return their argument: the cost of each item to the pool.
+import Std;
+let Same(x: Int64): Int64 = x;
+((512) -> Std.Tuple.Range, Same) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length -> Std.Println;

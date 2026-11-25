@@ -1,0 +1,12 @@
+// A parallel map over 512 items, each a Std.Loop of 50 steps on a tuple state.
+import Std;
+
+let WorkContinue(state: Tuple<Float64, Float64, Float64>): Bool =
+    ((state, 0u64) -> Std.ElementAt, 0.0) -> Std.GreaterThan;
+let WorkStep(state: Tuple<Float64, Float64, Float64>): Tuple<Float64, Float64, Float64> =
+    (((state, 0u64) -> Std.ElementAt, 1.0) -> Std.Subtract,
+     (state, 2u64) -> Std.ElementAt,
+     ((state, 1u64) -> Std.ElementAt, (state, 2u64) -> Std.ElementAt) -> Std.Add);
+let Work(n: Int64): Float64 = ((50.0, 0.0, 1.0), WorkContinue, WorkStep) -> Std.Loop -> (_, 1u64) -> Std.ElementAt;
+
+((512) -> Std.Tuple.Range, Work) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length -> Std.Println;

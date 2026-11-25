@@ -1,0 +1,4 @@
+// A parallel map over 4,096 items that return their argument.
+import Std;
+let Same(x: Int64): Int64 = x;
+((4096) -> Std.Tuple.Range, Same) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length -> Std.Println;

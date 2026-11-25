@@ -1,0 +1,4 @@
+// Twenty calls of a user function that returns its argument.
+import Std;
+let Id(n: Int64): Int64 = n;
+(1) -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id -> Id;

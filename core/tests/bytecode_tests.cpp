@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <filesystem>
@@ -168,6 +169,10 @@ auto make_compile_options(std::optional<std::filesystem::path> source_path = std
   options.enable_experimental_builtin_reductions = enable_experimental_builtin_reductions;
   return options;
 }
+
+// Options that compile every call of a named function as a call: the tests of call instructions and of the VM's calls
+// use them, since a small function is otherwise inlined.
+auto without_inlining() -> fleaux::bytecode::CompileOptions { return fleaux::bytecode::CompileOptions{.inline_functions = false}; }
 
 auto read_binary_file_bytes(const std::filesystem::path& path) -> std::vector<std::uint8_t> {
   std::ifstream in(path, std::ios::binary);
@@ -1891,8 +1896,9 @@ TEST_CASE("Bytecode compiler emits builtin callsite metadata for module and func
       "(\"Std.Add\") -> ShowHelp -> Std.Println;\n",
       "bytecode_builtin_callsite_metadata.fleaux");
 
+  // Inlined, ShowHelp's body would add a third call site to the module's code.
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
+  const auto result = compiler.compile(ir_program, without_inlining());
   REQUIRE(result.has_value());
 
   const auto& module = *result;
@@ -2104,7 +2110,7 @@ TEST_CASE("Bytecode compiler dispatches direct calls to the resolved user overlo
       "bytecode_user_overloads.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
+  const auto result = compiler.compile(ir_program, without_inlining());
   REQUIRE(result.has_value());
   REQUIRE(result->functions.size() == 2U);
   REQUIRE(result->functions[0].name == "Echo#0");
@@ -2662,11 +2668,12 @@ auto compiled_function(const fleaux::bytecode::Module& bytecode_module, const st
   return *found;
 }
 
-auto compile_and_run(const std::string& source, const std::string& source_name)
+auto compile_and_run(const std::string& source, const std::string& source_name,
+                     const fleaux::bytecode::CompileOptions& options = fleaux::bytecode::CompileOptions{})
     -> std::pair<fleaux::bytecode::Module, std::string> {
   const auto ir_program = lower_source_to_ir(source, source_name);
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
-  auto compiled = compiler.compile(ir_program);
+  auto compiled = compiler.compile(ir_program, options);
   REQUIRE(compiled.has_value());
   std::ostringstream output;
   const fleaux::vm::Runtime runtime;
@@ -2691,7 +2698,16 @@ let Step(n: Int64): Int64 = (n, 1) -> Std.Subtract;
   REQUIRE(output == "0\n");
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kLoopCall) == 0U);
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kJumpIfNot) == 1U);
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 2U);
+  // Continue and Step are inlined in the loop; without inlining, the loop calls them.
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 0U);
+  const auto [called, called_output] = compile_and_run(R"(
+let Continue(n: Int64): Bool = (n, 0) -> Std.GreaterThan;
+let Step(n: Int64): Int64 = (n, 1) -> Std.Subtract;
+(10, Continue, Step) -> Std.Loop -> Std.Println;
+)",
+                                                       "bytecode_loop_in_place_named_calls.fleaux", without_inlining());
+  REQUIRE(called_output == "0\n");
+  REQUIRE(count_opcode(called.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 2U);
 }
 
 TEST_CASE("Bytecode compiler runs Std.Loop with inline closures in place", "[bytecode][in_place]") {
@@ -2814,7 +2830,17 @@ let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
   REQUIRE(output == "11\n9\n");
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kBranchCall) == 0U);
   REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Branch"));
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 4U);
+  // Inc and Dec are inlined in both branches; without inlining, each branch calls its function.
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 0U);
+  const auto [called, called_output] = compile_and_run(R"(
+let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
+let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
+(True, 10.0, Inc, Dec) -> Std.Branch -> Std.Println;
+(False, 10.0, Inc, Dec) -> Std.Branch -> Std.Println;
+)",
+                                                       "bytecode_branch_in_place_named_calls.fleaux", without_inlining());
+  REQUIRE(called_output == "11\n9\n");
+  REQUIRE(count_opcode(called.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 4U);
 }
 
 TEST_CASE("Bytecode compiler runs Std.Branch with inline closures in place", "[bytecode][in_place]") {
@@ -2881,7 +2907,15 @@ let Twice(x: Int64): Int64 = (x, 2) -> *;
 
   REQUIRE(output == "(2, 4, 6)\n");
   REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Tuple.Map"));
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 1U);
+  // Twice is inlined in the loop's body; without inlining, the body calls it.
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 0U);
+  const auto [called, called_output] = compile_and_run(R"(
+let Twice(x: Int64): Int64 = (x, 2) -> *;
+((1, 2, 3), Twice) -> Std.Tuple.Map -> Std.Println;
+)",
+                                                       "bytecode_map_in_place_named_calls.fleaux", without_inlining());
+  REQUIRE(called_output == "(2, 4, 6)\n");
+  REQUIRE(count_opcode(called.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 1U);
 }
 
 TEST_CASE("Bytecode compiler calls Std.Tuple.Map for a function-valued argument", "[bytecode][in_place]") {
@@ -3129,9 +3163,9 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
 TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
   const auto ir_program =
-      // Passed to Std.Apply the closure would run in place; Std.Tuple.Filter takes it as a value.
+      // Passed to Std.Apply or Std.Tuple.Filter the closure would run in place; Std.Tuple.Any takes it as a value.
       lower_source_to_ir(
-          "((10.0,), (x: Float64): Bool = (x, 1.0) -> Std.GreaterThan) -> Std.Tuple.Filter -> Std.Println;\n",
+          "((10.0,), (x: Float64): Bool = (x, 1.0) -> Std.GreaterThan) -> Std.Tuple.Any -> Std.Println;\n",
           "bytecode_inline_closure.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -3544,7 +3578,7 @@ let Double(x: Float64): Float64 = (x, x) -> Std.Add;
                                              "bytecode_user_func.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
+  const auto result = compiler.compile(ir_program, without_inlining());
 
   REQUIRE(result.has_value());
   // One function should be compiled.
@@ -3578,7 +3612,7 @@ let Spread(rest: Tuple<Int64, Int64>): Int64 = (1, rest...) -> Pick3;
 (100, 1, 2, 3, 4) -> Pick5 -> Std.Println;
 ((2, 3)) -> Spread -> Std.Println;
 )",
-                                                         "bytecode_call_args.fleaux");
+                                                         "bytecode_call_args.fleaux", without_inlining());
 
   REQUIRE(output == "18\n90\n-3\n");
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFuncArgs) == 2U);
@@ -3758,7 +3792,7 @@ let AddPair(a: Int64, b: Int64): Int64 = (a, b) -> Std.Add;
                                              "bytecode_user_func_binary.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
+  const auto result = compiler.compile(ir_program, without_inlining());
 
   REQUIRE(result.has_value());
   REQUIRE(result->functions.size() == 1U);
@@ -4128,6 +4162,124 @@ TEST_CASE("Optimizer passes leave instructions a jump lands among", "[bytecode][
     fleaux::bytecode::ConstantFoldingPass{}.run(bytecode_module);
     REQUIRE(bytecode_module.instructions == before);
   }
+}
+
+TEST_CASE("LocalItemReadFusionPass reads items of local tuples in one instruction", "[bytecode][optimizer]") {
+  using fleaux::bytecode::ConstValue;
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  fleaux::bytecode::Module bytecode_module;
+  // 0: UInt64 1, 1: Int64 1, 2: Float64 1.0, 3: UInt64 2^31, 4: the largest index that fits, 5: true.
+  bytecode_module.constants = {ConstValue{std::uint64_t{1}},
+                               ConstValue{std::int64_t{1}},
+                               ConstValue{1.0},
+                               ConstValue{std::uint64_t{fleaux::bytecode::kMaxLocalItemIndex} + 1U},
+                               ConstValue{std::uint64_t{fleaux::bytecode::kMaxLocalItemIndex}},
+                               ConstValue{true}};
+
+  SECTION("A read and a last read with a UInt64 index") {
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kLoadLocal, .operand = 3}, {.opcode = Opcode::kPushConst, .operand = 0},
+        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kTakeLocal, .operand = 3},
+        {.opcode = Opcode::kPushConst, .operand = 4}, {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    fleaux::bytecode::LocalItemReadFusionPass{}.run(bytecode_module);
+    REQUIRE(bytecode_module.instructions ==
+            std::vector<fleaux::bytecode::Instruction>{
+                {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(3U, 1U)},
+                {.opcode = Opcode::kTakeLocalItem, .operand = local_item_operand(3U, fleaux::bytecode::kMaxLocalItemIndex)},
+                {.opcode = Opcode::kHalt, .operand = 0},
+            });
+  }
+
+  SECTION("Reads it cannot fuse stay as they are") {
+    // An Int64 index, a Float64 index, an index too large for the operand, and a slot too large for it.
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 1},
+        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 2}, {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kTakeLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 3},
+        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kLoadLocal, .operand = std::int64_t{1} << 32},
+        {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    const auto before = bytecode_module.instructions;
+    fleaux::bytecode::LocalItemReadFusionPass{}.run(bytecode_module);
+    REQUIRE(bytecode_module.instructions == before);
+  }
+
+  SECTION("A read that a jump lands inside stays as it is") {
+    for (const std::int64_t target : {3, 4}) {
+      INFO("jump target " << target);
+      bytecode_module.instructions = {
+          {.opcode = Opcode::kPushConst, .operand = 5}, {.opcode = Opcode::kJumpIfNot, .operand = target},
+          {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0},
+          {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kHalt, .operand = 0},
+      };
+      const auto before = bytecode_module.instructions;
+      fleaux::bytecode::LocalItemReadFusionPass{}.run(bytecode_module);
+      REQUIRE(bytecode_module.instructions == before);
+    }
+  }
+
+  SECTION("Jumps onto a read and past one keep their targets") {
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kPushConst, .operand = 5}, {.opcode = Opcode::kJumpIfNot, .operand = 5},
+        {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0},
+        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kJump, .operand = 9},      {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    fleaux::bytecode::LocalItemReadFusionPass{}.run(bytecode_module);
+    REQUIRE(bytecode_module.instructions == std::vector<fleaux::bytecode::Instruction>{
+                                                {.opcode = Opcode::kPushConst, .operand = 5},
+                                                {.opcode = Opcode::kJumpIfNot, .operand = 3},
+                                                {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 1U)},
+                                                {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 1U)},
+                                                {.opcode = Opcode::kJump, .operand = 5},
+                                                {.opcode = Opcode::kHalt, .operand = 0},
+                                            });
+  }
+}
+
+TEST_CASE("BytecodeOptimizer fuses local item reads in both modes", "[bytecode][optimizer]") {
+  using fleaux::bytecode::ConstValue;
+  using fleaux::bytecode::local_item_operand;
+  using fleaux::bytecode::Opcode;
+  using fleaux::bytecode::OptimizationMode;
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+
+  for (const auto mode : {OptimizationMode::kBaseline, OptimizationMode::kExtended}) {
+    INFO("extended mode " << (mode == OptimizationMode::kExtended));
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.constants = {ConstValue{std::uint64_t{1}}};
+    bytecode_module.instructions = {
+        {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 0},
+        {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kHalt, .operand = 0},
+    };
+    REQUIRE(optimizer.optimize(bytecode_module, fleaux::bytecode::OptimizerConfig{.mode = mode}).has_value());
+    REQUIRE(bytecode_module.instructions == std::vector<fleaux::bytecode::Instruction>{
+                                                {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 1U)},
+                                                {.opcode = Opcode::kHalt, .operand = 0},
+                                            });
+  }
+
+  // Folding (1u64, 1u64) -> + makes the index the constant 2.
+  fleaux::bytecode::Module folded;
+  folded.constants = {ConstValue{std::uint64_t{1}}};
+  folded.instructions = {
+      {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0},
+      {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kAdd, .operand = 0},
+      {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kHalt, .operand = 0},
+  };
+  REQUIRE(optimizer.optimize(folded, fleaux::bytecode::OptimizerConfig{.mode = OptimizationMode::kExtended}).has_value());
+  REQUIRE(folded.instructions == std::vector<fleaux::bytecode::Instruction>{
+                                     {.opcode = Opcode::kLoadLocalItem, .operand = local_item_operand(0U, 2U)},
+                                     {.opcode = Opcode::kHalt, .operand = 0},
+                                 });
 }
 
 TEST_CASE("BytecodeOptimizer extended mode also eliminates kNoOps", "[bytecode][optimizer]") {
@@ -6606,12 +6758,50 @@ TEST_CASE("The last read of a local slot moves its value", "[bytecode][liveness]
                         Opcode::kTakeLocal, Opcode::kReturn});
   }
 
+  SECTION("kIterate writes the item slot after its index, so the body's read of it is its last") {
+    REQUIRE(opcodes_after_last_reads({{Opcode::kPushConst, 0}, {Opcode::kStoreLocal, 0}, {Opcode::kPushConst, 1},
+                                      {Opcode::kStoreLocal, 1}, {Opcode::kJump, 6}, {Opcode::kLoadLocal, 2},
+                                      {Opcode::kIterate, 0}, {Opcode::kJumpIf, 5}, {Opcode::kLoadLocal, 1},
+                                      {Opcode::kReturn, 0}}) ==
+            std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kJump,
+                        Opcode::kTakeLocal, Opcode::kIterate, Opcode::kJumpIf, Opcode::kTakeLocal, Opcode::kReturn});
+  }
+
   SECTION("kIterate reads its tuple slot and its index slot") {
     REQUIRE(opcodes_after_last_reads({{Opcode::kPushConst, 0}, {Opcode::kStoreLocal, 0}, {Opcode::kIterate, 0},
                                       {Opcode::kJumpIfNot, 6}, {Opcode::kLoadLocal, 0}, {Opcode::kJump, 2},
                                       {Opcode::kLoadLocal, 1}, {Opcode::kReturn, 0}}) ==
             std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kIterate, Opcode::kJumpIfNot,
                         Opcode::kLoadLocal, Opcode::kJump, Opcode::kTakeLocal, Opcode::kReturn});
+  }
+
+  SECTION("An item read reads the slot in the low bits of its operand") {
+    // The operand of slot 0, item 1 is 2^32, not 0, so the read would be missed if it were taken as the slot.
+    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
+                                      {Opcode::kPop, 0},
+                                      {Opcode::kLoadLocalItem, fleaux::bytecode::local_item_operand(0U, 1U)},
+                                      {Opcode::kReturn, 0}}) ==
+            std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kLoadLocalItem, Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
+                                      {Opcode::kPop, 0},
+                                      {Opcode::kTakeLocalItem, fleaux::bytecode::local_item_operand(0U, 1U)},
+                                      {Opcode::kReturn, 0}}) ==
+            std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kTakeLocalItem, Opcode::kReturn});
+  }
+
+  SECTION("kMarkStack writes its slot and kBuildTupleSinceMark reads it") {
+    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
+                                      {Opcode::kPop, 0},
+                                      {Opcode::kMarkStack, 0},
+                                      {Opcode::kBuildTupleSinceMark, 0},
+                                      {Opcode::kReturn, 0}}) ==
+            std::vector{Opcode::kTakeLocal, Opcode::kPop, Opcode::kMarkStack, Opcode::kBuildTupleSinceMark, Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{Opcode::kMarkStack, 0},
+                                      {Opcode::kLoadLocal, 0},
+                                      {Opcode::kPop, 0},
+                                      {Opcode::kBuildTupleSinceMark, 0},
+                                      {Opcode::kReturn, 0}}) ==
+            std::vector{Opcode::kMarkStack, Opcode::kLoadLocal, Opcode::kPop, Opcode::kBuildTupleSinceMark, Opcode::kReturn});
   }
 
   SECTION("A return ends the frame") {
@@ -6905,7 +7095,7 @@ let Count(n: Int64, total: Int64): Int64 =
 (3000, 0) -> Count -> Std.Println;
 (4000) -> Depth -> Std.Println;
 )",
-                                                         "bytecode_loop_frames.fleaux");
+                                                         "bytecode_loop_frames.fleaux", without_inlining());
 
   REQUIRE(output == "5000\n(10, 3000, 20)\n3000\n4000\n");
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kJump) >= 2U);
@@ -6913,4 +7103,471 @@ let Count(n: Int64, total: Int64): Int64 =
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) >= 3U);
   REQUIRE(count_opcode(compiled_function(bytecode_module, "Count").instructions,
                        fleaux::bytecode::Opcode::kCallUserFuncArgs) == 1U);
+}
+
+TEST_CASE("An in-place Std.Tuple.Map is a loop tested at the bottom", "[bytecode][in_place][map]") {
+  // kIterate stores each item in its slot and the loop jumps back from the bottom:
+  //   Jump C  B: <func x>  C: Iterate s  JumpIf B
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Twice(x: Int64): Int64 = (x, 2) -> *;
+let Run(items: Tuple<Int64...>): Tuple<Int64...> = (items, Twice) -> Std.Tuple.Map;
+(1, 2, 3,) -> Run -> Std.Println;
+)",
+                                                         "bytecode_map_bottom_tested.fleaux");
+
+  REQUIRE(output == "(2, 4, 6)\n");
+  const auto& run = compiled_function(bytecode_module, "Run").instructions;
+  REQUIRE(count_opcode(run, fleaux::bytecode::Opcode::kIterate) == 1U);
+  REQUIRE(count_opcode(run, fleaux::bytecode::Opcode::kJumpIfNot) == 0U);
+  const auto iterate = static_cast<std::size_t>(std::ranges::find_if(run, [](const auto& instruction) {
+                                                  return instruction.opcode == fleaux::bytecode::Opcode::kIterate;
+                                                }) -
+                                                run.begin());
+  REQUIRE(iterate + 1U < run.size());
+  const auto& test = run[iterate + 1U];
+  REQUIRE(test.opcode == fleaux::bytecode::Opcode::kJumpIf);
+  const auto body = static_cast<std::size_t>(test.operand);
+  REQUIRE(body > 0U);
+  REQUIRE(body < iterate);
+  // The jump into the loop, just before the body, goes to the test.
+  REQUIRE(run[body - 1U].opcode == fleaux::bytecode::Opcode::kJump);
+  REQUIRE(run[body - 1U].operand == static_cast<std::int64_t>(iterate));
+}
+
+TEST_CASE("In-place maps keep their results across the loop's cases", "[bytecode][in_place][map]") {
+  // An empty source, one item, many; a source another value also holds (its items are copied, and it stays as it was);
+  // a closure that reads a captured local on every item; nested maps; a function that recurses deeply enough to grow
+  // the frame storage inside the body; and a map inside a Std.Loop.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Twice(x: Int64): Int64 = (x, 2) -> *;
+let Deep(n: Int64): Int64 = (n, (0, (): Int64 = 0), (_, (): Int64 = (((n, 1) -> -) -> Deep, 1) -> +)) -> Std.Match;
+let Empty(): Tuple<Int64...> = (0) -> Std.Tuple.Range;
+let Shared(items: Tuple<Int64...>): Tuple<Tuple<Int64...>, Tuple<Int64...>> = ((items, Twice) -> Std.Tuple.Map, items);
+let Scaled(items: Tuple<Int64...>, k: Int64): Tuple<Int64...> = (items, (x: Int64): Int64 = (x, k) -> *) -> Std.Tuple.Map;
+let Nested(rows: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> =
+    (rows, (row: Tuple<Int64...>): Tuple<Int64...> = (row, Twice) -> Std.Tuple.Map) -> Std.Tuple.Map;
+let Grow(n: Int64): Int64 = (((n, n), Twice) -> Std.Tuple.Map -> Std.Length, n) -> +;
+(() -> Empty, Twice) -> Std.Tuple.Map -> Std.Println;
+((5,), Twice) -> Std.Tuple.Map -> Std.Println;
+((1, 2, 3), Twice) -> Std.Tuple.Map -> Std.Println;
+(1, 2, 3,) -> Shared -> Std.Println;
+((1, 2, 3), 10) -> Scaled -> Std.Println;
+((1, 2), (3, 4),) -> Nested -> Std.Println;
+((3000, 10), Deep) -> Std.Tuple.Map -> Std.Println;
+(0, (n: Int64): Bool = (n, 3) -> <, Grow) -> Std.Loop -> Std.Println;
+)",
+                                                         "bytecode_map_loop_cases.fleaux");
+
+  REQUIRE(output ==
+          "()\n"
+          "(10,)\n"
+          "(2, 4, 6)\n"
+          "((2, 4, 6), (1, 2, 3))\n"
+          "(10, 20, 30)\n"
+          "((2, 4), (6, 8))\n"
+          "(3000, 10)\n"
+          "4\n");
+}
+
+TEST_CASE("An in-place Std.Tuple.Filter collects the kept items above a stack mark", "[bytecode][in_place][filter]") {
+  //   MarkStack m  Jump C  B: <pred x>  JumpIfNot C  LoadLocal x  C: Iterate s  JumpIf B  BuildTupleSinceMark m
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Even(items: Tuple<Int64...>): Tuple<Int64...> = (items, (x: Int64): Bool = (x, 2) -> Std.Mod -> (_, 0) -> ==) -> Std.Tuple.Filter;
+(1, 2, 3, 4,) -> Even -> Std.Println;
+)",
+                                                         "bytecode_filter_in_place.fleaux");
+
+  REQUIRE(output == "(2, 4)\n");
+  const auto& even = compiled_function(bytecode_module, "Even").instructions;
+  REQUIRE_FALSE(calls_builtin(even, "Std.Tuple.Filter"));
+  REQUIRE(count_opcode(even, fleaux::bytecode::Opcode::kIterate) == 1U);
+  REQUIRE(count_opcode(even, fleaux::bytecode::Opcode::kMarkStack) == 1U);
+  REQUIRE(count_opcode(even, fleaux::bytecode::Opcode::kBuildTupleSinceMark) == 1U);
+  REQUIRE(count_opcode(even, fleaux::bytecode::Opcode::kBuildTupleCounted) == 0U);
+  // The mark is in the slot below the loop's three.
+  const auto mark =
+      std::ranges::find_if(even, [](const auto& instruction) { return instruction.opcode == fleaux::bytecode::Opcode::kMarkStack; });
+  const auto iterate =
+      std::ranges::find_if(even, [](const auto& instruction) { return instruction.opcode == fleaux::bytecode::Opcode::kIterate; });
+  REQUIRE(mark->operand + 1 == iterate->operand);
+}
+
+TEST_CASE("An in-place Std.Tuple.Reduce keeps its accumulator in a slot", "[bytecode][in_place][reduce]") {
+  //   StoreLocal a  StoreLocal s ... Jump C  B: <func a x>  StoreLocal a  C: Iterate s  JumpIf B  LoadLocal a
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Sum(items: Tuple<Int64...>): Int64 = (items, 0, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce;
+(1, 2, 3, 4,) -> Sum -> Std.Println;
+)",
+                                                         "bytecode_reduce_in_place.fleaux");
+
+  REQUIRE(output == "10\n");
+  const auto& sum = compiled_function(bytecode_module, "Sum").instructions;
+  REQUIRE_FALSE(calls_builtin(sum, "Std.Tuple.Reduce"));
+  REQUIRE(count_opcode(sum, fleaux::bytecode::Opcode::kIterate) == 1U);
+  REQUIRE(count_opcode(sum, fleaux::bytecode::Opcode::kMakeClosureRef) == 0U);
+}
+
+TEST_CASE("Std.Tuple.Filter and Std.Tuple.Reduce call the builtin with a named function", "[bytecode][in_place]") {
+  // A named function run in place costs a kCallUserFunc per item, as much as the builtin's call of it.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Odd(x: Int64): Bool = (x, 2) -> Std.Mod -> (_, 1) -> ==;
+let Plus(acc: Int64, x: Int64): Int64 = (acc, x) -> +;
+let Run(items: Tuple<Int64...>): Tuple<Tuple<Int64...>, Int64> = ((items, Odd) -> Std.Tuple.Filter, (items, 0, Plus) -> Std.Tuple.Reduce);
+(1, 2, 3,) -> Run -> Std.Println;
+)",
+                                                         "bytecode_filter_reduce_named.fleaux");
+
+  REQUIRE(output == "((1, 3), 6)\n");
+  const auto& run = compiled_function(bytecode_module, "Run").instructions;
+  REQUIRE(calls_builtin(run, "Std.Tuple.Filter"));
+  REQUIRE(calls_builtin(run, "Std.Tuple.Reduce"));
+  REQUIRE(count_opcode(run, fleaux::bytecode::Opcode::kIterate) == 0U);
+}
+
+TEST_CASE("In-place filters and reduces keep their results across the loop's cases", "[bytecode][in_place][filter]") {
+  // Filter: an empty source, none kept, all kept, some kept, a source another value also holds (left as it was), a
+  // captured local, and tuples as items. Reduce: an empty source, one item, many, a captured local, and a tuple
+  // accumulator that grows on each item. Then each inside the other and inside a Map's closure, a predicate that
+  // recurses deeply enough to grow the frame storage, and a filter inside a Std.Loop's step.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Deep(n: Int64): Int64 = (n, (0, (): Int64 = 0), (_, (): Int64 = (((n, 1) -> -) -> Deep, 1) -> +)) -> Std.Match;
+let Empty(): Tuple<Int64...> = (0) -> Std.Tuple.Range;
+let Shared(items: Tuple<Int64...>): Tuple<Tuple<Int64...>, Tuple<Int64...>> =
+    ((items, (x: Int64): Bool = (x, 1) -> >) -> Std.Tuple.Filter, items);
+let Above(items: Tuple<Int64...>, k: Int64): Tuple<Int64...> = (items, (x: Int64): Bool = (x, k) -> >) -> Std.Tuple.Filter;
+let Scaled(items: Tuple<Int64...>, k: Int64): Int64 =
+    (items, 0, (acc: Int64, x: Int64): Int64 = (acc, (x, k) -> *) -> +) -> Std.Tuple.Reduce;
+let RowSums(rows: Tuple<Tuple<Int64...>...>): Tuple<Int64...> =
+    (rows, (row: Tuple<Int64...>): Int64 = (row, 0, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce)
+        -> Std.Tuple.Map;
+let WithBig(rows: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> =
+    (rows, (row: Tuple<Int64...>): Bool = ((row, (x: Int64): Bool = (x, 2) -> >) -> Std.Tuple.Filter -> Std.Length, 0) -> >)
+        -> Std.Tuple.Filter;
+let Kept(rows: Tuple<Tuple<Int64...>...>): Int64 =
+    (rows, 0, (acc: Int64, row: Tuple<Int64...>): Int64 =
+        (acc, (row, (x: Int64): Bool = (x, 2) -> >) -> Std.Tuple.Filter -> Std.Length) -> +) -> Std.Tuple.Reduce;
+let Step(n: Int64): Int64 = ((n -> Std.Tuple.Range, (x: Int64): Bool = (x, 0) -> >=) -> Std.Tuple.Filter -> Std.Length, 1) -> +;
+(() -> Empty, (x: Int64): Bool = (x, 0) -> >) -> Std.Tuple.Filter -> Std.Println;
+((1, 2, 3), (x: Int64): Bool = (x, 9) -> >) -> Std.Tuple.Filter -> Std.Println;
+((1, 2, 3), (x: Int64): Bool = (x, 0) -> >) -> Std.Tuple.Filter -> Std.Println;
+((1, 2, 3, 4), (x: Int64): Bool = (x, 2) -> Std.Mod -> (_, 0) -> ==) -> Std.Tuple.Filter -> Std.Println;
+(1, 2, 3,) -> Shared -> Std.Println;
+((1, 5, 10), 4) -> Above -> Std.Println;
+(((1, 2), (3, 4), (5, 6)), (p: Tuple<Int64, Int64>): Bool = ((p, 0u64) -> Std.ElementAt, 1) -> >) -> Std.Tuple.Filter
+    -> Std.Println;
+(() -> Empty, 7, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce -> Std.Println;
+((5,), 1, (acc: Int64, x: Int64): Int64 = (acc, x) -> *) -> Std.Tuple.Reduce -> Std.Println;
+((1, 2, 3, 4), 0, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce -> Std.Println;
+((1, 2, 3), 10) -> Scaled -> Std.Println;
+(5 -> Std.Tuple.Range, 0 -> Std.Tuple.Range, (acc: Tuple<Int64...>, x: Int64): Tuple<Int64...> = (acc, (x, x) -> *) -> Std.Tuple.Append)
+    -> Std.Tuple.Reduce -> Std.Println;
+((1, 2), (3, 4),) -> RowSums -> Std.Println;
+((1, 2), (3, 4), (0, 5),) -> WithBig -> Std.Println;
+((1, 2), (3, 4), (0, 5),) -> Kept -> Std.Println;
+((3000, 10), (x: Int64): Bool = (x -> Deep, 100) -> >) -> Std.Tuple.Filter -> Std.Println;
+(0, (n: Int64): Bool = (n, 3) -> <, Step) -> Std.Loop -> Std.Println;
+)",
+                                                         "bytecode_filter_reduce_cases.fleaux");
+
+  REQUIRE(output ==
+          "()\n"
+          "()\n"
+          "(1, 2, 3)\n"
+          "(2, 4)\n"
+          "((2, 3), (1, 2, 3))\n"
+          "(5, 10)\n"
+          "((3, 4), (5, 6))\n"
+          "7\n"
+          "5\n"
+          "10\n"
+          "60\n"
+          "(0, 1, 4, 9, 16)\n"
+          "(3, 7)\n"
+          "((3, 4), (0, 5))\n"
+          "3\n"
+          "(3000,)\n"
+          "3\n");
+  REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Tuple.Filter"));
+  REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Tuple.Reduce"));
+}
+
+TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]") {
+  // Version 41's kIterate pushed the item, where version 42's stores it in its slot. Version 43 compiles constant
+  // item reads of local tuples to kLoadLocalItem and kTakeLocalItem, version 44 runs Std.Tuple.Filter and
+  // Std.Tuple.Reduce in place with kMarkStack and kBuildTupleSinceMark, and version 45 inlines small named functions.
+  fleaux::bytecode::Module module;
+  module.header.module_name = "OldVersion";
+  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+  REQUIRE(fleaux::bytecode::deserialize_module(*serialized).has_value());
+
+  for (const std::uint32_t old_version : {41U, 42U, 43U, 44U}) {
+    INFO("version " << old_version);
+    // The version follows the four bytes of the magic number.
+    std::vector<std::uint8_t> bytes = *serialized;
+    std::memcpy(bytes.data() + sizeof(std::uint32_t), &old_version, sizeof old_version);
+    const auto result = fleaux::bytecode::deserialize_module(bytes);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message.find("Version") != std::string::npos);
+  }
+}
+
+namespace {
+
+// The module `source` compiles to after the optimizer's baseline passes, as the module loader makes it, and what it
+// prints or the message it fails with.
+auto compile_optimize_and_run(const std::string& source, const std::string& source_name)
+    -> std::pair<fleaux::bytecode::Module, tl::expected<std::string, std::string>> {
+  const auto ir_program = lower_source_to_ir(source, source_name);
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  auto compiled = compiler.compile(ir_program);
+  REQUIRE(compiled.has_value());
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  REQUIRE(optimizer.optimize(*compiled).has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto executed = runtime.execute(*compiled, output);
+  if (!executed.has_value()) {
+    return {std::move(*compiled), tl::unexpected(executed.error().message)};
+  }
+  return {std::move(*compiled), output.str()};
+}
+
+}  // namespace
+
+TEST_CASE("Constant item reads of local tuples read the item in one instruction", "[bytecode][optimizer][locals]") {
+  using fleaux::bytecode::Opcode;
+  // A tuple-state Std.Loop, a function's parameter read twice, and the closure of an in-place Std.Tuple.Map.
+  const auto [bytecode_module, output] = compile_optimize_and_run(R"(
+let Swap(p: Tuple<Int64, Int64>): Tuple<Int64, Int64> = ((p, 1u64) -> Std.ElementAt, (p, 0u64) -> Std.ElementAt);
+((0, 0), (s: Tuple<Int64, Int64>): Bool = ((s, 0u64) -> Std.ElementAt, 10) -> <,
+ (s: Tuple<Int64, Int64>): Tuple<Int64, Int64> =
+     (((s, 0u64) -> Std.ElementAt, 1) -> +, ((s, 1u64) -> Std.ElementAt, (s, 0u64) -> Std.ElementAt) -> +)
+) -> Std.Loop -> Std.Println;
+(1, 2,) -> Swap -> Std.Println;
+(((1, 2), (3, 4)), (row: Tuple<Int64, Int64>): Int64 = ((row, 0u64) -> Std.ElementAt, (row, 1u64) -> Std.ElementAt) -> *)
+    -> Std.Tuple.Map -> Std.Println;
+)",
+                                                                  "bytecode_local_item_reads.fleaux");
+
+  REQUIRE(output.has_value());
+  REQUIRE(*output == "(10, 45)\n(2, 1)\n(2, 12)\n");
+  // The loop and the map run in place in the top-level code: three reads that copy and a last one in the loop, and one
+  // of each in the map's closure and in Swap's body, which the call inlines.
+  const auto& top_level = bytecode_module.instructions;
+  REQUIRE(count_opcode(top_level, Opcode::kElementAt) == 0U);
+  REQUIRE(count_opcode(top_level, Opcode::kLoadLocalItem) == 5U);
+  REQUIRE(count_opcode(top_level, Opcode::kTakeLocalItem) == 3U);
+  const auto& swap = compiled_function(bytecode_module, "Swap").instructions;
+  REQUIRE(count_opcode(swap, Opcode::kElementAt) == 0U);
+  REQUIRE(count_opcode(swap, Opcode::kLoadLocalItem) == 1U);
+  REQUIRE(count_opcode(swap, Opcode::kTakeLocalItem) == 1U);
+}
+
+TEST_CASE("A constant item read past the end of a local tuple fails as before", "[bytecode][optimizer][locals]") {
+  const std::string source = R"(
+let At(t: Tuple<Int64...>): Int64 = (t, 5u64) -> Std.ElementAt;
+(10, 20,) -> At -> Std.Println;
+)";
+  const auto [optimized, optimized_run] = compile_optimize_and_run(source, "bytecode_local_item_range.fleaux");
+  REQUIRE(count_opcode(compiled_function(optimized, "At").instructions, fleaux::bytecode::Opcode::kTakeLocalItem) == 1U);
+  REQUIRE_FALSE(optimized_run.has_value());
+
+  // The same program without the optimizer reads the item with kElementAt.
+  const auto ir_program = lower_source_to_ir(source, "bytecode_local_item_range.fleaux");
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled = compiler.compile(ir_program);
+  REQUIRE(compiled.has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto executed = runtime.execute(*compiled, output);
+  REQUIRE_FALSE(executed.has_value());
+  REQUIRE(executed.error().message.find("ElementAt: index out of range") != std::string::npos);
+  REQUIRE(optimized_run.error() == executed.error().message);
+}
+
+namespace {
+
+// Whether `instructions` call the user function `name` (any overload) with kCallUserFunc or kCallUserFuncArgs.
+auto calls_user_function(const fleaux::bytecode::Module& bytecode_module, const std::vector<fleaux::bytecode::Instruction>& instructions,
+                         const std::string& name) -> bool {
+  return std::ranges::any_of(instructions, [&](const fleaux::bytecode::Instruction& instruction) {
+    if (instruction.opcode != fleaux::bytecode::Opcode::kCallUserFunc &&
+        instruction.opcode != fleaux::bytecode::Opcode::kCallUserFuncArgs) {
+      return false;
+    }
+    const auto& function = bytecode_module.functions[static_cast<std::size_t>(instruction.operand)];
+    return function.name == name || function.name.starts_with(name + "#");
+  });
+}
+
+auto user_call_count(const std::vector<fleaux::bytecode::Instruction>& instructions) -> std::size_t {
+  return count_opcode(instructions, fleaux::bytecode::Opcode::kCallUserFunc) +
+         count_opcode(instructions, fleaux::bytecode::Opcode::kCallUserFuncArgs);
+}
+
+}  // namespace
+
+TEST_CASE("Calls of small named functions are inlined", "[bytecode][inline]") {
+  // Every body is emitted in place of its call: in Quad, in Run, and in the top-level code, which inlines Run as well.
+  // Sum3 takes its arguments one per parameter.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Double(x: Int64): Int64 = (x, x) -> +;
+let Sum3(a: Int64, b: Int64, c: Int64): Int64 = ((a, b) -> +, c) -> +;
+let Quad(x: Int64): Int64 = (x -> Double) -> Double;
+let Run(n: Int64): Int64 = ((n -> Quad, 1, 2) -> Sum3, n) -> -;
+(5) -> Run -> Std.Println;
+(3, 4, 5) -> Sum3 -> Std.Println;
+)",
+                                                         "bytecode_inline_calls.fleaux");
+
+  REQUIRE(output == "18\n12\n");
+  REQUIRE(user_call_count(bytecode_module.instructions) == 0U);
+  REQUIRE(user_call_count(compiled_function(bytecode_module, "Run").instructions) == 0U);
+  REQUIRE(user_call_count(compiled_function(bytecode_module, "Quad").instructions) == 0U);
+}
+
+TEST_CASE("Inlining stops three functions deep", "[bytecode][inline]") {
+  // The top-level code inlines A, A's body B, and B's body C; C's call of D stays a call.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let D(x: Int64): Int64 = (x, 1) -> +;
+let C(x: Int64): Int64 = (x -> D, 1) -> +;
+let B(x: Int64): Int64 = (x -> C, 1) -> +;
+let A(x: Int64): Int64 = (x -> B, 1) -> +;
+(0) -> A -> Std.Println;
+)",
+                                                         "bytecode_inline_depth.fleaux");
+
+  REQUIRE(output == "4\n");
+  REQUIRE(user_call_count(bytecode_module.instructions) == 1U);
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "D"));
+}
+
+TEST_CASE("Calls that cannot be inlined stay calls", "[bytecode][inline]") {
+  // A recursive function, two mutually recursive ones, a body over the size limit, a variadic function, a call with an
+  // argument tuple, and a function passed as a value. A recursive function's first call is inlined; the call in its
+  // body never is.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Down(n: Int64): Int64 = (n, (0, (): Int64 = 0), (_, (): Int64 = ((n, 1) -> -) -> Down)) -> Std.Match;
+let Even(n: Int64): Bool = (n, (0, (): Bool = True), (_, (): Bool = ((n, 1) -> -) -> Odd)) -> Std.Match;
+let Odd(n: Int64): Bool = (n, (0, (): Bool = False), (_, (): Bool = ((n, 1) -> -) -> Even)) -> Std.Match;
+let Big(x: Int64): Int64 =
+    ((((((((((((x, 1) -> +, 2) -> +, 3) -> +, 4) -> +, 5) -> +, 6) -> +, 7) -> +, 8) -> +, 9) -> +, 10) -> +, 11) -> +, 12) -> +;
+let Count(items: Int64...): Int64 = items -> Std.Length;
+let Add2(a: Int64, b: Int64): Int64 = (a, b) -> +;
+let FromPair(p: Tuple<Int64, Int64>): Int64 = (p...) -> Add2;
+let Double(x: Int64): Int64 = (x, x) -> +;
+let ApplyTwice(f: (Int64) => Int64, x: Int64): Int64 = (x -> f) -> f;
+(3) -> Down -> Std.Println;
+(10) -> Even -> Std.Println;
+(0) -> Big -> Std.Println;
+(1, 2, 3) -> Count -> Std.Println;
+(4, 5,) -> FromPair -> Std.Println;
+(Double, 3) -> ApplyTwice -> Std.Println;
+)",
+                                                         "bytecode_inline_not.fleaux");
+
+  REQUIRE(output == "0\nTrue\n78\n3\n9\n12\n");
+  REQUIRE(calls_user_function(bytecode_module, compiled_function(bytecode_module, "Down").instructions, "Down"));
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "Down"));
+  REQUIRE(calls_user_function(bytecode_module, compiled_function(bytecode_module, "Even").instructions, "Even"));
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "Big"));
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "Count"));
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "Add2"));
+  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kMakeUserFuncRef) == 1U);
+}
+
+TEST_CASE("Calls of generic functions with operator requirements stay calls", "[bytecode][inline]") {
+  // Each call passes the operator functions for the type it binds as hidden arguments.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+type Money = Int64;
+let Money.LessThan(a: Money, b: Money): Bool = (a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> <;
+let M(x: Int64): Money = x -> Std.Cast<Money>;
+alias Ordered = Int64 | Money;
+let Smaller<T: Ordered>(a: T, b: T): T = ((a, b) -> <, a, b) -> Std.Select;
+(5 -> M, 4 -> M) -> Smaller -> Std.Println;
+(5, 4) -> Smaller -> Std.Println;
+)",
+                                                         "bytecode_inline_generic.fleaux");
+
+  REQUIRE(output == "4\n4\n");
+  REQUIRE(calls_user_function(bytecode_module, bytecode_module.instructions, "Smaller"));
+}
+
+TEST_CASE("Inlined calls behave as calls", "[bytecode][inline]") {
+  // The arguments are evaluated in order before the body; a parameter read twice; a body with its own locals, an
+  // in-place Map and Reduce, and a closure that captures a parameter; a call inside an in-place loop; and an inlined
+  // body inside another.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+let Diff(a: Int64, b: Int64): Int64 = (a, b) -> -;
+let Square(x: Int64): Int64 = (x, x) -> *;
+let SumSquares(n: Int64): Int64 = {
+  let items: Tuple<Int64...> = n -> Std.Tuple.Range;
+  let squares: Tuple<Int64...> = (items, (x: Int64): Int64 = x -> Square) -> Std.Tuple.Map;
+  (squares, 0, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce;
+};
+let Scaled(k: Int64): Tuple<Int64...> = ((1, 2, 3), (x: Int64): Int64 = (x, k) -> *) -> Std.Tuple.Map;
+let Adder(k: Int64): (Int64) => Int64 = (x: Int64): Int64 = (x, k) -> +;
+("first" -> Std.Println -> Std.Length, ("second", "x") -> Std.Println -> Std.Length) -> Diff -> Std.Println;
+(4) -> SumSquares -> Std.Println;
+(10) -> Scaled -> Std.Println;
+(5, (3) -> Adder) -> Std.Apply -> Std.Println;
+(1, (n: Int64): Bool = (n, 100) -> <, (n: Int64): Int64 = (n -> Square, 1) -> +) -> Std.Loop -> Std.Println;
+)",
+                                                         "bytecode_inline_behaviour.fleaux");
+
+  REQUIRE(output == "first\nsecond x\n-1\n14\n(10, 20, 30)\n8\n677\n");
+  REQUIRE(user_call_count(bytecode_module.instructions) == 0U);
+}
+
+TEST_CASE("A host call runs a function whose calls are inlined elsewhere", "[bytecode][inline][host_entry]") {
+  const auto module = compile_host_module(
+      "import Std;\n"
+      "let App.Square(x: Int64): Int64 = (x, x) -> *;\n"
+      "let App.Twice(x: Int64): Int64 = (x -> App.Square, 2) -> *;\n",
+      "host_inline.fleaux");
+
+  REQUIRE(user_call_count(compiled_function(module, "App.Twice").instructions) == 0U);
+  REQUIRE(host_call(module, "App.Twice", fleaux::runtime::make_int(5)).value() == fleaux::runtime::make_int(50));
+  REQUIRE(host_call(module, "App.Square", fleaux::runtime::make_int(4)).value() == fleaux::runtime::make_int(16));
+}
+
+TEST_CASE("Calls of imported functions are not inlined", "[bytecode][inline][loader]") {
+  // An imported function's IR is in the module that defines it.
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_inline_import";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  {
+    std::ofstream library(temp_dir / "inline_library.fleaux");
+    library << "import Std;\nlet Triple(x: Int64): Int64 = (x, 3) -> *;\n";
+    std::ofstream entry(temp_dir / "inline_entry.fleaux");
+    entry << "import Std;\nimport inline_library;\n(4) -> Triple -> Std.Println;\n";
+  }
+
+  const auto loaded = fleaux::bytecode::load_linked_module(temp_dir / "inline_entry.fleaux");
+  if (!loaded) {
+    INFO(loaded.error().message);
+  }
+  REQUIRE(loaded.has_value());
+  REQUIRE(calls_user_function(*loaded, loaded->instructions, "Triple"));
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  REQUIRE(runtime.execute(*loaded, output).has_value());
+  REQUIRE(output.str() == "12\n");
+  std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("Bools that operations make are the same values as Bool constants", "[bytecode][values]") {
+  // A Bool is stored as 0 or 1 in the whole payload; the constant True, a comparison's result and a builtin's are the
+  // same value, and the same dict key.
+  const auto [bytecode_module, output] = compile_and_run(R"(
+((1, 2) -> <, (2, 1) -> <, ((1, 2) -> <, True) -> Std.And, True -> Std.Not, (1, 1) -> ==) -> Std.Println;
+(((1, 2) -> <, True) -> ==, ((2, 1) -> <, False) -> ==, ((1, 2) -> <, False) -> ==) -> Std.Println;
+((() -> Std.Dict.Create, (1, 2) -> <, "less") -> Std.Dict.Set, True) -> Std.Dict.Get -> Std.Println;
+((1, 2, 3), (x: Int64): Bool = (x, 2) -> >) -> Std.Tuple.Any -> Std.ToString -> Std.Println;
+)",
+                                                         "bytecode_bool_values.fleaux");
+
+  REQUIRE(output == "True False True False True\nTrue True False\nless\nTrue\n");
 }

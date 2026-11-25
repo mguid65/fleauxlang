@@ -376,6 +376,13 @@ if(FLEAUX_PCRE2_TARGET)
   )
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
+  # runtime.cpp compiles the whole runtime, and GCC caps how much inlining may grow one file (by 40% by default). The cap
+  # is reached before GCC gets to the VM loop's helpers (value assignment, the stack's push_back, the local slots), which
+  # then cost a call on every instruction. Raising it for this file makes tight loops about a third faster
+  # (internal_docs/vm_loop_overhead_plan_2026-11-23.md).
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(src/vm/runtime.cpp PROPERTIES COMPILE_OPTIONS "--param=inline-unit-growth=400")
+  endif()
   target_link_libraries(fleaux_vm PUBLIC fleaux_common fleaux_bytecode tl_expected ${FLEAUX_PCRE2_TARGET})
   fleaux_set_project_warnings(fleaux_vm WARNINGS_AS_ERRORS)
   if(TARGET fleaux_emscripten_threads)

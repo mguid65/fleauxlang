@@ -370,7 +370,8 @@ TEST_CASE("Small dicts find keys without a hash index", "[runtime][dict]") {
       REQUIRE(dict.size() == static_cast<std::size_t>(count));
       for (int index = 0; index < count; ++index) {
         REQUIRE(dict.contains(make_int(index)));
-        REQUIRE(*dict.find(make_int(index)) == make_int(index * 10));
+        const Value* const found = dict.find(make_int(index));
+        REQUIRE((found != nullptr && *found == make_int(index * 10)));
       }
       REQUIRE(dict.find(make_int(count)) == nullptr);
       int position = 0;
@@ -843,6 +844,78 @@ TEST_CASE("Runtime builtins: Std.Parallel.Map", "[runtime]") {
       REQUIRE(as_bool(ResultIsOk(result)));
       REQUIRE(ResultUnwrap(result) == expected);
     }
+  }
+}
+
+TEST_CASE("Runtime builtins: Std.Parallel.Map queues its items in one batch", "[runtime][parallel]") {
+  // TaskRuntime::submit_all queues every item, one task each, and wakes at most every worker.
+  const std::size_t workers = task_runtime().worker_count();
+
+  SECTION("Many more items than workers keep their input order") {
+    const Value add_one = make_function([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
+    const std::size_t count = workers * 64U;
+    TupleBuilder items(count);
+    for (std::size_t index = 0; index < count; ++index) {
+      items.push(make_int(static_cast<Int>(index)));
+    }
+    const Value result = ParallelMap(make_tuple(std::move(items).finish(), add_one));
+    REQUIRE(as_bool(ResultIsOk(result)));
+    const Value payload = ResultUnwrap(result);
+    REQUIRE(as_tuple(payload).size() == count);
+    for (std::size_t index = 0; index < count; ++index) {
+      REQUIRE(as_int_value(tuple_at(payload, index)) == static_cast<Int>(index) + 1);
+    }
+  }
+
+  SECTION("The first failure in input order is returned, and every item still runs") {
+    constexpr int count = 600;
+    std::atomic<int> ran{0};
+    const Value fail_some = make_function([&ran](const Value& v) -> Value {
+      ran.fetch_add(1, std::memory_order_relaxed);
+      if (const auto n = as_int_value(v); n == 450 || n == 200 || n == 599) {
+        throw std::runtime_error("fail-" + std::to_string(n));
+      }
+      return v;
+    });
+    TupleBuilder items(count);
+    for (int index = 0; index < count; ++index) {
+      items.push(make_int(index));
+    }
+    const Value result = ParallelMap(make_tuple(std::move(items).finish(), fail_some));
+    REQUIRE(as_bool(ResultIsErr(result)));
+    const Value err = ResultUnwrapErr(result);
+    REQUIRE(as_int_value(tuple_at(err, 0)) == 200);
+    REQUIRE(as_string(tuple_at(err, 1)) == "fail-200");
+    // The map returns at item 200; the items after it are already queued and finish on their own.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    while (ran.load() < count && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    REQUIRE(ran.load() == count);
+  }
+
+  SECTION("WithOptions with room for every item runs them as one batch") {
+    const Value add_one = make_function([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
+    Value options = make_dict();
+    options.mutable_dict().set(make_string("max_workers"), make_int(64));
+    const Value result = ParallelWithOptions(make_tuple(make_tuple(make_int(1), make_int(2), make_int(3)), add_one, options));
+    REQUIRE(as_bool(ResultIsOk(result)));
+    REQUIRE(ResultUnwrap(result) == make_tuple(make_int(2), make_int(3), make_int(4)));
+  }
+
+  SECTION("A parallel map inside a parallel item") {
+    // Each outer item waits for its inner map on a worker, so the pool needs more workers than outer items.
+    if (workers < 4U) {
+      SKIP("fewer than 4 pool workers");
+    }
+    const Value add_one = make_function([](const Value& v) -> Value { return make_int(as_int_value(v) + 1); });
+    const Value inner_map = make_function([add_one](const Value& v) -> Value {
+      const Int base = as_int_value(v);
+      return ResultUnwrap(ParallelMap(make_tuple(make_tuple(make_int(base), make_int(base + 10)), add_one)));
+    });
+    const Value result = ParallelMap(make_tuple(make_tuple(make_int(1), make_int(2)), inner_map));
+    REQUIRE(as_bool(ResultIsOk(result)));
+    REQUIRE(ResultUnwrap(result) == make_tuple(make_tuple(make_int(2), make_int(12)), make_tuple(make_int(3), make_int(13))));
   }
 }
 

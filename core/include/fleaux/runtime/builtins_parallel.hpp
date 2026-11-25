@@ -6,6 +6,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -77,7 +78,8 @@ inline void request_task_cancel_and_notify(TaskControl* task) {
 // Bounded thread pool shared by Std.Task.* and Std.Parallel.*.
 //
 // Worker count defaults to hardware_concurrency() clamped to [1, 16]. A job carries the function value it calls and
-// the stream and process-argument context of the code that submitted it.
+// the stream and process-argument context of the code that submitted it; the jobs of one batch share their process
+// arguments.
 class TaskRuntime {
 public:
   static constexpr std::size_t k_min_workers = 1;
@@ -121,8 +123,42 @@ public:
                 .execution_state = std::ref(runtime_execution_state()),
                 .output_stream = std::ref(runtime_output_stream()),
                 .input_stream = std::ref(runtime_input_stream()),
-                .process_args = get_process_args()});
+                .process_args = std::make_shared<const std::vector<std::string>>(get_process_args())});
     return task;
+  }
+
+  // Runs `function` with each of `arguments` on the pool, one task each, in order. The jobs are queued under one lock,
+  // and as many workers are woken as there are jobs, up to all of them. Submitted one at a time, items that take less
+  // time than a submission left the workers asleep between them, and every submission paid to wake one: about 4.7 us
+  // per item, however little the items did.
+  [[nodiscard]] auto submit_all(const Value& function, const TupleView arguments) -> std::vector<Value> {
+    std::vector<Value> tasks;
+    std::vector<Job> jobs;
+    tasks.reserve(arguments.size());
+    jobs.reserve(arguments.size());
+    const auto process_args = std::make_shared<const std::vector<std::string>>(get_process_args());
+    for (const Value& argument : arguments) {
+      Value task = make_task();
+      tasks.push_back(task);
+      jobs.push_back(Job{.function = function,
+                         .argument = argument,
+                         .task = std::move(task),
+                         .execution_state = std::ref(runtime_execution_state()),
+                         .output_stream = std::ref(runtime_output_stream()),
+                         .input_stream = std::ref(runtime_input_stream()),
+                         .process_args = process_args});
+    }
+    {
+      const std::scoped_lock lock(mutex_);
+      for (Job& job : jobs) {
+        queue_.push_back(std::move(job));
+      }
+    }
+    // Waking every worker for a few jobs made the samples with a few tasks up to 2.3 times slower.
+    for (std::size_t woken = 0; woken < std::min(jobs.size(), workers_.size()); ++woken) {
+      cv_.notify_one();
+    }
+    return tasks;
   }
 
   [[nodiscard]] auto worker_count() const -> std::size_t { return workers_.size(); }
@@ -135,7 +171,7 @@ private:
     std::reference_wrapper<RuntimeExecutionState> execution_state{default_runtime_execution_state()};
     std::reference_wrapper<std::ostream> output_stream{std::cout};
     std::reference_wrapper<std::istream> input_stream{std::cin};
-    std::vector<std::string> process_args{};
+    std::shared_ptr<const std::vector<std::string>> process_args{};
   };
 
   void enqueue(Job job) {
@@ -163,7 +199,7 @@ private:
       const RuntimeOutputStreamScope output_scope(job.output_stream.get());
       const RuntimeInputStreamScope input_scope(job.input_stream.get());
       const auto submitted_process_args = std::move(job.process_args);
-      const RuntimeProcessArgsOverrideScope process_args_scope(submitted_process_args);
+      const RuntimeProcessArgsOverrideScope process_args_scope(*submitted_process_args);
       TaskControl& task = *task_control(job.task);
 
       {
@@ -282,12 +318,39 @@ private:
 }
 
 // Runs `function` on each item on the shared pool, keeping at most `max_in_flight` items queued at once, and calls
-// `on_result` with each item's index and Ok payload in input order. Returns the Err of the first item that fails.
+// `on_result` with each item's index and Ok payload in input order. Returns the Err of the first item that fails. With
+// room for every item, they are all queued in one batch (TaskRuntime::submit_all); otherwise each is submitted when
+// the one `max_in_flight` before it has finished.
 template <typename OnResult>
 [[nodiscard]] auto run_parallel_pooled(const TupleView items, const Value& function, const std::size_t max_in_flight,
                                        const std::string_view builtin_name, OnResult&& on_result)
     -> std::optional<Value> {
+  // Waits for an item's task: its Err, or nothing after passing its payload to on_result.
+  const auto settle = [&](const std::size_t item_index, const Value& task) -> std::optional<Value> {
+    const Value result = wait_task_result(task_control(task));
+    if (!result.is_tuple() || result.tuple().empty()) {
+      return parallel_item_error(item_index, std::format("{}: unexpected result shape", builtin_name));
+    }
+    const TupleView outcome = result.tuple();
+    if (!outcome[0].is_bool() || !outcome[0].bool_value()) {
+      return parallel_item_error(item_index, result_error_text(outcome));
+    }
+    const Value& payload = outcome[1];
+    on_result(item_index, payload.is_tuple() && payload.tuple().size() == 1 ? payload.tuple()[0] : payload);
+    return std::nullopt;
+  };
+
   const std::size_t count = items.size();
+  if (max_in_flight >= count) {
+    const std::vector<Value> tasks = task_runtime().submit_all(function, items);
+    for (std::size_t item_index = 0; item_index < count; ++item_index) {
+      if (auto error = settle(item_index, tasks[item_index])) {
+        return error;
+      }
+    }
+    return std::nullopt;
+  }
+
   const std::size_t window = std::min(max_in_flight, count);
   std::deque<std::pair<std::size_t, Value>> in_flight;
   std::size_t next_submit = 0;
@@ -304,17 +367,9 @@ template <typename OnResult>
     auto [item_index, task] = std::move(in_flight.front());
     in_flight.pop_front();
     submit_next();
-
-    const Value result = wait_task_result(task_control(task));
-    if (!result.is_tuple() || result.tuple().empty()) {
-      return parallel_item_error(item_index, std::format("{}: unexpected result shape", builtin_name));
+    if (auto error = settle(item_index, task)) {
+      return error;
     }
-    const TupleView outcome = result.tuple();
-    if (!outcome[0].is_bool() || !outcome[0].bool_value()) {
-      return parallel_item_error(item_index, result_error_text(outcome));
-    }
-    const Value& payload = outcome[1];
-    on_result(item_index, payload.is_tuple() && payload.tuple().size() == 1 ? payload.tuple()[0] : payload);
   }
   return std::nullopt;
 }

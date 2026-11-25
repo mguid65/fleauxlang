@@ -1,0 +1,1 @@
+(import Std, let AddOne(x: Int64): Int64 = (x, 1) -> Std.Add, (41) -> AddOne -> Std.Println)

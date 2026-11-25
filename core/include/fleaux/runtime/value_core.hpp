@@ -69,8 +69,14 @@ public:
 
   void retain() const noexcept { references_.fetch_add(1, std::memory_order_relaxed); }
 
-  // Drops one reference; true when it was the last one.
+  // Drops one reference; true when it was the last one, and the caller destroys the object. A count of 1 means the
+  // caller holds the only reference: a reference is only made by copying one, so no other thread can change the count,
+  // and the last reference needs no atomic decrement. The acquire read pairs with other threads' earlier decrements,
+  // as the decrement's own acquire does. Most values the VM destroys are such unshared temporaries.
   [[nodiscard]] auto release() const noexcept -> bool {
+    if (references_.load(std::memory_order_acquire) == 1U) {
+      return true;
+    }
     return references_.fetch_sub(1, std::memory_order_acq_rel) == 1;
   }
 
@@ -152,10 +158,12 @@ public:
     std::swap(payload_, other.payload_);
   }
 
+  // A Bool is 0 or 1 in the whole payload. Stored in one byte of the payload made zero first, it made the next copy of
+  // the value, which reads all 8 bytes, wait for both stores to reach the cache.
   [[nodiscard]] static auto from_bool(const Bool value) noexcept -> Value {
     Value result;
     result.kind_ = ValueKind::kBool;
-    result.payload_.boolean = value;
+    result.payload_.unsigned_integer = value ? 1U : 0U;
     return result;
   }
 
@@ -217,7 +225,7 @@ public:
 
   // The accessors below assume the kind: check it first, or rely on the type checker. The checked helpers in
   // value.hpp (as_bool, as_tuple, ...) throw on a wrong kind instead.
-  [[nodiscard]] auto bool_value() const noexcept -> Bool { return payload_.boolean; }
+  [[nodiscard]] auto bool_value() const noexcept -> Bool { return payload_.unsigned_integer != 0U; }
   [[nodiscard]] auto int_value() const noexcept -> Int { return payload_.integer; }
   [[nodiscard]] auto uint_value() const noexcept -> UInt { return payload_.unsigned_integer; }
   [[nodiscard]] auto float_value() const noexcept -> Float { return payload_.floating; }
@@ -225,12 +233,17 @@ public:
   [[nodiscard]] auto string_value() const noexcept -> const String&;
   [[nodiscard]] auto tuple() const noexcept -> TupleView;
   [[nodiscard]] auto dict() const noexcept -> const Dict&;
-  [[nodiscard]] auto callable() const noexcept -> const Callable&;
+  // The function value's object, or null for a value of another kind. Callers test the pointer itself, so that the
+  // compiler sees no path to a null dereference.
+  [[nodiscard]] auto callable_if_function() const noexcept -> const Callable*;
   [[nodiscard]] auto file_handle() const noexcept -> FileHandleObject&;
   [[nodiscard]] auto task() const noexcept -> TaskState&;
 
   // The items of a tuple, dict, or string this value can change: shared data is copied first.
   [[nodiscard]] auto mutable_tuple() -> std::span<Value>;
+  // The items of a tuple this value is the only reference to, which its caller has checked (object()->unique()):
+  // nothing is copied.
+  [[nodiscard]] auto unshared_tuple_items() noexcept -> std::span<Value>;
   [[nodiscard]] auto mutable_dict() -> Dict&;
   [[nodiscard]] auto mutable_string() -> String&;
 
@@ -256,7 +269,6 @@ private:
 
   ValueKind kind_{ValueKind::kNull};
   union Payload {
-    Bool boolean;
     Int integer;
     UInt unsigned_integer;
     Float floating;
@@ -710,8 +722,8 @@ inline auto Value::tuple() const noexcept -> TupleView {
 
 inline auto Value::dict() const noexcept -> const Dict& { return static_cast<const DictObject*>(payload_.object)->dict; }
 
-inline auto Value::callable() const noexcept -> const Callable& {
-  return *static_cast<const Callable*>(payload_.object);
+inline auto Value::callable_if_function() const noexcept -> const Callable* {
+  return kind_ == ValueKind::kFunction ? static_cast<const Callable*>(payload_.object) : nullptr;
 }
 
 inline auto Value::file_handle() const noexcept -> FileHandleObject& {
@@ -766,6 +778,10 @@ inline auto Value::mutable_tuple() -> std::span<Value> {
     }
     *this = std::move(copy).finish();
   }
+  return unshared_tuple_items();
+}
+
+inline auto Value::unshared_tuple_items() noexcept -> std::span<Value> {
   auto* object = static_cast<TupleObject*>(payload_.object);
   return {object->items(), object->size()};
 }

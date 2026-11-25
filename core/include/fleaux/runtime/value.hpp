@@ -341,10 +341,10 @@ template <typename Function>
 }
 
 [[nodiscard]] inline auto as_callable(const Value& value) -> const Callable& {
-  if (!value.is_function()) {
-    throw kind_error("a function");
+  if (const Callable* callable = value.callable_if_function(); callable != nullptr) {
+    return *callable;
   }
-  return value.callable();
+  throw kind_error("a function");
 }
 
 // Item `index` of a tuple.

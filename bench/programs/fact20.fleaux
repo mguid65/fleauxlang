@@ -1,0 +1,8 @@
+// A recursive factorial of 20 through Std.Match.
+import Std;
+let Factorial(n: Int64): Int64 =
+    (n,
+     (0, (): Int64 = 1),
+     (_, (): Int64 = (n, ((n, 1) -> Std.Subtract) -> Factorial) -> Std.Multiply)
+    ) -> Std.Match;
+(20) -> Factorial;

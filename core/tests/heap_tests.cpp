@@ -1,8 +1,10 @@
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -250,4 +252,61 @@ TEST_CASE("Values made on worker threads and freed on the main thread stay withi
     }
   }
   CHECK(captured.size() == 40U * std::string{"256\n"}.size());
+}
+
+TEST_CASE("The size classes above 256 bytes waste at most a quarter of a block", "[heap]") {
+  for (std::size_t size_class = 1U; size_class < heap::kClassCount; ++size_class) {
+    const std::size_t block = heap::detail::block_bytes(size_class);
+    const std::size_t previous = heap::detail::block_bytes(size_class - 1U);
+    CHECK(block % heap::kAlignment == 0U);
+    CHECK(block > previous);
+    if (size_class >= heap::kSmallClassCount) {
+      // The smallest request of the class is one byte more than the class below holds.
+      CHECK((block - previous - 1U) * 4U < block);
+    }
+  }
+  CHECK(heap::detail::block_bytes(heap::kSmallClassCount) == 320U);
+  CHECK(heap::detail::block_bytes(heap::kClassCount - 1U) == heap::kMaxBlockBytes);
+}
+
+TEST_CASE("A value whose copies are dropped on many threads at once is destroyed once", "[heap][thread]") {
+  // A copy's count reads 1 only when no other copy exists, so releasing it without the atomic decrement races with
+  // nothing. The value is a function value whose destructor counts.
+  struct Sentinel {
+    explicit Sentinel(std::atomic<int>* counter) : destroyed(counter) {}
+    Sentinel(const Sentinel&) = delete;
+    auto operator=(const Sentinel&) -> Sentinel& = delete;
+    Sentinel(Sentinel&&) = delete;
+    auto operator=(Sentinel&&) -> Sentinel& = delete;
+    ~Sentinel() { destroyed->fetch_add(1); }
+    std::atomic<int>* destroyed;
+  };
+
+  for (int round = 0; round < 20; ++round) {
+    std::atomic<int> destroyed{0};
+    std::atomic<int> waiting{8};
+    {
+      auto sentinel = std::make_shared<Sentinel>(&destroyed);
+      Value shared = fleaux::runtime::make_function(
+          [sentinel](const Value& value) -> Value { return value; });
+      sentinel.reset();
+      std::vector<std::thread> threads;
+      for (int thread = 0; thread < 8; ++thread) {
+        threads.emplace_back([&waiting, copy = shared]() mutable {
+          waiting.fetch_sub(1);
+          while (waiting.load() > 0) {
+          }
+          for (int repeat = 0; repeat < 1000; ++repeat) {
+            const Value more = copy;
+          }
+          copy = Value{};
+        });
+      }
+      shared = Value{};
+      for (std::thread& thread : threads) {
+        thread.join();
+      }
+    }
+    CHECK(destroyed.load() == 1);
+  }
 }

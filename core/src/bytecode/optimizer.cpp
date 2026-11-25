@@ -386,6 +386,56 @@ void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, cons
   instrs = rewrite.finish();
 }
 
+// LocalItemReadFusionPass helpers
+
+// The index pushed by `push` when it is a UInt64 constant that fits in the operand of a fused read.
+auto local_item_index_constant(const Instruction& push, const std::vector<ConstValue>& constants) -> std::optional<std::uint32_t> {
+  if (push.operand < 0 || static_cast<std::size_t>(push.operand) >= constants.size()) {
+    return std::nullopt;
+  }
+  const auto* index = std::get_if<std::uint64_t>(&constants[static_cast<std::size_t>(push.operand)].data);
+  if (index == nullptr || *index > kMaxLocalItemIndex) {
+    return std::nullopt;
+  }
+  return static_cast<std::uint32_t>(*index);
+}
+
+// The one instruction for the item read that starts at `position`, if one does.
+auto fused_local_item_read(const std::vector<Instruction>& instrs, const std::size_t position, const std::vector<ConstValue>& constants)
+    -> std::optional<Instruction> {
+  if (position + 2U >= instrs.size()) {
+    return std::nullopt;
+  }
+  const auto& [read, slot] = instrs[position];
+  if ((read != Opcode::kLoadLocal && read != Opcode::kTakeLocal) || instrs[position + 1U].opcode != Opcode::kPushConst ||
+      instrs[position + 2U].opcode != Opcode::kElementAt) {
+    return std::nullopt;
+  }
+  if (slot < 0 || slot > std::numeric_limits<std::uint32_t>::max()) {
+    return std::nullopt;
+  }
+  const auto item = local_item_index_constant(instrs[position + 1U], constants);
+  if (!item.has_value()) {
+    return std::nullopt;
+  }
+  return Instruction{.opcode = read == Opcode::kLoadLocal ? Opcode::kLoadLocalItem : Opcode::kTakeLocalItem,
+                     .operand = local_item_operand(static_cast<std::uint32_t>(slot), *item)};
+}
+
+void fuse_local_item_reads(std::vector<Instruction>& instrs, const std::vector<ConstValue>& constants) {
+  StreamRewrite rewrite(instrs);
+  for (std::size_t position = 0; position < instrs.size();) {
+    if (const auto fused = fused_local_item_read(instrs, position, constants); fused.has_value() && rewrite.replaceable(position, 3U)) {
+      rewrite.replace(position, 3U, *fused);
+      position += 3U;
+      continue;
+    }
+    rewrite.keep(position);
+    ++position;
+  }
+  instrs = rewrite.finish();
+}
+
 }  // namespace
 
 // Pass implementations
@@ -430,6 +480,10 @@ void ConstantPropagationSelectPass::run(Module& module) const {
   });
 }
 
+void LocalItemReadFusionPass::run(Module& module) const {
+  for_each_stream(module, [&](std::vector<Instruction>& instrs) -> void { fuse_local_item_reads(instrs, module.constants); });
+}
+
 // BytecodeOptimizer
 
 auto BytecodeOptimizer::run_always_on_passes(Module& module) const -> OptimizeResult {
@@ -459,6 +513,9 @@ auto BytecodeOptimizer::optimize(Module& module, const OptimizerConfig& config) 
     }
   }
 
+  // After the other passes, so that it sees the constants folding made, and before the builtin call sites are rebuilt
+  // from the instructions' new positions.
+  LocalItemReadFusionPass{}.run(module);
   rebuild_module_builtin_callsites(module);
 
   return {};

@@ -30,13 +30,20 @@ auto local_effect(const Instruction& instruction) -> LocalEffect {
     case Opcode::kLoadLocal:
     case Opcode::kTakeLocal:
       return LocalEffect{.reads = {slot_of(instruction), 0U}, .read_count = 1U, .write = std::nullopt};
+    case Opcode::kLoadLocalItem:
+    case Opcode::kTakeLocalItem:
+      return LocalEffect{.reads = {local_item_slot(instruction.operand), 0U}, .read_count = 1U, .write = std::nullopt};
     case Opcode::kStoreLocal:
+    case Opcode::kMarkStack:
       return LocalEffect{.reads = {}, .read_count = 0U, .write = slot_of(instruction)};
+    case Opcode::kBuildTupleSinceMark:
+      return LocalEffect{.reads = {slot_of(instruction), 0U}, .read_count = 1U, .write = std::nullopt};
     case Opcode::kIterate:
-      // The tuple is in the operand slot and the index in the next one, which kIterate reads and advances.
+      // The tuple is in the operand slot, the index in the next one, which kIterate reads and advances, and the item in
+      // the one after, which it writes. The index's write is not stated: kIterate reads it first, so it stays live.
       return LocalEffect{.reads = {slot_of(instruction), slot_of(instruction) + 1U},
                          .read_count = 2U,
-                         .write = slot_of(instruction) + 1U};
+                         .write = slot_of(instruction) + 2U};
     case Opcode::kNoOp:
     case Opcode::kPushConst:
     case Opcode::kPop:

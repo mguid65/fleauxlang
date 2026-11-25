@@ -1,0 +1,7 @@
+// A Std.Loop of 2,000 steps, each making four calls of one-parameter builtins.
+import Std;
+let Go(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
+let Step(n: Float64): Float64 =
+  ((n) -> Std.Math.Sqrt -> Std.Math.Floor, ("abc") -> Std.String.Length -> Std.ToFloat64) -> Std.Add
+  -> (_, 0.0) -> Std.Multiply -> (_, n) -> Std.Add -> (_, 1.0) -> Std.Subtract;
+(2000.0, Go, Step) -> Std.Loop -> Std.Println;
