@@ -75,9 +75,6 @@ auto local_effect(const Instruction& instruction) -> LocalEffect {
     case Opcode::kOr:
     case Opcode::kNot:
     case Opcode::kSelect:
-    case Opcode::kBranchCall:
-    case Opcode::kLoopCall:
-    case Opcode::kLoopNCall:
     case Opcode::kHalt:
     case Opcode::kCallUserFuncArgs:
     case Opcode::kCheckType:

@@ -19,6 +19,7 @@ class ConanApplication(ConanFile):
         "enable_asan": [True, False],
         "enable_tsan": [True, False],
         "enable_ubsan": [True, False],
+        "build_fuzzers": [True, False],
     }
     default_options = {
         "build_wasm_coordinator": False,
@@ -31,6 +32,7 @@ class ConanApplication(ConanFile):
         "enable_asan": False,
         "enable_tsan": False,
         "enable_ubsan": False,
+        "build_fuzzers": False,
     }
 
     def layout(self):
@@ -46,8 +48,11 @@ class ConanApplication(ConanFile):
                 "ThreadSanitizer cannot be combined with AddressSanitizer or UndefinedBehaviorSanitizer"
             )
 
+        if self.options.build_fuzzers and (self.options.enable_tsan or self.settings.compiler != "clang"):
+            raise ConanInvalidConfiguration("The fuzz harnesses need Clang, and use AddressSanitizer, not ThreadSanitizer")
+
         if self.settings.os == "Emscripten" and (
-            self.options.enable_asan or self.options.enable_tsan or self.options.enable_ubsan
+            self.options.enable_asan or self.options.enable_tsan or self.options.enable_ubsan or self.options.build_fuzzers
         ):
             raise ConanInvalidConfiguration("Sanitizers are only supported for native Fleaux builds")
 
@@ -59,6 +64,7 @@ class ConanApplication(ConanFile):
         tc.variables["FLEAUX_ENABLE_ASAN"] = self.options.enable_asan
         tc.variables["FLEAUX_ENABLE_TSAN"] = self.options.enable_tsan
         tc.variables["FLEAUX_ENABLE_UBSAN"] = self.options.enable_ubsan
+        tc.variables["FLEAUX_BUILD_FUZZERS"] = self.options.build_fuzzers
 
         # Pass WASM coordinator build flag to CMake
         if self.settings.os == "Emscripten":

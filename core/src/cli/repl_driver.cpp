@@ -330,7 +330,11 @@ auto ReplDriver::run(const std::vector<std::string>& process_args, const bool co
     }
 
     if (const auto error = run_snippet(buffer); error.has_value()) {
-      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", error->message, error->span, error->hint)
+      // The input is compiled as one file, so a failure in it shows its line; one in a function from an earlier input
+      // has another hash and shows only its position.
+      const auto span = vm::runtime_failure_span(*error, [&buffer](const std::string&) -> std::optional<std::string> { return buffer; });
+      std::cerr << fleaux::frontend::diag::format_diagnostic("vm-repl", error->message, span, error->hint, std::nullopt,
+                                                             vm::describe_runtime_calls(error->calls))
                 << '\n';
     } else {
       for (const auto& symbol : extract_declared_functions(buffer)) {

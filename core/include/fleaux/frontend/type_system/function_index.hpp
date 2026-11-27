@@ -37,6 +37,8 @@ struct FunctionSig {
   bool is_builtin = false;
   // A value let (`let X: T = ...`): its name stands for its value, so naming it as a call target calls that value.
   bool is_value_binding = false;
+  // The body of a value let that is a literal, which a read of the let is.
+  std::optional<ir::IRConstant> literal_value;
   // Hidden leading arguments, in order; see OperatorRequirement.
   std::vector<OperatorRequirement> operator_requirements;
 };

@@ -23,24 +23,25 @@
 
 namespace fleaux::runtime {
 
+// Messages of failures, without the name of the builtin that failed: the VM puts that in front.
+//
 // What Std.Match reports when no case matches, from the builtin and from a Match compiled in place.
-inline constexpr std::string_view k_match_no_case_message = "Match: no case matched and no wildcard case provided";
+inline constexpr std::string_view k_match_no_case_message = "no case matched, and there is no wildcard case";
 inline constexpr std::string_view k_task_cancelled_message = "Task cancelled";
-inline constexpr std::string_view k_task_timeout_message = "Task.WithTimeout: timeout exceeded";
+inline constexpr std::string_view k_task_timeout_message = "Std.Task.WithTimeout: timeout exceeded";
 
-inline auto normalize_runtime_error_message(std::string message) -> std::string {
-  // Unwrap nested runtime wrappers like:
-  // "native 'branch_call' threw: native builtin 'Std.X' threw: actual message"
-  // or "builtin 'Std.X' threw: actual message" from the fallback builtin map.
-  constexpr std::string_view k_threw = "threw: ";
-  while (message.starts_with("native ") || message.starts_with("builtin ")) {
-    const std::size_t split = message.find(k_threw);
-    if (split == std::string::npos) {
-      break;
-    }
-    message = message.substr(split + k_threw.size());
-  }
-  return message;
+// A read past the end of a tuple, with the index as the program wrote it.
+[[nodiscard]] inline auto index_out_of_range_message(const std::string_view index, const std::size_t size) -> std::string {
+  return std::format("index {} is out of range for a tuple of {} item{}", index, size, size == 1U ? "" : "s");
+}
+
+[[nodiscard]] inline auto index_out_of_range_message(const std::uint64_t index, const std::size_t size) -> std::string {
+  return index_out_of_range_message(std::to_string(index), size);
+}
+
+// A Std.LoopN that did not end within its limit.
+[[nodiscard]] inline auto loop_limit_message(const std::size_t max_iters) -> std::string {
+  return std::format("the loop did not end within max_iters ({}) steps", max_iters);
 }
 
 inline void append_sequence_range(TupleBuilder& out, const TupleView seq, const std::size_t start,
@@ -83,9 +84,9 @@ private:
 
 [[nodiscard]] inline auto ElementAtBinary(const Value& tuple, const Value& index) -> Value {
   const auto& seq = as_tuple(tuple);
-  const std::size_t idx = uint64_index(index);
+  const std::size_t idx = position_index(index);
   if (idx >= seq.size()) {
-    throw std::out_of_range{"ElementAt: index out of range"};
+    throw std::out_of_range{index_out_of_range_message(to_string(index), seq.size())};
   }
   return seq[idx];
 }
@@ -93,10 +94,10 @@ private:
 // Item `index` of `tuple`, which the caller owns: moved out when nothing else refers to the tuple.
 [[nodiscard]] inline auto take_element(Value& tuple, const Value& index) -> Value {
   const std::size_t size = as_tuple(tuple).size();
-  if (const std::size_t idx = uint64_index(index); idx < size) {
+  if (const std::size_t idx = position_index(index); idx < size) {
     return take_tuple_item(tuple, idx);
   }
-  throw std::out_of_range{"ElementAt: index out of range"};
+  throw std::out_of_range{index_out_of_range_message(to_string(index), size)};
 }
 
 [[nodiscard]] inline auto ElementAt(const Arguments& args) -> Value {
@@ -108,14 +109,14 @@ private:
 
 [[nodiscard]] inline auto Take(const Arguments& args) -> Value {
   Value seq = args.take(0);
-  const std::size_t take_count = std::min(uint64_index(args[1]), as_tuple(seq).size());
+  const std::size_t take_count = std::min(count_index(args[1], "count"), as_tuple(seq).size());
   return keep_tuple_items(std::move(seq), 0U, take_count);
 }
 
 [[nodiscard]] inline auto Drop(const Arguments& args) -> Value {
   Value seq = args.take(0);
   const std::size_t size = as_tuple(seq).size();
-  const std::size_t clamped_start = std::min(uint64_index(args[1]), size);
+  const std::size_t clamped_start = std::min(count_index(args[1], "count"), size);
   return keep_tuple_items(std::move(seq), clamped_start, size);
 }
 
@@ -148,26 +149,26 @@ private:
   return std::move(out).finish();
 }
 
-[[nodiscard]] inline auto SliceTupleUInt64(const Arguments& args) -> Value {
+[[nodiscard]] inline auto SliceTupleInt64(const Arguments& args) -> Value {
   Value seq = args.take(0);
-  const std::size_t stop = uint64_index(args[1]);
+  const std::size_t stop = count_index(args[1], "stop");
   return slice_impl(std::move(seq), 0, stop, 1);
 }
 
-[[nodiscard]] inline auto SliceTupleUInt64UInt64(const Arguments& args) -> Value {
+[[nodiscard]] inline auto SliceTupleInt64Int64(const Arguments& args) -> Value {
   Value seq = args.take(0);
-  const std::size_t start = uint64_index(args[1]);
-  const std::size_t stop = uint64_index(args[2]);
+  const std::size_t start = count_index(args[1], "start");
+  const std::size_t stop = count_index(args[2], "stop");
   return slice_impl(std::move(seq), start, stop, 1);
 }
 
-[[nodiscard]] inline auto SliceTupleUInt64UInt64UInt64(const Arguments& args) -> Value {
+[[nodiscard]] inline auto SliceTupleInt64Int64Int64(const Arguments& args) -> Value {
   Value seq = args.take(0);
-  const std::size_t start = uint64_index(args[1]);
-  const std::size_t stop = uint64_index(args[2]);
-  const std::size_t step = uint64_index(args[3]);
+  const std::size_t start = count_index(args[1], "start");
+  const std::size_t stop = count_index(args[2], "stop");
+  const std::size_t step = count_index(args[3], "step");
   if (step == 0) {
-    throw std::invalid_argument{"Slice: step cannot be 0"};
+    throw std::invalid_argument{"step cannot be 0"};
   }
   return slice_impl(std::move(seq), start, stop, step);
 }
@@ -199,17 +200,17 @@ template <std::integral T>
 }
 
 template <std::integral T>
-[[nodiscard]] inline auto require_integer_result(const std::optional<T>& result, const char* op_name) -> T {
+[[nodiscard]] inline auto require_integer_result(const std::optional<T>& result) -> T {
   if (!result.has_value()) {
-    throw std::overflow_error{std::string(op_name) + ": " + integer_type_name<T>() + " overflow"};
+    throw std::overflow_error{std::string(integer_type_name<T>()) + " overflow"};
   }
   return *result;
 }
 
 template <std::integral T>
-inline auto require_nonzero_divisor(const T divisor, const char* op_name) -> void {
+inline auto require_nonzero_divisor(const T divisor) -> void {
   if (divisor == 0) {
-    throw std::domain_error{std::string(op_name) + ": " + integer_type_name<T>() + " division by zero"};
+    throw std::domain_error{std::string(integer_type_name<T>()) + " division by zero"};
   }
 }
 
@@ -218,9 +219,8 @@ inline auto require_nonzero_divisor(const T divisor, const char* op_name) -> voi
 // same type: a bound such as <T: Numeric> makes the checker reject mixed operands, and host arguments are checked
 // against the same bounds when the host calls a function.
 template <typename IntegerOp, typename FloatOp>
-[[nodiscard]] inline auto same_type_numeric_binary(const Value& lhs, const Value& rhs, const char* op_name,
-                                                   IntegerOp&& integer_op, FloatOp&& float_op) -> Value {
-  (void)op_name;
+[[nodiscard]] inline auto same_type_numeric_binary(const Value& lhs, const Value& rhs, IntegerOp&& integer_op, FloatOp&& float_op)
+    -> Value {
   return visit_number(lhs, 
       [&](const Int lhs_value) -> Value { return make_integer<Int>(integer_op(lhs_value, integer_operand<Int>(rhs))); },
       [&](const UInt lhs_value) -> Value {
@@ -231,19 +231,15 @@ template <typename IntegerOp, typename FloatOp>
 
 // Integer-only variant for the explicit wrapping and saturating builtins.
 template <typename IntegerOp>
-[[nodiscard]] inline auto same_type_integer_binary(const Value& lhs, const Value& rhs, const char* op_name,
-                                                   IntegerOp&& integer_op) -> Value {
-  return same_type_numeric_binary(lhs, rhs, op_name, std::forward<IntegerOp>(integer_op),
-                                  [op_name](const Float, const Float) -> Float {
-                                    throw std::logic_error{std::string(op_name) +
-                                                           " invariant violated: expected Int64 or UInt64 operands"};
-                                  });
+[[nodiscard]] inline auto same_type_integer_binary(const Value& lhs, const Value& rhs, IntegerOp&& integer_op) -> Value {
+  return same_type_numeric_binary(lhs, rhs, std::forward<IntegerOp>(integer_op), [](const Float, const Float) -> Float {
+    throw std::logic_error{"invariant violated: expected Int64 or UInt64 operands"};
+  });
 }
 
 [[nodiscard]] inline auto AddBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Add",
-      [](const auto a, const auto b) { return require_integer_result(integer::checked_add(a, b), "Add"); },
+      lhs, rhs, [](const auto a, const auto b) { return require_integer_result(integer::checked_add(a, b)); },
       [](const Float a, const Float b) -> Float { return a + b; });
 }
 
@@ -251,8 +247,7 @@ template <typename IntegerOp>
 
 [[nodiscard]] inline auto SubtractBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Subtract",
-      [](const auto a, const auto b) { return require_integer_result(integer::checked_sub(a, b), "Subtract"); },
+      lhs, rhs, [](const auto a, const auto b) { return require_integer_result(integer::checked_sub(a, b)); },
       [](const Float a, const Float b) -> Float { return a - b; });
 }
 
@@ -260,8 +255,7 @@ template <typename IntegerOp>
 
 [[nodiscard]] inline auto MultiplyBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Multiply",
-      [](const auto a, const auto b) { return require_integer_result(integer::checked_mul(a, b), "Multiply"); },
+      lhs, rhs, [](const auto a, const auto b) { return require_integer_result(integer::checked_mul(a, b)); },
       [](const Float a, const Float b) -> Float { return a * b; });
 }
 
@@ -270,10 +264,10 @@ template <typename IntegerOp>
 // Integer division truncates toward zero. Float64 division follows IEEE-754 (x / 0.0 is infinite or NaN).
 [[nodiscard]] inline auto DivideBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Divide",
+      lhs, rhs,
       [](const auto a, const auto b) {
-        require_nonzero_divisor(b, "Divide");
-        return require_integer_result(integer::checked_div(a, b), "Divide");
+        require_nonzero_divisor(b);
+        return require_integer_result(integer::checked_div(a, b));
       },
       [](const Float a, const Float b) -> Float { return a / b; });
 }
@@ -283,9 +277,9 @@ template <typename IntegerOp>
 // The remainder has the sign of the dividend, matching truncating division.
 [[nodiscard]] inline auto ModBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Mod",
+      lhs, rhs,
       [](const auto a, const auto b) {
-        require_nonzero_divisor(b, "Mod");
+        require_nonzero_divisor(b);
         return integer::remainder(a, b);
       },
       [](const Float a, const Float b) -> Float { return std::fmod(a, b); });
@@ -296,15 +290,15 @@ template <typename IntegerOp>
 // Integer exponentiation is exact and requires a non-negative exponent.
 [[nodiscard]] inline auto PowBinary(const Value& lhs, const Value& rhs) -> Value {
   return same_type_numeric_binary(
-      lhs, rhs, "Pow",
+      lhs, rhs,
       [](const auto base, const auto exponent) {
         using T = std::remove_cvref_t<decltype(base)>;
         if constexpr (std::is_signed_v<T>) {
           if (exponent < 0) {
-            throw std::domain_error{"Pow: Int64 exponent must not be negative"};
+            throw std::domain_error{"Int64 exponent must not be negative"};
           }
         }
-        return require_integer_result(integer::checked_pow(base, exponent), "Pow");
+        return require_integer_result(integer::checked_pow(base, exponent));
       },
       [](const Float a, const Float b) -> Float { return std::pow(a, b); });
 }
@@ -312,33 +306,27 @@ template <typename IntegerOp>
 [[nodiscard]] inline auto Pow(const Arguments& args) -> Value { return PowBinary(args[0], args[1]); }
 
 [[nodiscard]] inline auto WrappingAdd(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "WrappingAdd",
-                                  [](const auto a, const auto b) { return integer::wrapping_add(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::wrapping_add(a, b); });
 }
 
 [[nodiscard]] inline auto WrappingSubtract(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "WrappingSubtract",
-                                  [](const auto a, const auto b) { return integer::wrapping_sub(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::wrapping_sub(a, b); });
 }
 
 [[nodiscard]] inline auto WrappingMultiply(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "WrappingMultiply",
-                                  [](const auto a, const auto b) { return integer::wrapping_mul(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::wrapping_mul(a, b); });
 }
 
 [[nodiscard]] inline auto SaturatingAdd(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "SaturatingAdd",
-                                  [](const auto a, const auto b) { return integer::saturating_add(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::saturating_add(a, b); });
 }
 
 [[nodiscard]] inline auto SaturatingSubtract(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "SaturatingSubtract",
-                                  [](const auto a, const auto b) { return integer::saturating_sub(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::saturating_sub(a, b); });
 }
 
 [[nodiscard]] inline auto SaturatingMultiply(const Arguments& args) -> Value {
-  return same_type_integer_binary(args[0], args[1], "SaturatingMultiply",
-                                  [](const auto a, const auto b) { return integer::saturating_mul(a, b); });
+  return same_type_integer_binary(args[0], args[1], [](const auto a, const auto b) { return integer::saturating_mul(a, b); });
 }
 
 [[nodiscard]] inline auto BitAndBinary(const Value& lhs, const Value& rhs) -> Value {
@@ -371,16 +359,16 @@ template <typename IntegerOp>
 
 // Shifting an Int64 by 64 or more bits has no defined result in C++, so it is a runtime error. Shifts of negative
 // values follow C++20: left shifts are two's complement and right shifts are arithmetic.
-inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
-  if (shift >= static_cast<UInt>(std::numeric_limits<Int>::digits + 1)) {
-    throw std::out_of_range{std::format("{}: shift count {} is out of range for Int64 (0 to 63)", op_name, shift)};
+inline auto require_valid_shift(const Int shift) -> void {
+  if (shift < 0 || shift > std::numeric_limits<Int>::digits) {
+    throw std::out_of_range{std::format("shift count {} is out of range for Int64 (0 to 63)", shift)};
   }
 }
 
 [[nodiscard]] inline auto BitShiftLeftBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = int64_value(lhs);
-  const UInt shift = uint64_value(rhs);
-  require_valid_shift(shift, "BitShiftLeft");
+  const Int shift = as_int_value_strict(rhs);
+  require_valid_shift(shift);
   return make_int(value << shift);
 }
 
@@ -390,8 +378,8 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto BitShiftRightBinary(const Value& lhs, const Value& rhs) -> Value {
   const Int value = int64_value(lhs);
-  const UInt shift = uint64_value(rhs);
-  require_valid_shift(shift, "BitShiftRight");
+  const Int shift = as_int_value_strict(rhs);
+  require_valid_shift(shift);
   return make_int(value >> shift);
 }
 
@@ -401,11 +389,9 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 // Negates an Int64 (failing on overflow) or a Float64.
 [[nodiscard]] inline auto UnaryMinusValue(const Value& value) -> Value {
-  return visit_number(value, 
-      [](const Int signed_value) -> Value {
-        return make_int(require_integer_result(integer::checked_neg(signed_value), "UnaryMinus"));
-      },
-      [](const UInt) -> Value { throw std::logic_error{"UnaryMinus invariant violated: expected Int64 or Float64"}; },
+  return visit_number(
+      value, [](const Int signed_value) -> Value { return make_int(require_integer_result(integer::checked_neg(signed_value))); },
+      [](const UInt) -> Value { throw std::logic_error{"invariant violated: expected Int64 or Float64"}; },
       [](const Float float_value) -> Value { return make_float(-float_value); });
 }
 
@@ -548,26 +534,24 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto TryCast(Value arg) -> Value { return ResultOk(std::move(arg)); }
 
-[[nodiscard]] inline auto ToInt64(Value arg) -> Value {
-  return make_int(as_int_value_strict(arg, "ToInt64"));
-}
+[[nodiscard]] inline auto ToInt64(Value arg) -> Value { return make_int(as_int_value_strict(arg)); }
 
 [[nodiscard]] inline auto ToUInt64(Value arg) -> Value {
   const Value value = std::move(arg);
   return visit_number(value, 
       [](const Int signed_value) -> Value {
         if (signed_value < 0) {
-          throw std::invalid_argument{"ToUInt64: cannot cast negative Int64 to UInt64"};
+          throw std::invalid_argument{std::format("cannot convert the negative Int64 {} to UInt64", signed_value)};
         }
         return make_uint(static_cast<UInt>(signed_value));
       },
       [](const UInt unsigned_value) -> Value { return make_uint(unsigned_value); },
       [](const Float float_value) -> Value {
         if (!std::isfinite(float_value) || std::floor(float_value) != float_value || float_value < 0.0) {
-          throw std::invalid_argument{"ToUInt64: cannot cast Float64 value to UInt64"};
+          throw std::invalid_argument{std::format("cannot convert the Float64 {} to UInt64", float_value)};
         }
         if (float_value > static_cast<double>(std::numeric_limits<UInt>::max())) {
-          throw std::out_of_range{"ToUInt64: Float64 value out of UInt64 range"};
+          throw std::out_of_range{std::format("the Float64 {} is out of UInt64 range", float_value)};
         }
         return make_uint(static_cast<UInt>(float_value));
       });
@@ -586,7 +570,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
     const Int code = int64_value(value);
     if (code < static_cast<Int>(std::numeric_limits<int>::min()) ||
         code > static_cast<Int>(std::numeric_limits<int>::max())) {
-      throw std::invalid_argument{"Exit code out of range for host int"};
+      throw std::invalid_argument{std::format("exit code {} is out of range for this host", code)};
     }
     return static_cast<int>(code);
   };
@@ -635,8 +619,6 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
   return make_tuple(make_bool(false), std::move(arg));
 }
 
-[[nodiscard]] inline auto ResultTag(Value arg) -> Value { return tuple_at(arg, 0); }
-
 [[nodiscard]] inline auto ResultPayload(Value arg) -> Value { return tuple_at(arg, 1); }
 
 [[nodiscard]] inline auto ResultIsOk(Value arg) -> Value { return tuple_at(arg, 0); }
@@ -645,16 +627,88 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto ResultUnwrap(Value arg) -> Value {
   if (!as_bool(tuple_at(arg, 0))) {
-    throw std::runtime_error{"Result.Unwrap expected Ok (true), got Err (false)"};
+    throw std::runtime_error{"expected Ok, got Err: " + to_string(tuple_at(arg, 1))};
   }
   return tuple_at(arg, 1);
 }
 
 [[nodiscard]] inline auto ResultUnwrapErr(Value arg) -> Value {
   if (as_bool(tuple_at(arg, 0))) {
-    throw std::runtime_error{"Result.UnwrapErr expected Err (false), got Ok (true)"};
+    throw std::runtime_error{"expected Err, got Ok: " + to_string(tuple_at(arg, 1))};
   }
   return tuple_at(arg, 1);
+}
+
+// The functions over a Result. A Result that the argument holds alone gives up its payload rather than copying it.
+
+// args = [result, func]: Ok(func(value)) for an Ok, and an Err as it is.
+[[nodiscard]] inline auto ResultMap(const Arguments& args) -> Value {
+  Value result = args.take(0);
+  if (!as_bool(tuple_at(result, 0))) {
+    return result;
+  }
+  return ResultOk(invoke_callable(args[1], take_tuple_item(result, 1)));
+}
+
+// args = [result, func]: Err(func(error)) for an Err, and an Ok as it is.
+[[nodiscard]] inline auto ResultMapErr(const Arguments& args) -> Value {
+  Value result = args.take(0);
+  if (as_bool(tuple_at(result, 0))) {
+    return result;
+  }
+  return ResultErr(invoke_callable(args[1], take_tuple_item(result, 1)));
+}
+
+// args = [result, func]: func(value), itself a Result, for an Ok, and an Err as it is.
+[[nodiscard]] inline auto ResultAndThen(const Arguments& args) -> Value {
+  Value result = args.take(0);
+  if (!as_bool(tuple_at(result, 0))) {
+    return result;
+  }
+  return invoke_callable(args[1], take_tuple_item(result, 1));
+}
+
+// args = [result, func]: func(error), itself a Result, for an Err, and an Ok as it is.
+[[nodiscard]] inline auto ResultOrElse(const Arguments& args) -> Value {
+  Value result = args.take(0);
+  if (as_bool(tuple_at(result, 0))) {
+    return result;
+  }
+  return invoke_callable(args[1], take_tuple_item(result, 1));
+}
+
+// args = [result, default]: the value of an Ok, and the default for an Err.
+[[nodiscard]] inline auto ResultUnwrapOr(const Arguments& args) -> Value {
+  Value result = args.take(0);
+  if (!as_bool(tuple_at(result, 0))) {
+    return args.take(1);
+  }
+  return take_tuple_item(result, 1);
+}
+
+// A failure the program reports itself, with Std.Panic, Std.Assert, or Std.AssertEqual. The VM shows its message as it
+// is, without the builtin's name in front: the message is the program's.
+class ProgramFailure : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+[[noreturn]] inline auto Panic(Value arg) -> Value { throw ProgramFailure{as_string(arg)}; }
+
+// args = [condition, message]
+[[nodiscard]] inline auto Assert(const Arguments& args) -> Value {
+  if (!as_bool(args[0])) {
+    throw ProgramFailure{as_string(args[1])};
+  }
+  return make_tuple();
+}
+
+// args = [actual, expected]
+[[nodiscard]] inline auto AssertEqual(const Arguments& args) -> Value {
+  if (!(args[0] == args[1])) {
+    throw ProgramFailure{std::format("expected {}, got {}", to_string(args[1]), to_string(args[0]))};
+  }
+  return make_tuple();
 }
 
 // The VM's function values hand Std.Try their failure as a value (call_or_fail), which saves throwing it again; a
@@ -667,9 +721,9 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
     if (auto result = as_callable(function_ref).call_or_fail(value, error); result.has_value()) {
       return ResultOk(std::move(*result));
     }
-    return ResultErr(make_string(normalize_runtime_error_message(std::move(error))));
+    return ResultErr(make_string(std::move(error)));
   } catch (const std::exception& ex) {
-    return ResultErr(make_string(normalize_runtime_error_message(ex.what())));
+    return ResultErr(make_string(ex.what()));
   }
 }
 
@@ -703,12 +757,12 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
   Value state = args.take(0);
   const Callable& continue_callable = as_callable(args[1]);
   const Callable& step_callable = as_callable(args[2]);
-  const std::size_t max_iters = uint64_index(args[3]);
+  const std::size_t max_iters = count_index(args[3], "max_iters");
 
   std::size_t steps = 0;
   while (as_bool(continue_callable.call(state))) {
     if (steps >= max_iters) {
-      throw std::runtime_error{"LoopN: exceeded max_iters"};
+      throw std::runtime_error{loop_limit_message(max_iters)};
     }
     state = step_callable.call(std::move(state));
     ++steps;

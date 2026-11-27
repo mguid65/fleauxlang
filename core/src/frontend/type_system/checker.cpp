@@ -819,6 +819,9 @@ auto function_sig_from_let(const ir::IRLet& let) -> FunctionSig {
   sig.generic_params = let.generic_params;
   sig.is_builtin = let.is_builtin;
   sig.is_value_binding = let.is_value_binding;
+  if (const ir::IRConstant* literal = ir::value_let_literal(let); literal != nullptr) {
+    sig.literal_value = *literal;
+  }
   sig.return_type = from_ir_type(let.return_type);
   sig.params.reserve(let.params.size());
   for (const auto& param : let.params) {

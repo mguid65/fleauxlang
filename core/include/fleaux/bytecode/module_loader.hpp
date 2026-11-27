@@ -25,8 +25,7 @@ struct ModuleLoadOptions {
   std::vector<std::filesystem::path> import_search_paths{};
 };
 
-[[nodiscard]] auto load_linked_module(const std::filesystem::path& entry_path,
-                                      const ModuleLoadOptions& options = ModuleLoadOptions{})
+[[nodiscard]] auto load_linked_module(const std::filesystem::path& entry_path, const ModuleLoadOptions& options = ModuleLoadOptions{})
     -> tl::expected<Module, ModuleLoadError>;
 
 }  // namespace fleaux::bytecode

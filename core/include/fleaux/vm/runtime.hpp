@@ -21,11 +21,43 @@ struct ExecutionResult {
   std::int64_t exit_code{0};
 };
 
+// One call in the chain of a failed run: the function it was made in, and where.
+struct RuntimeCall {
+  // The function's name without its overload number, or empty for the top level of a module.
+  std::string function{};
+  // For a call of a builtin that called the function of the call before it in the chain back (Std.Tuple.Any, say),
+  // the builtin's name; empty otherwise.
+  std::string through{};
+  // Where the call is, or for the first call of a chain, where the run failed. An empty path when the instruction has
+  // no location.
+  std::string file{};
+  std::uint64_t file_hash{0};
+  std::uint32_t line{0};
+  std::uint32_t column{0};
+  std::uint32_t end_line{0};
+  std::uint32_t end_column{0};
+};
+
 struct RuntimeError {
   std::string message{};
   std::optional<std::string> hint{std::nullopt};
   std::optional<frontend::diag::SourceSpan> span{std::nullopt};
+  // For a failed run, the calls it failed in, innermost first; empty for an error before the run.
+  std::vector<RuntimeCall> calls{};
 };
+
+// The notes that describe a failed run's calls after its first, as diagnostics show them: one line per call, with
+// consecutive calls from one place collapsed into one line, and a chain of more than kRuntimeCallNoteLimit lines cut
+// to its first and last lines.
+inline constexpr std::size_t kRuntimeCallNoteLimit = 20U;
+[[nodiscard]] auto describe_runtime_calls(const std::vector<RuntimeCall>& calls) -> std::vector<std::string>;
+
+// The span of a failed run's first call, with the text of its file when `read_text` finds the file and its hash is the
+// one compiled, and without the text otherwise; nothing when the call has no location. By default the file is read
+// from disk.
+using SourceTextReader = std::function<std::optional<std::string>(const std::string& path)>;
+[[nodiscard]] auto runtime_failure_span(const RuntimeError& error, const SourceTextReader& read_text = {})
+    -> std::optional<frontend::diag::SourceSpan>;
 
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 using RuntimeValueResult = tl::expected<runtime::Value, RuntimeError>;

@@ -31,8 +31,8 @@ using CompileResult = tl::expected<Module, CompileError>;
 
 class BytecodeCompiler {
 public:
-  [[nodiscard]] auto compile(const frontend::ir::IRProgram& program,
-                             const CompileOptions& options = CompileOptions{}) const -> CompileResult;
+  [[nodiscard]] auto compile(const frontend::ir::IRProgram& program, const CompileOptions& options = CompileOptions{}) const
+      -> CompileResult;
 };
 
 }  // namespace fleaux::bytecode

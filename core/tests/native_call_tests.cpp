@@ -121,8 +121,7 @@ TEST_CASE("A native function's error becomes a runtime error", "[embed][native]"
       "let Ext.Fail(): Null :: __native__;\n"
       "() -> Ext.Fail -> Std.Println;\n");
   REQUIRE_FALSE(result.has_value());
-  CHECK_THAT(result.error().message,
-             Catch::Matchers::ContainsSubstring("native function 'Ext.Fail' failed: the device is gone"));
+  CHECK_THAT(result.error().message, Catch::Matchers::ContainsSubstring("Ext.Fail: the device is gone"));
 }
 
 TEST_CASE("Runs on one thread reuse its stacks", "[embed][native]") {
@@ -188,7 +187,8 @@ TEST_CASE("Runs on one thread reuse its stacks", "[embed][native]") {
     const auto result = fixture.run(
         "import Std;\n"
         "let Hold(handle: FileHandle): Int64 = 1;\n"
-        "(\"" + path.generic_string() + "\", \"w\") -> Std.File.Open -> Hold -> Std.Println;\n");
+        "(\"" +
+        path.generic_string() + "\", \"w\") -> Std.File.Open -> Std.Result.Unwrap -> Hold -> Std.Println;\n");
     INFO((result.has_value() ? std::string{} : result.error().message));
     REQUIRE(result.has_value());
     CHECK(fixture.captured == "1\n");

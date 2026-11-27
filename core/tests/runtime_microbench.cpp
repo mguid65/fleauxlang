@@ -98,7 +98,8 @@ auto make_vm_loop_module() -> Module {
       Instruction{.opcode = Opcode::kLoadLocal, .operand = 0},
       Instruction{.opcode = Opcode::kMakeUserFuncRef, .operand = 1},
       Instruction{.opcode = Opcode::kMakeUserFuncRef, .operand = 2},
-      Instruction{.opcode = Opcode::kLoopCall, .operand = 0},
+      Instruction{.opcode = Opcode::kCallBuiltinArgs,
+                  .operand = fleaux::vm::builtin_operand_with_arguments(fleaux::vm::BuiltinId::Loop, 3U)},
       Instruction{.opcode = Opcode::kReturn, .operand = 0},
   };
 

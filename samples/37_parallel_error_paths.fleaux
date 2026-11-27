@@ -1,8 +1,8 @@
 import Std;
 
 let ReturnSelf(x: Float64): Float64 = x;
-let FailMap(_x: Float64): Float64 = ("map-boom") -> Std.Result.Err -> Std.Result.Unwrap;
-let FailForEach(_x: Float64): Float64 = ("foreach-boom") -> Std.Result.Err -> Std.Result.Unwrap;
+let FailMap(_x: Float64): Float64 = ("map-boom") -> Std.Panic;
+let FailForEach(_x: Float64): Float64 = ("foreach-boom") -> Std.Panic;
 
 let MaybeFailMap(x: Float64): Float64 =
   ((x, 2.0) -> Std.Equal, x, FailMap, ReturnSelf) -> Std.Branch
@@ -14,7 +14,7 @@ let MaybeFailForEach(x: Float64): Float64 =
 
 let AddOrFail(acc: Float64, x: Float64): Float64 =
   (x,
-   (4.0, (): Float64 = ("reduce-boom") -> Std.Result.Err -> Std.Result.Unwrap),
+   (4.0, (): Float64 = ("reduce-boom") -> Std.Panic),
    (_, (): Float64 = (acc, x) -> Std.Add))
   -> Std.Match
 ;

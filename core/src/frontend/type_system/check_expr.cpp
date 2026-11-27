@@ -210,6 +210,7 @@ auto infer_overloaded_name_ref(ir::IRNameRef& name_ref, const FunctionOverloadSe
   name_ref.resolved_symbol_key = sig.resolved_symbol_key;
   if (instantiated.params.empty()) {
     name_ref.materialize_as_value = true;
+    name_ref.constant_value = sig.literal_value;
     return instantiated.return_type;
   }
   if (auto unresolved_callable =

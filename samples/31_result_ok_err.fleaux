@@ -7,7 +7,7 @@ let SafeDiv(lhs: Float64, rhs: Float64): Result<Float64, String> =
   ((rhs, 0.0) -> Std.Equal, ToErr, ToOkDiv) -> Std.Select -> ((lhs, rhs), _) -> Std.Apply;
 
 let PrintResult(r: Result<Float64, String>): Any =
-  ((r) -> Std.Result.Tag,
+  ((r) -> Std.Result.IsOk,
     (Std.Ok, (): Any = (r) -> Std.Result.Unwrap),
     (Std.Err, (): Any = (r) -> Std.Result.UnwrapErr)
   ) -> Std.Match -> Std.Println;

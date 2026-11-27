@@ -13,7 +13,7 @@ This guide helps contributors identify exactly where to implement a feature in `
 - REPL orchestration and input: `core/src/cli/repl_driver.cpp`, `core/src/cli/line_editor.cpp`
 - Frontend parse and lowering:
   - `core/src/frontend/parser.cpp`
-  - `core/src/frontend/lowering.cpp`
+  - `core/src/frontend/lowering.cpp`, with `--dump-ir`'s printer in `core/src/frontend/ir_dump.cpp`
   - `core/include/fleaux/frontend/ast.hpp`
   - Source spans (`core/include/fleaux/frontend/diagnostics.hpp`): every span holds a `SourceFile`, which the parser
     makes once per parse and every span shares, so copying a span never copies the file. Keep per-span data to
@@ -28,10 +28,10 @@ This guide helps contributors identify exactly where to implement a feature in `
   - `core/src/bytecode/compiler.cpp`
   - `core/src/bytecode/optimizer.cpp`: every pass builds its output through `StreamRewrite`, which keeps jump
     targets pointing at the same code and refuses to remove or fold a run that a jump lands inside.
-  - Reads of an item of a tuple in a local, such as `(s, 0u64) -> Std.ElementAt`, run as one instruction that does
+  - Reads of an item of a tuple in a local, such as `(s, 0) -> Std.ElementAt`, run as one instruction that does
     not copy the tuple. A copy costs an atomic increment and decrement, and a loop that carries its state in a tuple
     reads it several times per iteration.
-    - **The pass.** `LocalItemReadFusionPass` turns `LoadLocal s; PushConst k; ElementAt` with a UInt64 constant `k`
+    - **The pass.** `LocalItemReadFusionPass` turns `LoadLocal s; PushConst k; ElementAt` with an Int64 constant `k` of 0 or more
       into `kLoadLocalItem`, and the same read starting with `kTakeLocal` into `kTakeLocalItem`. It is always on, and
       runs after the other passes because folding can make an index constant.
     - **The operand.** The slot in the low 32 bits and the index in the 31 above (`local_item_operand` in
@@ -40,12 +40,15 @@ This guide helps contributors identify exactly where to implement a feature in `
       4 to 7% slower from layout alone.
     - **Where it runs.** Only the module loader runs the optimizer, so code compiled for the REPL or
       `VmHost::run_source` keeps the three instructions.
+  - **In-place forms.** A builtin call whose function arguments allow it is written as a loop or a branch in the
+    caller (`kInPlaceForms` in `compiler.cpp`, keyed by `BuiltinId`, one emitter each); otherwise it calls the builtin
+    with `kCallBuiltinArgs` like any other, and the builtin calls the function from C++. The table's comment gives
+    which functions each form takes and the measurement behind it.
   - `Std.Branch`, `Std.Loop`, and `Std.Tuple.Map` run in place when their functions are inline one-parameter closures
     or named user functions (`try_emit_branch_in_place`, `try_emit_loop_in_place`, `try_emit_map_in_place` in
     `compiler.cpp`): the argument goes into a local slot and the code jumps between the bodies, so calls stay in one
     interpreter loop. A map steps through its items with `kIterate` and collects the results with
-    `kBuildTupleCounted`. Other function arguments use the `kBranchCall` and `kLoopCall` opcodes and the
-    `Std.Tuple.Map` builtin.
+    `kBuildTupleCounted`.
   - `Std.Tuple.Filter` and `Std.Tuple.Reduce` run in place only when their function is an inline closure
     (`try_emit_filter_in_place`, `try_emit_reduce_in_place`); any other function goes to the builtin. Run in place, a
     named function costs a `kCallUserFunc` per item, as much as the builtin's call of it.
@@ -102,7 +105,7 @@ This guide helps contributors identify exactly where to implement a feature in `
     added there. The builtins then take their tuple, dict, or string out of the argument (`take_tuple_item`, which
     copies only the item when the argument is shared) and change it through `mutable_tuple` or `mutable_dict`, which
     copy only shared data. `TupleBuilder::reopen` continues a tuple in its own block (`push`, `insert`, `erase`), so
-    `Std.Tuple.Append` and `Std.Array.Concat` grow in amortized constant time. `First`, `Second`, `ElementAt`,
+    `Std.Tuple.Append` and `Std.Tuple.Concat` grow in amortized constant time. `First`, `Second`, `ElementAt`,
     spreads, and in-place `Std.Tuple.Map` move items out of a tuple held once.
   - An in-place `Std.Tuple.Map` (`try_emit_map_in_place`) is a loop tested at the bottom:
     `Jump C  B: <func x>  C: Iterate s  JumpIf B`.
@@ -183,6 +186,12 @@ This guide helps contributors identify exactly where to implement a feature in `
     through function values therefore does not use the native stack. Builtin and host function values go through
     `Callable::call`, as do the function values that builtins such as `Std.Tuple.Filter` call, which run on a scratch
     stack of their own.
+  - **Binding.** Every call binds its arguments to the new frame in one of two ways: `bind_argument`, from one
+    argument value (the argument itself for one parameter, the tuple of the arguments otherwise), and
+    `bind_arguments`, from consecutive values (the top of the stack, through `bind_stack_arguments`, or the pair of
+    `call_binary`). A user function binds as a function value that holds nothing. A count that does not fit the
+    parameters is an error, also for a user function, whose shape the checker guarantees for compiled code but not
+    for a bytecode file.
   - The hot helpers of the loop do not return `tl::expected<void, RuntimeError>`: GCC zero-fills all 128 bytes of
     one on every success, which costs more than an addition. Binding a call returns the argument count that did not
     fit (`BindFailure`), and `apply_binary_op` and `apply_unary_op` return a message; the loop makes the
@@ -211,6 +220,52 @@ This guide helps contributors identify exactly where to implement a feature in `
     `kCallUserFuncArgs` (`try_emit_user_args_call_fast_path`), which binds the arguments from the stack without an
     argument tuple. `Std.Bit.And`, `Or`, `Xor`, `ShiftLeft`, and `ShiftRight` have opcodes of their own, like the
     arithmetic builtins.
+- Runtime error locations (`internal_docs/e1_plan_2026-11-25.md`):
+  - **The table.** Each `Instruction` (`core/include/fleaux/bytecode/module.hpp`) carries a location number in what
+    was its padding, so it stays 16 bytes. The number is an index plus one into `Module::locations` (`kNoLocation` is
+    0). A `SourceLocation` holds the file (an index into `Module::source_files`, which records each path and a hash
+    of its text), the span, and, for code of an inlined body, the function (or `inlined_closure` for an inline
+    closure run in place) and the location it was inlined at. A call that an in-place form makes records the builtin
+    in `called_by`.
+  - **Compiling.** `emit_expr` stamps each instruction an expression emits that no inner expression claimed, and
+    `location_numbers` gives equal locations one number. A closure's body is not marked as inlined code
+    (`ClosureLocationScope`). An in-place form's call of its function gets `in_place_call_location`, the builtin
+    call's own location with `called_by`, so a failure in the function names the builtin as when the builtin calls it
+    from C++. The optimizer keeps the location of the last instruction it replaces. Linking appends
+    each module's files and locations and rebases the numbers (`MergeMaps::location_base`), and
+    `verify_module_locations` checks them when bytecode loads.
+  - **The chain.** It is built only when a run fails. Every error return of the loop (`run_instructions`) goes through
+    `fail_at`, which only stores the failing frame's position, and `run_loop`, around the loop, reads the location of
+    the failing instruction and of each frame's call below it into `RuntimeError::calls` once (`append_calls`). A call
+    at each of the 91 failure sites made a loop of arithmetic and item reads 6% slower, though none of them runs while
+    the program succeeds. The position is passed by value: a lambda that captured `ip` made the loop 4 to 10% slower.
+    A failure in a function value that a builtin calls back crosses the C++ call as a `ReportedFailure`, which keeps
+    the calls so far, and the builtin's frame adds "called by Std.X".
+  - **The notes.** `describe_runtime_calls` (`core/src/vm/runtime_calls.cpp`) makes the notes: calls repeated from
+    one place become one line with a count, and a chain longer than `kRuntimeCallNoteLimit` lines keeps its first 15
+    and last 5. `runtime_failure_span` gives the CLI and the REPL the span to show, without the source line when the
+    file's hash no longer matches. The embedding API passes the calls on as `HostError::calls`.
+  - **Messages.** A builtin's message is "Std.Name: what failed". The implementation throws the text alone and
+    `error_from_exception` adds the name; a `runtime::ProgramFailure` (`Std.Panic`, `Std.Assert`) is shown as it is.
+- The bytecode trust boundary. A `.fleaux.bc` file is untrusted input, and its checksum only catches accidents:
+  - **Reading** (`deserialize_module` in `serialization.cpp`): every count is checked against the bytes left, at the
+    fewest bytes one item takes (`fits`), before anything is allocated for it; a bool is a byte of 0 or 1
+    (`read_bool`, and `read_pod` refuses `bool`); enums are range checked; and data after the last section is refused.
+  - **Verifying** (`verifier.cpp`), before the loader links a file's module: `verify_module_operands` checks every
+    operand that names a constant, function, closure, type check, native function, jump target, or local slot (under
+    `kMaxLocalSlots`, since a store grows a frame's locals to its slot), each closure's function, and each exported
+    function; then the builtin call sites and the locations. Linking reads those indices unchecked. The VM keeps its
+    own checks.
+- Nesting. The parser refuses expressions and types nested more than 256 levels (`kMaxNesting` in `parser.cpp`,
+  counted in `primary` and `type`), since the parser and every pass after it recurse once per level. A union parses
+  as a list of its alternatives, without recursing per `|`. The executables give their main thread 8 MB of stack on
+  Windows (`fleaux_set_main_thread_stack` in `core/CMakeLists.txt`), which Linux and macOS give by default: a Debug
+  build overflowed Windows' 1 MB below 200 levels.
+- Fuzzing (`core/fuzz/`): libFuzzer harnesses for the parser and formatter (`fleaux_parser_fuzzer`) and for reading
+  and verifying bytecode (`fleaux_bytecode_fuzzer`, which writes the input's checksum first). Built with the Conan
+  option `build_fuzzers` (`FLEAUX_BUILD_FUZZERS`), with Clang, AddressSanitizer, and UBSan. CI's `fuzz` job runs each
+  for 60 seconds on the samples and their bytecode, and keeps any failing input. A longer run by hand:
+  `fleaux_parser_fuzzer corpus/ -max_total_time=3600`. A failing input goes into the unit tests as a regression case.
 - Shared import resolution primitives: `core/include/fleaux/frontend/import_resolution.hpp`
 
 ## Build-target ownership
@@ -327,6 +382,19 @@ Touch, each checked by a `static_assert` or a test:
 - `core/src/frontend/type_system/builtin_contracts.cpp`, for a rule a type cannot state (scalar Dict keys, parallel
   options).
 
+Rules a builtin follows:
+- **How it fails.** A failure the program cannot rule out before the call (the file system or the OS refuses, text is
+  not a number, a lookup finds nothing) is a `Result<T, String>` whose Err names the builtin and says why. Any other
+  failure is a broken precondition: the implementation throws, and the VM reports it as a runtime error with its
+  location. Every Err of Std is a String, so Results of different builtins compose.
+- **Positions and counts.** Every position, count, length, size, and duration is Int64. Read a position with
+  `position_index` (a negative one is out of range, as one past the end is) and a count with `count_index` (a
+  negative one throws, naming it), both in `value.hpp`.
+- **Constants.** A constant is a value let with a literal body in `stdlib/Std.fleaux`
+  (`let Std.Pi: Float64 = 3.141592653589793;`), with no catalog row or implementation. The checker records the literal
+  (`FunctionSig::literal_value`, then `IRNameRef::constant_value`) and the compiler pushes it with `kPushConst`. Any
+  other top-level value let is evaluated each time it is read; a block-local let is evaluated once.
+
 No `BYTECODE_VERSION` change is needed: the bytecode header records `vm::kBuiltinTableHash`, a hash of each builtin's
 position, name, symbol key, arity, and slots, and the loader refuses bytecode compiled against another table.
 
@@ -352,6 +420,10 @@ Tests:
 Notes:
 - Imported transparent aliases must be propagated alongside imported typed lets and strong nominal type declarations.
 - Symbolic Std seeding must keep alias declarations in step with builtin lets and strong types.
+- Hidden operator parameters in bytecode: a function with operator requirements has its hidden parameters first in
+  its compiled parameters: `Total<T: Summable>(xs, zero)` of sample 59 has `arity: 3`, and its `param_type_names`
+  in the disassembly begin with the operator's `(T, T) => T`. `FunctionDef::hidden_operator_params` says how many. A caller passes the operator functions there; an import, the
+  REPL's overload key (`repl_signature_key`), and a host call skip them to see the declared parameters.
 - Operator requirements: an operator on a type parameter whose bound contains a strong type (`+` on `T: Int64 | Money`) is resolved for every alternative of the bound and becomes `((a, b), 'op0) -> Std.Apply` through a hidden leading parameter (`infer_operator_requirement` in `check_pipeline.cpp`). `discover_operator_requirements` in `check_decl.cpp` finds each let's requirements, including ones inherited through calls, by checking copies of the bodies until nothing changes; `FunctionSig::operator_requirements` carries them to call sites, which prepend the operator functions (`hidden_operator_args`, `prepend_hidden_args`). `add_hidden_operator_params` adds the hidden parameters to the let (`IRLet::hidden_operator_params`) and to the captures of closures that use them. The let records them (`IRLet::operator_requirements`, with the function serving each bound alternative) and bytecode keeps them in `FunctionDef::operator_requirements` and `hidden_operator_params`, so importing modules (`FunctionIndex` skips the hidden parameters) and host calls (`prepend_host_operator_args` in `runtime.cpp`, using the alternative the host entry check chose) pass the operators. A value of such a function needs explicit type arguments (`Total<Money>`); `IRNameRef::bound_operator_args` holds the operators and the compiler binds them like closure captures.
 - A generic function used as a value without type arguments (a reference or a generic closure) has an open function type (`make_open_function_type`, `Type::function_generic_params`). `check_invocation` binds open arguments after the others and instantiates them from the parameter's function type (`instantiate_open_function`); `is_consistent` does the same for declared function types. An open function never fits a non-function type, including `Any`. A generic function whose type parameter appears only in its return type is not made open, since nothing could infer that type argument.
 - `Any` is a strict top type (`is_consistent` in `type.cpp`): every value fits an `Any` slot, but an `Any` value fits only `Any` or an unbounded generic parameter, and satisfies no bound. Diagnostics append `any_cast_note` to suggest a `Std.Cast`. Generic binding keeps a binding that a later argument fits and widens it to a later argument that covers it; `check_invocation` then checks every argument again against the final bindings, and explicit type arguments are never widened. A name known to exist without a type signature is an error (`make_untyped_symbol_error`), not `Any`.
@@ -414,8 +486,12 @@ Touch:
 - `core/src/frontend/diagnostics.cpp`
 - Call-site messages in parser/lowering/type/runtime paths as needed
 
+- Runtime errors: `core/src/vm/runtime_calls.cpp` (the call notes), `run_loop` and `fail_at` in `core/src/vm/runtime.cpp`, and
+  `print_diag_and_return` in `core/src/cli/vm_main.cpp`
+
 Tests:
 - `core/tests/diagnostics_tests.cpp`
+- `core/tests/runtime_calls_tests.cpp`, and the location cases in `bytecode_tests.cpp` and `vm_cli_tests.cpp`
 - Any suite asserting message/hint text
 
 ## Cross-cutting rules

@@ -59,9 +59,9 @@ let Frame(screen: Screen, fluid: Fluid, grid: Grid, last_x: Float64, last_y: Flo
   let next: Fluid = (start, grid, push) -> Solver.Step;
   (
     screen...,
-    (next, 0u64) -> Std.ElementAt,
-    (next, 1u64) -> Std.ElementAt,
-    (next, 2u64) -> Std.ElementAt,
+    (next, 0) -> Std.ElementAt,
+    (next, 1) -> Std.ElementAt,
+    (next, 2) -> Std.ElementAt,
     x,
     y,
     PushRadius

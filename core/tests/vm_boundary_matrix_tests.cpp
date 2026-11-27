@@ -43,46 +43,42 @@ constexpr auto kOpcodeBoundaryCases = std::to_array<OpcodeBoundaryCase>({
     {Opcode::kTakeLocalItem, 0, false, "local slot index out of range"},
     {Opcode::kMarkStack, 0, true, ""},
     {Opcode::kBuildTupleSinceMark, 0, false, "build_tuple_since_mark"},
-    {Opcode::kCallBuiltinArgs, fleaux::vm::builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictSet, 3U), false,
-     "call_builtin_args"},
+    {Opcode::kCallBuiltinArgs, fleaux::vm::builtin_operand_with_arguments(fleaux::vm::BuiltinId::DictSet, 3U), false, "call_builtin_args"},
     {Opcode::kMakeUserFuncRef, 0, false, "function index out of range"},
     {Opcode::kMakeBuiltinFuncRef, 0, true, ""},
     {Opcode::kMakeClosureRef, 0, false, "closure index out of range"},
     {Opcode::kJump, 99, false, "jump target out of range"},
     {Opcode::kJumpIf, 99, false, "jump_if"},
     {Opcode::kJumpIfNot, 99, false, "jump_if_not"},
-    {Opcode::kAdd, 0, false, "add"},
-    {Opcode::kSub, 0, false, "sub"},
-    {Opcode::kMul, 0, false, "mul"},
-    {Opcode::kDiv, 0, false, "div"},
-    {Opcode::kMod, 0, false, "mod"},
-    {Opcode::kPow, 0, false, "pow"},
-    {Opcode::kNeg, 0, false, "neg"},
-    {Opcode::kCmpEq, 0, false, "cmp_eq"},
-    {Opcode::kCmpNe, 0, false, "cmp_ne"},
-    {Opcode::kCmpLt, 0, false, "cmp_lt"},
-    {Opcode::kCmpGt, 0, false, "cmp_gt"},
-    {Opcode::kCmpLe, 0, false, "cmp_le"},
-    {Opcode::kCmpGe, 0, false, "cmp_ge"},
-    {Opcode::kAnd, 0, false, "and"},
-    {Opcode::kElementAt, 0, false, "element_at"},
+    {Opcode::kAdd, 0, false, "Std.Add"},
+    {Opcode::kSub, 0, false, "Std.Subtract"},
+    {Opcode::kMul, 0, false, "Std.Multiply"},
+    {Opcode::kDiv, 0, false, "Std.Divide"},
+    {Opcode::kMod, 0, false, "Std.Mod"},
+    {Opcode::kPow, 0, false, "Std.Pow"},
+    {Opcode::kNeg, 0, false, "Std.UnaryMinus"},
+    {Opcode::kCmpEq, 0, false, "Std.Equal"},
+    {Opcode::kCmpNe, 0, false, "Std.NotEqual"},
+    {Opcode::kCmpLt, 0, false, "Std.LessThan"},
+    {Opcode::kCmpGt, 0, false, "Std.GreaterThan"},
+    {Opcode::kCmpLe, 0, false, "Std.LessOrEqual"},
+    {Opcode::kCmpGe, 0, false, "Std.GreaterOrEqual"},
+    {Opcode::kAnd, 0, false, "Std.And"},
+    {Opcode::kElementAt, 0, false, "Std.ElementAt"},
     {Opcode::kBuildTupleCounted, 0, false, "build_tuple_counted"},
     {Opcode::kIterate, 0, false, "iterate"},
     {Opcode::kMatchFailed, 0, false, "no case matched"},
     {Opcode::kCallUserFuncArgs, 0, false, "function index out of range"},
-    {Opcode::kBitAnd, 0, false, "bit_and"},
-    {Opcode::kBitOr, 0, false, "bit_or"},
-    {Opcode::kBitXor, 0, false, "bit_xor"},
-    {Opcode::kShiftLeft, 0, false, "shift_left"},
-    {Opcode::kShiftRight, 0, false, "shift_right"},
+    {Opcode::kBitAnd, 0, false, "Std.Bit.And"},
+    {Opcode::kBitOr, 0, false, "Std.Bit.Or"},
+    {Opcode::kBitXor, 0, false, "Std.Bit.Xor"},
+    {Opcode::kShiftLeft, 0, false, "Std.Bit.ShiftLeft"},
+    {Opcode::kShiftRight, 0, false, "Std.Bit.ShiftRight"},
     {Opcode::kCallFunctionValue, 0, false, "call_function_value"},
     {Opcode::kCallFunctionValueArgs, 2, false, "call_function_value_args"},
-    {Opcode::kOr, 0, false, "or"},
-    {Opcode::kNot, 0, false, "not"},
+    {Opcode::kOr, 0, false, "Std.Or"},
+    {Opcode::kNot, 0, false, "Std.Not"},
     {Opcode::kSelect, 0, false, "select"},
-    {Opcode::kBranchCall, 0, false, "branch_call"},
-    {Opcode::kLoopCall, 0, false, "loop_call"},
-    {Opcode::kLoopNCall, 0, false, "loop_n_call"},
     {Opcode::kHalt, 0, true, ""},
 });
 
@@ -102,8 +98,10 @@ enum class BuiltinBoundaryMode {
 
 auto make_builtin_names() -> std::vector<fleaux::vm::BuiltinSpec> {
   std::vector<fleaux::vm::BuiltinSpec> names;
-  names.reserve(fleaux::vm::callable_builtin_count());
-  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) { names.push_back(spec); }
+  names.reserve(fleaux::vm::builtin_count());
+  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
+    names.push_back(spec);
+  }
   return names;
 }
 

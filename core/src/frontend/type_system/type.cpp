@@ -377,21 +377,12 @@ auto open_function_signature(const Type& open, const GenericScope& scope) -> Ope
 }
 
 auto from_ir_type(const ir::IRSimpleType& type) -> Type {
-  if (!type.alternative_types.empty() || !type.alternatives.empty()) {
+  if (!type.alternative_types.empty()) {
     Type out;
     out.kind = TypeKind::kUnion;
-
-    if (!type.alternative_types.empty()) {
-      out.union_members.reserve(type.alternative_types.size());
-      for (const auto& alt : type.alternative_types) {
-        out.union_members.push_back(from_ir_type(alt));
-      }
-      return normalize_type(std::move(out));
-    }
-
-    out.union_members.reserve(type.alternatives.size());
-    for (const auto& alt_name : type.alternatives) {
-      out.union_members.push_back(from_name(alt_name));
+    out.union_members.reserve(type.alternative_types.size());
+    for (const auto& alt : type.alternative_types) {
+      out.union_members.push_back(from_ir_type(alt));
     }
     return normalize_type(std::move(out));
   }

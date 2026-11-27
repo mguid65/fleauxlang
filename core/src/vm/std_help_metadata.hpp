@@ -1,12 +1,15 @@
 #pragma once
 
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <variant>
 
 #include "fleaux/common/embedded_resource.hpp"
+#include "fleaux/common/overloaded.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/source_loader.hpp"
 #include "fleaux/runtime/runtime_support.hpp"
@@ -25,6 +28,19 @@ namespace fleaux::vm::detail {
 [[nodiscard]] inline auto format_help_signature(const frontend::ir::IRLet& let) -> std::string {
   std::ostringstream out;
   out << "let " << frontend::source_loader::symbol_key(let.qualifier, let.name);
+  if (let.is_value_binding) {
+    out << ": " << format_help_ir_type(let.return_type);
+    if (const frontend::ir::IRConstant* literal = frontend::ir::value_let_literal(let); literal != nullptr) {
+      out << " = "
+          << std::visit(common::overloaded{[](const std::monostate&) -> std::string { return "null"; },
+                                           [](const std::string& text) -> std::string { return "\"" + text + "\""; },
+                                           [](const bool value) -> std::string { return value ? "True" : "False"; },
+                                           [](const std::uint64_t value) -> std::string { return std::format("{}u64", value); },
+                                           [](const auto& value) -> std::string { return std::format("{}", value); }},
+                        literal->val);
+    }
+    return out.str();
+  }
   if (!let.generic_params.empty()) {
     out << "<";
     for (std::size_t idx = 0; idx < let.generic_params.size(); ++idx) {
@@ -54,11 +70,12 @@ namespace fleaux::vm::detail {
 
 inline auto register_help_for_let(runtime::HelpMetadataStore& store, const frontend::ir::IRLet& let) -> void {
   fleaux::runtime::register_help_metadata(store, runtime::HelpMetadata{
-      .name = frontend::source_loader::symbol_key(let.qualifier, let.name),
-      .signature = format_help_signature(let),
-      .doc_lines = let.doc_comments,
-      .is_builtin = let.is_builtin,
-  });
+                                                     .name = frontend::source_loader::symbol_key(let.qualifier, let.name),
+                                                     .signature = format_help_signature(let),
+                                                     .doc_lines = let.doc_comments,
+                                                     .is_builtin = let.is_builtin,
+                                                     .is_value = let.is_value_binding,
+                                                 });
 }
 
 [[nodiscard]] inline auto load_std_doc_comments_by_symbol(const std::string_view source_text)

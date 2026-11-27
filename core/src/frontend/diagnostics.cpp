@@ -174,19 +174,20 @@ void append_diagnostic_source_context(std::ostringstream& out, const SourceSpan&
 }  // namespace
 
 auto format_diagnostic(const std::string& stage, const std::string& message, const std::optional<SourceSpan>& span,
-                       const std::optional<std::string>& hint, const std::optional<int>& stage_index) -> std::string {
+                       const std::optional<std::string>& hint, const std::optional<int>& stage_index, const std::vector<std::string>& notes)
+    -> std::string {
   std::ostringstream out;
 
   append_diagnostic_header(out, stage, message, stage_index);
 
-  if (!span.has_value()) {
-    append_diagnostic_note(out, hint);
-    return out.str();
+  if (span.has_value()) {
+    append_diagnostic_location(out, *span);
+    append_diagnostic_source_context(out, *span);
   }
-
-  append_diagnostic_location(out, *span);
-  append_diagnostic_source_context(out, *span);
   append_diagnostic_note(out, hint);
+  for (const std::string& note : notes) {
+    append_diagnostic_note(out, note);
+  }
 
   return out.str();
 }

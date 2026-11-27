@@ -156,6 +156,11 @@ Current notes:
 - Named values require explicit types
 - Named values are immutable
 - Top-level values and block-local values use the same explicit type style
+- A value is read by its name: `(Base, 2) -> Std.Add`
+- A top-level value whose body is a literal is a constant, and reading it is reading the literal. Any other top-level
+  value is computed each time it is read; a block's local value is computed once, where it is declared.
+- The Std constants are values of this kind: `(Std.Pi, 2.0) -> Std.Multiply`. Writing `() -> Std.Pi` is a type error,
+  since a value is not a function. See samples/18_constants.fleaux.
 
 ## Types
 
@@ -291,6 +296,11 @@ Arithmetic builtins take two operands of the same numeric type and return that t
 - Integer Pow requires a non-negative exponent.
 - Float64 arithmetic follows IEEE-754, so 1.0 / 0.0 is infinity.
 - Std.WrappingAdd, Std.WrappingSubtract, and Std.WrappingMultiply wrap around on overflow; Std.SaturatingAdd, Std.SaturatingSubtract, and Std.SaturatingMultiply clamp. These take Int64 or UInt64 only.
+- Every position, count, length, size, and duration in Std is an Int64, the type of an integer literal:
+  `((1, 2, 3), 0) -> Std.ElementAt`. A negative position fails as one past the end does, and a negative count is an
+  error that names it. UInt64 is for bit patterns, such as a random generator's seed.
+- Std.Min and Std.Max take two values of one Comparable type. Std.Math has Sqrt, Exp, Log, Log2, Log10, Floor, Ceil,
+  Round, Trunc, Sin, Cos, Tan, Asin, Acos, Atan, and Atan2 over Float64, and Abs and Clamp over any number.
 
 ## Expressions and pipelines
 
@@ -653,9 +663,14 @@ Common operations include:
 - Replace
 - Contains, StartsWith, EndsWith
 - Length, CharAt, Slice, Find
+- Repeat, Reverse, Chars
 - Format
 - Regex helpers
 - ParseInt64, ParseUInt64, ParseFloat64
+
+A string is bytes: Length, CharAt, Slice, Find, Reverse, and Chars count and move bytes. Find, Regex.Find, and the
+Parse functions return a Result, an Err when there is nothing to find or the text is not a number (see Results and
+error handling). CharAt past the end is a runtime error, as ElementAt is.
 
 Examples:
 
@@ -722,11 +737,17 @@ Useful tuple helpers include:
 - Std.Tuple.Reduce
 - Std.Tuple.Any
 - Std.Tuple.All
-- Std.Tuple.FindIndex
-- Std.Tuple.Sort
+- Std.Tuple.FindIndex, which returns a Result
+- Std.Tuple.Sort and Std.Tuple.SortBy
 - Std.Tuple.Unique
 - Std.Tuple.Min and Std.Tuple.Max
 - Std.Tuple.Range
+- Std.Tuple.SetAt, Std.Tuple.InsertAt, and Std.Tuple.RemoveAt
+- Std.Tuple.Concat
+- Std.Tuple.Enumerate
+- Std.Tuple.GroupBy and Std.Tuple.Partition
+- Std.Tuple.FlatMap and Std.Tuple.Scan
+- Std.Tuple.TakeWhile and Std.Tuple.DropWhile
 - Std.Wrap and Std.Unwrap
 
 Examples:
@@ -734,6 +755,9 @@ Examples:
     ((1, 2, 3), 1) -> Std.ElementAt -> Std.Println;
     ((1.0, 2.0, 3.0), Double) -> Std.Tuple.Map -> Std.Println;
     ((1.0, 2.0, 3.0, 4.0), IsEven) -> Std.Tuple.Filter -> Std.Println;
+    (("pear", "fig", "kiwi"), Std.String.Length) -> Std.Tuple.SortBy -> Std.Println;
+
+See samples/11_tuples.fleaux and samples/63_collections_strings_and_time.fleaux.
 
 ## Dictionaries
 
@@ -749,8 +773,10 @@ Common helpers:
 
 - Std.Dict.Create
 - Std.Dict.Set
-- Std.Dict.Get
-- Std.Dict.GetDefault
+- Std.Dict.Get, which returns a Result: an Err when the key is not there
+- Std.Dict.GetDefault, which gives a default instead
+- Std.Dict.Update, which sets a key from its value, or from a default when it has none
+- Std.Dict.Map and Std.Dict.Filter
 - Std.Dict.Contains
 - Std.Dict.Delete
 - Std.Dict.Merge
@@ -765,15 +791,9 @@ See samples/42_dict_dispatch.fleaux.
 
 ## Arrays and rectangular data helpers
 
-The standard library also exposes array-oriented helpers over tuple-backed data.
-These include:
+Std.Array holds the helpers for grids (tuples of rows) and N-dimensional values; the helpers of one tuple are in
+Std.Tuple. These include:
 
-- Std.Array.GetAt
-- Std.Array.SetAt
-- Std.Array.InsertAt
-- Std.Array.RemoveAt
-- Std.Array.Slice
-- Std.Array.Concat
 - Std.Array.SetAt2D
 - Std.Array.Fill
 - Std.Array.Transpose2D
@@ -786,22 +806,49 @@ These include:
 - Std.Array.SetAtND
 - Std.Array.ReshapeND
 
-These are useful when you want more array-like naming over tuple-shaped data.
+Their rows, columns, indices, and shapes are Int64, as positions are everywhere.
 
 ## Results and error handling
 
-Result values are used for explicit success and error transport.
+A failure is one of two kinds.
+
+- **A Result.** A builtin that can fail for a reason the program cannot rule out before the call returns a
+  Result<T, String>: Ok with its value, or Err with a message that names the function and says what failed and why.
+  These are the file, directory, and OS builtins (the world can refuse), the Parse functions (text may not be a number),
+  and lookups that may find nothing (Std.Dict.Get, Std.String.Find, Std.String.Regex.Find, Std.Tuple.FindIndex,
+  Std.OS.Env).
+- **A runtime error**, also called a panic. Any other failure is a broken precondition, which the program could have
+  checked first: an index past the end, division by zero, overflow, a failed Std.Cast, Std.Result.Unwrap of an Err, a
+  Match with no case. It stops the program with the error's location and the calls it happened in (see Runtime errors).
+
+Every Err payload of Std is a String, so chains across builtins type-check.
 The standard helpers include:
 
-- Std.Result.Ok
-- Std.Result.Err
-- Std.Result.Tag
+- Std.Result.Ok and Std.Result.Err
+- Std.Result.IsOk and Std.Result.IsErr
+- Std.Result.Map: change the value of an Ok; an Err passes through
+- Std.Result.MapErr: change the error of an Err
+- Std.Result.AndThen: continue from an Ok with a function that returns a Result too
+- Std.Result.OrElse: recover from an Err with a function that returns a Result
+- Std.Result.UnwrapOr: the value of an Ok, or a default
+- Std.Result.Unwrap and Std.Result.UnwrapErr, a runtime error when the Result is the other kind
 - Std.Result.Payload
-- Std.Result.IsOk
-- Std.Result.IsErr
-- Std.Result.Unwrap
-- Std.Result.UnwrapErr
-- Std.Try
+- Std.Try, which turns a runtime error in a function into an Err
+
+For example:
+
+    ("8080") -> Std.String.ParseInt64 -> (_, 80) -> Std.Result.UnwrapOr -> Std.Println;
+    (path) -> Std.File.ReadText -> Std.Result.Unwrap -> Std.Println;
+
+Std.Result.Unwrap is the short form for a program that expects the call to work: an Err stops it, and says where.
+
+Std.Panic stops the program on purpose with a message, and Std.Assert and Std.AssertEqual stop it when what they check
+does not hold:
+
+    (count, 0) -> Std.GreaterOrEqual -> (_, "count must not be negative") -> Std.Assert;
+    ((2, 2) -> Std.Add, 4) -> Std.AssertEqual;
+
+See samples/62_failures_as_values.fleaux and samples/45_result_recovery.fleaux.
 
 Example pattern:
 
@@ -822,7 +869,30 @@ Never is the type with no values, so it combines with any other type: branches t
     let Pick(c: Bool): Result<Int64, String> =
         (c, (1) -> Std.Result.Ok, ("bad") -> Std.Result.Err) -> Std.Select;
 
-Unwrapping an Err value has type Never, which fits wherever a value is expected because it never produces one.
+Unwrapping an Err value has type Never, which fits wherever a value is expected because it never produces one. So does
+Std.Panic.
+
+### Runtime errors
+
+A runtime error shows where the program stopped, with the source line, and the calls it stopped in, innermost first:
+
+    error[vm-run]: Std.Divide: Int64 division by zero
+       --> ratio.fleaux:2:41
+      |
+    1 | import Std;
+    2 | let Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;
+      |                                         ^~~~~~~~~~
+    3 | let Twice(x: Int64): Int64 = (x) -> Ratio -> (_, 2) -> Std.Multiply;
+      |
+       = note: in Ratio
+       = note: called from Twice (ratio.fleaux:3:37)
+       = note: called from the top level (ratio.fleaux:4:8)
+
+- A function the compiler inlined still appears, as if it were called.
+- A function a builtin calls back appears with the builtin: `called by Std.Tuple.Any from the top level`.
+- Calls repeated from one place, as in a recursion, are one line with a count, and a chain of more than 20 lines shows
+  its first 15 and last 5.
+- The source line is shown only if the file is still the one compiled.
 
 ## OS, path, file, and directory helpers
 
@@ -863,6 +933,10 @@ Examples:
 - WithExtension
 - WithBasename
 
+Every builtin here that can fail returns a Result: Err when the file is missing, the directory cannot be listed, the
+variable is not set, or the command does not start. Using a closed file handle, or reading from one opened only to
+write, is a runtime error.
+
 ### Std.File
 
 Examples:
@@ -891,6 +965,12 @@ Examples:
 - ListFull
 
 See samples/14_os.fleaux, samples/15_path.fleaux, samples/16_file_and_dir.fleaux, and samples/22_file_streaming.fleaux.
+
+## Time
+
+- Std.Time.Now: the milliseconds since 1970-01-01 UTC, from the system clock, which can be set back
+- Std.Time.Monotonic: nanoseconds from a clock that only goes forward, for measuring durations
+- Std.Time.Sleep: wait at least a number of milliseconds
 
 ## Parallel and task helpers
 
@@ -948,8 +1028,9 @@ The standard library follows a namespace-style naming scheme:
 - Std.Dir for directory helpers
 - Std.Tuple for tuple-focused helpers
 - Std.Dict for dictionary helpers
-- Std.Array for array-shaped helpers
+- Std.Array for grid and N-dimensional helpers
 - Std.Result for result helpers
+- Std.Time for the clocks
 - Std.Parallel for parallel helpers
 - Std.Task for task helpers
 - Std.Random for seeded random numbers
@@ -991,6 +1072,12 @@ Use inline closures when you need local callable behavior inside a block.
 
 Use _ only in tuple-template stages after ->, and as the wildcard pattern of Std.Match.
 
+### Nesting is at most 256 levels deep
+
+Expressions and types nest at most 256 levels: a tuple inside a tuple, a block inside a block, a closure's body, or
+a type argument inside a type each take one or more. Deeper source is refused with a diagnostic; give an inner part a
+name with a let or an alias instead. A union counts as one level however many alternatives it has.
+
 ### Prefer grouping when inline closures get complex
 
 Ungrouped inline closure pipeline targets are supported, but adding grouping is the safer style when the closure body becomes visually complex or continues through several stages.
@@ -1010,6 +1097,7 @@ A practical reading order is:
 - 48 through 52 for more dataflow idioms, strong type casts, and block-scoped values
 - 53 through 56 for seeded random numbers, generic types, bounded generics, and checked casts
 - 57 through 61 for user operators, generic function values, function values, and raw strings
+- 62 and 63 for failures as values, and more of Std: tuples, dicts, strings, numbers, and time
 
 Representative sample files:
 
@@ -1025,6 +1113,7 @@ Representative sample files:
 - samples/52_variables_and_blocks.fleaux
 - samples/55_bounded_generics.fleaux
 - samples/57_user_operators.fleaux
+- samples/62_failures_as_values.fleaux
 
 ## Practical style advice
 

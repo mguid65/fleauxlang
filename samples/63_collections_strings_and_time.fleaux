@@ -1,0 +1,63 @@
+import Std;
+
+// More of Std: tuples, dicts, strings, numbers, and the clocks.
+//
+// Positions, counts, and lengths are Int64 everywhere, the type of an integer literal.
+
+let Words: Tuple<String...> = ("pear", "fig", "apple", "kiwi", "plum");
+
+// -- Tuples --
+(Words) -> Std.Tuple.Enumerate -> (_, 2) -> Std.ElementAt -> Std.Println;             // (2, apple)
+(Words, Std.String.Length) -> Std.Tuple.SortBy -> Std.Println;                         // shortest first, ties in order
+(Words, (w: String): Bool = (w, "p") -> Std.String.StartsWith) -> Std.Tuple.Partition -> Std.Println;
+((1, 2, 3), (n: Int64): Tuple<Int64...> = (n) -> Std.Tuple.Range) -> Std.Tuple.FlatMap -> Std.Println;
+((1, 2, 3, 4), 0, Std.Add) -> Std.Tuple.Scan -> Std.Println;                           // running totals
+((1, 3, 4, 5), (n: Int64): Bool = (n, 2) -> Std.Mod -> (_, 1) -> Std.Equal) -> Std.Tuple.TakeWhile -> Std.Println;
+((1, 3, 4, 5), (n: Int64): Bool = (n, 2) -> Std.Mod -> (_, 1) -> Std.Equal) -> Std.Tuple.DropWhile -> Std.Println;
+((1, 2, 3), 1, 9) -> Std.Tuple.SetAt -> Std.Println;                                   // (1, 9, 3)
+((1, 2, 3), 1, 9) -> Std.Tuple.InsertAt -> Std.Println;                                // (1, 9, 2, 3)
+((1, 2, 3), 1) -> Std.Tuple.RemoveAt -> Std.Println;                                   // (1, 3)
+((1, 2), (3, 4)) -> Std.Tuple.Concat -> Std.Println;                                   // (1, 2, 3, 4)
+
+// -- Dicts --
+// GroupBy gathers the items with the same key; Update changes one key's value, starting from a default.
+let ByLength: Dict<Int64, Tuple<String...>> = (Words, Std.String.Length) -> Std.Tuple.GroupBy;
+(ByLength) -> Std.Dict.Entries -> Std.Println;
+(ByLength, (group: Tuple<String...>): Int64 = (group) -> Std.Length) -> Std.Dict.Map -> Std.Dict.Entries -> Std.Println;
+(ByLength, (length: Int64, group: Tuple<String...>): Bool = (length, 3) -> Std.GreaterThan)
+    -> Std.Dict.Filter -> Std.Dict.Keys -> Std.Println;                                // (4, 5)
+
+let Count(n: Int64): Int64 = (n, 1) -> Std.Add;
+let Tally(counts: Dict<String, Int64>, letter: String): Dict<String, Int64> = (counts, letter, 0, Count) -> Std.Dict.Update;
+let NoCounts(): Dict<String, Int64> = {
+    let empty: Dict<String, Int64> = () -> Std.Dict.Create;
+    empty;
+};
+("banana") -> Std.String.Chars -> (_, () -> NoCounts, Tally) -> Std.Tuple.Reduce -> Std.Dict.Entries -> Std.Println;
+
+// -- Strings --
+("ab", 3) -> Std.String.Repeat -> Std.Println;                                         // ababab
+("stressed") -> Std.String.Reverse -> Std.Println;                                     // desserts
+
+// -- Numbers --
+((3, -2) -> Std.Min, (3, -2) -> Std.Max) -> Std.Println;                                // -2 3
+(-4) -> Std.Math.Abs -> Std.Println;                                                   // 4
+(15, 0, 10) -> Std.Math.Clamp -> Std.Println;                                          // 10
+(2.5) -> Std.Math.Round -> Std.Println;                                                // 3
+(1.0) -> Std.Math.Exp -> Std.Math.Log -> Std.Println;                                  // 1
+(1000.0) -> Std.Math.Log10 -> Std.Println;                                             // 3
+(8.0) -> Std.Math.Log2 -> Std.Println;                                                 // 3
+(-2.7) -> Std.Math.Trunc -> Std.Println;                                               // -2, toward zero
+((1.0) -> Std.Math.Asin, (1.0) -> Std.Math.Acos, (1.0) -> Std.Math.Atan) -> Std.Println;  // pi/2 0 pi/4
+(1.0, 1.0) -> Std.Math.Atan2 -> (_, 4.0) -> Std.Multiply -> Std.Println;               // pi
+
+// -- Time --
+// Std.Time.Now is the wall clock, in milliseconds since 1970; Std.Time.Monotonic only goes forward, for durations,
+// in nanoseconds. A block's local let is computed once, where a top-level value let is computed each time it is read.
+let SleepNanoseconds(ms: Int64): Int64 = {
+    let start: Int64 = () -> Std.Time.Monotonic;
+    (ms) -> Std.Time.Sleep;
+    (() -> Std.Time.Monotonic, start) -> Std.Subtract;
+};
+((5) -> SleepNanoseconds, 5000000) -> Std.GreaterOrEqual -> Std.Println;               // True
+(() -> Std.Time.Now, 1735689600000) -> Std.GreaterThan -> Std.Println;                 // True (after 2025)

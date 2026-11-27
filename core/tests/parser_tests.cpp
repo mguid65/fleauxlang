@@ -778,3 +778,49 @@ TEST_CASE("Spans from one parse share one copy of the source file", "[parser][sp
   REQUIRE(first.source_text() == source);
   REQUIRE(&first.source_text() == &last.source_text());
 }
+
+TEST_CASE("Expressions and types nest at most 256 levels deep", "[parser][nesting]") {
+  const fleaux::frontend::parse::Parser parser;
+  const auto tuples = [](const std::size_t depth) -> std::string {
+    std::string source = "((";
+    for (std::size_t level = 0; level < depth; ++level) {
+      source += "1, (";
+    }
+    source += "1";
+    source += std::string(depth, ')');
+    return source + ")) -> Std.First -> Std.Println;\n";
+  };
+  const auto types = [](const std::size_t depth) -> std::string {
+    std::string source = "let T: ";
+    for (std::size_t level = 0; level < depth; ++level) {
+      source += "Tuple<";
+    }
+    return source + "Int64" + std::string(depth, '>') + " = 1;\n";
+  };
+
+  REQUIRE(parser.parse_program(tuples(253U), "nesting_tuples.fleaux").has_value());
+  REQUIRE(parser.parse_program(types(255U), "nesting_types.fleaux").has_value());
+  for (const auto& too_deep : {tuples(254U), types(256U), tuples(5000U)}) {
+    const auto parsed = parser.parse_program(too_deep, "nesting_too_deep.fleaux");
+    REQUIRE_FALSE(parsed.has_value());
+    REQUIRE(parsed.error().message == "This nests more than 256 expressions or types deep.");
+    REQUIRE(parsed.error().hint == "Give an inner part a name with a let or an alias, and use the name.");
+  }
+}
+
+TEST_CASE("A union parses as one list of its alternatives", "[parser][types]") {
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program("let U: Int64 | String | Bool | Null = 1;\n", "union_alternatives.fleaux");
+  REQUIRE(parsed.has_value());
+  const auto& let = std::get<fleaux::frontend::model::LetStatement>(parsed->statements.front());
+  const auto* union_list = std::get_if<fleaux::frontend::model::UnionTypeListBox>(&let.rtype.value);
+  REQUIRE(union_list != nullptr);
+  REQUIRE((*union_list)->alternatives.size() == 4U);
+
+  // A long union does not recurse once per alternative.
+  std::string many = "let U: Int64";
+  for (int count = 0; count < 3000; ++count) {
+    many += " | Int64";
+  }
+  REQUIRE(parser.parse_program(many + " = 1;\n", "union_many.fleaux").has_value());
+}

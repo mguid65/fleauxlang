@@ -4,6 +4,7 @@
 //
 // A dict keeps its entries in the order their keys were first set. The builtins that return a changed dict take the
 // dict out of their argument tuple, so a dict no other value holds is changed in place rather than copied.
+#include "fleaux/runtime/builtins_core.hpp"
 #include "fleaux/runtime/value.hpp"
 
 namespace fleaux::runtime {
@@ -53,11 +54,11 @@ namespace fleaux::runtime {
 // args = (dict, key) -> value
 [[nodiscard]] inline auto DictGet(const Arguments& args) -> Value {
   const Dict& dict = validated_dict(args[0], "Std.Dict.Get");
-  const Value* found = dict.find(validated_dict_key(args[1], "Std.Dict.Get"));
-  if (found == nullptr) {
-    throw std::runtime_error{"DictGet: key not found"};
+  const Value& key = validated_dict_key(args[1], "Std.Dict.Get");
+  if (const Value* found = dict.find(key); found != nullptr) {
+    return ResultOk(*found);
   }
-  return *found;
+  return ResultErr(make_string(std::format("Std.Dict.Get: the key {} is not in the dict", to_string(key))));
 }
 
 // args = (dict, key, default) -> value_or_default
@@ -143,6 +144,44 @@ namespace fleaux::runtime {
 [[nodiscard]] inline auto DictLength(Value arg) -> Value {
   const Value dict_value = std::move(arg);
   return make_int(static_cast<Int>(validated_dict(dict_value, "Std.Dict.Length").size()));
+}
+
+// args = (dict, func) -> a dict of the same keys, with func of each value
+[[nodiscard]] inline auto DictMap(const Arguments& args) -> Value {
+  const Dict& dict = validated_dict(args[0], "Std.Dict.Map");
+  const Value& function = args[1];
+  Value out = make_dict();
+  Dict& mapped = out.mutable_dict();
+  mapped.reserve(dict.size());
+  for (const auto& [key, item] : dict) {
+    mapped.set(key, invoke_callable(function, item));
+  }
+  return out;
+}
+
+// args = (dict, pred) -> the entries pred(key, value) holds for, in their order
+[[nodiscard]] inline auto DictFilter(const Arguments& args) -> Value {
+  const Dict& dict = validated_dict(args[0], "Std.Dict.Filter");
+  const Value& predicate = args[1];
+  Value out = make_dict();
+  Dict& kept = out.mutable_dict();
+  for (const auto& [key, item] : dict) {
+    if (as_bool(invoke_binary_callable(predicate, key, item))) {
+      kept.set(key, item);
+    }
+  }
+  return out;
+}
+
+// args = (dict, key, default, func) -> the dict with key set to func of its value, or of default when it has none.
+// A dict the argument holds alone changes in place.
+[[nodiscard]] inline auto DictUpdate(const Arguments& args) -> Value {
+  Value dict = args.take(0);
+  const Value& key = validated_dict_key(args[1], "Std.Dict.Update");
+  const Value* found = validated_dict(dict, "Std.Dict.Update").find(key);
+  Value updated = invoke_callable(args[3], found != nullptr ? *found : args.take(2));
+  dict.mutable_dict().set(key, std::move(updated));
+  return dict;
 }
 
 }  // namespace fleaux::runtime

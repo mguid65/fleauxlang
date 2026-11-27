@@ -246,12 +246,12 @@ private:
       if (auto value = as_callable(job.function).call_or_fail(std::move(job.argument), error); value.has_value()) {
         result = ResultOk(std::move(*value));
       } else {
-        result = ResultErr(make_string(normalize_runtime_error_message(std::move(error))));
+        result = ResultErr(make_string(std::move(error)));
       }
     } catch (const RuntimePayloadError& ex) {
       result = ResultErr(ex.payload());
     } catch (const std::exception& ex) {
-      result = ResultErr(make_string(normalize_runtime_error_message(ex.what())));
+      result = ResultErr(make_string(ex.what()));
     }
 
     {
@@ -484,7 +484,7 @@ template <typename OnResult>
 }
 
 [[nodiscard]] inline auto TaskWithTimeout(const Arguments& args) -> Value {
-  const std::size_t timeout_ms = uint64_index(args[1]);
+  const std::size_t timeout_ms = count_index(args[1], "timeout_ms");
   TaskControl* task = task_control(args[0]);
   if (task == nullptr) {
     return ResultErr(make_string("Task.WithTimeout: invalid task handle"));
@@ -507,25 +507,23 @@ template <typename OnResult>
   static const Value max_workers_key = make_string("max_workers");
   for (const auto& [key, item] : options) {
     if (!(key == max_workers_key)) {
-      throw std::invalid_argument{
-          "Parallel.WithOptions: unsupported option '" + (key.is_string() ? key.string_value() : to_string(key)) + "'"};
+      throw std::invalid_argument{"unsupported option '" + (key.is_string() ? key.string_value() : to_string(key)) + "'"};
     }
   }
   const Value* value = options.find(max_workers_key);
   if (value == nullptr) {
     return std::nullopt;
   }
-  const auto parsed = as_index_strict(*value, "max_workers");
-  if (parsed == 0) {
-    throw std::invalid_argument{"Parallel.WithOptions: max_workers must be > 0"};
+  const Int parsed = as_int_value_strict(*value);
+  if (parsed <= 0) {
+    throw std::invalid_argument{"max_workers must be greater than 0"};
   }
-  return parsed;
+  return static_cast<std::size_t>(parsed);
 }
 
 [[nodiscard]] inline auto ParallelWithOptions(const Arguments& args) -> Value {
   if (!args[2].is_dict()) {
-    return ResultErr(
-        make_tuple(make_int(static_cast<Int>(0)), make_string("Parallel.WithOptions: options must be a Dict")));
+    return ResultErr(make_tuple(make_int(static_cast<Int>(0)), make_string("Std.Parallel.WithOptions: options must be a Dict")));
   }
   const TupleView items = as_tuple(args[0]);
   try {
@@ -533,8 +531,7 @@ template <typename OnResult>
         parallel_max_workers_option(args[2].dict()).value_or(task_runtime().worker_count());
     return run_parallel_map_pooled(items, args[1], max_in_flight);
   } catch (const std::exception& ex) {
-    return ResultErr(
-        make_tuple(make_int(static_cast<Int>(0)), make_string(normalize_runtime_error_message(ex.what()))));
+    return ResultErr(make_tuple(make_int(static_cast<Int>(0)), make_string(std::format("Std.Parallel.WithOptions: {}", ex.what()))));
   }
 }
 
@@ -575,7 +572,7 @@ template <typename OnResult>
         try {
           local = invoke_binary_callable(function, std::move(local), item);
         } catch (const std::exception& ex) {
-          const auto message = normalize_runtime_error_message(ex.what());
+          const auto message = ex.what();
           throw RuntimePayloadError{make_tuple(make_int(static_cast<Int>(index)), make_string(message)), message};
         }
         ++index;

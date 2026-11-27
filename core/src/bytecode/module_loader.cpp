@@ -42,6 +42,9 @@ struct MergeMaps {
   std::vector<std::uint32_t> closures;
   std::vector<std::uint32_t> type_checks;
   std::vector<std::uint32_t> native_functions;
+  // The number of locations the target had before the source's: a location number in the source is this much more in
+  // the target.
+  std::uint32_t location_base{0};
 };
 
 struct LoadedImports {
@@ -144,7 +147,10 @@ auto rebase_instruction_stream(const std::vector<Instruction>& source_instructio
     rebased.back().operand = 0;
   }
 
-  for (auto& [opcode, operand] : rebased) {
+  for (auto& [opcode, location, operand] : rebased) {
+    if (location != kNoLocation) {
+      location += maps.location_base;
+    }
     switch (opcode) {
       case Opcode::kPushConst:
         operand = static_cast<std::int64_t>(maps.constants[static_cast<std::size_t>(operand)]);
@@ -241,6 +247,23 @@ auto merge_module_into(Module& target, const Module& source,
     });
   }
 
+  // The source's files and locations go after the target's. A module may share a file with one merged before it only
+  // if both were compiled from it, so files are not merged.
+  maps.location_base = static_cast<std::uint32_t>(target.locations.size());
+  const auto file_base = static_cast<std::uint32_t>(target.source_files.size());
+  target.source_files.insert(target.source_files.end(), source.source_files.begin(), source.source_files.end());
+  target.locations.reserve(target.locations.size() + source.locations.size());
+  for (SourceLocation location : source.locations) {
+    location.file += file_base;
+    if (location.inlined_function.has_value()) {
+      location.inlined_function = maps.functions[*location.inlined_function];
+    }
+    if (location.inlined_at != kNoLocation) {
+      location.inlined_at += maps.location_base;
+    }
+    target.locations.push_back(location);
+  }
+
   for (std::uint32_t index = 0; index < static_cast<std::uint32_t>(source.functions.size()); ++index) {
     const auto& function = source.functions[index];
     if (function.is_import_placeholder) {
@@ -320,7 +343,14 @@ auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOp
     return std::optional<Module>{};
   }
 
-  if (const auto verified = verify_module_builtin_callsites(*deserialized); !verified) {
+  auto verified = verify_module_operands(*deserialized);
+  if (verified) {
+    verified = verify_module_builtin_callsites(*deserialized);
+  }
+  if (verified) {
+    verified = verify_module_locations(*deserialized);
+  }
+  if (!verified) {
     if (!paths.source.has_value()) {
       return tl::unexpected(make_error(verified.error().message));
     }

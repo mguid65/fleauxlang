@@ -62,7 +62,7 @@ struct ConstantPropagationSelectPass {
 
 // Always-on pass: fuses a read of an item of a tuple in a local slot (kLoadLocal or kTakeLocal of the slot, kPushConst
 // of the index, kElementAt) into one kLoadLocalItem or kTakeLocalItem, which reads the item without copying the tuple.
-// A read stays as it is when its index is not a UInt64 constant of at most kMaxLocalItemIndex, or when a jump lands
+// A read stays as it is when its index is not an Int64 constant from 0 to kMaxLocalItemIndex, or when a jump lands
 // inside it. It runs after the other passes, since constant folding can make an index constant. The compiler's
 // liveness pass has already made the last read of each slot a kTakeLocal (local_liveness.hpp).
 struct LocalItemReadFusionPass {
@@ -71,8 +71,7 @@ struct LocalItemReadFusionPass {
 
 class BytecodeOptimizer {
 public:
-  [[nodiscard]] auto optimize(Module& module, const OptimizerConfig& config = OptimizerConfig{}) const
-      -> OptimizeResult;
+  [[nodiscard]] auto optimize(Module& module, const OptimizerConfig& config = OptimizerConfig{}) const -> OptimizeResult;
 
 private:
   // Always-on passes: low-risk, correctness/simplification only.

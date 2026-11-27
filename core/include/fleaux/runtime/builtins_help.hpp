@@ -19,6 +19,8 @@ struct HelpMetadata {
   std::string signature;
   std::vector<std::string> doc_lines;
   bool is_builtin = false;
+  // A value let (Std.Pi), which Help describes as a value rather than a function.
+  bool is_value = false;
 };
 
 using HelpMetadataStore = common::TrieMap<HelpMetadata>;
@@ -231,7 +233,8 @@ struct ParsedDoc {
 
   const auto [brief, params, tparams, returns, notes] = detail::parse_doc_lines(metadata->get().doc_lines);
 
-  std::string result = std::format("Help on function {} \n\n  {}\n", metadata->get().name, metadata->get().signature);
+  std::string result = std::format("Help on {} {} \n\n  {}\n", metadata->get().is_value ? "value" : "function", metadata->get().name,
+                                   metadata->get().signature);
 
   if (!brief.empty()) {
     result += std::format("\n{}\n", brief);

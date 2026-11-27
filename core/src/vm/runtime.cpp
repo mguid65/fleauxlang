@@ -38,6 +38,32 @@ auto make_runtime_error(const std::string& message, const std::optional<std::str
   };
 }
 
+// A failure already reported, thrown through C++ code such as a builtin that calls a function value: the error the
+// function value's run returned, with the calls it failed in, or the error of a builtin a function value stands for.
+// Whatever catches it reports the error as it is, rather than as a failure of its own.
+class ReportedFailure final : public std::runtime_error {
+public:
+  explicit ReportedFailure(RuntimeError error) : std::runtime_error(error.message), error_(std::move(error)) {}
+
+  [[nodiscard]] auto error() const -> const RuntimeError& { return error_; }
+
+private:
+  RuntimeError error_;
+};
+
+// The error of `name` (a builtin, an opcode's Std function, or an extension function) when it threw `ex`: a reported
+// failure as it is, and any other exception as `name: what`.
+// A failure the program reports itself (Std.Panic) has its own message alone.
+auto error_from_exception(const std::exception& ex, const std::string_view name) -> RuntimeError {
+  if (const auto* reported = dynamic_cast<const ReportedFailure*>(&ex); reported != nullptr) {
+    return reported->error();
+  }
+  if (dynamic_cast<const runtime::ProgramFailure*>(&ex) != nullptr) {
+    return make_runtime_error(ex.what());
+  }
+  return make_runtime_error(std::format("{}: {}", name, ex.what()));
+}
+
 [[nodiscard]] auto make_process_args_for_invocation(const std::vector<std::string>& process_args,
                                                     const std::string_view entry_label) -> std::vector<std::string> {
   std::vector<std::string> scoped_args;
@@ -147,25 +173,26 @@ auto pop_function_value(std::vector<Value>& stack, const char* opname, const std
   return PoppedFunction{.value = std::move(function), .callable = callable};
 }
 
+// Runs an opcode's operation that can call function values; `name` is the Std function the opcode stands for.
 template <typename Fn>
-auto run_native_op(const char* opname, Fn&& fn) -> tl::expected<Value, RuntimeError> {
+auto run_native_op(const std::string_view name, Fn&& fn) -> tl::expected<Value, RuntimeError> {
   try {
     return fn();
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("native '") + opname + "' threw: " + ex.what()));
+    return tl::unexpected(error_from_exception(ex, name));
   }
 }
 
 // Why a kLoadLocalItem or kTakeLocalItem of `local` failed, with kLoadLocal's message for a slot past the frame's
 // locals and kElementAt's otherwise.
-auto local_item_read_error(const Value* local) -> RuntimeError {
+auto local_item_read_error(const Value* local, const std::uint32_t item) -> RuntimeError {
   if (local == nullptr) {
     return make_runtime_error("local slot index out of range");
   }
   if (!local->is_tuple()) {
-    return make_runtime_error(std::string("native 'element_at' threw: ") + runtime::kind_error("Tuple").what());
+    return make_runtime_error(std::format("Std.ElementAt: {}", runtime::kind_error("Tuple").what()));
   }
-  return make_runtime_error("native 'element_at' threw: ElementAt: index out of range");
+  return make_runtime_error(std::format("Std.ElementAt: {}", runtime::index_out_of_range_message(item, local->tuple().size())));
 }
 
 // The helpers below run for every arithmetic, comparison, and logic opcode, so they fail with a message rather than a
@@ -174,16 +201,17 @@ auto local_item_read_error(const Value* local) -> RuntimeError {
 
 // Replaces the top two stack values, the left operand below the right, with op(left, right). The operands stay in
 // their slots while op reads them, and the result goes into the left one's.
+// `name` is the Std function the opcode stands for.
 template <typename Op>
-auto apply_binary_op(std::vector<Value>& stack, const char* opname, Op&& op) -> tl::expected<void, std::string> {
+auto apply_binary_op(std::vector<Value>& stack, const char* name, Op&& op) -> tl::expected<void, std::string> {
   if (stack.size() < 2U) {
-    return tl::unexpected(stack_underflow(opname).message);
+    return tl::unexpected(stack_underflow(name).message);
   }
   Value& lhs = stack[stack.size() - 2U];
   try {
     lhs = std::forward<Op>(op)(lhs, stack.back());
   } catch (const std::exception& ex) {
-    return tl::unexpected(std::string("native '") + opname + "' threw: " + ex.what());
+    return tl::unexpected(std::format("{}: {}", name, ex.what()));
   }
   stack.pop_back();
   return {};
@@ -191,15 +219,15 @@ auto apply_binary_op(std::vector<Value>& stack, const char* opname, Op&& op) -> 
 
 // Replaces the top stack value with op(value), in its slot.
 template <typename Op>
-auto apply_unary_op(std::vector<Value>& stack, const char* opname, Op&& op) -> tl::expected<void, std::string> {
+auto apply_unary_op(std::vector<Value>& stack, const char* name, Op&& op) -> tl::expected<void, std::string> {
   if (stack.empty()) {
-    return tl::unexpected(stack_underflow(opname).message);
+    return tl::unexpected(stack_underflow(name).message);
   }
   Value& value = stack.back();
   try {
     value = std::forward<Op>(op)(value);
   } catch (const std::exception& ex) {
-    return tl::unexpected(std::string("native '") + opname + "' threw: " + ex.what());
+    return tl::unexpected(std::format("{}: {}", name, ex.what()));
   }
   return {};
 }
@@ -212,7 +240,7 @@ auto call_native_function(const bytecode::NativeFunctionRecord& record, const ru
   try {
     result = function(arg);
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::format("native function '{}' failed: {}", record.symbol, ex.what())));
+    return tl::unexpected(error_from_exception(ex, record.symbol));
   }
   if (!runtime::value_matches_type_check(result, record.return_check)) {
     return tl::unexpected(make_runtime_error(std::format("native function '{}' returned {}, but it is declared to return {}",
@@ -248,11 +276,6 @@ void collapse_stack_tail_into_tuple(std::vector<Value>& stack, const std::size_t
   Value tuple = runtime::make_tuple_moved(std::span{stack}.subspan(base));
   stack.resize(base);
   stack.push_back(std::move(tuple));
-}
-
-// The items of `source` from `first_index` on, moved into a tuple of their own.
-auto make_array_tail_value(const std::span<Value> source, const std::size_t first_index) -> Value {
-  return runtime::make_tuple_moved(source.subspan(first_index));
 }
 
 struct CallFrame {
@@ -478,6 +501,85 @@ constexpr std::size_t k_min_frame_capacity = 4U;
   return std::max(k_min_stack_capacity, instruction_count);
 }
 
+// The calls of a failed run
+
+// A function's name as a chain of calls shows it: without its overload number, and "a closure" for a closure.
+auto display_function_name(const std::string_view name) -> std::string {
+  if (name.starts_with("__closure_")) {
+    return "a closure";
+  }
+  return std::string{name.substr(0, name.find('#'))};
+}
+
+// The Std function or extension function that an instruction calls, when it can call a function value back from C++,
+// and empty otherwise.
+auto calling_back_name(const bytecode::Module& bytecode_module, const bytecode::Instruction& instruction) -> std::string {
+  switch (instruction.opcode) {
+    case bytecode::Opcode::kCallBuiltin:
+    case bytecode::Opcode::kCallBuiltinArgs:
+      if (const auto builtin_id = builtin_id_from_operand(instruction.operand); builtin_id.has_value()) {
+        return std::string{builtin_name(*builtin_id)};
+      }
+      return {};
+    case bytecode::Opcode::kCallNative:
+      if (const auto index = static_cast<std::size_t>(instruction.operand);
+          instruction.operand >= 0 && index < bytecode_module.native_functions.size()) {
+        return bytecode_module.native_functions[index].symbol;
+      }
+      return {};
+    default:
+      return {};
+  }
+}
+
+// Appends the calls of the frames on the stack to `calls`, innermost first. Each frame's position is one past the
+// instruction it was running or calling; a location inlined into a call expands into the call too. A call names the
+// builtin it went through: the builtin whose in-place form made it, from its location, or, when `calls` already holds
+// the calls of a function value that failed inside the innermost frame's instruction, the builtin that instruction
+// called, which called the function value back.
+void append_calls(std::vector<RuntimeCall>& calls, const bytecode::Module& bytecode_module, const CallFrameStack& frames) {
+  for (std::size_t depth = frames.active_size; depth > 0U; --depth) {
+    const CallFrame& frame = frames.storage[depth - 1U];
+    if (frame.instructions == nullptr || frame.ip == 0U || frame.ip > frame.instructions->size()) {
+      continue;
+    }
+    const bytecode::Instruction& instruction = (*frame.instructions)[frame.ip - 1U];
+    const auto function = std::ranges::find(bytecode_module.functions, frame.instructions,
+                                            [](const bytecode::FunctionDef& def) { return &def.instructions; });
+    const std::string frame_function = function == bytecode_module.functions.end() ? std::string{} : display_function_name(function->name);
+    std::string through = depth == frames.active_size && !calls.empty() ? calling_back_name(bytecode_module, instruction) : std::string{};
+
+    const bytecode::SourceLocation* location = bytecode::find_location(bytecode_module.locations, instruction.location);
+    if (location == nullptr) {
+      calls.push_back(RuntimeCall{.function = frame_function, .through = std::move(through)});
+      continue;
+    }
+    while (location != nullptr) {
+      const bytecode::SourceFileRecord& file = bytecode_module.source_files[location->file];
+      std::string function_name = frame_function;
+      if (location->inlined_function.has_value()) {
+        function_name = display_function_name(bytecode_module.functions[*location->inlined_function].name);
+      } else if (location->inlined_closure) {
+        function_name = "a closure";
+      }
+      if (location->called_by.has_value()) {
+        through = std::string{builtin_name(static_cast<BuiltinId>(*location->called_by))};
+      }
+      calls.push_back(RuntimeCall{
+          .function = std::move(function_name),
+          .through = std::exchange(through, std::string{}),
+          .file = file.path,
+          .file_hash = file.hash,
+          .line = location->line,
+          .column = location->column,
+          .end_line = location->end_line,
+          .end_column = location->end_column,
+      });
+      location = bytecode::find_location(bytecode_module.locations, location->inlined_at);
+    }
+  }
+}
+
 [[nodiscard]] auto suggested_frame_stack_capacity(const std::size_t function_count) -> std::size_t {
   return std::max(k_min_frame_capacity, function_count + 1U);
 }
@@ -539,83 +641,16 @@ using BinaryBuiltin = auto (*)(const Value&, const Value&) -> Value;
   }
 }
 
-// Binds a call argument to the parameters of a user function. Argument counts and shapes are guaranteed by the type
-// checker for Fleaux callers and by the host entry check for host callers, so they are not checked again here.
-void bind_user_function_locals(CallFrame& frame, const std::uint32_t arity, const bool has_variadic_tail, Value arg) {
-  reset_frame_locals(frame);
-  if (frame.locals.capacity() < arity) {
-    frame.locals.reserve(arity);
-  }
-
-  if (arity == 0U) {
-    return;
-  }
-
-  if (!has_variadic_tail) {
-    if (arity == 1U) {
-      activate_inline_locals(frame, 1U);
-      // Pipeline/user-call lhs adaptation is syntax-aware and already happens before runtime binding.
-      // Do not unwrap again here, because real singleton tuple values are meaningful arguments.
-      frame.inline_locals[0] = std::move(arg);
-      return;
-    }
-
-    const std::span<Value> arr = arg.mutable_tuple();
-    if (arity == 2U) {
-      activate_inline_locals(frame, 2U);
-      frame.inline_locals[0] = std::move(arr[0]);
-      frame.inline_locals[1] = std::move(arr[1]);
-      return;
-    }
-
-    for (std::uint32_t arg_index = 0; arg_index < arity; ++arg_index) {
-      frame.locals.emplace_back(std::move(arr[static_cast<std::size_t>(arg_index)]));
-    }
-    return;
-  }
-
-  // Variadic: final parameter captures remaining args as a tuple.
-  if (arity == 1U) {
-    activate_inline_locals(frame, 1U);
-    frame.inline_locals[0] = arg.is_tuple() ? std::move(arg) : runtime::make_tuple(std::move(arg));
-    return;
-  }
-
-  const auto fixed_count = static_cast<std::size_t>(arity - 1U);
-  const std::span<Value> arr = arg.mutable_tuple();
-  for (std::size_t arg_index = 0; arg_index < fixed_count; ++arg_index) {
-    frame.locals.emplace_back(std::move(arr[arg_index]));
-  }
-  frame.locals.emplace_back(make_array_tail_value(arr, fixed_count));
-}
-
-// Binds the top `arity` values of the stack, the first argument deepest, to the parameters of a frame just pushed,
-// and pops them.
-void bind_stack_arguments(CallFrame& frame, std::vector<Value>& stack, const std::size_t arity) {
-  const auto base = stack.size() - arity;
-  if (arity <= frame.inline_locals.size()) {
-    activate_inline_locals(frame, arity);
-    for (std::size_t index = 0; index < arity; ++index) {
-      frame.inline_locals[index] = std::move(stack[base + index]);
-    }
-  } else {
-    frame.locals.reserve(arity);
-    for (std::size_t index = 0; index < arity; ++index) {
-      frame.locals.push_back(std::move(stack[base + index]));
-    }
-  }
-  stack.resize(base);
-}
-
-// Function values
+// Binding a call
 //
 // A function value is a compiled function and the values it holds: none for a named function, the captures of a
 // closure, or the hidden operator arguments of a generic function. Entering one puts those values in the first slots
-// of the new frame, where its body reads them, and binds the arguments to the parameters it declares. The arguments
-// come either as the one value Callable::call takes (the argument itself for one parameter, the tuple of the arguments
-// otherwise) or as separate values on top of the stack.
+// of the new frame, where its body reads them, and binds the arguments to the parameters it declares. A call of a user
+// function binds the same way, as a function value that holds nothing. The arguments come either as one value (the
+// argument itself for one parameter, the tuple of the arguments otherwise: bind_argument) or as consecutive values,
+// such as the top of the stack (bind_arguments).
 
-// The parameters a function value declares, after the values it holds.
+// The parameters a function declares, after the values it holds.
 struct DeclaredParameters {
   std::uint32_t arity{0U};
   bool variadic{false};
@@ -666,9 +701,8 @@ auto function_value_argument_error(const std::string& name, const DeclaredParame
                                         count));
 }
 
-// Binds the argument value of a call of a function value, after the values it holds.
-auto bind_function_value_argument(CallFrame& frame, const runtime::TupleView held,
-                                  const DeclaredParameters parameters, Value argument) -> BindFailure {
+// Binds the argument value of a call to a frame just pushed, after the values the function holds.
+auto bind_argument(CallFrame& frame, const runtime::TupleView held, const DeclaredParameters parameters, Value argument) -> BindFailure {
   if (parameters.arity < 2U) {
     FrameSlotWriter slots(frame, held.size() + parameters.arity);
     slots.push_all(held);
@@ -714,59 +748,40 @@ auto bind_function_value_argument(CallFrame& frame, const runtime::TupleView hel
   return std::nullopt;
 }
 
-// Binds `count` arguments on top of the stack, the first deepest, to a call of a function value, after the values it
-// holds, and pops them.
-auto bind_function_value_stack_arguments(CallFrame& frame, const runtime::TupleView held,
-                                         const DeclaredParameters parameters, std::vector<Value>& stack,
-                                         const std::size_t count) -> BindFailure {
+// Binds the consecutive argument values of a call, the first first, to a frame just pushed, after the values the
+// function holds. It moves the values out; the caller drops what is left of them.
+auto bind_arguments(CallFrame& frame, const runtime::TupleView held, const DeclaredParameters parameters, const std::span<Value> arguments)
+    -> BindFailure {
   const std::size_t fixed = parameters.variadic ? parameters.arity - 1U : parameters.arity;
-  if (parameters.arity < 2U || count < fixed) {
+  if (parameters.arity < 2U || arguments.size() < fixed) {
     // A function of one parameter takes the arguments as one tuple, and too few arguments are reported as for a
     // tuple of them.
-    collapse_stack_tail_into_tuple(stack, count);
-    Value argument = std::move(stack.back());
-    stack.pop_back();
-    return bind_function_value_argument(frame, held, parameters, std::move(argument));
+    return bind_argument(frame, held, parameters, runtime::make_tuple_moved(arguments));
   }
 
-  const std::size_t base = stack.size() - count;
   FrameSlotWriter slots(frame, held.size() + parameters.arity);
   slots.push_all(held);
   for (std::size_t index = 0; index < fixed; ++index) {
-    slots.push(std::move(stack[base + index]));
+    slots.push(std::move(arguments[index]));
   }
   if (parameters.variadic) {
-    slots.push(runtime::make_tuple_moved(std::span{stack}.subspan(base + fixed)));
+    slots.push(runtime::make_tuple_moved(arguments.subspan(fixed)));
   }
-  stack.resize(base);
   return std::nullopt;
 }
 
-// Binds the two arguments of a call of a function value of two parameters, after the values it holds.
-void bind_function_value_pair(CallFrame& frame, const runtime::TupleView held, Value lhs, Value rhs) {
-  FrameSlotWriter slots(frame, held.size() + 2U);
-  slots.push_all(held);
-  slots.push(std::move(lhs));
-  slots.push(std::move(rhs));
+// Binds the top `count` values of the stack to a frame just pushed, and pops them.
+auto bind_stack_arguments(CallFrame& frame, const runtime::TupleView held, const DeclaredParameters parameters, std::vector<Value>& stack,
+                          const std::size_t count) -> BindFailure {
+  const std::size_t base = stack.size() - count;
+  const BindFailure failure = bind_arguments(frame, held, parameters, std::span{stack}.subspan(base));
+  stack.resize(base);
+  return failure;
 }
 
-auto run_loop_intrinsic(Value state, const Value& continue_func, const Value& step_func,
-                        const std::optional<std::size_t> max_iters) -> tl::expected<Value, RuntimeError> {
-  try {
-    const runtime::Callable& continue_callable = runtime::as_callable(continue_func);
-    const runtime::Callable& step_callable = runtime::as_callable(step_func);
-    std::size_t iterations = 0;
-    while (runtime::as_bool(continue_callable.call(state))) {
-      if (max_iters.has_value() && iterations >= *max_iters) {
-        throw std::runtime_error("LoopN: exceeded max_iters");
-      }
-      state = step_callable.call(std::move(state));
-      ++iterations;
-    }
-    return state;
-  } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("native 'loop' threw: ") + ex.what()));
-  }
+// The parameters of a user function, which holds no values.
+auto user_function_parameters(const bytecode::FunctionDef& function) -> DeclaredParameters {
+  return DeclaredParameters{.arity = function.arity, .variadic = function.has_variadic_tail};
 }
 
 // run_user_function
@@ -792,7 +807,9 @@ auto run_user_function(const RunningModule& running_module, const std::size_t fn
   const ScopedInvocationScratch scratch{suggested_operand_stack_capacity(function.instructions.size()),
                                         suggested_frame_stack_capacity(functions.size())};
   auto& frame = scratch.frames().push(&function.instructions);
-  bind_user_function_locals(frame, function.arity, function.has_variadic_tail, std::move(arg));
+  if (const BindFailure failure = bind_argument(frame, {}, user_function_parameters(function), std::move(arg)); failure.has_value()) {
+    return tl::unexpected(function_value_argument_error(function.name, user_function_parameters(function), *failure));
+  }
   return function_result(run_loop(running_module, scratch.stack(), scratch.frames(), output), function.name);
 }
 
@@ -800,7 +817,7 @@ auto run_user_function(const RunningModule& running_module, const std::size_t fn
 // report failures by throwing.
 auto value_or_throw(tl::expected<Value, RuntimeError> result) -> Value {
   if (!result) {
-    throw std::runtime_error(result.error().message);
+    throw ReportedFailure(std::move(result.error()));
   }
   return std::move(*result);
 }
@@ -828,13 +845,13 @@ public:
 
   // Binds a call's argument value to the frame entered for the call.
   [[nodiscard]] auto bind(CallFrame& frame, Value argument) const -> BindFailure {
-    return bind_function_value_argument(frame, held_items_, parameters_, std::move(argument));
+    return bind_argument(frame, held_items_, parameters_, std::move(argument));
   }
 
   // Binds `count` arguments on top of the stack to the frame entered for the call, and pops them.
   [[nodiscard]] auto bind_from_stack(CallFrame& frame, std::vector<Value>& stack, const std::size_t count) const
       -> BindFailure {
-    return bind_function_value_stack_arguments(frame, held_items_, parameters_, stack, count);
+    return bind_stack_arguments(frame, held_items_, parameters_, stack, count);
   }
 
   // The error for a call whose `count` arguments do not fit the parameters.
@@ -855,8 +872,8 @@ public:
       return Callable::call_binary(std::move(lhs), std::move(rhs));
     }
     return run([&](CallFrame& frame) -> BindFailure {
-      bind_function_value_pair(frame, held_items_, std::move(lhs), std::move(rhs));
-      return std::nullopt;
+      std::array<Value, 2> pair{std::move(lhs), std::move(rhs)};
+      return bind_arguments(frame, held_items_, parameters_, pair);
     });
   }
 
@@ -865,31 +882,38 @@ private:
   // the loop's result in place rather than through function_result.
   template <typename Bind>
   [[nodiscard]] auto run(Bind&& bind_arguments) const -> Value {
-    std::string error;
-    if (auto value = run_or_fail(std::forward<Bind>(bind_arguments), error); value.has_value()) {
-      return std::move(*value);
+    auto result = run_to_result(std::forward<Bind>(bind_arguments));
+    if (!result) {
+      throw ReportedFailure(std::move(result.error()));
     }
-    throw std::runtime_error(error);
+    return std::move(*result);
   }
 
   template <typename Bind>
   [[nodiscard]] auto run_or_fail(Bind&& bind_arguments, std::string& error) const -> std::optional<Value> {
+    auto result = run_to_result(std::forward<Bind>(bind_arguments));
+    if (!result) {
+      error = std::move(result.error().message);
+      return std::nullopt;
+    }
+    return std::move(*result);
+  }
+
+  template <typename Bind>
+  [[nodiscard]] auto run_to_result(Bind&& bind_arguments) const -> tl::expected<Value, RuntimeError> {
     const ScopedInvocationScratch scratch{operand_stack_capacity_, frame_stack_capacity_};
     auto& frame = scratch.frames().push(&function_->instructions);
     if (const BindFailure failure = std::forward<Bind>(bind_arguments)(frame); failure.has_value()) {
-      error = argument_error(*failure).message;
-      return std::nullopt;
+      return tl::unexpected(argument_error(*failure));
     }
     auto loop_result = run_loop(*module_, scratch.stack(), scratch.frames(), *output_);
     if (!loop_result) {
-      error = std::move(loop_result.error().message);
-      return std::nullopt;
+      return tl::unexpected(std::move(loop_result.error()));
     }
     if (auto* value = std::get_if<Value>(&*loop_result); value != nullptr) {
       return std::move(*value);
     }
-    error = "halt inside function '" + function_->name + "'";
-    return std::nullopt;
+    return tl::unexpected(make_runtime_error("halt inside function '" + function_->name + "'"));
   }
 
   const RunningModule* module_;
@@ -977,17 +1001,27 @@ auto make_function_value(const RunningModule& running_module, const bytecode::Fu
 // module) with `argument`, which it takes. It returns the result for the caller to store rather than storing it and
 // returning tl::expected<void, RuntimeError>, whose success is zero-filled in full (see apply_binary_op): builtins
 // called as values, such as the operators of generic functions, come through here on every call.
-auto call_function_value_natively(Value& argument, const runtime::Callable& callable, const char* opname)
+auto call_function_value_natively(Value& argument, const runtime::Callable& callable, const std::string_view name)
     -> tl::expected<Value, RuntimeError> {
-  return run_native_op(opname, [&]() -> Value { return callable.call(std::move(argument)); });
+  return run_native_op(name, [&]() -> Value { return callable.call(std::move(argument)); });
 }
 
 auto make_builtin_function_value(const BuiltinId builtin_id) -> Value { return runtime::adopt_function(new BuiltinCallable(builtin_id)); }
 
-// run_loop
+// The loop's result when it fails in `frame` at `position`, one past the failing instruction: `error`, with the position
+// stored in the frame for run_loop to read the calls from. It takes the position by value, so that the loop keeps its
+// own in a register.
+[[nodiscard]] auto fail_at(CallFrame& frame, const std::ptrdiff_t position, RuntimeError error) -> LoopResult {
+  frame.ip = static_cast<std::size_t>(position);
+  return tl::unexpected(std::move(error));
+}
 
-auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, CallFrameStack& frames,
-              std::ostream& output) -> LoopResult {
+// run_instructions
+
+// Runs the frames on the stack until the bottom one returns or halts. A failure leaves the frames as they were, with
+// the failing frame's position stored, for run_loop to read its calls from.
+auto run_instructions(const RunningModule& running_module, std::vector<Value>& stack, CallFrameStack& frames, std::ostream& output)
+    -> LoopResult {
   const bytecode::Module& bytecode_module = running_module.bytecode();
   const std::vector<Value>& constants = running_module.constants();
   if (frames.empty()) {
@@ -1013,7 +1047,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
   for (;;) {
     if (ip >= end) {
-      return tl::unexpected(make_runtime_error("program terminated without halt"));
+      return fail_at(*frame, ip - code, make_runtime_error("program terminated without halt"));
     }
     const auto opcode = ip->opcode;
     const auto operand = ip->operand;
@@ -1026,7 +1060,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kPushConst: {
         const auto idx = static_cast<std::size_t>(operand);
         if (idx >= constants.size()) {
-          return tl::unexpected(make_runtime_error("constant pool index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("constant pool index out of range"));
         }
         stack.push_back(constants[idx]);
         break;
@@ -1034,14 +1068,14 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kPop:
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("pop"));
+          return fail_at(*frame, ip - code, stack_underflow("pop"));
         }
         stack.pop_back();
         break;
 
       case bytecode::Opcode::kDup: {
         if (stack.empty()) {
-          return tl::unexpected(make_runtime_error("stack underflow on dup"));
+          return fail_at(*frame, ip - code, make_runtime_error("stack underflow on dup"));
         }
         stack.push_back(stack.back());
         break;
@@ -1050,7 +1084,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kBuildTuple: {
         const auto tuple_size = static_cast<std::size_t>(operand);
         if (stack.size() < tuple_size) {
-          return tl::unexpected(make_runtime_error("stack underflow on build_tuple"));
+          return fail_at(*frame, ip - code, make_runtime_error("stack underflow on build_tuple"));
         }
         collapse_stack_tail_into_tuple(stack, tuple_size);
         break;
@@ -1059,7 +1093,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kConcatTuples: {
         const auto count = static_cast<std::size_t>(operand);
         if (operand < 0 || stack.size() < count) {
-          return tl::unexpected(make_runtime_error("stack underflow on concat_tuples"));
+          return fail_at(*frame, ip - code, make_runtime_error("stack underflow on concat_tuples"));
         }
         const std::size_t first = stack.size() - count;
         std::size_t total = 0;
@@ -1079,18 +1113,18 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kTryCheckType: {
         const auto idx = static_cast<std::size_t>(operand);
         if (operand < 0 || idx >= bytecode_module.type_checks.size()) {
-          return tl::unexpected(make_runtime_error("type check index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("type check index out of range"));
         }
         auto value = pop_stack(stack, "check_type");
         if (!value)
-          return tl::unexpected(value.error());
+          return fail_at(*frame, ip - code, value.error());
         const auto& check = bytecode_module.type_checks[idx];
         if (opcode == bytecode::Opcode::kTryCheckType) {
           stack.push_back(runtime::try_check_cast(std::move(*value), check));
           break;
         }
         if (!runtime::value_matches_type_check(*value, check)) {
-          return tl::unexpected(make_runtime_error(runtime::type_check_failure_message("Std.Cast", *value, check)));
+          return fail_at(*frame, ip - code, make_runtime_error(runtime::type_check_failure_message("Std.Cast", *value, check)));
         }
         stack.push_back(std::move(*value));
         break;
@@ -1100,15 +1134,15 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const auto idx = static_cast<std::size_t>(operand);
         const auto& bound = runtime::runtime_execution_state().native_functions;
         if (operand < 0 || idx >= bytecode_module.native_functions.size() || idx >= bound.size()) {
-          return tl::unexpected(make_runtime_error("native function index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("native function index out of range"));
         }
         auto arg = pop_stack(stack, "call_native");
         if (!arg)
-          return tl::unexpected(arg.error());
+          return fail_at(*frame, ip - code, arg.error());
         const auto& record = bytecode_module.native_functions[idx];
         auto result = call_native_function(record, bound[idx], *arg);
         if (!result)
-          return tl::unexpected(result.error());
+          return fail_at(*frame, ip - code, result.error());
         stack.push_back(std::move(*result));
         break;
       }
@@ -1116,14 +1150,14 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kBuildTupleCounted: {
         auto count = pop_stack(stack, "build_tuple_counted");
         if (!count) {
-          return tl::unexpected(count.error());
+          return fail_at(*frame, ip - code, count.error());
         }
         if (!count->is_uint()) {
-          return tl::unexpected(make_runtime_error("build_tuple_counted expects a UInt64 count"));
+          return fail_at(*frame, ip - code, make_runtime_error("build_tuple_counted expects a UInt64 count"));
         }
         const std::size_t tuple_size = runtime::to_index(count->uint_value());
         if (stack.size() < tuple_size) {
-          return tl::unexpected(make_runtime_error("stack underflow on build_tuple_counted"));
+          return fail_at(*frame, ip - code, make_runtime_error("stack underflow on build_tuple_counted"));
         }
         collapse_stack_tail_into_tuple(stack, tuple_size);
         break;
@@ -1132,7 +1166,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kIterate: {
         const auto items_slot = static_cast<std::size_t>(operand);
         if (operand < 0) {
-          return tl::unexpected(make_runtime_error("iterate slot index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("iterate slot index out of range"));
         }
         // The items, the index, and the item are three slots in a row. Making the item's, the highest, makes the other
         // two and keeps the locals in the frame's vector, so one lookup finds all three.
@@ -1142,7 +1176,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         Value& index = slots[1];
         Value& item = slots[2];
         if (!items.is_tuple() || !index.is_uint()) {
-          return tl::unexpected(make_runtime_error("iterate expects a tuple and a UInt64 index"));
+          return fail_at(*frame, ip - code, make_runtime_error("iterate expects a tuple and a UInt64 index"));
         }
         if (const auto position = runtime::to_index(index.uint_value()); position < items.tuple().size()) {
           // Nothing but this loop reads the slot, so the items move out of a tuple nothing else refers to. The copy
@@ -1162,24 +1196,24 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       }
 
       case bytecode::Opcode::kElementAt:
-        if (auto applied = apply_binary_op(stack, "element_at",
+        if (auto applied = apply_binary_op(stack, "Std.ElementAt",
                                            [](Value& lhs, const Value& rhs) -> Value { return runtime::take_element(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCallBuiltin: {
         const auto builtin_id = builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
-          return tl::unexpected(make_runtime_error("builtin index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("builtin index out of range"));
         }
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("call_builtin"));
+          return fail_at(*frame, ip - code, stack_underflow("call_builtin"));
         }
         auto result = dispatch_builtin(*builtin_id, std::move(stack.back()));
         if (!result)
-          return tl::unexpected(result.error());
+          return fail_at(*frame, ip - code, result.error());
         stack.back() = std::move(*result);
         break;
       }
@@ -1187,17 +1221,17 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kCallBuiltinArgs: {
         const auto builtin_id = builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
-          return tl::unexpected(make_runtime_error("unknown builtin id"));
+          return fail_at(*frame, ip - code, make_runtime_error("unknown builtin id"));
         }
         const std::size_t count = builtin_argument_count_from_operand(operand);
         if (stack.size() < count) {
-          return tl::unexpected(stack_underflow("call_builtin_args"));
+          return fail_at(*frame, ip - code, stack_underflow("call_builtin_args"));
         }
         // The builtin works on the arguments where they are: nothing it calls back into uses this stack.
         const std::size_t base = stack.size() - count;
         auto result = dispatch_builtin_args(*builtin_id, std::span{stack}.subspan(base));
         if (!result) {
-          return tl::unexpected(result.error());
+          return fail_at(*frame, ip - code, result.error());
         }
         // The result takes the first argument's slot, and the rest go from the top.
         if (count == 0U) {
@@ -1212,18 +1246,21 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kCallUserFunc: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
-          return tl::unexpected(make_runtime_error("function index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("function index out of range"));
         }
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("call_user_func"));
+          return fail_at(*frame, ip - code, stack_underflow("call_user_func"));
         }
         Value arg = std::move(stack.back());
         stack.pop_back();
 
         const auto& function = bytecode_module.functions[fn_idx];
         leave_frame();
-        bind_user_function_locals(frames.push(&function.instructions), function.arity, function.has_variadic_tail,
-                                  std::move(arg));
+        if (const BindFailure failure =
+                bind_argument(frames.push(&function.instructions), {}, user_function_parameters(function), std::move(arg));
+            failure.has_value()) {
+          return fail_at(*frame, ip - code, function_value_argument_error(function.name, user_function_parameters(function), *failure));
+        }
         enter_top_frame();
         break;
       }
@@ -1231,20 +1268,24 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kCallUserFuncArgs: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
-          return tl::unexpected(make_runtime_error("function index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("function index out of range"));
         }
         const auto& function = bytecode_module.functions[fn_idx];
         const std::size_t arity = function.arity;
         if (function.has_variadic_tail || arity < 2U) {
-          return tl::unexpected(make_runtime_error(
-              "call_user_func_args requires a non-variadic function of two or more parameters, not '" + function.name +
-              "'"));
+          return fail_at(*frame, ip - code,
+                         make_runtime_error("call_user_func_args requires a non-variadic function of two or more parameters, not '" +
+                                            function.name + "'"));
         }
         if (stack.size() < arity) {
-          return tl::unexpected(stack_underflow("call_user_func_args"));
+          return fail_at(*frame, ip - code, stack_underflow("call_user_func_args"));
         }
         leave_frame();
-        bind_stack_arguments(frames.push(&function.instructions), stack, arity);
+        if (const BindFailure failure =
+                bind_stack_arguments(frames.push(&function.instructions), {}, user_function_parameters(function), stack, arity);
+            failure.has_value()) {
+          return fail_at(*frame, ip - code, function_value_argument_error(function.name, user_function_parameters(function), *failure));
+        }
         enter_top_frame();
         break;
       }
@@ -1252,13 +1293,13 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kCallFunctionValue: {
         auto function = pop_function_value(stack, "call_function_value", 1U);
         if (!function) {
-          return tl::unexpected(function.error());
+          return fail_at(*frame, ip - code, function.error());
         }
         const runtime::Callable& callable = *function->callable;
         if (callable.owner() != &running_module) {
-          auto result = call_function_value_natively(stack.back(), callable, "call_function_value");
+          auto result = call_function_value_natively(stack.back(), callable, "Std.Apply");
           if (!result) {
-            return tl::unexpected(result.error());
+            return fail_at(*frame, ip - code, result.error());
           }
           stack.back() = std::move(*result);
           break;
@@ -1269,7 +1310,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         leave_frame();
         if (const auto failure = compiled.bind(frames.push(&compiled.function().instructions), std::move(argument));
             failure.has_value()) {
-          return tl::unexpected(compiled.argument_error(*failure));
+          return fail_at(*frame, ip - code, compiled.argument_error(*failure));
         }
         enter_top_frame();
         break;
@@ -1277,20 +1318,20 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kCallFunctionValueArgs: {
         if (operand < 2) {
-          return tl::unexpected(make_runtime_error("call_function_value_args takes two or more arguments"));
+          return fail_at(*frame, ip - code, make_runtime_error("call_function_value_args takes two or more arguments"));
         }
         const auto count = static_cast<std::size_t>(operand);
         auto function = pop_function_value(stack, "call_function_value_args", count);
         if (!function) {
-          return tl::unexpected(function.error());
+          return fail_at(*frame, ip - code, function.error());
         }
         const runtime::Callable& callable = *function->callable;
         if (callable.owner() != &running_module) {
           // Any other function value takes the tuple of the arguments.
           collapse_stack_tail_into_tuple(stack, count);
-          auto result = call_function_value_natively(stack.back(), callable, "call_function_value_args");
+          auto result = call_function_value_natively(stack.back(), callable, "Std.Apply");
           if (!result) {
-            return tl::unexpected(result.error());
+            return fail_at(*frame, ip - code, result.error());
           }
           stack.back() = std::move(*result);
           break;
@@ -1299,7 +1340,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         leave_frame();
         if (const auto failure = compiled.bind_from_stack(frames.push(&compiled.function().instructions), stack, count);
             failure.has_value()) {
-          return tl::unexpected(compiled.argument_error(*failure));
+          return fail_at(*frame, ip - code, compiled.argument_error(*failure));
         }
         enter_top_frame();
         break;
@@ -1308,7 +1349,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kMakeUserFuncRef: {
         const auto fn_idx = static_cast<std::size_t>(operand);
         if (fn_idx >= bytecode_module.functions.size()) {
-          return tl::unexpected(make_runtime_error("function index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("function index out of range"));
         }
         stack.push_back(make_function_value(running_module, bytecode_module.functions[fn_idx], output));
         break;
@@ -1317,7 +1358,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kMakeBuiltinFuncRef: {
         const auto builtin_id = builtin_id_from_operand(operand);
         if (!builtin_id.has_value()) {
-          return tl::unexpected(make_runtime_error("builtin index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("builtin index out of range"));
         }
         stack.push_back(make_builtin_function_value(*builtin_id));
         break;
@@ -1326,18 +1367,18 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kMakeClosureRef: {
         const auto closure_idx = static_cast<std::size_t>(operand);
         if (closure_idx >= bytecode_module.closures.size()) {
-          return tl::unexpected(make_runtime_error("closure index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("closure index out of range"));
         }
 
         auto captured_tuple = pop_stack(stack, "make_closure_ref");
         if (!captured_tuple) {
-          return tl::unexpected(captured_tuple.error());
+          return fail_at(*frame, ip - code, captured_tuple.error());
         }
 
         const auto& [function_index, capture_count, declared_arity, declared_has_variadic_tail] =
             bytecode_module.closures[closure_idx];
         if (!captured_tuple->is_tuple() || captured_tuple->tuple().size() != capture_count) {
-          return tl::unexpected(make_runtime_error("closure capture tuple size mismatch"));
+          return fail_at(*frame, ip - code, make_runtime_error("closure capture tuple size mismatch"));
         }
 
         // The function value holds the capture tuple itself.
@@ -1349,7 +1390,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kReturn: {
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("return"));
+          return fail_at(*frame, ip - code, stack_underflow("return"));
         }
         frames.pop();
         if (frames.empty()) {
@@ -1367,7 +1408,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const auto slot = static_cast<std::size_t>(operand);
         const Value* local = try_get_local(*frame, slot);
         if (local == nullptr) {
-          return tl::unexpected(make_runtime_error("local slot index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("local slot index out of range"));
         }
         stack.push_back(*local);
         break;
@@ -1376,7 +1417,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kTakeLocal: {
         Value* local = try_get_local(*frame, static_cast<std::size_t>(operand));
         if (local == nullptr) {
-          return tl::unexpected(make_runtime_error("local slot index out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("local slot index out of range"));
         }
         stack.push_back(std::move(*local));
         break;
@@ -1384,7 +1425,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kStoreLocal: {
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("store_local"));
+          return fail_at(*frame, ip - code, stack_underflow("store_local"));
         }
         get_or_create_local(*frame, static_cast<std::size_t>(operand)) = std::move(stack.back());
         stack.pop_back();
@@ -1394,7 +1435,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kJump: {
         const auto target = static_cast<std::size_t>(operand);
         if (target > static_cast<std::size_t>(end - code)) {
-          return tl::unexpected(make_runtime_error("jump target out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("jump target out of range"));
         }
         ip = code + target;
         break;
@@ -1402,13 +1443,13 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kJumpIf: {
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("jump_if"));
+          return fail_at(*frame, ip - code, stack_underflow("jump_if"));
         }
         const bool condition = runtime::as_bool(stack.back());
         stack.pop_back();
         const auto target = static_cast<std::size_t>(operand);
         if (target > static_cast<std::size_t>(end - code)) {
-          return tl::unexpected(make_runtime_error("jump_if target out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("jump_if target out of range"));
         }
         if (condition) {
           ip = code + target;
@@ -1418,13 +1459,13 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
 
       case bytecode::Opcode::kJumpIfNot: {
         if (stack.empty()) {
-          return tl::unexpected(stack_underflow("jump_if_not"));
+          return fail_at(*frame, ip - code, stack_underflow("jump_if_not"));
         }
         const bool condition = runtime::as_bool(stack.back());
         stack.pop_back();
         const auto target = static_cast<std::size_t>(operand);
         if (target > static_cast<std::size_t>(end - code)) {
-          return tl::unexpected(make_runtime_error("jump_if_not target out of range"));
+          return fail_at(*frame, ip - code, make_runtime_error("jump_if_not target out of range"));
         }
         if (!condition) {
           ip = code + target;
@@ -1433,164 +1474,144 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       }
 
       case bytecode::Opcode::kAdd:
-        if (auto applied = apply_binary_op(stack, "add",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::AddBinary(lhs, rhs);
-                                           });
+        if (auto applied =
+                apply_binary_op(stack, "Std.Add", [](const Value& lhs, const Value& rhs) -> Value { return runtime::AddBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kSub:
-        if (auto applied = apply_binary_op(stack, "sub",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::SubtractBinary(lhs, rhs);
-                                           });
+        if (auto applied = apply_binary_op(stack, "Std.Subtract",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::SubtractBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kMul:
-        if (auto applied = apply_binary_op(stack, "mul",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::MultiplyBinary(lhs, rhs);
-                                           });
+        if (auto applied = apply_binary_op(stack, "Std.Multiply",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::MultiplyBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kDiv:
-        if (auto applied = apply_binary_op(stack, "div",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::DivideBinary(lhs, rhs);
-                                           });
+        if (auto applied = apply_binary_op(stack, "Std.Divide",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::DivideBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kMod:
-        if (auto applied = apply_binary_op(stack, "mod",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::ModBinary(lhs, rhs);
-                                           });
+        if (auto applied =
+                apply_binary_op(stack, "Std.Mod", [](const Value& lhs, const Value& rhs) -> Value { return runtime::ModBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kPow:
-        if (auto applied = apply_binary_op(stack, "pow",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::PowBinary(lhs, rhs);
-                                           });
+        if (auto applied =
+                apply_binary_op(stack, "Std.Pow", [](const Value& lhs, const Value& rhs) -> Value { return runtime::PowBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kNeg:
         if (auto applied =
-                apply_unary_op(stack, "neg", [](const Value& value) -> Value { return runtime::UnaryMinusValue(value); });
+                apply_unary_op(stack, "Std.UnaryMinus", [](const Value& value) -> Value { return runtime::UnaryMinusValue(value); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpEq:
-        if (auto applied = apply_binary_op(stack, "cmp_eq",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(lhs == rhs);
-                                           });
+        if (auto applied = apply_binary_op(stack, "Std.Equal",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(lhs == rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpNe:
-        if (auto applied = apply_binary_op(stack, "cmp_ne",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(lhs != rhs);
-                                           });
+        if (auto applied = apply_binary_op(stack, "Std.NotEqual",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(lhs != rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpLt:
-        if (auto applied = apply_binary_op(stack, "cmp_lt",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(runtime::compare_numbers(lhs, rhs) < 0);
-                                           });
+        if (auto applied = apply_binary_op(
+                stack, "Std.LessThan",
+                [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(runtime::compare_numbers(lhs, rhs) < 0); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpGt:
-        if (auto applied = apply_binary_op(stack, "cmp_gt",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(runtime::compare_numbers(lhs, rhs) > 0);
-                                           });
+        if (auto applied = apply_binary_op(
+                stack, "Std.GreaterThan",
+                [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(runtime::compare_numbers(lhs, rhs) > 0); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpLe:
-        if (auto applied = apply_binary_op(stack, "cmp_le",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(runtime::compare_numbers(lhs, rhs) <= 0);
-                                           });
+        if (auto applied = apply_binary_op(
+                stack, "Std.LessOrEqual",
+                [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(runtime::compare_numbers(lhs, rhs) <= 0); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kCmpGe:
-        if (auto applied = apply_binary_op(stack, "cmp_ge",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::make_bool(runtime::compare_numbers(lhs, rhs) >= 0);
-                                           });
+        if (auto applied = apply_binary_op(
+                stack, "Std.GreaterOrEqual",
+                [](const Value& lhs, const Value& rhs) -> Value { return runtime::make_bool(runtime::compare_numbers(lhs, rhs) >= 0); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kAnd:
-        if (auto applied = apply_binary_op(stack, "and",
+        if (auto applied = apply_binary_op(stack, "Std.And",
                                            [](const Value& lhs, const Value& rhs) -> Value {
                                              return runtime::make_bool(runtime::as_bool(lhs) && runtime::as_bool(rhs));
                                            });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kOr:
-        if (auto applied = apply_binary_op(stack, "or",
+        if (auto applied = apply_binary_op(stack, "Std.Or",
                                            [](const Value& lhs, const Value& rhs) -> Value {
                                              return runtime::make_bool(runtime::as_bool(lhs) || runtime::as_bool(rhs));
                                            });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kNot:
         if (auto applied =
-                apply_unary_op(stack, "not", [](const Value& value) -> Value { return runtime::make_bool(!runtime::as_bool(value)); });
+                apply_unary_op(stack, "Std.Not", [](const Value& value) -> Value { return runtime::make_bool(!runtime::as_bool(value)); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kSelect: {
         if (stack.size() < 3U) {
-          return tl::unexpected(stack_underflow("select"));
+          return fail_at(*frame, ip - code, stack_underflow("select"));
         }
         const auto base = stack.size() - 3U;
         const bool condition = runtime::as_bool(stack[base]);
@@ -1599,124 +1620,45 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         break;
       }
 
-      case bytecode::Opcode::kBranchCall: {
-        auto false_func = pop_stack(stack, "branch_call");
-        if (!false_func)
-          return tl::unexpected(false_func.error());
-        auto true_func = pop_stack(stack, "branch_call");
-        if (!true_func)
-          return tl::unexpected(true_func.error());
-        auto value = pop_stack(stack, "branch_call");
-        if (!value)
-          return tl::unexpected(value.error());
-        auto cond = pop_stack(stack, "branch_call");
-        if (!cond)
-          return tl::unexpected(cond.error());
-        auto result = run_native_op("branch_call", [&]() -> Value {
-          const Value& chosen = runtime::as_bool(*cond) ? *true_func : *false_func;
-          return runtime::invoke_callable(chosen, std::move(*value));
-        });
-        if (!result)
-          return tl::unexpected(result.error());
-        stack.push_back(std::move(*result));
-        break;
-      }
-
-      case bytecode::Opcode::kLoopCall: {
-        auto step_func = pop_stack(stack, "loop_call");
-        if (!step_func)
-          return tl::unexpected(step_func.error());
-        auto continue_func = pop_stack(stack, "loop_call");
-        if (!continue_func)
-          return tl::unexpected(continue_func.error());
-        auto state = pop_stack(stack, "loop_call");
-        if (!state)
-          return tl::unexpected(state.error());
-
-        auto result = run_loop_intrinsic(std::move(*state), *continue_func, *step_func, std::nullopt);
-        if (!result) {
-          const std::string prefix = "native 'loop' threw: ";
-          std::string msg = result.error().message;
-          if (msg.starts_with(prefix)) {
-            msg.replace(0, prefix.size(), "native 'loop_call' threw: ");
-          }
-          return tl::unexpected(make_runtime_error(msg));
-        }
-        stack.push_back(std::move(*result));
-        break;
-      }
-
-      case bytecode::Opcode::kLoopNCall: {
-        auto max_iters = pop_stack(stack, "loop_n_call");
-        if (!max_iters)
-          return tl::unexpected(max_iters.error());
-        auto step_func = pop_stack(stack, "loop_n_call");
-        if (!step_func)
-          return tl::unexpected(step_func.error());
-        auto continue_func = pop_stack(stack, "loop_n_call");
-        if (!continue_func)
-          return tl::unexpected(continue_func.error());
-        auto state = pop_stack(stack, "loop_n_call");
-        if (!state)
-          return tl::unexpected(state.error());
-
-        // max_iters is a UInt64 by type.
-        const std::size_t limit = runtime::uint64_index(*max_iters);
-
-        auto result = run_loop_intrinsic(std::move(*state), *continue_func, *step_func, limit);
-        if (!result) {
-          const std::string prefix = "native 'loop' threw: ";
-          std::string msg = result.error().message;
-          if (msg.starts_with(prefix)) {
-            msg.replace(0, prefix.size(), "native 'loop_n_call' threw: ");
-          }
-          return tl::unexpected(make_runtime_error(msg));
-        }
-        stack.push_back(std::move(*result));
-        break;
-      }
-
       case bytecode::Opcode::kBitAnd:
-        if (auto applied = apply_binary_op(
-                stack, "bit_and", [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitAndBinary(lhs, rhs); });
+        if (auto applied = apply_binary_op(stack, "Std.Bit.And",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitAndBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kBitOr:
-        if (auto applied = apply_binary_op(
-                stack, "bit_or", [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitOrBinary(lhs, rhs); });
+        if (auto applied = apply_binary_op(stack, "Std.Bit.Or",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitOrBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kBitXor:
-        if (auto applied = apply_binary_op(
-                stack, "bit_xor", [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitXorBinary(lhs, rhs); });
+        if (auto applied = apply_binary_op(stack, "Std.Bit.Xor",
+                                           [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitXorBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kShiftLeft:
-        if (auto applied = apply_binary_op(stack, "shift_left",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::BitShiftLeftBinary(lhs, rhs);
-                                           });
+        if (auto applied =
+                apply_binary_op(stack, "Std.Bit.ShiftLeft",
+                                [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitShiftLeftBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
       case bytecode::Opcode::kShiftRight:
-        if (auto applied = apply_binary_op(stack, "shift_right",
-                                           [](const Value& lhs, const Value& rhs) -> Value {
-                                             return runtime::BitShiftRightBinary(lhs, rhs);
-                                           });
+        if (auto applied =
+                apply_binary_op(stack, "Std.Bit.ShiftRight",
+                                [](const Value& lhs, const Value& rhs) -> Value { return runtime::BitShiftRightBinary(lhs, rhs); });
             !applied) {
-          return tl::unexpected(make_runtime_error(applied.error()));
+          return fail_at(*frame, ip - code, make_runtime_error(applied.error()));
         }
         break;
 
@@ -1726,7 +1668,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         const Value* local = try_get_local(*frame, bytecode::local_item_slot(operand));
         const std::size_t position = bytecode::local_item_index(operand);
         if (local == nullptr || !local->is_tuple() || position >= local->tuple().size()) [[unlikely]] {
-          return tl::unexpected(local_item_read_error(local));
+          return fail_at(*frame, ip - code, local_item_read_error(local, bytecode::local_item_index(operand)));
         }
         stack.push_back(local->tuple()[position]);
         break;
@@ -1736,7 +1678,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         Value* local = try_get_local(*frame, bytecode::local_item_slot(operand));
         const std::size_t position = bytecode::local_item_index(operand);
         if (local == nullptr || !local->is_tuple() || position >= local->tuple().size()) [[unlikely]] {
-          return tl::unexpected(local_item_read_error(local));
+          return fail_at(*frame, ip - code, local_item_read_error(local, bytecode::local_item_index(operand)));
         }
         if (local->object()->unique()) {
           stack.push_back(std::move(local->unshared_tuple_items()[position]));
@@ -1754,26 +1696,39 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
       case bytecode::Opcode::kBuildTupleSinceMark: {
         const Value* mark = try_get_local(*frame, static_cast<std::size_t>(operand));
         if (mark == nullptr || !mark->is_uint() || runtime::to_index(mark->uint_value()) > stack.size()) [[unlikely]] {
-          return tl::unexpected(make_runtime_error("build_tuple_since_mark expects a stack height in its slot"));
+          return fail_at(*frame, ip - code, make_runtime_error("build_tuple_since_mark expects a stack height in its slot"));
         }
         collapse_stack_tail_into_tuple(stack, stack.size() - runtime::to_index(mark->uint_value()));
         break;
       }
 
       case bytecode::Opcode::kMatchFailed:
-        return tl::unexpected(make_runtime_error(std::string{runtime::k_match_no_case_message}));
+        return fail_at(*frame, ip - code, make_runtime_error(std::format("Std.Match: {}", runtime::k_match_no_case_message)));
 
       case bytecode::Opcode::kHalt:
         return LoopExit{std::monostate{}};
       default:
-        return tl::unexpected(make_runtime_error(std::format("invalid opcode {}", static_cast<int>(opcode))));
+        return fail_at(*frame, ip - code, make_runtime_error(std::format("invalid opcode {}", static_cast<int>(opcode))));
     }
   }
 }
 
+// run_loop
+
+// Runs the frames on the stack, and gives a failure the calls it happened in. The calls are read here, once, rather
+// than at each of run_instructions' failure sites: a call at every site made a loop of arithmetic and item reads 6%
+// slower, though none of them runs while the program succeeds (internal_docs/s1_plan_2026-11-25.md).
+auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, CallFrameStack& frames, std::ostream& output) -> LoopResult {
+  auto result = run_instructions(running_module, stack, frames, output);
+  if (!result) {
+    append_calls(result.error().calls, running_module.bytecode(), frames);
+  }
+  return result;
+}
+
 // The function of each callable builtin, by BuiltinId. A builtin of one parameter, Std.Println, and Std.Printf take
 // their argument as a value; every other builtin takes runtime::Arguments (vm::builtin_takes_arguments). A call is
-// one indirect call. The constants have no function: builtin_constant gives their values.
+// one indirect call.
 using ValueBuiltin = Value (*)(Value&&);
 using ArgumentsBuiltin = Value (*)(const runtime::Arguments&);
 
@@ -1862,12 +1817,12 @@ constexpr auto kBuiltinImplementations = []() {
   takes_value(BuiltinId::Tan, [](Value&& arg) -> Value { return runtime::Tan(std::move(arg)); });
   takes_value(BuiltinId::ResultOk, [](Value&& arg) -> Value { return runtime::ResultOk(std::move(arg)); });
   takes_value(BuiltinId::ResultErr, [](Value&& arg) -> Value { return runtime::ResultErr(std::move(arg)); });
-  takes_value(BuiltinId::ResultTag, [](Value&& arg) -> Value { return runtime::ResultTag(std::move(arg)); });
   takes_value(BuiltinId::ResultPayload, [](Value&& arg) -> Value { return runtime::ResultPayload(std::move(arg)); });
   takes_value(BuiltinId::ResultIsOk, [](Value&& arg) -> Value { return runtime::ResultIsOk(std::move(arg)); });
   takes_value(BuiltinId::ResultIsErr, [](Value&& arg) -> Value { return runtime::ResultIsErr(std::move(arg)); });
   takes_value(BuiltinId::ResultUnwrap, [](Value&& arg) -> Value { return runtime::ResultUnwrap(std::move(arg)); });
   takes_value(BuiltinId::ResultUnwrapErr, [](Value&& arg) -> Value { return runtime::ResultUnwrapErr(std::move(arg)); });
+  takes_value(BuiltinId::Panic, [](Value&& arg) -> Value { return runtime::Panic(std::move(arg)); });
   takes_value(BuiltinId::TaskAwait, [](Value&& arg) -> Value { return runtime::TaskAwait(std::move(arg)); });
   takes_value(BuiltinId::TaskAwaitAll, [](Value&& arg) -> Value { return runtime::TaskAwaitAll(std::move(arg)); });
   takes_value(BuiltinId::TaskCancel, [](Value&& arg) -> Value { return runtime::TaskCancel(std::move(arg)); });
@@ -1877,7 +1832,6 @@ constexpr auto kBuiltinImplementations = []() {
   takes_value(BuiltinId::Second, [](Value&& arg) -> Value { return runtime::Second(std::move(arg)); });
   takes_value(BuiltinId::Length, [](Value&& arg) -> Value { return runtime::Length(std::move(arg)); });
   takes_value(BuiltinId::ToString, [](Value&& arg) -> Value { return runtime::ToString(std::move(arg)); });
-  takes_value(BuiltinId::ToNum, [](Value&& arg) -> Value { return runtime::ToNum(std::move(arg)); });
   takes_value(BuiltinId::StringParseInt64, [](Value&& arg) -> Value { return runtime::StringParseInt64(std::move(arg)); });
   takes_value(BuiltinId::StringParseUInt64, [](Value&& arg) -> Value { return runtime::StringParseUInt64(std::move(arg)); });
   takes_value(BuiltinId::StringParseFloat64, [](Value&& arg) -> Value { return runtime::StringParseFloat64(std::move(arg)); });
@@ -1952,12 +1906,10 @@ constexpr auto kBuiltinImplementations = []() {
   takes_arguments(BuiltinId::TupleAll, &runtime::TupleAll);
   takes_arguments(BuiltinId::TupleRangeInt64Int64, &runtime::TupleRangeInt64Int64);
   takes_arguments(BuiltinId::TupleRangeInt64Int64Int64, &runtime::TupleRangeInt64Int64Int64);
-  takes_arguments(BuiltinId::ArrayGetAt, &runtime::ArrayGetAt);
-  takes_arguments(BuiltinId::ArraySetAt, &runtime::ArraySetAt);
-  takes_arguments(BuiltinId::ArrayInsertAt, &runtime::ArrayInsertAt);
-  takes_arguments(BuiltinId::ArrayRemoveAt, &runtime::ArrayRemoveAt);
-  takes_arguments(BuiltinId::ArraySlice, &runtime::ArraySlice);
-  takes_arguments(BuiltinId::ArrayConcat, &runtime::ArrayConcat);
+  takes_arguments(BuiltinId::TupleSetAt, &runtime::TupleSetAt);
+  takes_arguments(BuiltinId::TupleInsertAt, &runtime::TupleInsertAt);
+  takes_arguments(BuiltinId::TupleRemoveAt, &runtime::TupleRemoveAt);
+  takes_arguments(BuiltinId::TupleConcat, &runtime::TupleConcat);
   takes_arguments(BuiltinId::ArraySetAt2D, &runtime::ArraySetAt2D);
   takes_arguments(BuiltinId::ArrayFill, &runtime::ArrayFill);
   takes_arguments(BuiltinId::ArraySlice2D, &runtime::ArraySlice2D);
@@ -1983,9 +1935,9 @@ constexpr auto kBuiltinImplementations = []() {
   takes_arguments(BuiltinId::ElementAt, &runtime::ElementAt);
   takes_arguments(BuiltinId::Take, &runtime::Take);
   takes_arguments(BuiltinId::Drop, &runtime::Drop);
-  takes_arguments(BuiltinId::SliceTupleUInt64, &runtime::SliceTupleUInt64);
-  takes_arguments(BuiltinId::SliceTupleUInt64UInt64, &runtime::SliceTupleUInt64UInt64);
-  takes_arguments(BuiltinId::SliceTupleUInt64UInt64UInt64, &runtime::SliceTupleUInt64UInt64UInt64);
+  takes_arguments(BuiltinId::SliceTupleInt64, &runtime::SliceTupleInt64);
+  takes_arguments(BuiltinId::SliceTupleInt64Int64, &runtime::SliceTupleInt64Int64);
+  takes_arguments(BuiltinId::SliceTupleInt64Int64Int64, &runtime::SliceTupleInt64Int64Int64);
   takes_arguments(BuiltinId::StringSplit, &runtime::StringSplit);
   takes_arguments(BuiltinId::StringJoin, &runtime::StringJoin);
   takes_arguments(BuiltinId::StringReplace, &runtime::StringReplace);
@@ -1993,29 +1945,57 @@ constexpr auto kBuiltinImplementations = []() {
   takes_arguments(BuiltinId::StringStartsWith, &runtime::StringStartsWith);
   takes_arguments(BuiltinId::StringEndsWith, &runtime::StringEndsWith);
   takes_arguments(BuiltinId::StringCharAt, &runtime::StringCharAt);
-  takes_arguments(BuiltinId::StringSliceStringUInt64, &runtime::StringSliceStringUInt64);
-  takes_arguments(BuiltinId::StringSliceStringUInt64UInt64, &runtime::StringSliceStringUInt64UInt64);
+  takes_arguments(BuiltinId::StringSliceStringInt64, &runtime::StringSliceStringInt64);
+  takes_arguments(BuiltinId::StringSliceStringInt64Int64, &runtime::StringSliceStringInt64Int64);
   takes_arguments(BuiltinId::StringFindStringString, &runtime::StringFindStringString);
-  takes_arguments(BuiltinId::StringFindStringStringUInt64, &runtime::StringFindStringStringUInt64);
+  takes_arguments(BuiltinId::StringFindStringStringInt64, &runtime::StringFindStringStringInt64);
   takes_arguments(BuiltinId::StringFormat, &runtime::StringFormat);
   takes_arguments(BuiltinId::StringRegexIsMatch, &runtime::StringRegexIsMatch);
   takes_arguments(BuiltinId::StringRegexFind, &runtime::StringRegexFind);
   takes_arguments(BuiltinId::StringRegexReplace, &runtime::StringRegexReplace);
   takes_arguments(BuiltinId::StringRegexSplit, &runtime::StringRegexSplit);
+  takes_arguments(BuiltinId::ResultMap, &runtime::ResultMap);
+  takes_arguments(BuiltinId::ResultMapErr, &runtime::ResultMapErr);
+  takes_arguments(BuiltinId::ResultAndThen, &runtime::ResultAndThen);
+  takes_arguments(BuiltinId::ResultOrElse, &runtime::ResultOrElse);
+  takes_arguments(BuiltinId::ResultUnwrapOr, &runtime::ResultUnwrapOr);
+  takes_arguments(BuiltinId::Assert, &runtime::Assert);
+  takes_arguments(BuiltinId::AssertEqual, &runtime::AssertEqual);
+  takes_value(BuiltinId::MathExp, [](Value&& arg) -> Value { return runtime::MathExp(std::move(arg)); });
+  takes_value(BuiltinId::MathLog2, [](Value&& arg) -> Value { return runtime::MathLog2(std::move(arg)); });
+  takes_value(BuiltinId::MathLog10, [](Value&& arg) -> Value { return runtime::MathLog10(std::move(arg)); });
+  takes_value(BuiltinId::MathRound, [](Value&& arg) -> Value { return runtime::MathRound(std::move(arg)); });
+  takes_value(BuiltinId::MathTrunc, [](Value&& arg) -> Value { return runtime::MathTrunc(std::move(arg)); });
+  takes_value(BuiltinId::MathAsin, [](Value&& arg) -> Value { return runtime::MathAsin(std::move(arg)); });
+  takes_value(BuiltinId::MathAcos, [](Value&& arg) -> Value { return runtime::MathAcos(std::move(arg)); });
+  takes_value(BuiltinId::MathAtan, [](Value&& arg) -> Value { return runtime::MathAtan(std::move(arg)); });
+  takes_arguments(BuiltinId::MathAtan2, &runtime::MathAtan2);
+  takes_arguments(BuiltinId::Min, &runtime::Min);
+  takes_arguments(BuiltinId::Max, &runtime::Max);
+  takes_value(BuiltinId::TupleEnumerate, [](Value&& arg) -> Value { return runtime::TupleEnumerate(std::move(arg)); });
+  takes_arguments(BuiltinId::TupleSortBy, &runtime::TupleSortBy);
+  takes_arguments(BuiltinId::TupleGroupBy, &runtime::TupleGroupBy);
+  takes_arguments(BuiltinId::TuplePartition, &runtime::TuplePartition);
+  takes_arguments(BuiltinId::TupleFlatMap, &runtime::TupleFlatMap);
+  takes_arguments(BuiltinId::TupleScan, &runtime::TupleScan);
+  takes_arguments(BuiltinId::TupleTakeWhile, &runtime::TupleTakeWhile);
+  takes_arguments(BuiltinId::TupleDropWhile, &runtime::TupleDropWhile);
+  takes_arguments(BuiltinId::DictMap, &runtime::DictMap);
+  takes_arguments(BuiltinId::DictFilter, &runtime::DictFilter);
+  takes_arguments(BuiltinId::DictUpdate, &runtime::DictUpdate);
+  takes_arguments(BuiltinId::StringRepeat, &runtime::StringRepeat);
+  takes_value(BuiltinId::StringReverse, [](Value&& arg) -> Value { return runtime::StringReverse(std::move(arg)); });
+  takes_value(BuiltinId::StringChars, [](Value&& arg) -> Value { return runtime::StringChars(std::move(arg)); });
+  takes_arguments(BuiltinId::TimeNow, &runtime::TimeNow);
+  takes_arguments(BuiltinId::TimeMonotonic, &runtime::TimeMonotonic);
+  takes_value(BuiltinId::TimeSleep, [](Value&& arg) -> Value { return runtime::TimeSleep(std::move(arg)); });
   return table;
 }();
 
-// Every callable builtin has the one function its kind takes, and a constant has none, so a builtin missing from the
-// table is a compile error.
+// Every builtin has the one function its kind takes, so a builtin missing from the table is a compile error.
 [[nodiscard]] consteval auto builtin_implementations_are_complete() -> bool {
   for (std::size_t index = 0; index < builtin_count(); ++index) {
     const BuiltinImplementation& implementation = kBuiltinImplementations[index];
-    if (index >= callable_builtin_count()) {
-      if (implementation.value != nullptr || implementation.arguments != nullptr) {
-        return false;
-      }
-      continue;
-    }
     const bool takes_arguments = builtin_takes_arguments(static_cast<BuiltinId>(index));
     if ((implementation.arguments != nullptr) != takes_arguments || (implementation.value != nullptr) == takes_arguments) {
       return false;
@@ -2023,17 +2003,7 @@ constexpr auto kBuiltinImplementations = []() {
   }
   return true;
 }
-static_assert(builtin_implementations_are_complete(), "every callable builtin has the one function its kind takes");
-
-// The value of a constant (Std.Pi, ...). The constants follow the callable builtins in BuiltinId order, as
-// kConstantBuiltinSpecs lists them.
-auto builtin_constant(const BuiltinId builtin_id) -> Value {
-  const auto index = static_cast<std::size_t>(builtin_id);
-  if (index < callable_builtin_count()) {
-    throw std::logic_error("builtin is not a constant");
-  }
-  return runtime::make_float(all_constant_builtin_specs()[index - callable_builtin_count()].value);
-}
+static_assert(builtin_implementations_are_complete(), "every builtin has the one function its kind takes");
 
 auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
   try {
@@ -2041,13 +2011,10 @@ auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Val
     if (implementation.value != nullptr) {
       return implementation.value(std::move(arg));
     }
-    if (implementation.arguments != nullptr) {
-      // An argument tuple, built at run time (a spread) or by a call through a function value.
-      return implementation.arguments(runtime::Arguments{std::move(arg)});
-    }
-    return builtin_constant(builtin_id);
+    // An argument tuple, built at run time (a spread) or by a call through a function value.
+    return implementation.arguments(runtime::Arguments{std::move(arg)});
   } catch (const std::exception& ex) {
-    return tl::unexpected(make_runtime_error(std::string("builtin '") + std::string(builtin_name(builtin_id)) + "' threw: " + ex.what()));
+    return tl::unexpected(error_from_exception(ex, builtin_name(builtin_id)));
   }
 }
 
@@ -2061,13 +2028,9 @@ auto dispatch_builtin_args(const BuiltinId builtin_id, const std::span<Value> va
                                              "' does not take its arguments from the stack"));
   }
   try {
-    if (const ArgumentsBuiltin builtin = kBuiltinImplementations[static_cast<std::size_t>(builtin_id)].arguments; builtin != nullptr) {
-      return builtin(runtime::Arguments{values});
-    }
-    return builtin_constant(builtin_id);
+    return kBuiltinImplementations[static_cast<std::size_t>(builtin_id)].arguments(runtime::Arguments{values});
   } catch (const std::exception& ex) {
-    return tl::unexpected(
-        make_runtime_error(std::string("builtin '") + std::string(builtin_name(builtin_id)) + "' threw: " + ex.what()));
+    return tl::unexpected(error_from_exception(ex, builtin_name(builtin_id)));
   }
 }
 

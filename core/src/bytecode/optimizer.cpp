@@ -40,9 +40,9 @@ public:
   explicit StreamRewrite(const std::vector<Instruction>& old)
       : old_(old), targeted_(old.size() + 1U, false), new_position_(old.size() + 1U, 0U) {
     rewritten_.reserve(old.size());
-    for (const auto& [opcode, operand] : old) {
-      if (is_jump(opcode) && operand >= 0 && static_cast<std::size_t>(operand) <= old.size()) {
-        targeted_[static_cast<std::size_t>(operand)] = true;
+    for (const Instruction& instruction : old) {
+      if (is_jump(instruction.opcode) && instruction.operand >= 0 && static_cast<std::size_t>(instruction.operand) <= old.size()) {
+        targeted_[static_cast<std::size_t>(instruction.operand)] = true;
       }
     }
   }
@@ -67,16 +67,21 @@ public:
     }
   }
 
-  void replace(const std::size_t first, const std::size_t count, const Instruction replacement) {
+  // The replacement reports the location of the run's last instruction, the operation that can fail (the kElementAt
+  // of a fused item read), unless it has one of its own.
+  void replace(const std::size_t first, const std::size_t count, Instruction replacement) {
     drop(first, count);
+    if (replacement.location == kNoLocation && count != 0U) {
+      replacement.location = old_[first + count - 1U].location;
+    }
     rewritten_.push_back(replacement);
   }
 
   [[nodiscard]] auto finish() -> std::vector<Instruction> {
     new_position_[old_.size()] = rewritten_.size();
-    for (auto& [opcode, operand] : rewritten_) {
-      if (is_jump(opcode) && operand >= 0 && static_cast<std::size_t>(operand) <= old_.size()) {
-        operand = static_cast<std::int64_t>(new_position_[static_cast<std::size_t>(operand)]);
+    for (Instruction& instruction : rewritten_) {
+      if (is_jump(instruction.opcode) && instruction.operand >= 0 && static_cast<std::size_t>(instruction.operand) <= old_.size()) {
+        instruction.operand = static_cast<std::int64_t>(new_position_[static_cast<std::size_t>(instruction.operand)]);
       }
     }
     return std::move(rewritten_);
@@ -153,9 +158,9 @@ auto compact_pool(const std::vector<ConstValue>& pool, const std::vector<std::ui
 }
 
 void rewrite_push_const_operands(std::vector<Instruction>& instrs, const std::vector<std::uint32_t>& final_remap) {
-  for (auto& [opcode, operand] : instrs) {
-    if (opcode == Opcode::kPushConst) {
-      operand = static_cast<std::int64_t>(final_remap[static_cast<std::uint32_t>(operand)]);
+  for (Instruction& instruction : instrs) {
+    if (instruction.opcode == Opcode::kPushConst) {
+      instruction.operand = static_cast<std::int64_t>(final_remap[static_cast<std::uint32_t>(instruction.operand)]);
     }
   }
 }
@@ -388,13 +393,13 @@ void propagate_select_constants_in_stream(std::vector<Instruction>& instrs, cons
 
 // LocalItemReadFusionPass helpers
 
-// The index pushed by `push` when it is a UInt64 constant that fits in the operand of a fused read.
+// The index pushed by `push` when it is an Int64 constant from 0 that fits in the operand of a fused read.
 auto local_item_index_constant(const Instruction& push, const std::vector<ConstValue>& constants) -> std::optional<std::uint32_t> {
   if (push.operand < 0 || static_cast<std::size_t>(push.operand) >= constants.size()) {
     return std::nullopt;
   }
-  const auto* index = std::get_if<std::uint64_t>(&constants[static_cast<std::size_t>(push.operand)].data);
-  if (index == nullptr || *index > kMaxLocalItemIndex) {
+  const auto* index = std::get_if<std::int64_t>(&constants[static_cast<std::size_t>(push.operand)].data);
+  if (index == nullptr || *index < 0 || *index > std::int64_t{kMaxLocalItemIndex}) {
     return std::nullopt;
   }
   return static_cast<std::uint32_t>(*index);
@@ -406,7 +411,8 @@ auto fused_local_item_read(const std::vector<Instruction>& instrs, const std::si
   if (position + 2U >= instrs.size()) {
     return std::nullopt;
   }
-  const auto& [read, slot] = instrs[position];
+  const Opcode read = instrs[position].opcode;
+  const std::int64_t slot = instrs[position].operand;
   if ((read != Opcode::kLoadLocal && read != Opcode::kTakeLocal) || instrs[position + 1U].opcode != Opcode::kPushConst ||
       instrs[position + 2U].opcode != Opcode::kElementAt) {
     return std::nullopt;

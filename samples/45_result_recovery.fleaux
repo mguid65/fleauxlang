@@ -6,16 +6,12 @@ import Std;
 //         return int(text)
 //     except Exception:
 //         return default
+//
+// Std.String.ParseInt64 returns a Result, Err when the text is not a number, so a default is one Std.Result.UnwrapOr
+// away.
 
-let TryParsePort(text: String): Result<Int64, String> =
-    (text, Std.String.ParseInt64) -> Std.Try;
+let ParsePort(text: String, fallback: Int64): Int64 =
+    (text) -> Std.String.ParseInt64 -> (_, fallback) -> Std.Result.UnwrapOr;
 
-let UseDefault(result: Result<Int64, String>, fallback: Int64): Int64 =
-    ((result) -> Std.Result.IsOk,
-     (True, (): Int64 = (result) -> Std.Result.Unwrap),
-     (_, (): Int64 = fallback)
-    ) -> Std.Match;
-
-("8080") -> TryParsePort -> (_, 80) -> UseDefault -> Std.Println;
-("oops") -> TryParsePort -> (_, 80) -> UseDefault -> Std.Println;
-
+("8080", 80) -> ParsePort -> Std.Println;
+("oops", 80) -> ParsePort -> Std.Println;

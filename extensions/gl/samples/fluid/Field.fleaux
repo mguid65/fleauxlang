@@ -10,7 +10,7 @@ alias Field = Tuple<Float64...>;
 // One flag per cell.
 alias Flags = Tuple<Bool...>;
 // One cell index per cell.
-alias Indices = Tuple<UInt64...>;
+alias Indices = Tuple<Int64...>;
 
 let Field.Columns: Int64 = 72;
 let Field.Rows: Int64 = 54;
@@ -46,13 +46,13 @@ let Field.Inward(): Indices = {
   let rows: Int64 = Field.Rows;
   (
     Field.Count -> Std.Tuple.Range,
-    (i: Int64): UInt64 = {
+    (i: Int64): Int64 = {
       let x: Int64 = (i, width) -> Std.Mod;
       let y: Int64 = (i, width) -> /;
       let inside_x: Int64 =
         ((x, 1) -> <, 1, ((x, columns) -> >, columns, x) -> Std.Select) -> Std.Select;
       let inside_y: Int64 = ((y, 1) -> <, 1, ((y, rows) -> >, rows, y) -> Std.Select) -> Std.Select;
-      ((inside_y, width) -> *, inside_x) -> + -> Std.ToUInt64;
+      ((inside_y, width) -> *, inside_x) -> +;
     }
   ) -> Std.Tuple.Map;
 };

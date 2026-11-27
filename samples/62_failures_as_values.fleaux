@@ -1,0 +1,45 @@
+import Std;
+
+// Failures as values
+//
+// A builtin that can fail for a reason the program cannot rule out first (a file that is not there, text that is not
+// a number, a key that is not in a dict) returns a Result: Ok with its value, or Err with a message that says what
+// failed and why. The Result functions work on the value without unpacking it by hand.
+
+let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;
+
+// A step that can fail too: halves an even number, and is an Err for an odd one.
+let Half(x: Int64): Result<Int64, String> =
+    ((x, 2) -> Std.Mod -> (_, 0) -> Std.Equal, (x, 2) -> Std.Divide -> Std.Result.Ok, ("odd") -> Std.Result.Err)
+        -> Std.Select;
+
+// -- Map: change the value of an Ok; an Err passes through --
+("21") -> Std.String.ParseInt64 -> (_, Double) -> Std.Result.Map -> Std.Println;      // (True, 42)
+("x") -> Std.String.ParseInt64 -> (_, Double) -> Std.Result.Map -> Std.Println;
+
+// -- AndThen: continue with a step that can fail --
+("12") -> Std.String.ParseInt64 -> (_, Half) -> Std.Result.AndThen -> Std.Println;    // (True, 6)
+("7") -> Std.String.ParseInt64 -> (_, Half) -> Std.Result.AndThen -> Std.Println;     // (False, odd)
+
+// -- MapErr and OrElse: work on the error --
+("x") -> Std.String.ParseInt64 -> (_, Std.String.Length) -> Std.Result.MapErr -> Std.Println;  // (False, 42), the message's length
+("x") -> Std.String.ParseInt64
+    -> (_, (error: String): Result<Int64, String> = (0) -> Std.Result.Ok) -> Std.Result.OrElse
+    -> Std.Println;                                                                     // (True, 0)
+
+// -- UnwrapOr: the value, or a default --
+("8080") -> Std.String.ParseInt64 -> (_, 80) -> Std.Result.UnwrapOr -> Std.Println;   // 8080
+("oops") -> Std.String.ParseInt64 -> (_, 80) -> Std.Result.UnwrapOr -> Std.Println;   // 80
+
+// -- Lookups that may find nothing --
+("hello", "ll") -> Std.String.Find -> Std.Println;                                     // (True, 2)
+("hello", "z") -> Std.String.Find -> Std.Result.IsErr -> Std.Println;                  // True
+((3, 8, 5), (n: Int64): Bool = (n, 4) -> Std.GreaterThan) -> Std.Tuple.FindIndex -> Std.Result.Unwrap -> Std.Println;  // 1
+
+// -- Panics --
+// A broken precondition, such as an index past the end, is not a Result: it stops the program, and the error says
+// where, and in which calls. Std.Panic stops it on purpose, and Std.Assert and Std.AssertEqual stop it when what
+// they check does not hold. Std.Try turns a panic in a function into an Err.
+((1, 2) -> Std.LessThan, "one is less than two") -> Std.Assert;
+((2, 2) -> Std.Add, 4) -> Std.AssertEqual;
+("not today", (reason: String): Int64 = (reason) -> Std.Panic) -> Std.Try -> Std.Println;  // (False, not today)

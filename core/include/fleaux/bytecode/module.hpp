@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compare>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -42,12 +43,52 @@ struct ExportedSymbol {
   std::optional<common::HostEntryCheck> host_entry_check{};
 };
 
+// A location number: 1 + an index into Module::locations, or kNoLocation.
+inline constexpr std::uint32_t kNoLocation = 0U;
+
 struct Instruction {
   Opcode opcode{Opcode::kNoOp};
+  // Where in the source the instruction came from, read only when a run fails. It sits in the padding after the
+  // opcode, so an instruction is no larger for it.
+  std::uint32_t location{kNoLocation};
   std::int64_t operand{0};
 
   friend auto operator==(const Instruction&, const Instruction&) -> bool = default;
 };
+static_assert(sizeof(Instruction) == 16U);
+
+// A source file that locations refer to, with the hash of the text compiled, so that a stale file is not shown.
+struct SourceFileRecord {
+  std::string path{};
+  std::uint64_t hash{0};
+
+  friend auto operator==(const SourceFileRecord&, const SourceFileRecord&) -> bool = default;
+};
+
+// The source span of an expression: lines and columns from 1, the end one past its last character. The instructions of a function's
+// body inlined into a call carry locations that name the function and the location of the call, which comes before
+// them in Module::locations, so that a chain of inlined calls always ends.
+struct SourceLocation {
+  std::uint32_t file{0};  // index into Module::source_files
+  std::uint32_t line{0};
+  std::uint32_t column{0};
+  std::uint32_t end_line{0};
+  std::uint32_t end_column{0};
+  std::optional<std::uint32_t> inlined_function{};  // index into Module::functions
+  // For the body of an inline closure that a builtin's in-place form runs: it has no function of its own.
+  bool inlined_closure{false};
+  std::uint32_t inlined_at{kNoLocation};
+  // For a call that a builtin's in-place form makes, the builtin (a vm::BuiltinId): its call of its function argument,
+  // or the location a body is inlined at for it.
+  std::optional<std::uint32_t> called_by{};
+
+  friend auto operator<=>(const SourceLocation&, const SourceLocation&) = default;
+};
+
+// The location a location number names, or null for kNoLocation and a number past the table.
+[[nodiscard]] inline auto find_location(const std::vector<SourceLocation>& locations, const std::uint32_t number) -> const SourceLocation* {
+  return number != kNoLocation && number <= locations.size() ? &locations[number - 1U] : nullptr;
+}
 
 // A typed constant stored in the constant pool.
 // All literal constants (including int64_t) are loaded via kPushConst.
@@ -215,6 +256,10 @@ struct Module {
   // loader-side verification and is intentionally kept parallel to the runtime
   // instruction streams rather than embedded into each instruction.
   std::vector<BuiltinCallsiteRecord> builtin_callsites{};
+
+  // The source files and spans the instructions' locations refer to.
+  std::vector<SourceFileRecord> source_files{};
+  std::vector<SourceLocation> locations{};
 };
 
 }  // namespace fleaux::bytecode

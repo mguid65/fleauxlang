@@ -165,6 +165,7 @@ Prefer inline closures when:
 - samples/28_variadics.fleaux
 - samples/53_random_seeded.fleaux
 - samples/61_raw_strings.fleaux
+- samples/63_collections_strings_and_time.fleaux
 
 ### Modules and composition
 
@@ -192,6 +193,7 @@ Prefer inline closures when:
 - samples/37_parallel_error_paths.fleaux
 - samples/38_parallel_inline_closures.fleaux
 - samples/45_result_recovery.fleaux
+- samples/62_failures_as_values.fleaux
 
 ### Advanced expression shaping and blocks
 

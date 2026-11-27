@@ -76,7 +76,7 @@ let DrawRects(gpu: Gpu, rects: Tuple<Rect...>, color: Color, brightness: Float64
 };
 
 let Pick<T>(values: Tuple<T...>, index: Int64): T =
-  (values, index -> Std.ToUInt64) -> Std.ElementAt;
+  (values, index) -> Std.ElementAt;
 
 // The seven segments of a digit in a 24 x 40 box: top, upper right, lower right, bottom, lower
 // left, upper left, middle.

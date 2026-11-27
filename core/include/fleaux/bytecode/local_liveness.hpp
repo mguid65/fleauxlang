@@ -4,7 +4,7 @@
 //
 // A local slot holds its value until the slot is written again or the frame ends, so a value read from a slot has at
 // least two references while the operation it was read for runs: the slot's and the read copy's. An operation that
-// could change the value in place when it holds the only reference (Std.Dict.Set, Std.Array.SetAt, ...) would then
+// could change the value in place when it holds the only reference (Std.Dict.Set, Std.Tuple.SetAt, ...) would then
 // copy it. The compiler therefore turns the last read of a slot, a kLoadLocal after which no path through the stream
 // reads the slot again before writing it, into a kTakeLocal, which moves the value out.
 

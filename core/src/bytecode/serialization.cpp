@@ -19,7 +19,7 @@ constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
 // Builtin operands are serialized as numeric BuiltinId values. The header records the builtin table's hash
 // (vm::kBuiltinTableHash), and a module compiled against another table is refused, so a change to the builtins needs no
 // change of BYTECODE_VERSION.
-constexpr std::uint32_t BYTECODE_VERSION = 46;
+constexpr std::uint32_t BYTECODE_VERSION = 48;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
 
@@ -39,8 +39,9 @@ void write_pod(std::vector<std::uint8_t>& buffer, const T& value) {
   buffer.insert(buffer.end(), bytes.begin(), bytes.end());
 }
 
+// Reads a value of a trivially copyable type. A bool goes through read_bool: a byte other than 0 or 1 is no bool.
 template <typename T>
-  requires std::is_trivially_copyable_v<T>
+  requires(std::is_trivially_copyable_v<T> && !std::is_same_v<T, bool>)
 auto read_pod(const std::vector<std::uint8_t>& buffer, std::size_t& offset, T& out) -> bool {
   if (offset + sizeof(T) > buffer.size()) {
     return false;
@@ -51,6 +52,41 @@ auto read_pod(const std::vector<std::uint8_t>& buffer, std::size_t& offset, T& o
   offset += sizeof(T);
   return true;
 }
+
+auto read_bool(const std::vector<std::uint8_t>& buffer, std::size_t& offset, bool& out) -> bool {
+  std::uint8_t byte = 0;
+  if (!read_pod(buffer, offset, byte) || byte > 1U) {
+    return false;
+  }
+  out = byte == 1U;
+  return true;
+}
+
+// Whether `count` items of at least `min_bytes` each fit in what is left of the buffer. Every count read from a file is
+// checked before anything is allocated for it, so a file cannot ask for more memory than its own size implies.
+auto fits(const std::vector<std::uint8_t>& buffer, const std::size_t offset, const std::uint64_t count, const std::size_t min_bytes)
+    -> bool {
+  return offset <= buffer.size() && count <= (buffer.size() - offset) / min_bytes;
+}
+
+// The fewest bytes one item of each kind takes in a file, for fits.
+constexpr std::size_t kMinDependencyBytes = 5;            // name length, is_symbolic
+constexpr std::size_t kMinExportBytes = 18;               // three string lengths, kind, index, has_entry_check
+constexpr std::size_t kMinInstructionBytes = 16;          // opcode, location, operand
+constexpr std::size_t kMinConstantBytes = 1;              // tag
+constexpr std::size_t kMinFunctionBytes = 32;             // name length, arity, flags, counts and lengths
+constexpr std::size_t kMinClosureBytes = 13;              // function, captures, arity, variadic
+constexpr std::size_t kMinCallsiteBytes = 24;             // owner kind and index, instruction, builtin, shape, counts
+constexpr std::size_t kMinCallableSlotBytes = 14;         // slot, kind, target, arity, variadic
+constexpr std::size_t kMinValueSlotBytes = 10;            // slot, kinds, source
+constexpr std::size_t kMinTypeCheckBytes = 10;            // kind, variadic, type parameter, item count
+constexpr std::size_t kMinNativeFunctionBytes = 14;       // symbol length, a type check
+constexpr std::size_t kMinTypeDeclBytes = 13;             // name length, parameter count, is_builtin, target length
+constexpr std::size_t kMinAliasDeclBytes = 8;             // name and target lengths
+constexpr std::size_t kMinSourceFileBytes = 12;           // path length, hash
+constexpr std::size_t kMinLocationBytes = 33;             // file, span, inlined function and closure, call, builtin
+constexpr std::size_t kMinStringBytes = 4;                // length
+constexpr std::size_t kMinOperatorRequirementBytes = 16;  // three string lengths, a list count
 
 void write_string(std::vector<std::uint8_t>& buffer, const std::string& str) {
   const auto len = static_cast<std::uint32_t>(str.length());
@@ -156,7 +192,7 @@ auto read_const_value(const std::vector<std::uint8_t>& buffer, std::size_t& offs
     }
     case ConstTag::kBool: {
       bool val = false;
-      if (!read_pod(buffer, offset, val)) {
+      if (!read_bool(buffer, offset, val)) {
         return false;
       }
       out.data = val;
@@ -198,7 +234,7 @@ void write_dependency(std::vector<std::uint8_t>& buffer, const ModuleDependency&
 
 auto read_dependency(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ModuleDependency& dependency)
     -> bool {
-  return read_string(buffer, offset, dependency.module_name) && read_pod(buffer, offset, dependency.is_symbolic);
+  return read_string(buffer, offset, dependency.module_name) && read_bool(buffer, offset, dependency.is_symbolic);
 }
 
 void write_type_check(std::vector<std::uint8_t>& buffer, const common::RuntimeTypeCheck& check);
@@ -229,17 +265,17 @@ void write_export(std::vector<std::uint8_t>& buffer, const ExportedSymbol& symbo
 auto read_export(const std::vector<std::uint8_t>& buffer, std::size_t& offset, ExportedSymbol& symbol) -> bool {
   std::uint8_t kind = 0;
   bool has_entry_check = false;
-  if (!read_string(buffer, offset, symbol.name) || !read_string(buffer, offset, symbol.link_name) ||
-      !read_pod(buffer, offset, kind) || !read_pod(buffer, offset, symbol.index) ||
-      !read_string(buffer, offset, symbol.builtin_name) || !read_pod(buffer, offset, has_entry_check)) {
+  if (!read_string(buffer, offset, symbol.name) || !read_string(buffer, offset, symbol.link_name) || !read_pod(buffer, offset, kind) ||
+      !read_pod(buffer, offset, symbol.index) || !read_string(buffer, offset, symbol.builtin_name) ||
+      !read_bool(buffer, offset, has_entry_check) || kind > static_cast<std::uint8_t>(ExportKind::kBuiltinAlias)) {
     return false;
   }
   symbol.kind = static_cast<ExportKind>(kind);
   if (has_entry_check) {
     common::HostEntryCheck entry;
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, entry.variadic_tail) || !read_string_list(buffer, offset, entry.type_params) ||
-        !read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+    if (!read_bool(buffer, offset, entry.variadic_tail) || !read_string_list(buffer, offset, entry.type_params) ||
+        !read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinTypeCheckBytes)) {
       return false;
     }
     entry.params.resize(count);
@@ -274,9 +310,8 @@ void write_builtin_value_slot(std::vector<std::uint8_t>& buffer, const BuiltinVa
 auto read_builtin_callable_slot(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
                                 BuiltinCallableSlotRecord& record) -> bool {
   std::uint8_t kind = 0;
-  if (!read_pod(buffer, offset, record.slot_index) || !read_pod(buffer, offset, kind) ||
-      !read_pod(buffer, offset, record.target_index) || !read_pod(buffer, offset, record.declared_arity) ||
-      !read_pod(buffer, offset, record.has_variadic_tail)) {
+  if (!read_pod(buffer, offset, record.slot_index) || !read_pod(buffer, offset, kind) || !read_pod(buffer, offset, record.target_index) ||
+      !read_pod(buffer, offset, record.declared_arity) || !read_bool(buffer, offset, record.has_variadic_tail)) {
     return false;
   }
   if (kind > static_cast<std::uint8_t>(BuiltinCallableSlotKind::kBuiltin)) {
@@ -341,7 +376,7 @@ auto read_builtin_callsite(const std::vector<std::uint8_t>& buffer, std::size_t&
   record.builtin_id = static_cast<fleaux::vm::BuiltinId>(builtin_id);
   record.call_shape = static_cast<fleaux::vm::BuiltinCallShape>(call_shape);
   std::uint32_t callable_slot_count = 0;
-  if (!read_pod(buffer, offset, callable_slot_count)) {
+  if (!read_pod(buffer, offset, callable_slot_count) || !fits(buffer, offset, callable_slot_count, kMinCallableSlotBytes)) {
     return false;
   }
   record.callable_slots.clear();
@@ -354,7 +389,7 @@ auto read_builtin_callsite(const std::vector<std::uint8_t>& buffer, std::size_t&
     record.callable_slots.push_back(callable_slot);
   }
   std::uint32_t value_slot_count = 0;
-  if (!read_pod(buffer, offset, value_slot_count)) {
+  if (!read_pod(buffer, offset, value_slot_count) || !fits(buffer, offset, value_slot_count, kMinValueSlotBytes)) {
     return false;
   }
   record.value_slots.clear();
@@ -369,32 +404,63 @@ auto read_builtin_callsite(const std::vector<std::uint8_t>& buffer, std::size_t&
   return true;
 }
 
+// A location's inlined function and the builtin that calls at it are written as their index + 1, or 0 for none.
+void write_location(std::vector<std::uint8_t>& buffer, const SourceLocation& location) {
+  write_pod(buffer, location.file);
+  write_pod(buffer, location.line);
+  write_pod(buffer, location.column);
+  write_pod(buffer, location.end_line);
+  write_pod(buffer, location.end_column);
+  write_pod(buffer, location.inlined_function.has_value() ? *location.inlined_function + 1U : 0U);
+  write_pod(buffer, static_cast<std::uint8_t>(location.inlined_closure ? 1U : 0U));
+  write_pod(buffer, location.inlined_at);
+  write_pod(buffer, location.called_by.has_value() ? *location.called_by + 1U : 0U);
+}
+
+auto read_location(const std::vector<std::uint8_t>& buffer, std::size_t& offset, SourceLocation& location) -> bool {
+  std::uint32_t inlined_function = 0;
+  std::uint8_t inlined_closure = 0;
+  std::uint32_t called_by = 0;
+  if (!read_pod(buffer, offset, location.file) || !read_pod(buffer, offset, location.line) || !read_pod(buffer, offset, location.column) ||
+      !read_pod(buffer, offset, location.end_line) || !read_pod(buffer, offset, location.end_column) ||
+      !read_pod(buffer, offset, inlined_function) || !read_pod(buffer, offset, inlined_closure) ||
+      !read_pod(buffer, offset, location.inlined_at) || !read_pod(buffer, offset, called_by) || inlined_closure > 1U) {
+    return false;
+  }
+  location.inlined_function = inlined_function == 0U ? std::nullopt : std::optional<std::uint32_t>{inlined_function - 1U};
+  location.inlined_closure = inlined_closure == 1U;
+  location.called_by = called_by == 0U ? std::nullopt : std::optional<std::uint32_t>{called_by - 1U};
+  return true;
+}
+
 void write_instruction_stream(std::vector<std::uint8_t>& buffer, const std::vector<Instruction>& instructions) {
   const auto count = static_cast<std::uint32_t>(instructions.size());
   write_pod(buffer, count);
-  for (const auto& [opcode, operand] : instructions) {
-    write_pod(buffer, static_cast<std::uint32_t>(opcode));
-    write_pod(buffer, operand);
+  for (const Instruction& instruction : instructions) {
+    write_pod(buffer, static_cast<std::uint32_t>(instruction.opcode));
+    write_pod(buffer, instruction.location);
+    write_pod(buffer, instruction.operand);
   }
 }
 
 auto read_instruction_stream(const std::vector<std::uint8_t>& buffer, std::size_t& offset,
                              std::vector<Instruction>& instructions) -> std::optional<std::string> {
   std::uint32_t count = 0;
-  if (!read_pod(buffer, offset, count)) {
+  if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinInstructionBytes)) {
     return "Cannot read instruction count";
   }
   instructions.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
     std::uint32_t opcode_val = 0;
+    std::uint32_t location = kNoLocation;
     std::int64_t operand = 0;
-    if (!read_pod(buffer, offset, opcode_val) || !read_pod(buffer, offset, operand)) {
+    if (!read_pod(buffer, offset, opcode_val) || !read_pod(buffer, offset, location) || !read_pod(buffer, offset, operand)) {
       return std::format("Cannot read instruction {}", i);
     }
     if (!opcode_index_is_valid(static_cast<std::size_t>(opcode_val))) {
       return std::format("Invalid opcode value {} at instruction {}", opcode_val, i);
     }
-    instructions.push_back({.opcode = static_cast<Opcode>(opcode_val), .operand = operand});
+    instructions.push_back({.opcode = static_cast<Opcode>(opcode_val), .location = location, .operand = operand});
   }
   return std::nullopt;
 }
@@ -410,7 +476,7 @@ void write_string_list(std::vector<std::uint8_t>& buffer, const std::vector<std:
 auto read_string_list(const std::vector<std::uint8_t>& buffer, std::size_t& offset, std::vector<std::string>& out)
     -> bool {
   std::uint32_t count = 0;
-  if (!read_pod(buffer, offset, count)) {
+  if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinStringBytes)) {
     return false;
   }
   out.reserve(count);
@@ -444,10 +510,8 @@ auto read_type_check(const std::vector<std::uint8_t>& buffer, std::size_t& offse
   }
   std::uint8_t kind = 0;
   std::uint32_t count = 0;
-  if (!read_pod(buffer, offset, kind) || kind >= common::kRuntimeTypeCheckKindCount ||
-      !read_pod(buffer, offset, check.variadic_tail) || !read_pod(buffer, offset, check.type_param) ||
-      !read_pod(buffer, offset, count) ||
-      count > buffer.size() - offset) {
+  if (!read_pod(buffer, offset, kind) || kind >= common::kRuntimeTypeCheckKindCount || !read_bool(buffer, offset, check.variadic_tail) ||
+      !read_pod(buffer, offset, check.type_param) || !read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinTypeCheckBytes)) {
     return false;
   }
   check.kind = static_cast<common::RuntimeTypeCheckKind>(kind);
@@ -567,6 +631,9 @@ void print_instruction(std::ostream& out, const std::size_t instruction_index, c
 
   out << std::format("{}Instruction {}:\n", indent.substr(0, indent.size() - 2), instruction_index)
       << std::format("{}opcode: {}\n", indent, stringify_opcode(instruction.opcode)) << operand_line;
+  if (const SourceLocation* location = find_location(module.locations, instruction.location); location != nullptr) {
+    out << std::format("{}location: {} ({}:{})\n", indent, instruction.location, location->line, location->column);
+  }
 }
 
 }  // namespace
@@ -680,6 +747,16 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
     write_string(buffer, target);
   }
 
+  write_pod(buffer, static_cast<std::uint32_t>(module.source_files.size()));
+  for (const auto& [path, hash] : module.source_files) {
+    write_string(buffer, path);
+    write_pod(buffer, hash);
+  }
+  write_pod(buffer, static_cast<std::uint32_t>(module.locations.size()));
+  for (const SourceLocation& location : module.locations) {
+    write_location(buffer, location);
+  }
+
   const auto checksum = checksum_bytes(buffer, kPayloadOffset);
   patch_checksum(buffer, checksum);
   return buffer;
@@ -714,7 +791,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinDependencyBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read dependency count"});
     }
     deserialized.dependencies.reserve(count);
@@ -729,7 +806,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinExportBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read export count"});
     }
     deserialized.exports.reserve(count);
@@ -749,7 +826,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinConstantBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read constant count"});
     }
     deserialized.constants.reserve(count);
@@ -764,14 +841,14 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinFunctionBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read function count"});
     }
     deserialized.functions.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       FunctionDef fn;
       if (!read_string(buffer, offset, fn.name) || !read_pod(buffer, offset, fn.arity) ||
-          !read_pod(buffer, offset, fn.has_variadic_tail) || !read_pod(buffer, offset, fn.is_import_placeholder)) {
+          !read_bool(buffer, offset, fn.has_variadic_tail) || !read_bool(buffer, offset, fn.is_import_placeholder)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       if (const auto instruction_error = read_instruction_stream(buffer, offset, fn.instructions);
@@ -787,7 +864,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
       }
       std::uint32_t requirement_count = 0;
       if (!read_pod(buffer, offset, fn.hidden_operator_params) || !read_pod(buffer, offset, requirement_count) ||
-          requirement_count > buffer.size() - offset || fn.hidden_operator_params > fn.arity) {
+          !fits(buffer, offset, requirement_count, kMinOperatorRequirementBytes) || fn.hidden_operator_params > fn.arity) {
         return tl::unexpected(SerializationError{.message = "Cannot read function operator requirements"});
       }
       fn.operator_requirements.resize(requirement_count);
@@ -798,7 +875,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
           return tl::unexpected(SerializationError{.message = "Cannot read function operator requirements"});
         }
       }
-      if (!read_pod(buffer, offset, fn.is_value_binding)) {
+      if (!read_bool(buffer, offset, fn.is_value_binding)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       deserialized.functions.push_back(std::move(fn));
@@ -807,15 +884,14 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinClosureBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read closure count"});
     }
     deserialized.closures.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
       ClosureDef closure;
       if (!read_pod(buffer, offset, closure.function_index) || !read_pod(buffer, offset, closure.capture_count) ||
-          !read_pod(buffer, offset, closure.declared_arity) ||
-          !read_pod(buffer, offset, closure.declared_has_variadic_tail)) {
+          !read_pod(buffer, offset, closure.declared_arity) || !read_bool(buffer, offset, closure.declared_has_variadic_tail)) {
         return tl::unexpected(SerializationError{.message = "Cannot read closure"});
       }
       deserialized.closures.push_back(closure);
@@ -824,7 +900,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count)) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinCallsiteBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read builtin callsite count"});
     }
     deserialized.builtin_callsites.reserve(count);
@@ -839,7 +915,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinTypeCheckBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read type check count"});
     }
     deserialized.type_checks.resize(count);
@@ -853,7 +929,7 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinNativeFunctionBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read native function count"});
     }
     deserialized.native_functions.resize(count);
@@ -867,17 +943,17 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
 
   {
     std::uint32_t count = 0;
-    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinTypeDeclBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read type declarations"});
     }
     deserialized.type_decls.resize(count);
     for (auto& record : deserialized.type_decls) {
       if (!read_string(buffer, offset, record.name) || !read_string_list(buffer, offset, record.generic_params) ||
-          !read_pod(buffer, offset, record.is_builtin) || !read_string(buffer, offset, record.target)) {
+          !read_bool(buffer, offset, record.is_builtin) || !read_string(buffer, offset, record.target)) {
         return tl::unexpected(SerializationError{.message = "Cannot read type declarations"});
       }
     }
-    if (!read_pod(buffer, offset, count) || count > buffer.size() - offset) {
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinAliasDeclBytes)) {
       return tl::unexpected(SerializationError{.message = "Cannot read alias declarations"});
     }
     deserialized.alias_decls.resize(count);
@@ -888,6 +964,32 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
     }
   }
 
+  {
+    std::uint32_t count = 0;
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinSourceFileBytes)) {
+      return tl::unexpected(SerializationError{.message = "Cannot read source files"});
+    }
+    deserialized.source_files.resize(count);
+    for (auto& [path, hash] : deserialized.source_files) {
+      if (!read_string(buffer, offset, path) || !read_pod(buffer, offset, hash)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read source files"});
+      }
+    }
+    if (!read_pod(buffer, offset, count) || !fits(buffer, offset, count, kMinLocationBytes)) {
+      return tl::unexpected(SerializationError{.message = "Cannot read locations"});
+    }
+    deserialized.locations.resize(count);
+    for (SourceLocation& location : deserialized.locations) {
+      if (!read_location(buffer, offset, location)) {
+        return tl::unexpected(SerializationError{.message = "Cannot read locations"});
+      }
+    }
+  }
+
+  if (offset != buffer.size()) {
+    return tl::unexpected(
+        SerializationError{.message = std::format("Unexpected data after the last section ({} of {} bytes read)", offset, buffer.size())});
+  }
   return deserialized;
 }
 
@@ -932,10 +1034,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
   out << "Instructions:\n";
   size_t instruction_index = 0;
-  for (const auto& [opcode, operand] : module.instructions) {
-    print_instruction(out, instruction_index, module, module.instructions,
-                      Instruction{.opcode = opcode, .operand = operand}, "    ");
-
+  for (const Instruction& instruction : module.instructions) {
+    print_instruction(out, instruction_index, module, module.instructions, instruction, "    ");
     instruction_index++;
   }
 
@@ -1008,10 +1108,8 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
     }
 
     size_t func_instruction_index = 0;
-    for (const auto& [opcode, operand] : instructions) {
-      print_instruction(out, func_instruction_index, module, instructions,
-                        Instruction{.opcode = opcode, .operand = operand}, "      ");
-
+    for (const Instruction& instruction : instructions) {
+      print_instruction(out, func_instruction_index, module, instructions, instruction, "      ");
       func_instruction_index++;
     }
 
@@ -1044,6 +1142,30 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
   out << "AliasDecls:\n";
   for (const auto& [name, target] : module.alias_decls) {
     out << std::format("  alias {} = {}\n", name, target);
+  }
+
+  out << "SourceFiles:\n";
+  for (std::size_t file_index = 0; file_index < module.source_files.size(); ++file_index) {
+    out << std::format("  File {}: {} (hash {:#x})\n", file_index, module.source_files[file_index].path,
+                       module.source_files[file_index].hash);
+  }
+  out << "Locations:\n";
+  for (std::size_t index = 0; index < module.locations.size(); ++index) {
+    const SourceLocation& location = module.locations[index];
+    out << std::format("  Location {}: file {}, {}:{} to {}:{}", index + 1U, location.file, location.line, location.column,
+                       location.end_line, location.end_column);
+    if (location.inlined_function.has_value()) {
+      out << std::format(", function {} inlined at location {}", *location.inlined_function, location.inlined_at);
+    }
+    if (location.inlined_closure) {
+      out << std::format(", a closure inlined at location {}", location.inlined_at);
+    }
+    if (location.called_by.has_value()) {
+      const auto builtin_id = static_cast<vm::BuiltinId>(*location.called_by);
+      out << std::format(", called by {}",
+                         *location.called_by < vm::builtin_count() ? vm::builtin_name(builtin_id) : std::string_view{"an unknown builtin"});
+    }
+    out << "\n";
   }
 
   out << "TypeChecks:\n";

@@ -901,11 +901,15 @@ auto check_function_value_call(ir::IRFlowExpr& call, const std::string& callee, 
                                const LocalTypes& locals, const GenericScope& generic_params)
     -> tl::expected<Type, type_check::AnalysisError> {
   if (callee_type.kind != TypeKind::kFunction || !callee_type.function_return.has_value()) {
-    return tl::unexpected(make_error(
-        "Invalid call target.",
-        std::format("'{}' is a value of type {}, not a function; only a value of function type can be called.", callee,
-                    type_debug_name(callee_type)),
-        callee_span));
+    // `() -> Std.Pi` reads a value as a call of no arguments, as constants were once read.
+    const auto* arguments = std::get_if<ir::IRTupleExpr>(&call.lhs->node);
+    const bool no_arguments = arguments != nullptr && arguments->items.empty();
+    return tl::unexpected(
+        make_error("Invalid call target.",
+                   std::format("'{}' is a value of type {}, not a function; only a value of function type can be called.{}", callee,
+                               type_debug_name(callee_type),
+                               no_arguments ? std::format(" Write '{}' where its value is wanted.", callee) : std::string{}),
+                   callee_span));
   }
 
   auto lhs_type = infer_expr(*call.lhs, index, type_index, alias_index, locals, generic_params);

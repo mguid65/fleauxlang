@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace fleaux::frontend::diag {
 
@@ -37,9 +38,10 @@ struct SourceSpan {
 
 auto merge_source_spans(const std::optional<SourceSpan>& first, const std::optional<SourceSpan>& last) -> SourceSpan;
 
-[[nodiscard]] auto format_diagnostic(const std::string& stage, const std::string& message,
-                                     const std::optional<SourceSpan>& span,
+// `notes` follow the hint, one "= note:" line each, as the calls of a failed run do.
+[[nodiscard]] auto format_diagnostic(const std::string& stage, const std::string& message, const std::optional<SourceSpan>& span,
                                      const std::optional<std::string>& hint = std::nullopt,
-                                     const std::optional<int>& stage_index = std::nullopt) -> std::string;
+                                     const std::optional<int>& stage_index = std::nullopt, const std::vector<std::string>& notes = {})
+    -> std::string;
 
 }  // namespace fleaux::frontend::diag

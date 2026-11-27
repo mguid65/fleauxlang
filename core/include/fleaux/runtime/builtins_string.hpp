@@ -2,10 +2,13 @@
 // String, conversion, and math helper builtins.
 // Part of the split runtime support layer; included by fleaux/runtime/runtime_support.hpp.
 #include "fleaux/frontend/parser.hpp"
-#include <charconv>
-#include <memory>
-#include <string_view>
+#include "fleaux/runtime/builtins_core.hpp"
 #include "fleaux/runtime/value.hpp"
+#include <charconv>
+#include <format>
+#include <memory>
+#include <optional>
+#include <string_view>
 namespace fleaux::runtime {
 // String / conversion
 
@@ -32,16 +35,37 @@ namespace detail {
 }
 
 template <typename Number>
-[[nodiscard]] inline auto parse_decimal_or_throw(std::string_view input, const char* builtin_name) -> Number {
-  input = skip_ascii_leading_whitespace(input);
+[[nodiscard]] constexpr auto parsed_type_name() -> std::string_view {
+  if constexpr (std::is_floating_point_v<Number>) {
+    return "Float64";
+  } else if constexpr (std::is_signed_v<Number>) {
+    return "Int64";
+  } else {
+    return "UInt64";
+  }
+}
+
+template <typename Number>
+[[nodiscard]] constexpr auto parsed_type_article() -> std::string_view {
+  return std::is_signed_v<Number> && !std::is_floating_point_v<Number> ? "an" : "a";
+}
+
+// The number `text` holds in decimal, or nothing, with why in `error`. Leading ASCII whitespace and a '+' are allowed.
+template <typename Number>
+[[nodiscard]] inline auto parse_decimal(const std::string_view text, std::string& error) -> std::optional<Number> {
+  std::string_view input = skip_ascii_leading_whitespace(text);
+  const auto not_a_number = [&]() -> std::optional<Number> {
+    error = std::format("'{}' is not {} {}", text, parsed_type_article<Number>(), parsed_type_name<Number>());
+    return std::nullopt;
+  };
   if (input.empty()) {
-    throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+    return not_a_number();
   }
 
   if (input.front() == '+') {
     input.remove_prefix(1);
     if (input.empty()) {
-      throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+      return not_a_number();
     }
   }
 
@@ -57,16 +81,28 @@ template <typename Number>
   }
 
   if (result.ec == std::errc::invalid_argument || result.ptr == begin) {
-    throw std::invalid_argument{std::string{builtin_name} + ": invalid numeric input"};
+    return not_a_number();
   }
   if (result.ec == std::errc::result_out_of_range) {
-    throw std::out_of_range{std::string{builtin_name} + ": value out of range"};
+    error = std::format("'{}' is out of range for {} {}", text, parsed_type_article<Number>(), parsed_type_name<Number>());
+    return std::nullopt;
   }
   if (result.ptr != end) {
-    throw std::invalid_argument{std::string{builtin_name} + ": trailing characters in input"};
+    error = std::format("'{}' has characters after the number", text);
+    return std::nullopt;
   }
 
   return parsed_value;
+}
+
+// Std.String.ParseInt64 and the like: Ok(number), or Err with why the text is not one.
+template <typename Number, typename Make>
+[[nodiscard]] inline auto parse_result(const Value& text, const std::string_view builtin, Make&& make) -> Value {
+  std::string error;
+  if (const auto parsed = parse_decimal<Number>(as_string(text), error); parsed.has_value()) {
+    return ResultOk(std::forward<Make>(make)(*parsed));
+  }
+  return ResultErr(make_string(std::format("{}: {}", builtin, error)));
 }
 
 }  // namespace detail
@@ -75,35 +111,16 @@ template <typename Number>
   return make_string(to_string(arg));
 }
 
-// arg = [string_value]
-[[nodiscard]] inline auto ToNum(Value arg) -> Value {
-  const Value string_value = std::move(arg);
-  const std::string& str = as_string(string_value);
-  // Std.ToNum is declared to return Float64, so "42" is 42.0.
-  return make_float(detail::parse_decimal_or_throw<double>(str, "ToNum"));
-}
-
 [[nodiscard]] inline auto StringParseInt64(Value arg) -> Value {
-  const Value string_value = std::move(arg);
-  const std::string& str = as_string(string_value);
-
-  const auto parsed_number = detail::parse_decimal_or_throw<std::int64_t>(str, "ParseInt64");
-  return make_int(parsed_number);
+  return detail::parse_result<std::int64_t>(arg, "Std.String.ParseInt64", [](const Int value) { return make_int(value); });
 }
 
 [[nodiscard]] inline auto StringParseUInt64(Value arg) -> Value {
-  const Value string_value = std::move(arg);
-  const std::string& str = as_string(string_value);
-
-  const auto parsed_number = detail::parse_decimal_or_throw<std::uint64_t>(str, "ParseUInt64");
-  return make_uint(parsed_number);
+  return detail::parse_result<std::uint64_t>(arg, "Std.String.ParseUInt64", [](const UInt value) { return make_uint(value); });
 }
 
 [[nodiscard]] inline auto StringParseFloat64(Value arg) -> Value {
-  const Value string_value = std::move(arg);
-  const std::string& str = as_string(string_value);
-  const auto parsed_number = detail::parse_decimal_or_throw<double>(str, "ParseFloat64");
-  return make_float(parsed_number);
+  return detail::parse_result<double>(arg, "Std.String.ParseFloat64", [](const Float value) { return make_float(value); });
 }
 
 [[nodiscard]] inline auto StringUpper(Value arg) -> Value {
@@ -144,7 +161,7 @@ template <typename Number>
   const std::string input = as_string(args[0]);
   const std::string sep = as_string(args[1]);
   if (sep.empty()) {
-    throw std::invalid_argument{"StringSplit separator cannot be empty"};
+    throw std::invalid_argument{"the separator cannot be empty"};
   }
 
   std::size_t pieces = 1;
@@ -220,12 +237,13 @@ template <typename Number>
   return make_int(static_cast<Int>(str.size()));
 }
 
-// args = [str, index] -> 1-char string or "" when out of range
+// args = [str, index] -> the byte at index, as a string of one
 [[nodiscard]] inline auto StringCharAt(const Arguments& args) -> Value {
-  const std::string str = as_string(args[0]);
-  const std::size_t idx = uint64_index(args[1]);
+  const std::string& str = as_string(args[0]);
+  const std::size_t idx = position_index(args[1]);
   if (idx >= str.size()) {
-    return make_string("");
+    throw std::out_of_range{
+        std::format("index {} is out of range for a string of {} byte{}", to_string(args[1]), str.size(), str.size() == 1U ? "" : "s")};
   }
   return make_string(str.substr(idx, 1));
 }
@@ -240,37 +258,33 @@ template <typename Number>
   return make_string(str.substr(start, stop - start));
 }
 
-[[nodiscard]] inline auto StringSliceStringUInt64(const Arguments& args) -> Value {
+[[nodiscard]] inline auto StringSliceStringInt64(const Arguments& args) -> Value {
   const std::string str = as_string(args[0]);
-  const std::size_t stop = uint64_index(args[1]);
+  const std::size_t stop = count_index(args[1], "stop");
   return string_slice_impl(str, 0, stop);
 }
 
-[[nodiscard]] inline auto StringSliceStringUInt64UInt64(const Arguments& args) -> Value {
+[[nodiscard]] inline auto StringSliceStringInt64Int64(const Arguments& args) -> Value {
   const std::string str = as_string(args[0]);
-  const std::size_t start = uint64_index(args[1]);
-  const std::size_t stop = uint64_index(args[2]);
+  const std::size_t start = count_index(args[1], "start");
+  const std::size_t stop = count_index(args[2], "stop");
   return string_slice_impl(str, start, stop);
 }
 
+// Ok(the position of the first `needle` from `start`), or an Err when there is none.
 [[nodiscard]] inline auto string_find_impl(const std::string& str, const std::string& needle, const std::size_t start) -> Value {
-  if (start > str.size()) {
-    return make_int(-1);
+  if (const auto pos = start > str.size() ? std::string::npos : str.find(needle, start); pos != std::string::npos) {
+    return ResultOk(make_int(static_cast<Int>(pos)));
   }
-  const auto pos = str.find(needle, start);
-  if (pos == std::string::npos) {
-    return make_int(-1);
-  }
-  return make_int(static_cast<Int>(pos));
+  return ResultErr(make_string(std::format("Std.String.Find: '{}' is not in the string", needle)));
 }
 
 [[nodiscard]] inline auto StringFindStringString(const Arguments& args) -> Value {
   return string_find_impl(as_string(args[0]), as_string(args[1]), 0);
 }
 
-[[nodiscard]] inline auto StringFindStringStringUInt64(const Arguments& args) -> Value {
-  return string_find_impl(as_string(args[0]), as_string(args[1]),
-                          uint64_index(args[2]));
+[[nodiscard]] inline auto StringFindStringStringInt64(const Arguments& args) -> Value {
+  return string_find_impl(as_string(args[0]), as_string(args[1]), count_index(args[2], "start"));
 }
 
 // args = [format, arg0, arg1, ...]
@@ -287,5 +301,37 @@ template <typename Number>
 [[nodiscard]] auto StringRegexFind(const Arguments& args) -> Value;
 [[nodiscard]] auto StringRegexReplace(const Arguments& args) -> Value;
 [[nodiscard]] auto StringRegexSplit(const Arguments& args) -> Value;
+
+// args = [str, count] -> str count times over
+[[nodiscard]] inline auto StringRepeat(const Arguments& args) -> Value {
+  const std::string& str = as_string(args[0]);
+  const std::size_t count = count_index(args[1], "count");
+  if (!str.empty() && count > std::string{}.max_size() / str.size()) {
+    throw std::length_error{std::format("{} copies of {} bytes are too long for a string", count, str.size())};
+  }
+  std::string out;
+  out.reserve(str.size() * count);
+  for (std::size_t index = 0; index < count; ++index) {
+    out += str;
+  }
+  return make_string(std::move(out));
+}
+
+// The bytes of a string in the other order. A string is bytes, as Std.String.Length counts them.
+[[nodiscard]] inline auto StringReverse(Value arg) -> Value {
+  std::string reversed = as_string(arg);
+  std::ranges::reverse(reversed);
+  return make_string(std::move(reversed));
+}
+
+// arg = str -> each byte, as a string of one, as Std.String.CharAt gives it
+[[nodiscard]] inline auto StringChars(Value arg) -> Value {
+  const std::string& str = as_string(arg);
+  TupleBuilder out(str.size());
+  for (const char byte : str) {
+    out.push(make_string(std::string(1U, byte)));
+  }
+  return std::move(out).finish();
+}
 
 }  // namespace fleaux::runtime

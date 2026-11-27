@@ -42,7 +42,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
     PCRE2_UCHAR message[256] = {0};
     const int msg_rc = pcre2_get_error_message(error_code, message, sizeof(message));
     const std::string msg = (msg_rc >= 0) ? reinterpret_cast<const char*>(message) : std::string{"unknown regex error"};
-    throw std::invalid_argument{"Regex compile failed at offset " + std::to_string(error_offset) + ": " + msg};
+    throw std::invalid_argument{"the pattern does not compile at offset " + std::to_string(error_offset) + ": " + msg};
   }
   return RegexCodePtr{compiled};
 }
@@ -50,7 +50,7 @@ using RegexMatchDataPtr = std::unique_ptr<pcre2_match_data, RegexMatchDataDelete
 [[nodiscard]] auto regex_match_data_or_throw(const pcre2_code* code) -> RegexMatchDataPtr {
   pcre2_match_data* data = pcre2_match_data_create_from_pattern(code, nullptr);
   if (data == nullptr) {
-    throw std::runtime_error{"Regex: failed to allocate match data"};
+    throw std::runtime_error{"cannot allocate PCRE2 match data"};
   }
   return RegexMatchDataPtr{data};
 }
@@ -68,7 +68,7 @@ auto StringRegexIsMatch(const Arguments& args) -> Value {
     return make_bool(false);
   }
   if (rc < 0) {
-    throw std::runtime_error{"StringRegexIsMatch: match failed with code " + std::to_string(rc)};
+    throw std::runtime_error{"the match failed with PCRE2 code " + std::to_string(rc)};
   }
   return make_bool(true);
 }
@@ -81,13 +81,13 @@ auto StringRegexFind(const Arguments& args) -> Value {
   const auto match_data = regex_match_data_or_throw(code.get());
   const int rc = pcre2_match(code.get(), reinterpret_cast<PCRE2_SPTR>(str.c_str()), str.size(), 0, 0, match_data.get(), nullptr);
   if (rc == PCRE2_ERROR_NOMATCH) {
-    return make_int(-1);
+    return ResultErr(make_string("Std.String.Regex.Find: the pattern does not match"));
   }
   if (rc < 0) {
-    throw std::runtime_error{"StringRegexFind: match failed with code " + std::to_string(rc)};
+    throw std::runtime_error{"the match failed with PCRE2 code " + std::to_string(rc)};
   }
   const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
-  return make_int(static_cast<Int>(ovector[0]));
+  return ResultOk(make_int(static_cast<Int>(ovector[0])));
 }
 
 auto StringRegexReplace(const Arguments& args) -> Value {
@@ -108,14 +108,14 @@ auto StringRegexReplace(const Arguments& args) -> Value {
       break;
     }
     if (rc < 0) {
-      throw std::runtime_error{"StringRegexReplace: match failed with code " + std::to_string(rc)};
+      throw std::runtime_error{"the match failed with PCRE2 code " + std::to_string(rc)};
     }
 
     const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
     const auto begin = static_cast<std::size_t>(ovector[0]);
     const auto end = static_cast<std::size_t>(ovector[1]);
     if (end < begin || begin > str.size() || end > str.size()) {
-      throw std::runtime_error{"StringRegexReplace: invalid match bounds"};
+      throw std::runtime_error{"PCRE2 returned invalid match bounds"};
     }
     out.append(str, copy_from, begin - copy_from);
     out += repl;
@@ -150,14 +150,14 @@ auto StringRegexSplit(const Arguments& args) -> Value {
       break;
     }
     if (rc < 0) {
-      throw std::runtime_error{"StringRegexSplit: match failed with code " + std::to_string(rc)};
+      throw std::runtime_error{"the match failed with PCRE2 code " + std::to_string(rc)};
     }
 
     const PCRE2_SIZE* ovector = pcre2_get_ovector_pointer(match_data.get());
     const auto begin = static_cast<std::size_t>(ovector[0]);
     const auto end = static_cast<std::size_t>(ovector[1]);
     if (end < begin || begin > str.size() || end > str.size()) {
-      throw std::runtime_error{"StringRegexSplit: invalid match bounds"};
+      throw std::runtime_error{"PCRE2 returned invalid match bounds"};
     }
     out.push(make_string(str.substr(copy_from, begin - copy_from)));
     copy_from = end;

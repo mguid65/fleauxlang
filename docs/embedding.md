@@ -125,6 +125,8 @@ That means these failures are routed to `stderr_sink`:
 
 The diagnostic text uses the same structured formatting helpers as the CLI layer, so parse/analysis errors include source locations and hints when that information is available.
 
+A runtime failure (`HostErrorCategory::kRuntime`) carries where the run failed as `HostError::span`, with its source line, and the calls it failed in as `HostError::calls`, innermost first. Each `vm::RuntimeCall` has the function's name (empty for the top level), the builtin that called it back if one did, and the file, its hash, and the span of the call. `vm::describe_runtime_calls(calls)` makes the notes the CLI prints, which the `stderr_sink` diagnostic includes. The source line of a module from `run_source` comes from the text it was given; any other file is read from disk, and its line is left out when the file has changed since it was compiled.
+
 At the moment, the VM runtime does **not** expose a separate program-level stderr stream. So `stderr_sink` should be read as an embedder-facing diagnostic channel, not as a capture stream for a Fleaux `Std.Err`-style output surface.
 
 Example failure capture:

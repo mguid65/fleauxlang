@@ -36,12 +36,22 @@ option(FLEAUX_INSTALL_VISUAL_ASSETS "Install prebuilt fleaux-visual assets if av
 option(FLEAUX_ENABLE_ASAN "Build native targets with AddressSanitizer" OFF)
 option(FLEAUX_ENABLE_TSAN "Build native targets with ThreadSanitizer" OFF)
 option(FLEAUX_ENABLE_UBSAN "Build native targets with UndefinedBehaviorSanitizer" OFF)
+option(FLEAUX_BUILD_FUZZERS "Build the libFuzzer harnesses in fuzz/, with AddressSanitizer and UBSan (Clang only)" OFF)
 set(FLEAUX_VISUAL_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fleaux-visual/dist" CACHE PATH "Path to prebuilt fleaux-visual dist directory")
 set(FLEAUX_STD_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/Std.fleaux" CACHE FILEPATH "Canonical Std.fleaux source file to embed")
 
 set(THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
 
 set(FLEAUX_SANITIZERS)
+if(FLEAUX_BUILD_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "FLEAUX_BUILD_FUZZERS needs Clang, for -fsanitize=fuzzer")
+  endif()
+  # Every library gets the fuzzer's coverage instrumentation; the harnesses link its runtime.
+  list(APPEND FLEAUX_SANITIZERS fuzzer-no-link)
+  set(FLEAUX_ENABLE_ASAN ON)
+  set(FLEAUX_ENABLE_UBSAN ON)
+endif()
 if(FLEAUX_ENABLE_ASAN)
   list(APPEND FLEAUX_SANITIZERS address)
 endif()
@@ -107,6 +117,22 @@ target_include_directories(tl_expected INTERFACE
     $<BUILD_INTERFACE:${THIRD_PARTY}/tl/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wc2y-extensions FLEAUX_CXX_HAS_C2Y_EXTENSIONS_WARNING)
+
+# The parser, the checker, and the compiler recurse once per level of nesting in a program, up to the parser's limit
+# of 256 levels (parser.cpp). Linux and macOS give the main thread 8 MB of stack; Windows gives 1 MB, which a Debug
+# build runs out of first. Each executable that compiles Fleaux on its main thread gets 8 MB.
+function(fleaux_set_main_thread_stack target)
+  if(WIN32)
+    if(MSVC)
+      target_link_options(${target} PRIVATE /STACK:8388608)
+    else()
+      target_link_options(${target} PRIVATE -Wl,--stack,8388608)
+    endif()
+  endif()
+endfunction()
+
 function(fleaux_set_project_warnings project_name)
   set(options WARNINGS_AS_ERRORS)
   set(one_value_args)
@@ -152,8 +178,11 @@ function(fleaux_set_project_warnings project_name)
         -Wnull-dereference
         -Wdouble-promotion
         -Wformat=2
-        -Wimplicit-fallthrough
-        -Wno-c2y-extensions)
+        -Wimplicit-fallthrough)
+    # Clang 19 added the warning group; an older Clang refuses an option it does not know, which -Werror makes fatal.
+    if(FLEAUX_CXX_HAS_C2Y_EXTENSIONS_WARNING)
+      list(APPEND FLEAUX_WARN_CLANG_WARNINGS -Wno-c2y-extensions)
+    endif()
   endif()
 
   if("${FLEAUX_WARN_GCC_WARNINGS}" STREQUAL "")
@@ -196,7 +225,8 @@ set(FLEAUX_COMMON_SOURCES
 )
 
 add_library(fleaux_common STATIC)
-set_target_properties(fleaux_common PROPERTIES EXPORT_NAME common)
+# Shared libraries link it through fleaux_heap (the test plugins, extensions), so it is position independent.
+set_target_properties(fleaux_common PROPERTIES EXPORT_NAME common POSITION_INDEPENDENT_CODE ON)
 target_include_directories(fleaux_common PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
@@ -259,6 +289,7 @@ endif()
 
 set(FLEAUX_FRONTEND_LOWERING_SOURCES
         src/frontend/lowering.cpp
+        src/frontend/ir_dump.cpp
         src/frontend/type_check.cpp
         src/frontend/type_system/type.cpp
         src/frontend/type_system/function_index.cpp
@@ -324,6 +355,7 @@ if(BUILD_TESTING)
       fleaux_frontend_lowering
       fleaux_line_editor)
   fleaux_set_project_warnings(fleaux_core_tests WARNINGS_AS_ERRORS)
+  fleaux_set_main_thread_stack(fleaux_core_tests)
 
   catch_discover_tests(fleaux_core_tests
       TEST_PREFIX "fleaux_core_tests::"
@@ -333,7 +365,8 @@ endif()
 # The allocator for the runtime's values (include/fleaux/runtime/heap.hpp). Everything that makes values links it,
 # extensions included: each library gets its own copy, and the copies share blocks.
 add_library(fleaux_heap STATIC src/runtime/heap.cpp)
-set_target_properties(fleaux_heap PROPERTIES EXPORT_NAME heap)
+# Shared libraries link it (the test plugins, extensions), so it is position independent.
+set_target_properties(fleaux_heap PROPERTIES EXPORT_NAME heap POSITION_INDEPENDENT_CODE ON)
 target_include_directories(fleaux_heap PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
@@ -376,6 +409,7 @@ if(FLEAUX_PCRE2_TARGET)
   set(FLEAUX_VM_SOURCES
           src/vm/builtins_regex.cpp
           src/vm/runtime.cpp
+          src/vm/runtime_calls.cpp
   )
 
   target_sources(fleaux_vm PRIVATE ${FLEAUX_VM_SOURCES})
@@ -396,6 +430,7 @@ if(FLEAUX_PCRE2_TARGET)
   target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_link_libraries(fleaux PRIVATE fleaux_vm fleaux_embed fleaux_line_editor)
   fleaux_set_project_warnings(fleaux WARNINGS_AS_ERRORS)
+  fleaux_set_main_thread_stack(fleaux)
 
   add_library(fleaux_embed STATIC
       src/embed/dynamic_loader.cpp
@@ -471,6 +506,7 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
       tests/runtime_microbench.cpp)
   target_link_libraries(fleaux_runtime_microbench PRIVATE fleaux_vm fleaux_embed)
   fleaux_set_project_warnings(fleaux_runtime_microbench WARNINGS_AS_ERRORS)
+  fleaux_set_main_thread_stack(fleaux_runtime_microbench)
 
   # The binding plugins the embedding tests load, each a target and its fixture source.
   set(FLEAUX_TEST_BINDING_PLUGINS
@@ -497,6 +533,7 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
       tests/native_call_tests.cpp
       tests/opcode_stringify_tests.cpp
       tests/embed_vm_host_tests.cpp
+      tests/runtime_calls_tests.cpp
       tests/vm_cli_tests.cpp
       tests/vm_import_contract_tests.cpp
       tests/vm_boundary_matrix_tests.cpp
@@ -531,6 +568,19 @@ if(TARGET fleaux_vm)
 endif()
 
 # Extensions are native libraries that 'fleaux --extension' loads; see extensions/.
+# The fuzz harnesses (fuzz/). Each runs one entry point on the bytes libFuzzer gives it.
+if(FLEAUX_BUILD_FUZZERS)
+  add_executable(fleaux_parser_fuzzer fuzz/parser_fuzzer.cpp)
+  target_link_libraries(fleaux_parser_fuzzer PRIVATE fleaux_frontend_parser)
+  add_executable(fleaux_bytecode_fuzzer fuzz/bytecode_fuzzer.cpp)
+  target_link_libraries(fleaux_bytecode_fuzzer PRIVATE fleaux_bytecode)
+  foreach(fuzzer IN ITEMS fleaux_parser_fuzzer fleaux_bytecode_fuzzer)
+    target_compile_options(${fuzzer} PRIVATE -fsanitize=fuzzer)
+    target_link_options(${fuzzer} PRIVATE -fsanitize=fuzzer)
+    fleaux_set_project_warnings(${fuzzer} WARNINGS_AS_ERRORS)
+  endforeach()
+endif()
+
 option(FLEAUX_BUILD_GL_EXTENSION "Build the OpenGL extension in extensions/gl (needs Conan's build_gl_extension option)"
        OFF)
 if(FLEAUX_BUILD_GL_EXTENSION AND NOT EMSCRIPTEN)

@@ -174,6 +174,29 @@ TEST_CASE("CLI bench mode runs the program without its output and reports run ti
   REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring(" us, median "));
 }
 
+TEST_CASE("CLI shows where a run failed and the calls it failed in", "[vm][cli][calls]") {
+  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_calls";
+  std::filesystem::remove_all(temp_dir);
+  std::filesystem::create_directories(temp_dir);
+  const auto source_path = temp_dir / "entry.fleaux";
+  fleaux::tests::write_text_file(source_path,
+                                 "import Std;\n"
+                                 "let Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;\n"
+                                 "let Twice(x: Int64): Int64 = (x) -> Ratio -> (_, 2) -> Std.Multiply;\n"
+                                 "(0) -> Twice -> Std.Println;\n");
+
+  const auto result = run_cli(shell_quote(source_path.string()), temp_dir);
+  INFO("stderr: " << result.stderr_text);
+  REQUIRE(result.exit_code == 2);
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("error[vm-run]: Std.Divide: Int64 division by zero"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("entry.fleaux:2:41"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("2 | let Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("^~~~~~~~~~"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("= note: in Ratio"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("= note: called from Twice (entry.fleaux:3:37)"));
+  REQUIRE_THAT(result.stderr_text, Catch::Matchers::ContainsSubstring("= note: called from the top level (entry.fleaux:4:8)"));
+}
+
 TEST_CASE("CLI bench mode needs a run count greater than zero", "[vm][cli][bench]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_vm_cli_bench_count";
   std::filesystem::remove_all(temp_dir);

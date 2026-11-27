@@ -5,7 +5,7 @@ import Std;
 // Unlike Std.File.ReadText / Std.File.ReadLines, streaming handles let you
 // process arbitrarily large files without loading them into memory.
 //
-// Core API:
+// Core API, each returning a Result whose Err says what failed:
 //   (path, mode)         -> Std.File.Open      -> handle
 //   handle               -> Std.File.ReadLine   -> (handle, line, eof)
 //   (handle, nbytes)     -> Std.File.ReadChunk  -> (handle, chunk, eof)
@@ -14,7 +14,8 @@ import Std;
 //   handle               -> Std.File.Close      -> Bool
 //   (path, mode, func)   -> Std.File.WithOpen   -> result
 //
-// Modes: "r" read, "w" write/truncate, "a" append; append "b" for binary.
+// Modes: "r" read, "w" write/truncate, "a" append; append "b" for binary. This sample expects every step to work, so
+// it unwraps each Result: an Err stops the program and says where.
 
 // Setup: temp file path
 let TmpPath(): String =
@@ -22,12 +23,12 @@ let TmpPath(): String =
 
 // 1. Write a multi-line file with WriteChunk
 let WriteSample(path: String): Bool =
-    (path, "w") -> Std.File.Open
-        -> (_, "alpha\n")  -> Std.File.WriteChunk
-        -> (_, "beta\n")   -> Std.File.WriteChunk
-        -> (_, "gamma\n")  -> Std.File.WriteChunk
-        -> Std.File.Flush
-        -> Std.File.Close;
+    (path, "w") -> Std.File.Open -> Std.Result.Unwrap
+        -> (_, "alpha\n")  -> Std.File.WriteChunk -> Std.Result.Unwrap
+        -> (_, "beta\n")   -> Std.File.WriteChunk -> Std.Result.Unwrap
+        -> (_, "gamma\n")  -> Std.File.WriteChunk -> Std.Result.Unwrap
+        -> Std.File.Flush -> Std.Result.Unwrap
+        -> Std.File.Close -> Std.Result.Unwrap;
 
 () -> TmpPath -> WriteSample -> Std.Println;           // True
 
@@ -36,36 +37,39 @@ let WriteSample(path: String): Bool =
 // reports the end of the file. Each step spreads the state into a function of its three parts.
 let PrintAndReadNext(handle: FileHandle, line: String, _eof: Bool): Tuple<FileHandle, String, Bool> = {
     (line) -> Std.Println;
-    handle -> Std.File.ReadLine;
+    handle -> Std.File.ReadLine -> Std.Result.Unwrap;
 };
 let NotAtEnd(_handle: FileHandle, _line: String, eof: Bool): Bool = eof -> Std.Not;
-let CloseHandle(handle: FileHandle, _line: String, _eof: Bool): Bool = handle -> Std.File.Close;
+let CloseHandle(handle: FileHandle, _line: String, _eof: Bool): Bool = handle -> Std.File.Close -> Std.Result.Unwrap;
 
 let LinesContinue(state: Tuple<FileHandle, String, Bool>): Bool = (state...) -> NotAtEnd;
 let LinesStep(state: Tuple<FileHandle, String, Bool>): Tuple<FileHandle, String, Bool> = (state...) -> PrintAndReadNext;
 let LinesClose(state: Tuple<FileHandle, String, Bool>): Bool = (state...) -> CloseHandle;
 
 let PrintEveryLine(path: String): Bool =
-    ((path, "r") -> Std.File.Open -> Std.File.ReadLine, LinesContinue, LinesStep) -> Std.Loop -> LinesClose;
+    ((path, "r") -> Std.File.Open -> Std.Result.Unwrap -> Std.File.ReadLine -> Std.Result.Unwrap, LinesContinue, LinesStep)
+        -> Std.Loop
+        -> LinesClose;
 
 () -> TmpPath -> PrintEveryLine -> Std.Println;        // alpha, beta, gamma, then True
 
 //  3. Read a fixed-size chunk with ReadChunk
 let ReadFirstChunk(path: String): Any =
-    (path, "r") -> Std.File.Open -> (_, 4u64) -> Std.File.ReadChunk -> Std.Println;
+    (path, "r") -> Std.File.Open -> Std.Result.Unwrap -> (_, 4) -> Std.File.ReadChunk -> Std.Result.Unwrap -> Std.Println;
 
 () -> TmpPath -> ReadFirstChunk;                       // (handle, alph, False)
 
 //  4. WithOpen: scoped handle, guaranteed close
-// func receives the open handle; the file is closed automatically when done.
+// func receives the open handle; the file is closed automatically when done. The Result is Err only when the file
+// cannot be opened.
 let ShowWithOpen(h: FileHandle): Any =
-    (h) -> Std.File.ReadLine -> Std.Println;
+    (h) -> Std.File.ReadLine -> Std.Result.Unwrap -> Std.Println;
 
 let FirstLineOf(path: String): Any =
-    (path, "r", ShowWithOpen) -> Std.File.WithOpen;
+    (path, "r", ShowWithOpen) -> Std.File.WithOpen -> Std.Result.Unwrap;
 
 () -> TmpPath -> FirstLineOf -> Std.Println;
 
 //  Cleanup
-() -> TmpPath -> Std.File.Delete -> Std.Println;       // True
+() -> TmpPath -> Std.File.Delete -> Std.Result.Unwrap -> Std.Println;   // True
 

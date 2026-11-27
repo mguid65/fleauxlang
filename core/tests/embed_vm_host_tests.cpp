@@ -444,6 +444,40 @@ let App.Id(x: Int64): Int64 = x;
   REQUIRE(captured_stderr.find("App.Missing") != std::string::npos);
 }
 
+TEST_CASE("VmHost reports where a run failed and the calls it failed in", "[embed]") {
+  std::string captured_stderr;
+  fleaux::embed::VmHostConfig config;
+  config.stderr_sink = [&captured_stderr](const std::string_view text) { captured_stderr.append(text); };
+  fleaux::embed::VmHost host(config);
+  const auto run_result = host.run_source("memory/ratio.fleaux", R"(import Std;
+let App.Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;
+(0) -> App.Ratio -> Std.Println;
+)");
+
+  REQUIRE_FALSE(run_result.has_value());
+  const auto& error = run_result.error();
+  REQUIRE(error.category == fleaux::embed::HostErrorCategory::kRuntime);
+  REQUIRE(error.message == "Std.Divide: Int64 division by zero");
+  REQUIRE(error.calls.size() == 2U);
+  REQUIRE(error.calls[0].function == "App.Ratio");
+  REQUIRE(error.calls[1].function.empty());
+  REQUIRE(error.span.has_value());
+  REQUIRE(error.span->line == 2);
+  REQUIRE(error.span->col == 45);
+  REQUIRE(captured_stderr.find("--> memory/ratio.fleaux:2:45") != std::string::npos);
+  // The source is on no disk, so its line comes from the text run_source was given.
+  REQUIRE(captured_stderr.find("2 | let App.Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;") != std::string::npos);
+  REQUIRE(captured_stderr.find("note: in App.Ratio") != std::string::npos);
+  REQUIRE(captured_stderr.find("note: called from the top level (ratio.fleaux:3:8)") != std::string::npos);
+
+  // A call into the module after the run fails in the same place, and shows the same line.
+  captured_stderr.clear();
+  const auto call_result = host.call_fleaux("App.Ratio", fleaux::runtime::make_int(0));
+  REQUIRE_FALSE(call_result.has_value());
+  REQUIRE(call_result.error().calls.size() == 1U);
+  REQUIRE(captured_stderr.find("2 | let App.Ratio(x: Int64): Int64 = (10, x) -> Std.Divide;") != std::string::npos);
+}
+
 TEST_CASE("VmHost load_binding_module reports ABI mismatch from real shared plugin", "[embed]") {
   const std::filesystem::path plugin_path{FLEAUX_TEST_BINDING_PLUGIN_ABI_MISMATCH_PATH};
   REQUIRE(std::filesystem::exists(plugin_path));

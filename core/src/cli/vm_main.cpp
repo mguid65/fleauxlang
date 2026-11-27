@@ -50,6 +50,7 @@ struct CliError {
   std::string message;
   std::optional<std::string> hint;
   std::optional<fleaux::frontend::diag::SourceSpan> span;
+  std::vector<std::string> notes{};
 };
 
 auto vm_runtime_hint_for(const std::string& runtime_message) -> std::optional<std::string> {
@@ -58,6 +59,16 @@ auto vm_runtime_hint_for(const std::string& runtime_message) -> std::optional<st
     return "This run is strict VM-only. Implement the missing builtin in the VM runtime, then retry.";
   }
   return std::nullopt;
+}
+
+// A failed run as the CLI reports it: at the failure, with the calls it happened in.
+auto runtime_cli_error(const fleaux::vm::RuntimeError& error) -> CliError {
+  return CliError{
+      .message = error.message,
+      .hint = error.hint.has_value() ? error.hint : vm_runtime_hint_for(error.message),
+      .span = fleaux::vm::runtime_failure_span(error),
+      .notes = fleaux::vm::describe_runtime_calls(error.calls),
+  };
 }
 
 auto vm_loader_hint_for(const std::string& load_message) -> std::optional<std::string> {
@@ -307,8 +318,7 @@ auto bench_vm(const fleaux::vm::Runtime& runtime, const fleaux::bytecode::Module
     const auto executed = runtime.execute(module, options);
     const auto elapsed = std::chrono::steady_clock::now() - started;
     if (!executed) {
-      return tl::unexpected(CliError{.message = executed.error().message, .hint = executed.error().hint,
-                                     .span = executed.error().span});
+      return tl::unexpected(runtime_cli_error(executed.error()));
     }
     microseconds.push_back(std::chrono::duration<double, std::micro>(elapsed).count());
   }
@@ -368,11 +378,7 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
     return bench_vm(runtime, module, options, *bench_runs);
   }
   if (const auto exec = runtime.execute(module, options); !exec) {
-    return tl::unexpected(CliError{
-        .message = exec.error().message,
-        .hint = exec.error().hint.has_value() ? exec.error().hint : vm_runtime_hint_for(exec.error().message),
-        .span = exec.error().span,
-    });
+    return tl::unexpected(runtime_cli_error(exec.error()));
   }
 
   return {};
@@ -414,7 +420,7 @@ auto run_disassembly(const std::filesystem::path& source_or_bytecode) -> tl::exp
 }
 
 auto print_diag_and_return(const std::string& stage, const CliError& error) -> int {
-  std::cerr << fleaux::frontend::diag::format_diagnostic(stage, error.message, error.span, error.hint) << '\n';
+  std::cerr << fleaux::frontend::diag::format_diagnostic(stage, error.message, error.span, error.hint, std::nullopt, error.notes) << '\n';
   return 2;
 }
 

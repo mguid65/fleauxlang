@@ -65,15 +65,6 @@ inline auto repl_type_signature_fragment(const frontend::ir::IRSimpleType& type,
       out += repl_type_signature_fragment(type.alternative_types[index], generic_slots);
     }
     out += "]";
-  } else if (!type.alternatives.empty()) {
-    out += "|u[";
-    for (std::size_t index = 0; index < type.alternatives.size(); ++index) {
-      if (index != 0U) {
-        out += ",";
-      }
-      out += repl_normalize_type_name(type.alternatives[index], generic_slots);
-    }
-    out += "]";
   }
 
   if (!type.tuple_items.empty()) {
@@ -120,9 +111,11 @@ inline auto repl_signature_key(const frontend::ir::IRLet& let) -> std::string {
     generic_slots.emplace(let.generic_params[index], index);
   }
 
+  // A let from an earlier input has been checked, and its hidden operator parameters lead its parameters; a let just
+  // read has none yet. The key is the declared parameters', so that a redefinition replaces the earlier let.
   std::string out = "g" + std::to_string(let.generic_params.size()) + "|p[";
-  for (std::size_t index = 0; index < let.params.size(); ++index) {
-    if (index != 0U) {
+  for (std::size_t index = let.hidden_operator_params; index < let.params.size(); ++index) {
+    if (index != let.hidden_operator_params) {
       out += ";";
     }
     out += repl_type_signature_fragment(let.params[index].type, generic_slots);

@@ -9,10 +9,12 @@ import Std;
 () -> Std.OS.IsWindows -> Std.Println;
 () -> Std.OS.IsMacOS -> Std.Println;
 // -- Environment variables --
-("HOME") -> Std.OS.Env -> Std.Println;
+// Std.OS.Env returns a Result: Ok with the value, or Err when the variable is not set.
+("HOME") -> Std.OS.Env -> Std.Result.Unwrap -> Std.Println;
 ("HOME") -> Std.OS.HasEnv -> Std.Println;                         // True
 ("DEFINITELY_NOT_SET_XYZ") -> Std.OS.HasEnv -> Std.Println;      // False
+("DEFINITELY_NOT_SET_XYZ") -> Std.OS.Env -> (_, "unset") -> Std.Result.UnwrapOr -> Std.Println;  // unset
 // -- Set and read back an env variable --
-("FLEAUX_TEST_VAR", "hello") -> Std.OS.SetEnv -> Std.Println;    // hello
-("FLEAUX_TEST_VAR") -> Std.OS.Env -> Std.Println;                 // hello
-("FLEAUX_TEST_VAR") -> Std.OS.UnsetEnv -> Std.Println;            // True
+("FLEAUX_TEST_VAR", "hello") -> Std.OS.SetEnv -> Std.Result.Unwrap -> Std.Println;   // hello
+("FLEAUX_TEST_VAR") -> Std.OS.Env -> Std.Result.Unwrap -> Std.Println;                // hello
+("FLEAUX_TEST_VAR") -> Std.OS.UnsetEnv -> Std.Result.Unwrap -> Std.Println;           // True

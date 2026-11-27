@@ -117,7 +117,7 @@ void run_sample_in_bytecode_and_assert(const std::string_view sample_file) {
   REQUIRE(runtime_result.has_value());
 }
 
-constexpr std::array<std::string_view, 61> kExpectedSamples = {
+constexpr std::array<std::string_view, 63> kExpectedSamples = {
     "01_hello_world.fleaux",
     "02_arithmetic.fleaux",
     "03_pipeline_chaining.fleaux",
@@ -179,6 +179,8 @@ constexpr std::array<std::string_view, 61> kExpectedSamples = {
     "59_generic_user_operators.fleaux",
     "60_function_values.fleaux",
     "61_raw_strings.fleaux",
+    "62_failures_as_values.fleaux",
+    "63_collections_strings_and_time.fleaux",
 };
 
 }  // namespace
@@ -442,7 +444,7 @@ TEST_CASE("VM Std.Printf returns the expected tuple shape", "[vm][samples][print
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(\"value:{}|\", 7) -> Std.Printf -> (_, 1u64) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
+           "(\"value:{}|\", 7) -> Std.Printf -> (_, 1) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -827,7 +829,7 @@ TEST_CASE("Std.Dict.Create clone overload executes in the VM", "[vm][samples][di
     std::ofstream out(source_path);
     out << "import Std;\n"
            "let MakeDict(): Dict<String, Int64> = (() -> Std.Dict.Create, \"a\", 1) -> Std.Dict.Set;\n"
-           "() -> MakeDict -> Std.Dict.Create -> (_, \"a\") -> Std.Dict.Get -> Std.Println;\n";
+           "() -> MakeDict -> Std.Dict.Create -> (_, \"a\") -> Std.Dict.Get -> Std.Result.Unwrap -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -860,16 +862,16 @@ TEST_CASE("Integer-only Std params reject Float64 during analysis", "[vm][sample
 
   {
     std::ofstream out(source_path);
-    out << "let Std.Array.GetAt(array: Tuple<Any...>, index: UInt64): Any :: __builtin__;\n"
-           "let Std.Array.GetAtND(value: Any, indices: Tuple<UInt64...>): Any :: __builtin__;\n"
-           "let Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Tuple<UInt64...>): Any :: __builtin__;\n"
+    out << "let Std.ElementAt(array: Tuple<Any...>, index: Int64): Any :: __builtin__;\n"
+           "let Std.Array.GetAtND(value: Any, indices: Tuple<Int64...>): Any :: __builtin__;\n"
+           "let Std.Array.ReshapeND(flat_array: Tuple<Any...>, shape: Tuple<Int64...>): Any :: __builtin__;\n"
            "let Std.Exit(): Never :: __builtin__;\n"
            "let Std.Exit(code: Int64): Never :: __builtin__;\n"
            "let UseFloatExit(code: Float64): Any = (code) -> Std.Exit;\n"
            "let Std.Println(args: Any...): Tuple<Any...> :: __builtin__;\n"
-           "((1, 2, 3), 1.5) -> Std.Array.GetAt -> Std.Println;\n"
-           "(((1, 2), (3, 4)), (1u64, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
-           "((1, 2, 3, 4), (2u64, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
+           "((1, 2, 3), 1.5) -> Std.ElementAt -> Std.Println;\n"
+           "(((1, 2), (3, 4)), (1, 0.5)) -> Std.Array.GetAtND -> Std.Println;\n"
+           "((1, 2, 3, 4), (2, 2.5)) -> Std.Array.ReshapeND -> Std.Println;\n"
            "(1) -> UseFloatExit -> Std.Println;\n"
            "(1.25) -> Std.Exit -> Std.Println;\n";
   }
@@ -939,10 +941,9 @@ TEST_CASE("VM widened opaque handle params reject non-handle arguments during an
   run_case("task_timeout_non_handle_rejects.fleaux",
            "type Result<T, E> :: __builtin__;\n"
            "type TaskHandle<T> :: __builtin__;\n"
-           "let Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: UInt64): Result<T, String> :: __builtin__;\n"
-           "(1, 50u64) -> Std.Task.WithTimeout;\n",
+           "let Std.Task.WithTimeout<T>(task: TaskHandle<T>, timeout_ms: Int64): Result<T, String> :: __builtin__;\n"
+           "(1, 50) -> Std.Task.WithTimeout;\n",
            "Std.Task.WithTimeout expects argument 1");
-
 }
 
 TEST_CASE("VM widened dict scalar-key contracts reject non-scalar keys during analysis",
@@ -1000,7 +1001,7 @@ TEST_CASE("VM widened dict scalar-key contracts reject non-scalar keys during an
            "() -> MakeBad -> Std.Dict.Length;\n" "type Dict<K, V> :: __builtin__;\n");
 }
 
-TEST_CASE("VM Std.Array.Shape returns UInt64 dimensions", "[vm][samples][array]") {
+TEST_CASE("VM Std.Array.Shape returns Int64 dimensions", "[vm][samples][array]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_array_shape_uint64";
   std::filesystem::create_directories(temp_dir);
   const auto source_path = temp_dir / "array_shape_uint64.fleaux";
@@ -1008,7 +1009,7 @@ TEST_CASE("VM Std.Array.Shape returns UInt64 dimensions", "[vm][samples][array]"
   {
     std::ofstream out(source_path);
     out << "import Std;\n"
-           "(((1, 2), (3, 4))) -> Std.Array.Shape -> (_, 0u64) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
+           "(((1, 2), (3, 4))) -> Std.Array.Shape -> (_, 0) -> Std.ElementAt -> Std.Type -> Std.Println;\n";
   }
 
   const auto analyzed = load_ir_program(source_path);
@@ -1023,7 +1024,7 @@ TEST_CASE("VM Std.Array.Shape returns UInt64 dimensions", "[vm][samples][array]"
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "UInt64\n");
+  REQUIRE(output.str() == "Int64\n");
 }
 
 TEST_CASE("Inline closures execute in the VM", "[vm][samples][closure]") {
@@ -1199,7 +1200,7 @@ TEST_CASE("VM Std.Parallel.WithOptions preflight errors stay typed", "[vm][sampl
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "(0, Parallel.WithOptions: max_workers must be > 0)\n");
+  REQUIRE(output.str() == "(0, Std.Parallel.WithOptions: max_workers must be greater than 0)\n");
 }
 
 TEST_CASE("VM Std.Parallel.WithOptions rejects non-Dict<String, Any> options during analysis",
@@ -1285,7 +1286,7 @@ TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][para
     out << "import Std;\n"
            "let AddOrFail(acc: Float64, x: Float64): Float64 =\n"
            "  (x,\n"
-           "   (4.0, (): Float64 = (\"reduce-boom\") -> Std.Result.Err -> Std.Result.Unwrap),\n"
+           "   (4.0, (): Float64 = (\"reduce-boom\") -> Std.Panic),\n"
            "   (_, (): Float64 = (acc, x) -> Std.Add))\n"
            "  -> Std.Match\n"
            ";\n"
@@ -1304,7 +1305,7 @@ TEST_CASE("VM Std.Parallel.Reduce step failures stay typed", "[vm][samples][para
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "(3, Result.Unwrap expected Ok (true), got Err (false))\n");
+  REQUIRE(output.str() == "(3, reduce-boom)\n");
 }
 
 TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
@@ -1319,7 +1320,7 @@ TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
            "let ReturnSelf(x: Float64): Float64 = x;\n"
            "let MaybeFail(x: Float64): Float64 =\n"
            "  (x,\n"
-           "   (2.0, (): Float64 = (\"boom-two\") -> Std.Result.Err -> Std.Result.Unwrap),\n"
+           "   (2.0, (): Float64 = (\"boom-two\") -> Std.Panic),\n"
            "   (_, (): Float64 = x))\n"
            "  -> Std.Match\n"
            ";\n"
@@ -1341,10 +1342,10 @@ TEST_CASE("VM Std.Task.AwaitAll failures stay typed", "[vm][samples][task]") {
   set_runtime_process_args(source_path, {});
   const auto runtime_result = runtime.execute(compiled_module.value(), output);
   REQUIRE(runtime_result.has_value());
-  REQUIRE(output.str() == "(1, Result.Unwrap expected Ok (true), got Err (false))\n");
+  REQUIRE(output.str() == "(1, boom-two)\n");
 }
 
-TEST_CASE("VM Std.Task.WithTimeout negative timeout is rejected during analysis", "[vm][samples][task]") {
+TEST_CASE("VM Std.Task.WithTimeout fails on a negative timeout", "[vm][samples][task]") {
   const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_core_tests_task_timeout_preflight";
   std::filesystem::remove_all(temp_dir);
   std::filesystem::create_directories(temp_dir);
@@ -1358,9 +1359,15 @@ TEST_CASE("VM Std.Task.WithTimeout negative timeout is rejected during analysis"
   }
 
   const auto analyzed = load_ir_program(source_path);
-  REQUIRE_FALSE(analyzed.has_value());
-  REQUIRE(analyzed.error().find("Type mismatch in call target arguments") != std::string::npos);
-  REQUIRE(analyzed.error().find("Std.Task.WithTimeout expects argument 2") != std::string::npos);
+  REQUIRE(analyzed.has_value());
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  const auto compiled_module = compiler.compile(analyzed.value());
+  REQUIRE(compiled_module.has_value());
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto runtime_result = runtime.execute(compiled_module.value(), output);
+  REQUIRE_FALSE(runtime_result.has_value());
+  REQUIRE(runtime_result.error().message == "Std.Task.WithTimeout: timeout_ms -1 is negative");
 }
 
 #define FLEAUX_VM_SAMPLE_TEST(sample_file_literal) \
@@ -1431,6 +1438,8 @@ FLEAUX_VM_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_SAMPLE_TEST("59_generic_user_operators.fleaux")
 FLEAUX_VM_SAMPLE_TEST("60_function_values.fleaux")
 FLEAUX_VM_SAMPLE_TEST("61_raw_strings.fleaux")
+FLEAUX_VM_SAMPLE_TEST("62_failures_as_values.fleaux")
+FLEAUX_VM_SAMPLE_TEST("63_collections_strings_and_time.fleaux")
 
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("01_hello_world.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("02_arithmetic.fleaux")
@@ -1492,6 +1501,8 @@ FLEAUX_VM_BYTECODE_SAMPLE_TEST("58_generic_function_values.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("59_generic_user_operators.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("60_function_values.fleaux")
 FLEAUX_VM_BYTECODE_SAMPLE_TEST("61_raw_strings.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("62_failures_as_values.fleaux")
+FLEAUX_VM_BYTECODE_SAMPLE_TEST("63_collections_strings_and_time.fleaux")
 
 #undef FLEAUX_VM_SAMPLE_TEST
 #undef FLEAUX_VM_BYTECODE_SAMPLE_TEST

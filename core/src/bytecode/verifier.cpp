@@ -1,7 +1,11 @@
 #include "fleaux/bytecode/verifier.hpp"
 
 #include <format>
+#include <string>
+#include <string_view>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace fleaux::bytecode {
 namespace {
@@ -336,6 +340,153 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
     }
   }
 
+  return {};
+}
+
+auto verify_module_locations(const Module& module) -> tl::expected<void, VerificationError> {
+  const auto check_stream = [&](const std::vector<Instruction>& instructions,
+                                const std::string& owner) -> tl::expected<void, VerificationError> {
+    for (std::size_t index = 0; index < instructions.size(); ++index) {
+      if (instructions[index].location > module.locations.size()) {
+        return tl::unexpected(VerificationError{.message = std::format("{} instruction {} has location {}, but the module has {}.", owner,
+                                                                       index, instructions[index].location, module.locations.size())});
+      }
+    }
+    return {};
+  };
+  if (auto checked = check_stream(module.instructions, "module"); !checked) {
+    return checked;
+  }
+  for (std::size_t function_index = 0; function_index < module.functions.size(); ++function_index) {
+    if (auto checked = check_stream(module.functions[function_index].instructions, std::format("function {}", function_index)); !checked) {
+      return checked;
+    }
+  }
+
+  for (std::size_t index = 0; index < module.locations.size(); ++index) {
+    const SourceLocation& location = module.locations[index];
+    if (location.file >= module.source_files.size()) {
+      return tl::unexpected(VerificationError{.message = std::format("Location {} names source file {}, but the module has {}.", index + 1U,
+                                                                     location.file, module.source_files.size())});
+    }
+    if (location.inlined_function.has_value() && *location.inlined_function >= module.functions.size()) {
+      return tl::unexpected(VerificationError{.message = std::format("Location {} names function {}, but the module has {}.", index + 1U,
+                                                                     *location.inlined_function, module.functions.size())});
+    }
+    if (location.inlined_closure && (location.inlined_function.has_value() || location.inlined_at == kNoLocation)) {
+      return tl::unexpected(VerificationError{
+          .message = std::format("Location {} is in an inlined closure, so it names no function and is inlined at a call.", index + 1U)});
+    }
+    if (location.called_by.has_value() && *location.called_by >= vm::builtin_count()) {
+      return tl::unexpected(VerificationError{.message = std::format("Location {} is called by builtin {}, but there are {}.", index + 1U,
+                                                                     *location.called_by, vm::builtin_count())});
+    }
+    // A location's number is index + 1, so the call it was inlined for comes before it.
+    if (location.inlined_at > index) {
+      return tl::unexpected(
+          VerificationError{.message = std::format("Location {} is inlined at location {}, which does not come before it.", index + 1U,
+                                                   location.inlined_at)});
+    }
+  }
+  return {};
+}
+
+auto verify_module_operands(const Module& module) -> tl::expected<void, VerificationError> {
+  const auto check_stream = [&](const std::vector<Instruction>& instructions,
+                                const std::string& owner) -> tl::expected<void, VerificationError> {
+    for (std::size_t index = 0; index < instructions.size(); ++index) {
+      const Instruction& instruction = instructions[index];
+      const std::int64_t operand = instruction.operand;
+      const auto names = [&](const std::size_t size) -> bool { return operand >= 0 && std::cmp_less(operand, size); };
+      const auto refuse = [&](const std::string_view what, const std::size_t size) -> tl::expected<void, VerificationError> {
+        return tl::unexpected(VerificationError{.message = std::format("{} instruction {} ({}) names {} {}, but there are {}.", owner,
+                                                                       index, stringify_opcode(instruction.opcode), what, operand, size)});
+      };
+      constexpr auto slots = static_cast<std::size_t>(kMaxLocalSlots);
+      switch (instruction.opcode) {
+        case Opcode::kPushConst:
+          if (!names(module.constants.size())) {
+            return refuse("constant", module.constants.size());
+          }
+          break;
+        case Opcode::kCallUserFunc:
+        case Opcode::kCallUserFuncArgs:
+        case Opcode::kMakeUserFuncRef:
+          if (!names(module.functions.size())) {
+            return refuse("function", module.functions.size());
+          }
+          break;
+        case Opcode::kMakeClosureRef:
+          if (!names(module.closures.size())) {
+            return refuse("closure", module.closures.size());
+          }
+          break;
+        case Opcode::kCheckType:
+        case Opcode::kTryCheckType:
+          if (!names(module.type_checks.size())) {
+            return refuse("type check", module.type_checks.size());
+          }
+          break;
+        case Opcode::kCallNative:
+          if (!names(module.native_functions.size())) {
+            return refuse("native function", module.native_functions.size());
+          }
+          break;
+        case Opcode::kJump:
+        case Opcode::kJumpIf:
+        case Opcode::kJumpIfNot:
+          // A jump may go to the end of the stream.
+          if (!names(instructions.size() + 1U)) {
+            return refuse("instruction", instructions.size() + 1U);
+          }
+          break;
+        case Opcode::kLoadLocal:
+        case Opcode::kStoreLocal:
+        case Opcode::kTakeLocal:
+        case Opcode::kMarkStack:
+        case Opcode::kBuildTupleSinceMark:
+          if (!names(slots)) {
+            return refuse("local slot", slots);
+          }
+          break;
+        case Opcode::kIterate:
+          // The tuple's slot and the index's, after it.
+          if (!names(slots - 1U)) {
+            return refuse("local slot", slots - 1U);
+          }
+          break;
+        case Opcode::kLoadLocalItem:
+        case Opcode::kTakeLocalItem:
+          if (operand < 0 || local_item_slot(operand) >= slots) {
+            return refuse("local item", slots);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+    return {};
+  };
+  if (auto checked = check_stream(module.instructions, "module"); !checked) {
+    return checked;
+  }
+  for (std::size_t function_index = 0; function_index < module.functions.size(); ++function_index) {
+    if (auto checked = check_stream(module.functions[function_index].instructions, std::format("function {}", function_index)); !checked) {
+      return checked;
+    }
+  }
+  for (std::size_t index = 0; index < module.closures.size(); ++index) {
+    if (module.closures[index].function_index >= module.functions.size()) {
+      return tl::unexpected(VerificationError{.message = std::format("Closure {} names function {}, but there are {}.", index,
+                                                                     module.closures[index].function_index, module.functions.size())});
+    }
+  }
+  for (const ExportedSymbol& exported : module.exports) {
+    if (exported.kind == ExportKind::kFunction && exported.index >= module.functions.size()) {
+      return tl::unexpected(VerificationError{.message = std::format("Export '{}' names function {}, but there are {}.", exported.name,
+                                                                     exported.index, module.functions.size())});
+    }
+  }
   return {};
 }
 

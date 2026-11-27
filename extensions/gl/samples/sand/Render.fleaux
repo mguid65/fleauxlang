@@ -78,8 +78,8 @@ let Render.Corners: Tuple<Float64...> = (-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 
 
 // Opens the window, sized to the grid, and sets up the shader, the quad, and the grid's texture.
 let Render.Setup(): Screen = {
-  let columns: Int64 = Grid.Columns -> Std.ToInt64;
-  let rows: Int64 = Grid.Rows -> Std.ToInt64;
+  let columns: Int64 = Grid.Columns;
+  let rows: Int64 = Grid.Rows;
   ("Fleaux: Sand", (columns, Render.CellPixels) -> *, (rows, Render.CellPixels) -> *)
     -> GL.OpenWindow;
   let program: Int64 =
@@ -113,7 +113,7 @@ let Render.Draw(
 ): Null = {
   let columns: Float64 = Grid.Columns -> Std.ToFloat64;
   let rows: Float64 = Grid.Rows -> Std.ToFloat64;
-  (texture, Grid.Columns -> Std.ToInt64, Grid.Rows -> Std.ToInt64, cells) -> GL.UpdateTexture;
+  (texture, Grid.Columns, Grid.Rows, cells) -> GL.UpdateTexture;
   (time_location, () -> GL.Time) -> GL.Uniform1f;
   (
     brush_location,

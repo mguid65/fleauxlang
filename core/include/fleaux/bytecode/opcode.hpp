@@ -99,17 +99,8 @@ enum class Opcode {
   // Unary: pop TOS; push bool.
   kNot,  // logical not  (!)
 
-  // Native control-flow intrinsics:
   // Select: pop false_value, true_value, condition; push chosen value.
   kSelect,
-  // Branch: pop false_func_ref, true_func_ref, value, condition;
-  // invoke chosen function with value; push result.
-  kBranchCall,
-  // Loop: pop step_func_ref, continue_func_ref, state; push final state.
-  kLoopCall,
-  // LoopN: pop max_iters, step_func_ref, continue_func_ref, state;
-  // push final state or error if max_iters is exceeded.
-  kLoopNCall,
 
   // Control
   kHalt,
@@ -184,7 +175,7 @@ enum class Opcode {
   kCallBuiltinArgs,
 
   // Reads of an item of a tuple in a local slot, which the optimizer puts in place of a kLoadLocal or kTakeLocal, a
-  // kPushConst of a UInt64 index, and a kElementAt (LocalItemReadFusionPass). They fail as kElementAt does.
+  // kPushConst of an Int64 index, and a kElementAt (LocalItemReadFusionPass). They fail as kElementAt does.
   // operand = local_item_operand(slot, item index).
   // kLoadLocalItem pushes a copy of the item and leaves the tuple in the slot, its count untouched.
   kLoadLocalItem,
@@ -201,67 +192,62 @@ enum class Opcode {
   kBuildTupleSinceMark,
 };
 
-inline constexpr std::array opcode_names{
-  std::string_view{"NoOp"},
-  std::string_view{"PushConst"},
-  std::string_view{"Pop"},
-  std::string_view{"Dup"},
-  std::string_view{"BuildTuple"},
-  std::string_view{"CallBuiltin"},
-  std::string_view{"CallUserFunc"},
-  std::string_view{"Return"},
-  std::string_view{"LoadLocal"},
-  std::string_view{"MakeUserFuncRef"},
-  std::string_view{"MakeBuiltinFuncRef"},
-  std::string_view{"MakeClosureRef"},
-  std::string_view{"Jump"},
-  std::string_view{"JumpIf"},
-  std::string_view{"JumpIfNot"},
-  std::string_view{"Add"},
-  std::string_view{"Sub"},
-  std::string_view{"Mul"},
-  std::string_view{"Div"},
-  std::string_view{"Mod"},
-  std::string_view{"Pow"},
-  std::string_view{"Neg"},
-  std::string_view{"CmpEq"},
-  std::string_view{"CmpNe"},
-  std::string_view{"CmpLt"},
-  std::string_view{"CmpGt"},
-  std::string_view{"CmpLe"},
-  std::string_view{"CmpGe"},
-  std::string_view{"And"},
-  std::string_view{"Or"},
-  std::string_view{"Not"},
-  std::string_view{"Select"},
-  std::string_view{"BranchCall"},
-  std::string_view{"LoopCall"},
-  std::string_view{"LoopNCall"},
-  std::string_view{"Halt"},
-  std::string_view{"StoreLocal"},
-  std::string_view{"CallUserFuncArgs"},
-  std::string_view{"CheckType"},
-  std::string_view{"TryCheckType"},
-  std::string_view{"ConcatTuples"},
-  std::string_view{"CallNative"},
-  std::string_view{"ElementAt"},
-  std::string_view{"BuildTupleCounted"},
-  std::string_view{"Iterate"},
-  std::string_view{"MatchFailed"},
-  std::string_view{"BitAnd"},
-  std::string_view{"BitOr"},
-  std::string_view{"BitXor"},
-  std::string_view{"ShiftLeft"},
-  std::string_view{"ShiftRight"},
-  std::string_view{"CallFunctionValue"},
-  std::string_view{"CallFunctionValueArgs"},
-  std::string_view{"TakeLocal"},
-  std::string_view{"CallBuiltinArgs"},
-  std::string_view{"LoadLocalItem"},
-  std::string_view{"TakeLocalItem"},
-  std::string_view{"MarkStack"},
-  std::string_view{"BuildTupleSinceMark"}
-};
+inline constexpr std::array opcode_names{std::string_view{"NoOp"},
+                                         std::string_view{"PushConst"},
+                                         std::string_view{"Pop"},
+                                         std::string_view{"Dup"},
+                                         std::string_view{"BuildTuple"},
+                                         std::string_view{"CallBuiltin"},
+                                         std::string_view{"CallUserFunc"},
+                                         std::string_view{"Return"},
+                                         std::string_view{"LoadLocal"},
+                                         std::string_view{"MakeUserFuncRef"},
+                                         std::string_view{"MakeBuiltinFuncRef"},
+                                         std::string_view{"MakeClosureRef"},
+                                         std::string_view{"Jump"},
+                                         std::string_view{"JumpIf"},
+                                         std::string_view{"JumpIfNot"},
+                                         std::string_view{"Add"},
+                                         std::string_view{"Sub"},
+                                         std::string_view{"Mul"},
+                                         std::string_view{"Div"},
+                                         std::string_view{"Mod"},
+                                         std::string_view{"Pow"},
+                                         std::string_view{"Neg"},
+                                         std::string_view{"CmpEq"},
+                                         std::string_view{"CmpNe"},
+                                         std::string_view{"CmpLt"},
+                                         std::string_view{"CmpGt"},
+                                         std::string_view{"CmpLe"},
+                                         std::string_view{"CmpGe"},
+                                         std::string_view{"And"},
+                                         std::string_view{"Or"},
+                                         std::string_view{"Not"},
+                                         std::string_view{"Select"},
+                                         std::string_view{"Halt"},
+                                         std::string_view{"StoreLocal"},
+                                         std::string_view{"CallUserFuncArgs"},
+                                         std::string_view{"CheckType"},
+                                         std::string_view{"TryCheckType"},
+                                         std::string_view{"ConcatTuples"},
+                                         std::string_view{"CallNative"},
+                                         std::string_view{"ElementAt"},
+                                         std::string_view{"BuildTupleCounted"},
+                                         std::string_view{"Iterate"},
+                                         std::string_view{"MatchFailed"},
+                                         std::string_view{"BitAnd"},
+                                         std::string_view{"BitOr"},
+                                         std::string_view{"BitXor"},
+                                         std::string_view{"ShiftLeft"},
+                                         std::string_view{"ShiftRight"},
+                                         std::string_view{"CallFunctionValue"},
+                                         std::string_view{"CallFunctionValueArgs"},
+                                         std::string_view{"TakeLocal"},
+                                         std::string_view{"CallBuiltinArgs"},
+                                         std::string_view{"LoadLocalItem"},
+                                         std::string_view{"TakeLocalItem"},
+                                         std::string_view{"MarkStack"},
+                                         std::string_view{"BuildTupleSinceMark"}};
 
 // The operand of kLoadLocalItem and kTakeLocalItem: the local slot in the low 32 bits and the item's index in the 31
 // above them, so that the operand is never negative.

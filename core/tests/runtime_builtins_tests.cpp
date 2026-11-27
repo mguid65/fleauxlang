@@ -8,8 +8,9 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <stdexcept>
 #include <sstream>
+#include <stdexcept>
+#include <system_error>
 #include <thread>
 
 #include "fleaux/runtime/runtime_support.hpp"
@@ -33,6 +34,18 @@ private:
   std::ostringstream buffer_;
   std::streambuf* old_buffer_;
 };
+
+// The value of the Ok that `result` must be.
+auto ok_value(const Value& result) -> Value {
+  REQUIRE(as_bool(tuple_at(result, 0)));
+  return tuple_at(result, 1);
+}
+
+// The message of the Err that `result` must be.
+auto err_message(const Value& result) -> std::string {
+  REQUIRE_FALSE(as_bool(tuple_at(result, 0)));
+  return as_string(tuple_at(result, 1));
+}
 
 }  // namespace
 
@@ -104,24 +117,24 @@ TEST_CASE("Runtime builtins: core tuple helpers", "[runtime]") {
     REQUIRE(as_tuple(dropped).size() == 3);
     REQUIRE(to_double(tuple_at(dropped, 0)) == 3.0);
 
-    Value sliced = SliceTupleUInt64UInt64(make_tuple(seq, make_int(1), make_int(4)));
+    Value sliced = SliceTupleInt64Int64(make_tuple(seq, make_int(1), make_int(4)));
     REQUIRE(as_tuple(sliced).size() == 3);
     REQUIRE(to_double(tuple_at(sliced, 0)) == 2.0);
     REQUIRE(to_double(tuple_at(sliced, 2)) == 4.0);
 
-    Value stop_only = SliceTupleUInt64(make_tuple(seq, make_int(3)));
+    Value stop_only = SliceTupleInt64(make_tuple(seq, make_int(3)));
     REQUIRE(as_tuple(stop_only).size() == 3);
     REQUIRE(to_double(tuple_at(stop_only, 0)) == 1.0);
     REQUIRE(to_double(tuple_at(stop_only, 2)) == 3.0);
 
-    Value stepped = SliceTupleUInt64UInt64UInt64(make_tuple(seq, make_int(0), make_int(5), make_int(2)));
+    Value stepped = SliceTupleInt64Int64Int64(make_tuple(seq, make_int(0), make_int(5), make_int(2)));
     REQUIRE(as_tuple(stepped).size() == 3);
     REQUIRE(to_double(tuple_at(stepped, 0)) == 1.0);
     REQUIRE(to_double(tuple_at(stepped, 1)) == 3.0);
     REQUIRE(to_double(tuple_at(stepped, 2)) == 5.0);
 
-    REQUIRE_THROWS_WITH(SliceTupleUInt64UInt64UInt64(make_tuple(seq, make_int(0), make_int(5), make_int(0))),
-                        Catch::Matchers::ContainsSubstring("Slice: step cannot be 0"));
+    REQUIRE_THROWS_WITH(SliceTupleInt64Int64Int64(make_tuple(seq, make_int(0), make_int(5), make_int(0))),
+                        Catch::Matchers::ContainsSubstring("step cannot be 0"));
   }
 }
 
@@ -241,10 +254,9 @@ TEST_CASE("Tuples keep their items in one block", "[runtime][tuple]") {
     REQUIRE(ArrayFlatten(make_int(7)) == make_tuple(make_int(7)));
 
     const Value digits = int_tuple(10);
-    REQUIRE(SliceTupleUInt64UInt64UInt64(make_tuple(digits, make_uint(1), make_uint(9), make_uint(3))) ==
+    REQUIRE(SliceTupleInt64Int64Int64(make_tuple(digits, make_uint(1), make_uint(9), make_uint(3))) ==
             make_tuple(make_int(1), make_int(4), make_int(7)));
-    REQUIRE(as_tuple(SliceTupleUInt64UInt64UInt64(make_tuple(digits, make_uint(8), make_uint(2), make_uint(1))))
-                .empty());
+    REQUIRE(as_tuple(SliceTupleInt64Int64Int64(make_tuple(digits, make_uint(8), make_uint(2), make_uint(1)))).empty());
   }
 }
 
@@ -260,7 +272,7 @@ TEST_CASE("Tuple builtins change a tuple the argument holds once in place", "[ru
   SECTION("Updates that keep the size keep the block") {
     Value tuple = ints({3, 1, 2});
     const HeapObject* block = tuple.object();
-    Value set = ArraySetAt(make_tuple(std::move(tuple), make_uint(0), make_int(9)));
+    Value set = TupleSetAt(make_tuple(std::move(tuple), make_uint(0), make_int(9)));
     REQUIRE(set.object() == block);
     REQUIRE(set == ints({9, 1, 2}));
     Value filled = ArrayFill(make_tuple(std::move(set), make_uint(1), make_uint(2), make_int(7)));
@@ -286,19 +298,18 @@ TEST_CASE("Tuple builtins change a tuple the argument holds once in place", "[ru
 
   SECTION("A shared tuple is copied and left as it was") {
     const Value shared = ints({3, 1, 2});
-    REQUIRE(ArraySetAt(make_tuple(shared, make_uint(0), make_int(9))) == ints({9, 1, 2}));
+    REQUIRE(TupleSetAt(make_tuple(shared, make_uint(0), make_int(9))) == ints({9, 1, 2}));
     REQUIRE(ArrayFill(make_tuple(shared, make_uint(0), make_uint(3), make_int(0))) == ints({0, 0, 0}));
     REQUIRE(TupleSort(shared) == ints({1, 2, 3}));
     REQUIRE(TupleAppend(make_tuple(shared, make_int(4))) == ints({3, 1, 2, 4}));
     REQUIRE(TuplePrepend(make_tuple(shared, make_int(0))) == ints({0, 3, 1, 2}));
-    REQUIRE(ArrayInsertAt(make_tuple(shared, make_uint(3), make_int(5))) == ints({3, 1, 2, 5}));
-    REQUIRE(ArrayRemoveAt(make_tuple(shared, make_uint(1))) == ints({3, 2}));
-    REQUIRE(ArrayConcat(make_tuple(shared, shared)) == ints({3, 1, 2, 3, 1, 2}));
+    REQUIRE(TupleInsertAt(make_tuple(shared, make_uint(3), make_int(5))) == ints({3, 1, 2, 5}));
+    REQUIRE(TupleRemoveAt(make_tuple(shared, make_uint(1))) == ints({3, 2}));
+    REQUIRE(TupleConcat(make_tuple(shared, shared)) == ints({3, 1, 2, 3, 1, 2}));
     REQUIRE(Take(make_tuple(shared, make_uint(2))) == ints({3, 1}));
     REQUIRE(Drop(make_tuple(shared, make_uint(2))) == ints({2}));
-    REQUIRE(ArraySlice(make_tuple(shared, make_uint(1), make_uint(3))) == ints({1, 2}));
-    REQUIRE(SliceTupleUInt64UInt64UInt64(make_tuple(shared, make_uint(0), make_uint(3), make_uint(2))) ==
-            ints({3, 2}));
+    REQUIRE(SliceTupleInt64Int64(make_tuple(shared, make_uint(1), make_uint(3))) == ints({1, 2}));
+    REQUIRE(SliceTupleInt64Int64Int64(make_tuple(shared, make_uint(0), make_uint(3), make_uint(2))) == ints({3, 2}));
     REQUIRE(shared == ints({3, 1, 2}));
   }
 
@@ -324,21 +335,21 @@ TEST_CASE("Tuple builtins change a tuple the argument holds once in place", "[ru
     const HeapObject* block = tuple.object();
     tuple = Take(make_tuple(std::move(tuple), make_uint(6)));
     REQUIRE(tuple == ints({1, 2, 3, 4, 5, 6}));
-    tuple = ArrayRemoveAt(make_tuple(std::move(tuple), make_uint(0)));
+    tuple = TupleRemoveAt(make_tuple(std::move(tuple), make_uint(0)));
     REQUIRE(tuple == ints({2, 3, 4, 5, 6}));
     tuple = TuplePrepend(make_tuple(std::move(tuple), make_int(0)));
     REQUIRE(tuple == ints({0, 2, 3, 4, 5, 6}));
-    tuple = ArrayInsertAt(make_tuple(std::move(tuple), make_uint(1), make_int(1)));
+    tuple = TupleInsertAt(make_tuple(std::move(tuple), make_uint(1), make_int(1)));
     REQUIRE(tuple == ints({0, 1, 2, 3, 4, 5, 6}));
-    tuple = ArrayConcat(make_tuple(std::move(tuple), ints({7})));
+    tuple = TupleConcat(make_tuple(std::move(tuple), ints({7})));
     REQUIRE(tuple == ints({0, 1, 2, 3, 4, 5, 6, 7}));
     tuple = Drop(make_tuple(std::move(tuple), make_uint(1)));
     REQUIRE(tuple == ints({1, 2, 3, 4, 5, 6, 7}));
-    tuple = SliceTupleUInt64UInt64UInt64(make_tuple(std::move(tuple), make_uint(0), make_uint(7), make_uint(2)));
+    tuple = SliceTupleInt64Int64Int64(make_tuple(std::move(tuple), make_uint(0), make_uint(7), make_uint(2)));
     REQUIRE(tuple == ints({1, 3, 5, 7}));
     REQUIRE(tuple.object() == block);
     // Two items in a block for eight: the cut trades it for one of the exact size.
-    tuple = ArraySlice(make_tuple(std::move(tuple), make_uint(1), make_uint(3)));
+    tuple = SliceTupleInt64Int64(make_tuple(std::move(tuple), make_uint(1), make_uint(3)));
     REQUIRE(tuple == ints({3, 5}));
   }
 
@@ -516,12 +527,6 @@ TEST_CASE("Std.Try turns a failure into an Err whichever way it arrives", "[runt
     REQUIRE(Try(make_tuple(make_int(1), failing)) == ResultErr(make_string("from C++")));
   }
 
-  SECTION("A wrapped failure keeps only its message") {
-    const Value failing = make_function(
-        [](const Value&) -> Value { throw std::runtime_error("builtin 'Std.Divide' threw: Divide: by zero"); });
-    REQUIRE(Try(make_tuple(make_int(1), failing)) == ResultErr(make_string("Divide: by zero")));
-  }
-
   SECTION("A call that succeeds gives Ok") {
     const Value doubling = make_function([](const Value& value) -> Value { return make_int(value.int_value() * 2); });
     std::string error;
@@ -697,9 +702,10 @@ TEST_CASE("Runtime builtins: OS exec", "[runtime]") {
 #else
   const Value result = make_string("printf 'fleaux_exec_ok'") | OSExec;
 #endif
-  REQUIRE(as_tuple(result).size() == 2);
-  REQUIRE(to_double(tuple_at(result, 0)) == 0.0);
-  REQUIRE(as_string(tuple_at(result, 1)) == "fleaux_exec_ok");
+  const Value output = ok_value(result);
+  REQUIRE(as_tuple(output).size() == 2);
+  REQUIRE(to_double(tuple_at(output, 0)) == 0.0);
+  REQUIRE(as_string(tuple_at(output, 1)) == "fleaux_exec_ok");
 }
 
 TEST_CASE("Runtime builtins: path and filesystem helpers require String slots", "[runtime]") {
@@ -756,13 +762,13 @@ TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
     const Value ok = ResultOk(make_int(42));
     REQUIRE(as_bool(ResultIsOk(ok)));
     REQUIRE_FALSE(as_bool(ResultIsErr(ok)));
-    REQUIRE(as_bool(ResultTag(ok)));
+    REQUIRE(as_bool(ResultIsOk(ok)));
     REQUIRE(to_double(ResultPayload(ok)) == 42.0);
 
     const Value err = ResultErr(make_string("boom"));
     REQUIRE(as_bool(ResultIsErr(err)));
     REQUIRE_FALSE(as_bool(ResultIsOk(err)));
-    REQUIRE_FALSE(as_bool(ResultTag(err)));
+    REQUIRE_FALSE(as_bool(ResultIsOk(err)));
     REQUIRE(as_string(ResultPayload(err)) == "boom");
   }
 
@@ -773,8 +779,8 @@ TEST_CASE("Runtime builtins: Std.Result helpers", "[runtime]") {
     REQUIRE(to_double(ResultUnwrap(ok)) == 9.0);
     REQUIRE(as_string(ResultUnwrapErr(err)) == "bad");
 
-    REQUIRE_THROWS_WITH(ResultUnwrap(err), Catch::Matchers::ContainsSubstring("Result.Unwrap expected Ok"));
-    REQUIRE_THROWS_WITH(ResultUnwrapErr(ok), Catch::Matchers::ContainsSubstring("Result.UnwrapErr expected Err"));
+    REQUIRE_THROWS_WITH(ResultUnwrap(err), Catch::Matchers::ContainsSubstring("expected Ok, got Err: "));
+    REQUIRE_THROWS_WITH(ResultUnwrapErr(ok), Catch::Matchers::ContainsSubstring("expected Err, got Ok: "));
   }
 }
 
@@ -985,7 +991,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value err = ResultUnwrapErr(result);
     REQUIRE(as_tuple(err).size() == 2);
     REQUIRE(to_double(tuple_at(err, 0)) == 0.0);
-    REQUIRE(as_string(tuple_at(err, 1)) == "Parallel.WithOptions: options must be a Dict");
+    REQUIRE(as_string(tuple_at(err, 1)) == "Std.Parallel.WithOptions: options must be a Dict");
   }
 
   SECTION("WithOptions preserves deterministic output order under chunking") {
@@ -1035,7 +1041,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value err = ResultUnwrapErr(workers_result);
     REQUIRE(as_tuple(err).size() == 2);
     REQUIRE(to_double(tuple_at(err, 0)) == 0.0);
-    REQUIRE(as_string(tuple_at(err, 1)) == "Parallel.WithOptions: max_workers must be > 0");
+    REQUIRE(as_string(tuple_at(err, 1)) == "Std.Parallel.WithOptions: max_workers must be greater than 0");
   }
 
   SECTION("WithOptions rejects unsupported option keys") {
@@ -1048,7 +1054,7 @@ TEST_CASE("Runtime builtins: Std.Parallel.WithOptions", "[runtime]") {
     const Value err = ResultUnwrapErr(result);
     REQUIRE(as_tuple(err).size() == 2);
     REQUIRE(to_double(tuple_at(err, 0)) == 0.0);
-    REQUIRE(as_string(tuple_at(err, 1)) == "Parallel.WithOptions: unsupported option 'chunk_size'");
+    REQUIRE(as_string(tuple_at(err, 1)) == "Std.Parallel.WithOptions: unsupported option 'chunk_size'");
   }
 }
 
@@ -1149,7 +1155,7 @@ TEST_CASE("Runtime builtins: Std.Task.* queued backend", "[runtime]") {
 
     const Value timed = TaskWithTimeout(make_tuple(task, make_int(1)));
     REQUIRE(as_bool(ResultIsErr(timed)));
-    REQUIRE(as_string(ResultUnwrapErr(timed)) == "Task.WithTimeout: timeout exceeded");
+    REQUIRE(as_string(ResultUnwrapErr(timed)) == "Std.Task.WithTimeout: timeout exceeded");
 
     const Value awaited = TaskAwait(task);
     REQUIRE(as_bool(ResultIsOk(awaited)));
@@ -1644,8 +1650,9 @@ TEST_CASE("Runtime builtins: Std.Dict.Merge", "[runtime]") {
     const Value cloned = DictCreate_Dict(seeded);
     const Value cloned_from_tuple = DictCreate_Dict(seeded);
 
-    REQUIRE(to_double(DictGet(make_tuple(cloned, make_string("answer")))) == 42.0);
-    REQUIRE(to_double(DictGet(make_tuple(cloned_from_tuple, make_string("answer")))) == 42.0);
+    REQUIRE(to_double(ok_value(DictGet(make_tuple(cloned, make_string("answer"))))) == 42.0);
+    REQUIRE(to_double(ok_value(DictGet(make_tuple(cloned_from_tuple, make_string("answer"))))) == 42.0);
+    REQUIRE(err_message(DictGet(make_tuple(cloned, make_string("missing")))) == "Std.Dict.Get: the key missing is not in the dict");
     REQUIRE(to_double(DictGetDefault(make_tuple(cloned, make_string("missing"), make_int(9)))) == 9.0);
     REQUIRE(as_bool(DictContains(make_tuple(cloned, make_string("answer")))));
 
@@ -1726,7 +1733,7 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(tuple_at(stepped, 2)) == 1.0);
 
     REQUIRE_THROWS_WITH(TupleRangeInt64Int64Int64(make_tuple(make_int(0), make_int(5), make_int(0))),
-                        Catch::Matchers::ContainsSubstring("TupleRange step cannot be 0"));
+                        Catch::Matchers::ContainsSubstring("step cannot be 0"));
 
     REQUIRE_THROWS_WITH(TupleReverse(make_int(9)),
                         Catch::Matchers::ContainsSubstring("Std.Tuple.Reverse invariant violated: expected validated tuple value"));
@@ -1760,8 +1767,8 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
     REQUIRE(to_double(tuple_at(filtered, 1)) == 2.0);
 
     REQUIRE(to_double(TupleReduce(make_tuple(values, make_int(0), sum_pair))) == 8.0);
-    REQUIRE(to_double(TupleFindIndex(make_tuple(values, is_even))) == 1.0);
-    REQUIRE(to_double(TupleFindIndex(make_tuple(values, greater_than_three))) == -1.0);
+    REQUIRE(to_double(ok_value(TupleFindIndex(make_tuple(values, is_even)))) == 1.0);
+    REQUIRE(err_message(TupleFindIndex(make_tuple(values, greater_than_three))) == "Std.Tuple.FindIndex: no item matches");
     REQUIRE(as_bool(TupleAny(make_tuple(values, is_even))));
     REQUIRE_FALSE(as_bool(TupleAny(make_tuple(values, greater_than_three))));
     REQUIRE(as_bool(TupleAll(make_tuple(values, is_positive))));
@@ -1818,8 +1825,8 @@ TEST_CASE("Runtime builtins: tuple min/max boundaries", "[runtime][boundary]") {
   }
 
   SECTION("TupleMin and TupleMax reject empty tuples") {
-    REQUIRE_THROWS_WITH(TupleMin(make_tuple()), Catch::Matchers::ContainsSubstring("non-empty"));
-    REQUIRE_THROWS_WITH(TupleMax(make_tuple()), Catch::Matchers::ContainsSubstring("non-empty"));
+    REQUIRE_THROWS_WITH(TupleMin(make_tuple()), Catch::Matchers::ContainsSubstring("the tuple is empty"));
+    REQUIRE_THROWS_WITH(TupleMax(make_tuple()), Catch::Matchers::ContainsSubstring("the tuple is empty"));
   }
 
   SECTION("TupleMin and TupleMax handle singleton tuples") {
@@ -1845,17 +1852,17 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   SECTION("Array helpers execute as plain functions") {
     const Value one_d = make_tuple(make_int(10), make_int(20), make_int(30));
 
-    REQUIRE(to_double(ArrayGetAt(make_tuple(one_d, make_int(1)))) == 20.0);
-    REQUIRE(to_double(tuple_at(ArraySetAt(make_tuple(one_d, make_int(1), make_int(99))), 1)) == 99.0);
-    REQUIRE(to_double(tuple_at(ArrayInsertAt(make_tuple(one_d, make_int(1), make_int(15))), 1)) == 15.0);
-    REQUIRE(as_tuple(ArrayRemoveAt(make_tuple(one_d, make_int(1)))).size() == 2U);
-    REQUIRE(as_tuple(ArraySlice(make_tuple(one_d, make_int(1), make_int(3)))).size() == 2U);
-    REQUIRE(as_tuple(ArrayConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))))).size() == 5U);
+    REQUIRE(to_double(ElementAt(make_tuple(one_d, make_int(1)))) == 20.0);
+    REQUIRE(to_double(tuple_at(TupleSetAt(make_tuple(one_d, make_int(1), make_int(99))), 1)) == 99.0);
+    REQUIRE(to_double(tuple_at(TupleInsertAt(make_tuple(one_d, make_int(1), make_int(15))), 1)) == 15.0);
+    REQUIRE(as_tuple(TupleRemoveAt(make_tuple(one_d, make_int(1)))).size() == 2U);
+    REQUIRE(as_tuple(SliceTupleInt64Int64(make_tuple(one_d, make_int(1), make_int(3)))).size() == 2U);
+    REQUIRE(as_tuple(TupleConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))))).size() == 5U);
     REQUIRE(to_double(ArrayRank(grid)) == 2.0);
     const Value shape = ArrayShape(grid);
     REQUIRE(as_tuple(shape).size() == 2U);
-    REQUIRE(as_string(Type(tuple_at(shape, 0))) == "UInt64");
-    REQUIRE(as_string(Type(tuple_at(shape, 1))) == "UInt64");
+    REQUIRE(as_string(Type(tuple_at(shape, 0))) == "Int64");
+    REQUIRE(as_string(Type(tuple_at(shape, 1))) == "Int64");
     REQUIRE(as_tuple(ArrayFlatten(grid)).size() == 6U);
   }
 
@@ -1915,28 +1922,28 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
   SECTION("1-D helpers: get/set/insert/remove/slice/concat") {
     const Value one_d = make_tuple(make_int(10), make_int(20), make_int(30));
 
-    REQUIRE(to_double(ArrayGetAt(make_tuple(one_d, make_int(1)))) == 20.0);
+    REQUIRE(to_double(ElementAt(make_tuple(one_d, make_int(1)))) == 20.0);
 
-    const Value set_out = ArraySetAt(make_tuple(one_d, make_int(1), make_int(99)));
+    const Value set_out = TupleSetAt(make_tuple(one_d, make_int(1), make_int(99)));
     REQUIRE(to_double(tuple_at(set_out, 0)) == 10.0);
     REQUIRE(to_double(tuple_at(set_out, 1)) == 99.0);
     REQUIRE(to_double(tuple_at(set_out, 2)) == 30.0);
 
-    const Value insert_out = ArrayInsertAt(make_tuple(one_d, make_int(1), make_int(15)));
+    const Value insert_out = TupleInsertAt(make_tuple(one_d, make_int(1), make_int(15)));
     REQUIRE(as_tuple(insert_out).size() == 4);
     REQUIRE(to_double(tuple_at(insert_out, 1)) == 15.0);
 
-    const Value remove_out = ArrayRemoveAt(make_tuple(one_d, make_int(1)));
+    const Value remove_out = TupleRemoveAt(make_tuple(one_d, make_int(1)));
     REQUIRE(as_tuple(remove_out).size() == 2);
     REQUIRE(to_double(tuple_at(remove_out, 0)) == 10.0);
     REQUIRE(to_double(tuple_at(remove_out, 1)) == 30.0);
 
-    const Value slice_out = ArraySlice(make_tuple(one_d, make_int(1), make_int(3)));
+    const Value slice_out = SliceTupleInt64Int64(make_tuple(one_d, make_int(1), make_int(3)));
     REQUIRE(as_tuple(slice_out).size() == 2);
     REQUIRE(to_double(tuple_at(slice_out, 0)) == 20.0);
     REQUIRE(to_double(tuple_at(slice_out, 1)) == 30.0);
 
-    const Value concat_out = ArrayConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))));
+    const Value concat_out = TupleConcat(make_tuple(one_d, make_tuple(make_int(40), make_int(50))));
     REQUIRE(as_tuple(concat_out).size() == 5);
     REQUIRE(to_double(tuple_at(concat_out, 4)) == 50.0);
   }
@@ -1949,9 +1956,9 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
     REQUIRE(to_double(ArrayRank(cube)) == 3.0);
     const Value shape = ArrayShape(cube);
     REQUIRE(as_tuple(shape).size() == 3);
-    REQUIRE(as_string(Type(tuple_at(shape, 0))) == "UInt64");
-    REQUIRE(as_string(Type(tuple_at(shape, 1))) == "UInt64");
-    REQUIRE(as_string(Type(tuple_at(shape, 2))) == "UInt64");
+    REQUIRE(as_string(Type(tuple_at(shape, 0))) == "Int64");
+    REQUIRE(as_string(Type(tuple_at(shape, 1))) == "Int64");
+    REQUIRE(as_string(Type(tuple_at(shape, 2))) == "Int64");
     REQUIRE(to_double(tuple_at(shape, 0)) == 2.0);
     REQUIRE(to_double(tuple_at(shape, 1)) == 2.0);
     REQUIRE(to_double(tuple_at(shape, 2)) == 2.0);
@@ -1990,8 +1997,8 @@ TEST_CASE("Runtime builtins: Std.Array utilities", "[runtime]") {
 
 TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime][boundary]") {
   SECTION("OSMakeTempFile and OSMakeTempDir materialize resources") {
-    const Value temp_file = make_tuple() | OSMakeTempFile;
-    const Value temp_dir = make_tuple() | OSMakeTempDir;
+    const Value temp_file = ok_value(make_tuple() | OSMakeTempFile);
+    const Value temp_dir = ok_value(make_tuple() | OSMakeTempDir);
 
     REQUIRE(temp_file.is_string());
     REQUIRE(temp_dir.is_string());
@@ -2023,8 +2030,8 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
 
     const Value result =
         make_tuple(make_string(file_path.string()), make_string("r"), capture_and_return) | FileWithOpen;
-    REQUIRE(as_string(result) == "ok");
-    REQUIRE_THROWS_WITH(captured_token | FileReadLine, Catch::Matchers::ContainsSubstring("closed or invalid"));
+    REQUIRE(as_string(ok_value(result)) == "ok");
+    REQUIRE_THROWS_WITH(captured_token | FileReadLine, Catch::Matchers::ContainsSubstring("the file handle is closed"));
 
     std::error_code ec;
     std::filesystem::remove(file_path, ec);
@@ -2049,7 +2056,7 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
     REQUIRE_THROWS_WITH(
         make_tuple(make_string(file_path.string()), make_string("r"), capture_and_throw) | FileWithOpen,
         Catch::Matchers::ContainsSubstring("boom"));
-    REQUIRE_THROWS_WITH(captured_token | FileReadLine, Catch::Matchers::ContainsSubstring("closed or invalid"));
+    REQUIRE_THROWS_WITH(captured_token | FileReadLine, Catch::Matchers::ContainsSubstring("the file handle is closed"));
 
     std::error_code ec;
     std::filesystem::remove(file_path, ec);
@@ -2065,16 +2072,16 @@ TEST_CASE("Runtime builtins: temp lifecycle and file handle cleanup", "[runtime]
       out << "line";
     }
 
-    const Value first_token = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
-    REQUIRE(as_bool(first_token | FileClose));
-    REQUIRE_FALSE(as_bool(first_token | FileClose));
-    REQUIRE_THROWS_WITH(first_token | FileReadLine, Catch::Matchers::ContainsSubstring("closed or invalid"));
+    const Value first_token = ok_value(make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen);
+    REQUIRE(as_bool(ok_value(first_token | FileClose)));
+    REQUIRE_FALSE(as_bool(ok_value(first_token | FileClose)));
+    REQUIRE_THROWS_WITH(first_token | FileReadLine, Catch::Matchers::ContainsSubstring("the file handle is closed"));
 
-    const Value reopened_token = make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen;
-    const Value read_back = reopened_token | FileReadLine;
+    const Value reopened_token = ok_value(make_tuple(make_string(file_path.string()), make_string("r")) | FileOpen);
+    const Value read_back = ok_value(reopened_token | FileReadLine);
     REQUIRE(as_tuple(read_back).size() == 3);
     REQUIRE(as_string(tuple_at(read_back, 1)) == "line");
-    REQUIRE(as_bool(reopened_token | FileClose));
+    REQUIRE(as_bool(ok_value(reopened_token | FileClose)));
 
     std::error_code ec;
     std::filesystem::remove(file_path, ec);
@@ -2087,24 +2094,23 @@ TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
     REQUIRE(as_string(ToString(make_int(42))) == "42");
     REQUIRE(as_string(ToString(make_int(1))) == "1");
     REQUIRE(as_string(ToString(make_tuple(make_int(1), make_int(2)))) == "(1, 2)");
-    REQUIRE(to_double(ToNum(make_string("42.5"))) == 42.5);
-    REQUIRE(to_double(ToNum(make_string("\t +1.25e2"))) == 125.0);
-    REQUIRE_THROWS_WITH(ToNum(make_string("42xyz")), Catch::Matchers::ContainsSubstring("trailing characters"));
+    REQUIRE(to_double(ok_value(StringParseFloat64(make_string("42.5")))) == 42.5);
+    REQUIRE(to_double(ok_value(StringParseFloat64(make_string("\t +1.25e2")))) == 125.0);
+    REQUIRE(err_message(StringParseFloat64(make_string("42xyz"))) == "Std.String.ParseFloat64: '42xyz' has characters after the number");
 
-    REQUIRE(as_int_value(StringParseInt64(make_string("  +42"))) == 42);
-    REQUIRE(as_int_value(StringParseInt64(make_string("-42"))) == -42);
-    REQUIRE_THROWS_WITH(StringParseInt64(make_string("9223372036854775808")),
-                        Catch::Matchers::ContainsSubstring("out of range"));
+    REQUIRE(as_int_value(ok_value(StringParseInt64(make_string("  +42")))) == 42);
+    REQUIRE(as_int_value(ok_value(StringParseInt64(make_string("-42")))) == -42);
+    REQUIRE(err_message(StringParseInt64(make_string("9223372036854775808"))) ==
+            "Std.String.ParseInt64: '9223372036854775808' is out of range for an Int64");
+    REQUIRE(err_message(StringParseInt64(make_string("12x"))) == "Std.String.ParseInt64: '12x' has characters after the number");
 
-    REQUIRE(is_uint_number(StringParseUInt64(make_string("18446744073709551615"))));
-    REQUIRE_THROWS_WITH(StringParseUInt64(make_string("-1")),
-                        Catch::Matchers::ContainsSubstring("invalid numeric input"));
-    REQUIRE_THROWS_WITH(StringParseUInt64(make_string("18446744073709551616")),
-                        Catch::Matchers::ContainsSubstring("out of range"));
+    REQUIRE(is_uint_number(ok_value(StringParseUInt64(make_string("18446744073709551615")))));
+    REQUIRE(err_message(StringParseUInt64(make_string("-1"))) == "Std.String.ParseUInt64: '-1' is not a UInt64");
+    REQUIRE(err_message(StringParseUInt64(make_string("18446744073709551616"))) ==
+            "Std.String.ParseUInt64: '18446744073709551616' is out of range for a UInt64");
 
-    REQUIRE(to_double(StringParseFloat64(make_string(" +6.022e2"))) == 602.2);
-    REQUIRE_THROWS_WITH(StringParseFloat64(make_string("")),
-                        Catch::Matchers::ContainsSubstring("invalid numeric input"));
+    REQUIRE(to_double(ok_value(StringParseFloat64(make_string(" +6.022e2")))) == 602.2);
+    REQUIRE(err_message(StringParseFloat64(make_string(""))) == "Std.String.ParseFloat64: '' is not a Float64");
   }
 
   SECTION("case conversion and trimming") {
@@ -2136,12 +2142,16 @@ TEST_CASE("Runtime builtins: string helpers", "[runtime]") {
   SECTION("length indexing slicing find and format") {
     REQUIRE(to_double(StringLength(make_string("abcd"))) == 4.0);
     REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(1)))) == "b");
-    REQUIRE(as_string(StringCharAt(make_tuple(make_string("abc"), make_int(9)))) == "");
-    REQUIRE(as_string(StringSliceStringUInt64(make_tuple(make_string("abcdef"), make_int(3)))) == "abc");
-    REQUIRE(as_string(StringSliceStringUInt64UInt64(make_tuple(make_string("abcdef"), make_int(1), make_int(4)))) == "bcd");
-    REQUIRE(to_double(StringFindStringString(make_tuple(make_string("abcabc"), make_string("bc")))) == 1.0);
-    REQUIRE(to_double(StringFindStringStringUInt64(make_tuple(make_string("abcabc"), make_string("bc"), make_int(2)))) == 4.0);
-    REQUIRE(to_double(StringFindStringString(make_tuple(make_string("abcabc"), make_string("zz")))) == -1.0);
+    REQUIRE_THROWS_WITH(StringCharAt(make_tuple(make_string("abc"), make_int(9))), "index 9 is out of range for a string of 3 bytes");
+    REQUIRE_THROWS_WITH(StringCharAt(make_tuple(make_string("abc"), make_int(-1))), "index -1 is out of range for a string of 3 bytes");
+    REQUIRE(as_string(StringSliceStringInt64(make_tuple(make_string("abcdef"), make_int(3)))) == "abc");
+    REQUIRE(as_string(StringSliceStringInt64Int64(make_tuple(make_string("abcdef"), make_int(1), make_int(4)))) == "bcd");
+    REQUIRE(to_double(ok_value(StringFindStringString(make_tuple(make_string("abcabc"), make_string("bc"))))) == 1.0);
+    REQUIRE(to_double(ok_value(StringFindStringStringInt64(make_tuple(make_string("abcabc"), make_string("bc"), make_int(2))))) == 4.0);
+    REQUIRE(err_message(StringFindStringString(make_tuple(make_string("abc"), make_string("z")))) ==
+            "Std.String.Find: 'z' is not in the string");
+    REQUIRE(err_message(StringFindStringString(make_tuple(make_string("abcabc"), make_string("zz")))) ==
+            "Std.String.Find: 'zz' is not in the string");
     REQUIRE(as_string(
                 StringFormat(make_tuple(make_string("{} + {} = {}"), make_int(2), make_int(3), make_int(5)))) ==
             "2 + 3 = 5");
@@ -2153,8 +2163,8 @@ TEST_CASE("Runtime builtins: string regex", "[runtime]") {
     const Value text = make_string("abc-123 xyz");
     REQUIRE(as_bool(StringRegexIsMatch(make_tuple(text, make_string("[a-z]+-[0-9]+")))));
     REQUIRE_FALSE(as_bool(StringRegexIsMatch(make_tuple(text, make_string("^XYZ$")))));
-    REQUIRE(to_double(StringRegexFind(make_tuple(text, make_string("[0-9]+")))) == 4.0);
-    REQUIRE(to_double(StringRegexFind(make_tuple(text, make_string("ZZZ")))) == -1.0);
+    REQUIRE(to_double(ok_value(StringRegexFind(make_tuple(text, make_string("[0-9]+"))))) == 4.0);
+    REQUIRE(err_message(StringRegexFind(make_tuple(text, make_string("ZZZ")))) == "Std.String.Regex.Find: the pattern does not match");
   }
 
   SECTION("Replace and Split") {
@@ -2172,9 +2182,9 @@ TEST_CASE("Runtime builtins: string regex", "[runtime]") {
   SECTION("Invalid regex pattern content remains runtime-owned") {
     const Value text = make_string("abc-123 xyz");
     REQUIRE_THROWS_WITH(StringRegexIsMatch(make_tuple(text, make_string("("))),
-                        Catch::Matchers::ContainsSubstring("Regex compile failed"));
+                        Catch::Matchers::ContainsSubstring("the pattern does not compile"));
     REQUIRE_THROWS_WITH(StringRegexSplit(make_tuple(text, make_string("("))),
-                        Catch::Matchers::ContainsSubstring("Regex compile failed"));
+                        Catch::Matchers::ContainsSubstring("the pattern does not compile"));
   }
 }
 
@@ -2228,9 +2238,9 @@ TEST_CASE("Runtime builtins: exact integer arithmetic keeps the operand type", "
   REQUIRE(UnaryMinus(make_int(5)) == make_int(-5));
   REQUIRE(Add(make_tuple(make_int(9007199254740993), make_int(0))) == make_int(9007199254740993));
 
-  REQUIRE_THROWS_WITH(Add(make_tuple(make_int(std::numeric_limits<Int>::max()), make_int(1))), "Add: Int64 overflow");
-  REQUIRE_THROWS_WITH(Divide(make_tuple(make_uint(1U), make_uint(0U))), "Divide: UInt64 division by zero");
-  REQUIRE_THROWS_WITH(UnaryMinus(make_int(std::numeric_limits<Int>::min())), "UnaryMinus: Int64 overflow");
+  REQUIRE_THROWS_WITH(Add(make_tuple(make_int(std::numeric_limits<Int>::max()), make_int(1))), "Int64 overflow");
+  REQUIRE_THROWS_WITH(Divide(make_tuple(make_uint(1U), make_uint(0U))), "UInt64 division by zero");
+  REQUIRE_THROWS_WITH(UnaryMinus(make_int(std::numeric_limits<Int>::min())), "Int64 overflow");
 }
 
 TEST_CASE("Runtime type checks follow the runtime value representation", "[runtime][cast]") {
@@ -2310,8 +2320,7 @@ TEST_CASE("Bit shifts of 64 or more bits are runtime errors", "[runtime][bitwise
   REQUIRE(BitShiftRight(make_tuple(make_int(-16), make_uint(2U))) == make_int(-4));
   REQUIRE(BitShiftRight(make_tuple(make_int(5), make_uint(63U))) == make_int(0));
 
-  REQUIRE_THROWS_WITH(BitShiftLeft(make_tuple(make_int(1), make_uint(64U))),
-                      "BitShiftLeft: shift count 64 is out of range for Int64 (0 to 63)");
+  REQUIRE_THROWS_WITH(BitShiftLeft(make_tuple(make_int(1), make_uint(64U))), "shift count 64 is out of range for Int64 (0 to 63)");
   REQUIRE_THROWS_AS(BitShiftRight(make_tuple(make_int(1), make_uint(1000U))), std::out_of_range);
 }
 
@@ -2322,5 +2331,158 @@ TEST_CASE("Runtime builtins: Float64 results stay Float64 when they are whole nu
   CHECK(is_float_number(MathAbs(make_float(-3.0))));
   CHECK(is_float_number(MathLog(make_float(1.0))));
   CHECK(is_float_number(MathClamp(make_tuple(make_float(650.0), make_float(0.0), make_float(600.0)))));
-  CHECK(is_float_number(ToNum(make_string("42"))));
+  CHECK(is_float_number(ok_value(StringParseFloat64(make_string("42")))));
+}
+
+TEST_CASE("Runtime builtins: the Result functions", "[runtime][result]") {
+  const Value ok = ResultOk(make_int(20));
+  const Value err = ResultErr(make_string("bad"));
+  const Value twice = make_function([](const Value& value) -> Value { return make_int(value.int_value() * 2); });
+  const Value length = make_function([](const Value& value) -> Value { return make_int(static_cast<Int>(as_string(value).size())); });
+  const Value half_if_even = make_function([](const Value& value) -> Value {
+    return value.int_value() % 2 == 0 ? ResultOk(make_int(value.int_value() / 2)) : ResultErr(make_string("odd"));
+  });
+  const Value recover = make_function([](const Value&) -> Value { return ResultOk(make_int(0)); });
+
+  REQUIRE(ResultMap(make_tuple(ok, twice)) == ResultOk(make_int(40)));
+  REQUIRE(ResultMap(make_tuple(err, twice)) == err);
+  REQUIRE(ResultMapErr(make_tuple(err, length)) == ResultErr(make_int(3)));
+  REQUIRE(ResultMapErr(make_tuple(ok, length)) == ok);
+  REQUIRE(ResultAndThen(make_tuple(ok, half_if_even)) == ResultOk(make_int(10)));
+  REQUIRE(ResultAndThen(make_tuple(ResultOk(make_int(3)), half_if_even)) == ResultErr(make_string("odd")));
+  REQUIRE(ResultAndThen(make_tuple(err, half_if_even)) == err);
+  REQUIRE(ResultOrElse(make_tuple(err, recover)) == ResultOk(make_int(0)));
+  REQUIRE(ResultOrElse(make_tuple(ok, recover)) == ok);
+  REQUIRE(ResultUnwrapOr(make_tuple(ok, make_int(7))) == make_int(20));
+  REQUIRE(ResultUnwrapOr(make_tuple(err, make_int(7))) == make_int(7));
+}
+
+TEST_CASE("Runtime builtins: Std.Panic, Std.Assert, and Std.AssertEqual", "[runtime][panic]") {
+  REQUIRE_THROWS_AS(Panic(make_string("boom")), ProgramFailure);
+  REQUIRE_THROWS_WITH(Panic(make_string("boom")), "boom");
+  REQUIRE(Assert(make_tuple(make_bool(true), make_string("unused"))) == make_tuple());
+  REQUIRE_THROWS_WITH(Assert(make_tuple(make_bool(false), make_string("must hold"))), "must hold");
+  REQUIRE(AssertEqual(make_tuple(make_int(4), make_int(4))) == make_tuple());
+  REQUIRE_THROWS_AS(AssertEqual(make_tuple(make_int(5), make_int(4))), ProgramFailure);
+  REQUIRE_THROWS_WITH(AssertEqual(make_tuple(make_tuple(make_int(1), make_string("a")), make_tuple(make_int(1), make_string("b")))),
+                      "expected (1, b), got (1, a)");
+}
+
+TEST_CASE("Runtime builtins: file and directory Errs say what failed and why", "[runtime][io][result]") {
+  const auto missing_dir = std::filesystem::temp_directory_path() / ("fleaux_missing_" + random_suffix());
+  const auto missing_file = missing_dir / "data.txt";
+  const std::string missing_reason = std::make_error_code(std::errc::no_such_file_or_directory).message();
+  const auto path_of = [](const std::filesystem::path& path) -> std::string { return "'" + path.string() + "'"; };
+
+  REQUIRE(err_message(FileReadText(make_string(missing_file.string()))) ==
+          "Std.File.ReadText: cannot read " + path_of(missing_file) + ": " + missing_reason);
+  REQUIRE(err_message(FileReadLines(make_string(missing_file.string()))) ==
+          "Std.File.ReadLines: cannot read " + path_of(missing_file) + ": " + missing_reason);
+  REQUIRE(err_message(FileWriteText(make_tuple(make_string(missing_file.string()), make_string("x")))) ==
+          "Std.File.WriteText: cannot write " + path_of(missing_file) + ": " + missing_reason);
+  REQUIRE(err_message(FileOpen(make_tuple(make_string(missing_file.string()), make_string("r")))) ==
+          "Std.File.Open: cannot open " + path_of(missing_file) + " with mode 'r': " + missing_reason);
+  REQUIRE(err_message(FileSize(make_string(missing_file.string())))
+              .starts_with("Std.File.Size: cannot read the size of " + path_of(missing_file) + ": "));
+  REQUIRE(err_message(DirList(make_string(missing_dir.string()))).starts_with("Std.Dir.List: cannot list " + path_of(missing_dir) + ": "));
+  REQUIRE(err_message(OSEnv(make_string("FLEAUX_SURELY_NOT_SET_9124"))) == "Std.OS.Env: 'FLEAUX_SURELY_NOT_SET_9124' is not set");
+
+  // Reading a directory as a file says so.
+  REQUIRE(err_message(FileReadText(make_string(std::filesystem::temp_directory_path().string()))) ==
+          "Std.File.ReadText: cannot read " + path_of(std::filesystem::temp_directory_path()) + ": " +
+              std::make_error_code(std::errc::is_a_directory).message());
+}
+
+TEST_CASE("Runtime builtins: a handle used for what it was not opened for is a runtime error", "[runtime][io]") {
+  const auto path = std::filesystem::temp_directory_path() / ("fleaux_handle_mode_" + random_suffix() + ".txt");
+  const Value writer = ok_value(FileOpen(make_tuple(make_string(path.string()), make_string("w"))));
+  REQUIRE_THROWS_WITH(FileReadLine(writer), "the file '" + path.string() + "' was opened with mode 'w', which does not read");
+  REQUIRE(as_bool(ok_value(FileClose(writer))));
+  const Value reader = ok_value(FileOpen(make_tuple(make_string(path.string()), make_string("r"))));
+  REQUIRE_THROWS_WITH(FileWriteChunk(make_tuple(reader, make_string("x"))),
+                      "the file '" + path.string() + "' was opened with mode 'r', which does not write");
+  // Reading to the end and closing is not a failure.
+  REQUIRE(as_bool(tuple_at(ok_value(FileReadLine(reader)), 2)));
+  REQUIRE(as_bool(ok_value(FileClose(reader))));
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("Runtime builtins: the math functions E1 added", "[runtime][math]") {
+  REQUIRE(to_double(MathExp(make_float(0.0))) == 1.0);
+  REQUIRE(to_double(MathLog2(make_float(8.0))) == 3.0);
+  REQUIRE(to_double(MathLog10(make_float(1000.0))) == 3.0);
+  REQUIRE(to_double(MathRound(make_float(2.5))) == 3.0);
+  REQUIRE(to_double(MathRound(make_float(-2.5))) == -3.0);
+  REQUIRE(to_double(MathTrunc(make_float(-2.7))) == -2.0);
+  REQUIRE(to_double(MathAsin(make_float(1.0))) == std::asin(1.0));
+  REQUIRE(to_double(MathAcos(make_float(1.0))) == 0.0);
+  REQUIRE(to_double(MathAtan(make_float(0.0))) == 0.0);
+  REQUIRE(to_double(MathAtan2(make_tuple(make_float(1.0), make_float(-1.0)))) == std::atan2(1.0, -1.0));
+
+  REQUIRE(Min(make_tuple(make_int(3), make_int(-2))) == make_int(-2));
+  REQUIRE(Max(make_tuple(make_string("apple"), make_string("pear"))) == make_string("pear"));
+  REQUIRE(Min(make_tuple(make_float(1.5), make_float(1.5))) == make_float(1.5));
+
+  REQUIRE(MathAbs(make_int(-7)) == make_int(7));
+  REQUIRE(MathAbs(make_float(-7.5)) == make_float(7.5));
+  REQUIRE_THROWS_WITH(MathAbs(make_int(std::numeric_limits<Int>::min())), "Int64 overflow");
+  REQUIRE(MathClamp(make_tuple(make_int(15), make_int(0), make_int(10))) == make_int(10));
+  REQUIRE(MathClamp(make_tuple(make_int(-3), make_int(0), make_int(10))) == make_int(0));
+  REQUIRE(MathClamp(make_tuple(make_float(650.0), make_float(0.0), make_float(600.0))) == make_float(600.0));
+  REQUIRE_THROWS_WITH(MathClamp(make_tuple(make_int(1), make_int(5), make_int(2))), "lo 5 is greater than hi 2");
+}
+
+TEST_CASE("Runtime builtins: the tuple, dict, and string functions E1 added", "[runtime][tuple][dict][string]") {
+  const Value values = make_tuple(make_int(3), make_int(1), make_int(4), make_int(1), make_int(5));
+  const Value negate = make_function([](const Value& value) -> Value { return make_int(-value.int_value()); });
+  const Value parity = make_function([](const Value& value) -> Value { return make_int(value.int_value() % 2); });
+  const Value is_odd = make_function([](const Value& value) -> Value { return make_bool(value.int_value() % 2 != 0); });
+  const Value twice_each = make_function([](const Value& value) -> Value { return make_tuple(Value{value}, Value{value}); });
+  const Value sum =
+      make_function([](const Value& pair) -> Value { return make_int(tuple_at(pair, 0).int_value() + tuple_at(pair, 1).int_value()); });
+
+  REQUIRE(TupleEnumerate(make_tuple(make_string("a"), make_string("b"))) ==
+          make_tuple(make_tuple(make_int(0), make_string("a")), make_tuple(make_int(1), make_string("b"))));
+  REQUIRE(TupleSortBy(make_tuple(values, negate)) == make_tuple(make_int(5), make_int(4), make_int(3), make_int(1), make_int(1)));
+
+  const Value groups = TupleGroupBy(make_tuple(values, parity));
+  REQUIRE(DictKeys(groups) == make_tuple(make_int(1), make_int(0)));
+  REQUIRE(ok_value(DictGet(make_tuple(groups, make_int(1)))) == make_tuple(make_int(3), make_int(1), make_int(1), make_int(5)));
+  REQUIRE(ok_value(DictGet(make_tuple(groups, make_int(0)))) == make_tuple(make_int(4)));
+
+  REQUIRE(TuplePartition(make_tuple(values, is_odd)) ==
+          make_tuple(make_tuple(make_int(3), make_int(1), make_int(1), make_int(5)), make_tuple(make_int(4))));
+  REQUIRE(TupleFlatMap(make_tuple(make_tuple(make_int(1), make_int(2)), twice_each)) ==
+          make_tuple(make_int(1), make_int(1), make_int(2), make_int(2)));
+  REQUIRE(TupleScan(make_tuple(values, make_int(0), sum)) == make_tuple(make_int(3), make_int(4), make_int(8), make_int(9), make_int(14)));
+  REQUIRE(TupleTakeWhile(make_tuple(values, is_odd)) == make_tuple(make_int(3), make_int(1)));
+  REQUIRE(TupleDropWhile(make_tuple(values, is_odd)) == make_tuple(make_int(4), make_int(1), make_int(5)));
+  REQUIRE(TupleTakeWhile(make_tuple(make_tuple(), is_odd)) == make_tuple());
+
+  Value dict = DictSet(make_tuple(make_dict(), make_string("a"), make_int(1)));
+  dict = DictSet(make_tuple(dict, make_string("b"), make_int(2)));
+  REQUIRE(DictValues(DictMap(make_tuple(dict, negate))) == make_tuple(make_int(-1), make_int(-2)));
+  const Value key_is_b = make_function([](const Value& pair) -> Value { return make_bool(as_string(tuple_at(pair, 0)) == "b"); });
+  REQUIRE(DictKeys(DictFilter(make_tuple(dict, key_is_b))) == make_tuple(make_string("b")));
+  const Value increment = make_function([](const Value& value) -> Value { return make_int(value.int_value() + 1); });
+  const Value counted = DictUpdate(
+      make_tuple(DictUpdate(make_tuple(dict, make_string("a"), make_int(0), increment)), make_string("c"), make_int(0), increment));
+  REQUIRE(DictEntries(counted) == make_tuple(make_tuple(make_string("a"), make_int(2)), make_tuple(make_string("b"), make_int(2)),
+                                             make_tuple(make_string("c"), make_int(1))));
+
+  REQUIRE(StringRepeat(make_tuple(make_string("ab"), make_int(3))) == make_string("ababab"));
+  REQUIRE(StringRepeat(make_tuple(make_string("ab"), make_int(0))) == make_string(""));
+  REQUIRE_THROWS_WITH(StringRepeat(make_tuple(make_string("ab"), make_int(-1))), "count -1 is negative");
+  REQUIRE(StringReverse(make_string("abc")) == make_string("cba"));
+  REQUIRE(StringChars(make_string("ab")) == make_tuple(make_string("a"), make_string("b")));
+}
+
+TEST_CASE("Runtime builtins: the clocks and Std.Time.Sleep", "[runtime][time]") {
+  const Int before = TimeMonotonic(make_tuple()).int_value();
+  REQUIRE(TimeSleep(make_int(5)) == make_tuple());
+  const Int after = TimeMonotonic(make_tuple()).int_value();
+  REQUIRE(after - before >= 5'000'000);
+  // 2025-01-01 is 1735689600000 milliseconds after 1970.
+  REQUIRE(TimeNow(make_tuple()).int_value() > 1'735'689'600'000);
+  REQUIRE_THROWS_WITH(TimeSleep(make_int(-1)), "ms -1 is negative");
 }

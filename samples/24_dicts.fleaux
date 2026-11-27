@@ -11,7 +11,9 @@ let Build(): Dict<String, Any> = {
 
 () -> Build -> Std.Dict.Keys -> Std.Println;
 () -> Build -> Std.Dict.Values -> Std.Println;
-(() -> Build, "name") -> Std.Dict.Get -> Std.Println;
+// Std.Dict.Get returns a Result: Err when the key is not there. Std.Dict.GetDefault gives a default instead.
+(() -> Build, "name") -> Std.Dict.Get -> Std.Result.Unwrap -> Std.Println;
+(() -> Build, "missing") -> Std.Dict.Get -> Std.Result.IsErr -> Std.Println;
 (() -> Build, "missing", "n/a") -> Std.Dict.GetDefault -> Std.Println;
 () -> Build -> Std.Dict.Length -> Std.Println;
 

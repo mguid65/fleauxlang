@@ -43,12 +43,24 @@ Representative examples include:
 - Std.Tuple.Min
 - Std.Tuple.Max
 - Std.Tuple.Reduce
+- Std.Tuple.Scan
 - Std.Tuple.FindIndex
 - Std.Tuple.Any
 - Std.Tuple.All
 - Std.Tuple.Range
+- Std.Tuple.SetAt, Std.Tuple.InsertAt, Std.Tuple.RemoveAt
+- Std.Tuple.Concat
+- Std.Tuple.Enumerate
+- Std.Tuple.SortBy
+- Std.Tuple.GroupBy
+- Std.Tuple.Partition
+- Std.Tuple.FlatMap
+- Std.Tuple.TakeWhile, Std.Tuple.DropWhile
 - Std.Wrap
 - Std.Unwrap
+
+Positions, counts, and lengths are Int64, the type of an integer literal, so an index is written as a plain number. A
+negative position fails as one past the end does.
 
 ## Common tuple patterns
 
@@ -75,6 +87,17 @@ Representative examples include:
 
     ((1, 2, 3), (4, 5, 6)) -> Std.Tuple.Zip -> Std.Println;
 
+### Sorting and grouping by a key
+
+    (("pear", "fig", "kiwi"), Std.String.Length) -> Std.Tuple.SortBy -> Std.Println;      // (fig, pear, kiwi)
+    (("pear", "fig", "kiwi"), Std.String.Length) -> Std.Tuple.GroupBy -> Std.Println;     // {4: (pear, kiwi), 3: (fig,)}
+
+### Finding
+
+Std.Tuple.FindIndex returns a Result: Ok with the position of the first match, or an Err when nothing matches.
+
+    ((3, 8, 5), (n: Int64): Bool = (n, 4) -> Std.GreaterThan) -> Std.Tuple.FindIndex -> Std.Println;  // (True, 1)
+
 ## Strings
 
 Strings are a first-class built-in type with extensive support under Std.String.
@@ -87,9 +110,13 @@ Important helpers include:
 - Replace
 - Contains, StartsWith, EndsWith
 - Length, CharAt, Slice, Find
+- Repeat, Reverse, Chars
 - Format
 - Regex helpers
 - ParseInt64, ParseUInt64, ParseFloat64
+
+A string is bytes: Length, CharAt, Slice, Find, Reverse, and Chars count bytes. Find and the Parse functions return a
+Result, an Err when there is nothing to find or the text is not a number.
 
 ## Basic string operations
 
@@ -170,8 +197,11 @@ Important helpers include:
 
 - Std.Dict.Create
 - Std.Dict.Set
-- Std.Dict.Get
+- Std.Dict.Get, which returns a Result
 - Std.Dict.GetDefault
+- Std.Dict.Update
+- Std.Dict.Map
+- Std.Dict.Filter
 - Std.Dict.Contains
 - Std.Dict.Delete
 - Std.Dict.Merge
@@ -196,7 +226,8 @@ This is a good example of how the pipeline model works well with immutable data 
 
 Examples:
 
-    (() -> Build, "name") -> Std.Dict.Get -> Std.Println;
+    (() -> Build, "name") -> Std.Dict.Get -> Std.Result.Unwrap -> Std.Println;
+    (() -> Build, "missing") -> Std.Dict.Get -> Std.Result.IsErr -> Std.Println;
     (() -> Build, "missing", "n/a") -> Std.Dict.GetDefault -> Std.Println;
     () -> Build -> Std.Dict.Keys -> Std.Println;
 
@@ -218,17 +249,22 @@ Example:
 
 This lets you express dispatch tables directly in the language.
 
+## Counting with Update
+
+Std.Dict.Update sets a key from its current value, or from a default when the dict has none, which is a count in one
+step:
+
+    let Count(n: Int64): Int64 = (n, 1) -> Std.Add;
+    let Tally(counts: Dict<String, Int64>, letter: String): Dict<String, Int64> =
+        (counts, letter, 0, Count) -> Std.Dict.Update;
+
+See samples/63_collections_strings_and_time.fleaux.
+
 ## Arrays and rectangular data helpers
 
-The current standard library also provides array-oriented helpers over tuple-backed data.
-These include:
+Std.Array holds the helpers for grids, tuples of rows, and N-dimensional values. The helpers of one tuple are in
+Std.Tuple. These include:
 
-- Std.Array.GetAt
-- Std.Array.SetAt
-- Std.Array.InsertAt
-- Std.Array.RemoveAt
-- Std.Array.Slice
-- Std.Array.Concat
 - Std.Array.SetAt2D
 - Std.Array.Fill
 - Std.Array.Transpose2D
@@ -250,10 +286,14 @@ Their constructors and helpers include:
 
 - Std.Result.Ok
 - Std.Result.Err
-- Std.Result.Tag
 - Std.Result.Payload
 - Std.Result.IsOk
 - Std.Result.IsErr
+- Std.Result.Map
+- Std.Result.MapErr
+- Std.Result.AndThen
+- Std.Result.OrElse
+- Std.Result.UnwrapOr
 - Std.Result.Unwrap
 - Std.Result.UnwrapErr
 

@@ -74,6 +74,28 @@ private:
   diag::SourceFile file_;
   std::vector<Token> tokens_;
   std::size_t i_ = 0;
+
+  // How deeply the expressions and types being parsed nest. Each level recurses here, and in every pass after the
+  // parser, so deeper input is refused rather than left to overflow the stack.
+  static constexpr std::size_t kMaxNesting = 256;
+  std::size_t nesting_ = 0;
+
+  class NestingScope {
+  public:
+    explicit NestingScope(ParserImpl& parser) : parser_(parser) { ++parser_.nesting_; }
+    NestingScope(const NestingScope&) = delete;
+    auto operator=(const NestingScope&) -> NestingScope& = delete;
+    ~NestingScope() { --parser_.nesting_; }
+    [[nodiscard]] auto too_deep() const -> bool { return parser_.nesting_ > kMaxNesting; }
+
+  private:
+    ParserImpl& parser_;
+  };
+
+  [[nodiscard]] auto nesting_error() const -> ParseError {
+    return err(std::format("This nests more than {} expressions or types deep.", kMaxNesting), std::nullopt,
+               "Give an inner part a name with a let or an alias, and use the name.");
+  }
   std::vector<std::optional<std::string>> source_line_comment_;
 
   [[nodiscard]] static auto trim_copy(const std::string_view text) -> std::string {
@@ -506,7 +528,32 @@ private:
     return out;
   }
 
+  // A type: one alternative, or a union of them, T | U | V.
   auto type() -> PResult<model::TypeNode> {
+    const NestingScope nesting(*this);
+    if (nesting.too_deep()) {
+      return tl::unexpected(nesting_error());
+    }
+    const std::size_t start = i_;
+    FLEAUX_TRY_ASSIGN(first, type_alternative());
+    if (first.variadic || !is_symbol("|")) {
+      return first;
+    }
+    model::UnionTypeList union_list;
+    union_list.alternatives.emplace_back(std::move(first));
+    while (match_symbol("|")) {
+      FLEAUX_TRY_ASSIGN(alternative, type_alternative());
+      union_list.alternatives.emplace_back(std::move(alternative));
+    }
+    union_list.span = span_from_mark(start);
+    model::TypeNode union_node;
+    union_node.value = model::UnionTypeListBox(std::move(union_list));
+    union_node.span = span_from_mark(start);
+    return union_node;
+  }
+
+  // One alternative of a type: a function type, a tuple, or a named or applied type, which may be variadic.
+  auto type_alternative() -> PResult<model::TypeNode> {
     const std::size_t start = i_;
     model::TypeNode base;
 
@@ -584,24 +631,7 @@ private:
 
     if (match_symbol("...")) {
       base.variadic = true;
-      return base;
     }
-
-    // Union type: T | U | V
-    if (is_symbol("|")) {
-      model::UnionTypeList union_list;
-      union_list.alternatives.emplace_back(base);
-      while (match_symbol("|")) {
-        FLEAUX_TRY_ASSIGN(t, type());
-        union_list.alternatives.emplace_back(std::move(t));
-      }
-      union_list.span = span_from_mark(start);
-      model::TypeNode union_node;
-      union_node.value = model::UnionTypeListBox(std::move(union_list));
-      union_node.span = span_from_mark(start);
-      return union_node;
-    }
-
     return base;
   }
 
@@ -745,6 +775,10 @@ private:
   }
 
   auto primary(const bool allow_ungrouped_closure_stage_split = false) -> PResult<model::Primary> {
+    const NestingScope nesting(*this);
+    if (nesting.too_deep()) {
+      return tl::unexpected(nesting_error());
+    }
     const std::size_t start = i_;
     model::Primary out;
     FLEAUX_TRY_ASSIGN(parsed_atom, atom(allow_ungrouped_closure_stage_split));

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
@@ -535,15 +536,14 @@ TEST_CASE("Lowerer preserves union alternatives in param and return types", "[lo
 
   const auto& fn = lowered->lets[0];
   REQUIRE(fn.params.size() == 1);
-  REQUIRE(fn.params[0].type.alternatives.size() == 3);
-  REQUIRE(fn.params[0].type.alternatives[0] == "Float64");
-  REQUIRE(fn.params[0].type.alternatives[1] == "Int64");
-  REQUIRE(fn.params[0].type.alternatives[2] == "UInt64");
-
-  REQUIRE(fn.return_type.alternatives.size() == 3);
-  REQUIRE(fn.return_type.alternatives[0] == "Float64");
-  REQUIRE(fn.return_type.alternatives[1] == "Int64");
-  REQUIRE(fn.return_type.alternatives[2] == "UInt64");
+  // A union of three is one list of three alternatives, not a union nested in a union.
+  for (const auto* type : {&fn.params[0].type, &fn.return_type}) {
+    REQUIRE(type->alternative_types.size() == 3);
+    REQUIRE(type->alternative_types[0].name == "Float64");
+    REQUIRE(type->alternative_types[1].name == "Int64");
+    REQUIRE(type->alternative_types[2].name == "UInt64");
+    REQUIRE(std::ranges::all_of(type->alternative_types, [](const auto& alternative) { return alternative.alternative_types.empty(); }));
+  }
 }
 
 TEST_CASE("Lowerer accepts mixed arithmetic with explicit cast bridge", "[lowering]") {
@@ -706,7 +706,8 @@ TEST_CASE("Lowerer dump_ir includes composite type structure", "[lowering][dump_
   const std::string dumped = lowerer.dump_ir(*lowered);
   REQUIRE(dumped.find("IRAliasDecl {") != std::string::npos);
   REQUIRE(dumped.find("IRSimpleType {") != std::string::npos);
-  REQUIRE(dumped.find("alternatives: [") != std::string::npos);
+  REQUIRE(dumped.find("alternative_types: [") != std::string::npos);
+  REQUIRE(dumped.find("  alternatives: ") == std::string::npos);
   REQUIRE(dumped.find("type_args: [") != std::string::npos);
   REQUIRE(dumped.find("function_sig: FunctionSignature {") != std::string::npos);
   REQUIRE(dumped.find("name: \"Dict\"") != std::string::npos);

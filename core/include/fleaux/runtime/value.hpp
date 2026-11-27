@@ -512,33 +512,48 @@ auto visit_number(const Value& value, Cases&&... cases) -> decltype(auto) {
 
 [[nodiscard]] inline auto uint64_index(const Value& value) -> std::size_t { return to_index(uint64_value(value)); }
 
-[[nodiscard]] inline auto as_int_value_strict(const Value& value, const std::string_view name) -> Int {
+// An Int64 position a builtin reads or writes at (Std.ElementAt's index), as a container index. A negative one is past
+// the end of every container, so the builtin's bounds check rejects it, and its message shows the index as written.
+[[nodiscard]] inline auto position_index(const Value& value) -> std::size_t {
+  if (value.is_int()) {
+    const Int position = value.int_value();
+    return position < 0 ? std::numeric_limits<std::size_t>::max() : to_index(static_cast<UInt>(position));
+  }
+  return uint64_index(value);
+}
+
+// An Int64 count, length, bound, or duration a builtin takes, named `what` as its parameter is: a negative one is an
+// error.
+[[nodiscard]] inline auto count_index(const Value& value, const std::string_view what) -> std::size_t {
+  if (value.is_int()) {
+    const Int count = value.int_value();
+    if (count < 0) {
+      throw std::out_of_range(std::format("{} {} is negative", what, count));
+    }
+    return to_index(static_cast<UInt>(count));
+  }
+  return uint64_index(value);
+}
+
+[[nodiscard]] inline auto as_int_value_strict(const Value& value) -> Int {
   return visit_number(
       value, [&](const Int signed_value) -> Int { return signed_value; },
       [&](const UInt unsigned_value) -> Int {
         if (unsigned_value > static_cast<UInt>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
+          throw std::out_of_range(std::format("the UInt64 {} is out of Int64 range", unsigned_value));
         }
         return static_cast<Int>(unsigned_value);
       },
       [&](const Float float_value) -> Int {
         if (!std::isfinite(float_value) || std::floor(float_value) != float_value) {
-          throw std::invalid_argument(std::format("{} expects an integer value", name));
+          throw std::invalid_argument(std::format("the Float64 {} is not an integer", float_value));
         }
         if (float_value < static_cast<double>(std::numeric_limits<Int>::min()) ||
             float_value > static_cast<double>(std::numeric_limits<Int>::max())) {
-          throw std::out_of_range(std::format("{} out of Int64 range", name));
+          throw std::out_of_range(std::format("the Float64 {} is out of Int64 range", float_value));
         }
         return static_cast<Int>(float_value);
       });
-}
-
-[[nodiscard]] inline auto as_index_strict(const Value& value, const std::string_view name) -> std::size_t {
-  const Int index_value = as_int_value_strict(value, name);
-  if (index_value < 0) {
-    throw std::out_of_range(std::format("{} expects non-negative integer", name));
-  }
-  return static_cast<std::size_t>(index_value);
 }
 
 // A call with one argument passes that argument itself rather than a one-item tuple.
@@ -568,8 +583,9 @@ inline auto operator|(Value arg, const Value& function) -> Value { return invoke
 
 // File handles
 
-// Opens `path` with a mode made of the letters r, w, a, and b. With none of r, w, or a it reads.
-[[nodiscard]] inline auto open_file_handle(const std::string& path, const std::string& mode) -> Value {
+// Opens `path` with a mode made of the letters r, w, a, and b, or gives nothing when the file cannot be opened. With
+// none of r, w, or a it reads.
+[[nodiscard]] inline auto open_file_handle(const std::string& path, const std::string& mode) -> std::optional<Value> {
   auto* handle = new FileHandleObject;
   Value value = Value::adopt(ValueKind::kFileHandle, handle);
   handle->path = path;
@@ -595,15 +611,15 @@ inline auto operator|(Value arg, const Value& function) -> Value { return invoke
   }
   handle->stream.open(path, flags);
   if (!handle->stream.is_open()) {
-    throw std::runtime_error{"FileOpen: cannot open '" + path + "' with mode '" + mode + "'"};
+    return std::nullopt;
   }
   return value;
 }
 
 // The open file a handle refers to. The value is a FileHandle by type; what can still fail is that it was closed.
-[[nodiscard]] inline auto require_handle(const Value& handle, const char* op) -> FileHandleObject& {
+[[nodiscard]] inline auto require_handle(const Value& handle) -> FileHandleObject& {
   if (!handle.is_file_handle() || handle.file_handle().closed) {
-    throw std::runtime_error{std::string(op) + ": handle is closed or invalid"};
+    throw std::runtime_error{"the file handle is closed"};
   }
   return handle.file_handle();
 }
@@ -772,7 +788,7 @@ inline void append_value_varargs(std::string& out, const Value& value) {
     default:
       break;
   }
-  throw std::logic_error{"TupleSort invariant violated: expected Comparable values"};
+  throw std::logic_error{"invariant violated: expected Comparable values"};
 }
 
 // Text helpers
@@ -789,11 +805,6 @@ inline void append_value_varargs(std::string& out, const Value& value) {
   return out;
 }
 
-inline void throw_if_filesystem_error(const std::error_code& ec, std::string_view op) {
-  if (ec) {
-    throw std::runtime_error(std::format("{} failed: {}", op, ec.message()));
-  }
-}
 
 [[nodiscard]] inline auto trim_left(std::string text) -> std::string {
   const auto it = std::ranges::find_if_not(text, [](const unsigned char ch) -> bool { return std::isspace(ch) != 0; });
@@ -883,7 +894,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 
       const std::size_t close = fmt.find('}', cursor + 1);
       if (close == std::string::npos) {
-        throw std::invalid_argument{"Printf format string has unmatched '{'"};
+        throw std::invalid_argument{"the format string has an unmatched '{'"};
       }
 
       const std::string field = fmt.substr(cursor + 1, close - (cursor + 1));
@@ -898,25 +909,25 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
 
       if (index_part.empty()) {
         if (saw_manual_index) {
-          throw std::invalid_argument{"Printf format cannot mix automatic and manual field numbering"};
+          throw std::invalid_argument{"the format string mixes automatic and manual field numbers"};
         }
         saw_auto_index = true;
         index = next_auto_index++;
       } else {
         if (saw_auto_index) {
-          throw std::invalid_argument{"Printf format cannot mix automatic and manual field numbering"};
+          throw std::invalid_argument{"the format string mixes automatic and manual field numbers"};
         }
         saw_manual_index = true;
         for (const char c : index_part) {
           if (!std::isdigit(static_cast<unsigned char>(c))) {
-            throw std::invalid_argument{"Format supports only '{}'/'{N}' with optional ':spec'"};
+            throw std::invalid_argument{"a format field is '{}' or '{N}', with an optional ':spec'"};
           }
         }
         index = to_index(std::stoull(index_part));
       }
 
       if (index >= values.size()) {
-        throw std::invalid_argument{"Format string references a missing argument"};
+        throw std::invalid_argument{"the format string refers to a missing argument"};
       }
 
       out += spec.empty() ? format_value_plain(values[index]) : format_value_with_spec(values[index], spec);
@@ -930,7 +941,7 @@ inline void throw_if_filesystem_error(const std::error_code& ec, std::string_vie
         cursor += 2;
         continue;
       }
-      throw std::invalid_argument{"Printf format string has unmatched '}'"};
+      throw std::invalid_argument{"the format string has an unmatched '}'"};
     }
   }
   return out;

@@ -2,7 +2,7 @@ import Std;
 
 let Inc(x: Float64): Float64 = (x, 1.0) -> Std.Add;
 let ReturnSelf(x: Float64): Float64 = x;
-let Fail(_x: Float64): Float64 = ("boom-two") -> Std.Result.Err -> Std.Result.Unwrap;
+let Fail(_x: Float64): Float64 = ("boom-two") -> Std.Panic;
 
 let MaybeFail(x: Float64): Float64 =
   ((x, 2.0) -> Std.Equal, x, Fail, ReturnSelf) -> Std.Branch;

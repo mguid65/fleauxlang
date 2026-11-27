@@ -107,7 +107,7 @@ let Render.Speeds(u: Field, v: Field): Field =
   (
     Field.Count -> Std.Tuple.Range,
     (i: Int64): Float64 = {
-      let k: UInt64 = i -> Std.ToUInt64;
+      let k: Int64 = i;
       let x: Float64 = (u, k) -> Std.ElementAt;
       let y: Float64 = (v, k) -> Std.ElementAt;
       ((x, x) -> *, (y, y) -> *) -> + -> Std.Math.Sqrt;
@@ -129,7 +129,7 @@ let Render.Draw(
 ): Null = {
   let bytes: Tuple<UInt64...> =
     ((dye, 1.0) -> Render.Bytes, ((u, v) -> Render.Speeds, Render.TopSpeed) -> Render.Bytes)
-      -> Std.Array.Concat;
+      -> Std.Tuple.Concat;
   (texture, Field.Width, (Field.Height, 2) -> *, bytes) -> GL.UpdateTexture;
   (pointer_location, x, y, radius) -> GL.Uniform3f;
   (time_location, () -> GL.Time) -> GL.Uniform1f;

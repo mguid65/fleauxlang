@@ -35,6 +35,13 @@ namespace {
   };
 }
 
+// A run that failed, with the calls it failed in.
+[[nodiscard]] auto make_run_error(const vm::RuntimeError& error, const vm::SourceTextReader& read_text) -> HostError {
+  HostError host_error = make_error(HostErrorCategory::kRuntime, error.message, error.hint, vm::runtime_failure_span(error, read_text));
+  host_error.calls = error.calls;
+  return host_error;
+}
+
 [[nodiscard]] auto host_register_callable(NativeBindingRegistry* registry, NativeBinding binding) -> BindingResult {
   if (registry == nullptr) {
     return tl::unexpected(BindingError{
@@ -112,8 +119,28 @@ struct VmHost::Impl {
   DynamicLoader* dynamic_loader{owned_dynamic_loader.get()};
   std::vector<LoadedBindingModule> loaded_binding_modules{};
   std::optional<bytecode::Module> last_fleaux_module{std::nullopt};
+  // The module that run_source compiled last, which is on no disk: its name and its text, for the source line of a
+  // failure in it.
+  struct SourceText {
+    std::string path{};
+    std::string text{};
+  };
+  std::optional<SourceText> last_source_text{std::nullopt};
 
   ~Impl() { unload_binding_modules(); }
+
+  [[nodiscard]] auto source_text_reader() const -> vm::SourceTextReader {
+    return [this](const std::string& path) -> std::optional<std::string> {
+      if (last_source_text.has_value() && last_source_text->path == path) {
+        return last_source_text->text;
+      }
+      if (auto text = frontend::source_loader::read_text_file(path); text) {
+        return std::move(*text);
+      }
+      return std::nullopt;
+    };
+  }
+
   void emit_stdout(const std::string_view text) const {
     if (text.empty()) {
       return;
@@ -136,8 +163,8 @@ struct VmHost::Impl {
   }
 
   void emit_host_error(const HostError& error) const {
-    std::string rendered = frontend::diag::format_diagnostic(std::string{diagnostic_stage_name(error.category)},
-                                                             error.message, error.span, error.hint);
+    std::string rendered = frontend::diag::format_diagnostic(std::string{diagnostic_stage_name(error.category)}, error.message, error.span,
+                                                             error.hint, std::nullopt, vm::describe_runtime_calls(error.calls));
     rendered.push_back('\n');
     emit_stderr(rendered);
   }
@@ -199,8 +226,7 @@ struct VmHost::Impl {
                                                      });
     emit_stdout(captured_stdout.str());
     if (!exec_result) {
-      return tl::unexpected(make_error(HostErrorCategory::kRuntime, exec_result.error().message,
-                                       exec_result.error().hint, exec_result.error().span));
+      return tl::unexpected(make_run_error(exec_result.error(), source_text_reader()));
     }
     return runtime::make_int(static_cast<runtime::Int>(exec_result->exit_code));
   }
@@ -275,8 +301,7 @@ struct VmHost::Impl {
     emit_stdout(captured_stdout.str());
 
     if (!invoked) {
-      return tl::unexpected(
-          make_error(HostErrorCategory::kRuntime, invoked.error().message, invoked.error().hint, invoked.error().span));
+      return tl::unexpected(make_run_error(invoked.error(), source_text_reader()));
     }
     return *invoked;
   }
@@ -320,6 +345,7 @@ auto VmHost::run_file(const std::filesystem::path& path) -> VmResult {
     }
 
     impl_->last_fleaux_module = std::move(*module_result);
+    impl_->last_source_text.reset();
     return impl_->execute_module(*this, *impl_->last_fleaux_module, resolved_path->string());
   }();
 
@@ -374,6 +400,7 @@ auto VmHost::run_source(const std::string_view module_name, const std::string_vi
     }
 
     impl_->last_fleaux_module = *compiled;
+    impl_->last_source_text = Impl::SourceText{.path = std::string{module_name}, .text = std::string{source_text}};
     return impl_->execute_module(*this, *impl_->last_fleaux_module, std::string{module_name});
   }();
 

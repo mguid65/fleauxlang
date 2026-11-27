@@ -51,10 +51,35 @@ Example:
 
 Use Std.GetArgs inside the language to access the resulting argument tuple.
 
+## When a program fails
+
+A runtime error stops the program and exits with status 2. The report shows the source of the operation that
+failed, and the calls it failed in, innermost first:
+
+    error[vm-run]: Std.ElementAt: index 5 is out of range for a tuple of 3 items
+       --> scores.fleaux:3:44
+      |
+    2 | let Scores: Tuple<Int64...> = (90, 72, 85);
+    3 | let Pick(i: Int64): Int64 = (Scores, i) -> Std.ElementAt;
+      |                                            ^~~~~~~~~~~~~
+    4 | (5) -> Pick -> Std.Println;
+      |
+       = note: in Pick
+       = note: called from the top level (scores.fleaux:4:8)
+
+- A function the compiler inlined is still shown as a call.
+- A function a builtin calls back is shown with the builtin, as in `called by Std.Tuple.SortBy from Score`.
+- Calls repeated from one place, as in a deep recursion, are one line with a count, and a long chain shows its first
+  15 and last 5 lines.
+- The source line is left out when the file has changed since it was compiled.
+
+The same report appears in the REPL, for the line that failed, and an embedding host receives the calls as data. A
+failure the program expects, such as a missing file, is a Result instead (see chapter 08).
+
 ## Using --no-run
 
---no-run lets you skip execution and inspect what would run.
-This can be useful during debugging or workflow experiments when you want parsing and loading behavior without executing the final program body.
+--no-run stops after reading the command line: it prints the file a command would run, and neither compiles nor runs
+it. A file that does not exist is not an error here.
 
 ## Using --dump-ast
 

@@ -36,9 +36,7 @@ struct InputEvent {
   InputKey key{InputKey::kUnknown};
   char ch{'\0'};
 
-  [[nodiscard]] static auto character(const char value) -> InputEvent {
-    return InputEvent{.key = InputKey::kCharacter, .ch = value};
-  }
+  [[nodiscard]] static auto character(const char value) -> InputEvent { return InputEvent{.key = InputKey::kCharacter, .ch = value}; }
 };
 
 enum class TokenClass {
@@ -61,12 +59,16 @@ struct CompletionHandler {
   // Loads a brace-enclosed list of symbol name literals.
   // Example: handler.load_symbols({"let", "import", "print"});
   void load_symbols(const std::initializer_list<std::string_view> symbols) {
-    for (const auto sym : symbols) { m_trie.insert(sym); }
+    for (const auto sym : symbols) {
+      m_trie.insert(sym);
+    }
   }
 
   // Loads symbols from any contiguous range of std::string (e.g. std::vector<std::string>).
   void load_symbols(const std::span<const std::string> symbols) {
-    for (const auto& sym : symbols) { m_trie.insert(sym); }
+    for (const auto& sym : symbols) {
+      m_trie.insert(sym);
+    }
   }
 
   // Returns all previously loaded symbols that begin with partial_symbol.
@@ -85,8 +87,7 @@ private:
   common::Trie m_trie;
 };
 
-[[nodiscard]] auto normalize_style_spans(std::size_t buffer_size, const std::vector<StyleSpan>& spans)
-    -> std::vector<StyleSpan>;
+[[nodiscard]] auto normalize_style_spans(std::size_t buffer_size, const std::vector<StyleSpan>& spans) -> std::vector<StyleSpan>;
 
 using StyleSpanProvider = std::function<std::vector<StyleSpan>(std::string_view)>;
 
@@ -121,9 +122,8 @@ public:
 
   void reset();
 
-  auto completion_handler() -> std::optional<CompletionHandler>& {
-    return config_.completion_handler;
-  }
+  auto completion_handler() -> std::optional<CompletionHandler>& { return config_.completion_handler; }
+
 private:
   [[nodiscard]] auto continue_with_redraw(bool needs_redraw = true) const -> LineEditorResult;
   [[nodiscard]] auto insert_char_at_cursor(char ch) -> bool;
@@ -166,12 +166,11 @@ auto read_interactive_line(LineEditor& editor, std::string_view prompt) -> Inter
 
 namespace detail {
 #ifdef _WIN32
-[[nodiscard]] auto windows_stdin_is_interactive_for_testing(bool has_valid_handle, bool get_console_mode_succeeded)
-    -> bool;
+[[nodiscard]] auto windows_stdin_is_interactive_for_testing(bool has_valid_handle, bool get_console_mode_succeeded) -> bool;
 #endif
 [[nodiscard]] auto decode_escape_bytes_for_testing(std::string_view bytes) -> InputEvent;
-[[nodiscard]] auto format_completion_suggestions_for_testing(std::span<const std::string> suggestions,
-                                                             std::size_t terminal_width) -> std::vector<std::string>;
+[[nodiscard]] auto format_completion_suggestions_for_testing(std::span<const std::string> suggestions, std::size_t terminal_width)
+    -> std::vector<std::string>;
 }  // namespace detail
 
 }  // namespace fleaux::cli

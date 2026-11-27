@@ -54,8 +54,11 @@ Current examples include:
 Examples of the style:
 
     () -> Std.OS.Cwd -> Std.Println;
-    ("PATH") -> Std.OS.Env -> Std.Println;
-    ("echo hello") -> Std.OS.Exec -> Std.Println;
+    ("PATH") -> Std.OS.Env -> Std.Result.Unwrap -> Std.Println;
+    ("echo hello") -> Std.OS.Exec -> Std.Result.Unwrap -> Std.Println;
+
+Std.OS.Env, Exec, SetEnv, UnsetEnv, MakeTempFile, and MakeTempDir return a Result, since the variable may not be set
+and the command may not start.
 
 Because these are regular callables, they compose naturally with formatting, matching, and result-handling patterns.
 
@@ -93,13 +96,16 @@ Std.File provides whole-file helpers such as:
 - Std.File.Delete
 - Std.File.Size
 
-These are the easiest way to work with files when you do not need streaming access.
+These are the easiest way to work with files when you do not need streaming access. Each returns a Result: an Err
+names the function, the path, and the reason, as in
+`Std.File.ReadText: cannot read 'notes.txt': No such file or directory`.
 
 Examples:
 
-    ("notes.txt") -> Std.File.ReadText -> Std.Println;
     ("notes.txt", "hello") -> Std.File.WriteText;
     ("notes.txt", "more") -> Std.File.AppendText;
+    ("notes.txt") -> Std.File.ReadText -> Std.Result.Unwrap -> Std.Println;
+    ("notes.txt") -> Std.File.ReadText -> (_, "") -> Std.Result.UnwrapOr -> Std.Println;
 
 ## Directory helpers
 
@@ -113,7 +119,7 @@ Std.Dir provides directory-level operations:
 Examples:
 
     ("tmp/work") -> Std.Dir.Create;
-    ("tmp/work") -> Std.Dir.List -> Std.Println;
+    ("tmp/work") -> Std.Dir.List -> Std.Result.Unwrap -> Std.Println;
 
 ## Streaming file handles
 
@@ -138,6 +144,9 @@ Its shape is:
 
 This lets you write resource-oriented logic while staying close to the same functional flow style as the rest of the language.
 
+Open, the handle functions, and WithOpen return Results too. Using a handle after it is closed, or reading from one
+opened only to write, is a runtime error rather than an Err, since the program can always know which handle it holds.
+
 ## Command-line programs and Std.GetArgs
 
 Programs can receive arguments after -- at the CLI.
@@ -150,18 +159,32 @@ Samples/25_fleaux_parser.fleaux uses this sort of environment for parser-oriente
 
 ## Results and effectful failure
 
-Many effectful or concurrency-oriented operations surface failure through Result values rather than hidden exceptions at the language level.
-That means you often pair them with:
+Std has one rule for failure. A builtin that can fail for a reason the program cannot rule out before the call returns
+a Result<T, String>; any other failure is a runtime error, a panic, which stops the program and says where.
 
-- Std.Result.IsOk
-- Std.Result.IsErr
-- Std.Result.Unwrap
-- Std.Result.UnwrapErr
-- Std.Try
-- Std.Match
-- Std.Branch
+- Every file, directory, and OS builtin that can fail returns a Result, since the world can refuse.
+- So do the Parse functions and the lookups that may find nothing: Std.Dict.Get, Std.String.Find,
+  Std.String.Regex.Find, and Std.Tuple.FindIndex.
+- An index past the end, division by zero, overflow, Std.Result.Unwrap of an Err, and a Match with no case are runtime
+  errors.
 
-This keeps error paths visible in the data model.
+Every Err payload is a String that names the function and says what failed, so Results from different builtins
+compose. You often pair them with:
+
+- Std.Result.Unwrap, when the program expects the call to work: an Err stops it with the message
+- Std.Result.UnwrapOr, for a default
+- Std.Result.Map and Std.Result.AndThen, to keep working on an Ok
+- Std.Result.MapErr and Std.Result.OrElse, to change or recover from an Err
+- Std.Result.IsOk and Std.Result.IsErr, with Std.Branch or Std.Match
+- Std.Try, which turns a runtime error in a function into an Err
+
+For example:
+
+    let Port(text: String): Int64 = (text) -> Std.String.ParseInt64 -> (_, 8080) -> Std.Result.UnwrapOr;
+    ("config.txt") -> Std.File.ReadText -> (_, Port) -> Std.Result.Map -> Std.Println;
+
+Std.Panic stops the program on purpose, and Std.Assert and Std.AssertEqual stop it when what they check does not
+hold. See samples/62_failures_as_values.fleaux.
 
 ## Task helpers
 

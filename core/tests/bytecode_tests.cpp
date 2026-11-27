@@ -7,11 +7,13 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <random>
 #include <set>
 #include <span>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -230,15 +232,7 @@ auto parse_std_declared_names(const bool builtins_only) -> std::set<std::string>
 
 auto vm_catalog_builtin_names() -> std::set<std::string> {
   std::set<std::string> names;
-  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
-    names.insert(std::string{spec.name});
-  }
-  return names;
-}
-
-auto vm_catalog_constant_names() -> std::set<std::string> {
-  std::set<std::string> names;
-  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
+  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
     names.insert(std::string{spec.name});
   }
   return names;
@@ -248,7 +242,6 @@ auto vm_catalog_constant_names() -> std::set<std::string> {
 
 TEST_CASE("VM builtin catalog stays in sync with stdlib/Std.fleaux", "[bytecode]") {
   REQUIRE(vm_catalog_builtin_names() == parse_std_declared_names(true));
-  REQUIRE(vm_catalog_constant_names() == parse_std_declared_names(false));
 }
 
 namespace {
@@ -321,7 +314,7 @@ TEST_CASE("Builtin slots follow the parameter types in stdlib/Std.fleaux", "[byt
     declarations[id->qualifier.qualifier + "." + id->id].push_back(let);
   }
 
-  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
+  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
     INFO(spec.name << " " << spec.symbol_key);
     const auto found = declarations.find(std::string{spec.name});
     REQUIRE(found != declarations.end());
@@ -346,41 +339,38 @@ TEST_CASE("Builtin slots follow the parameter types in stdlib/Std.fleaux", "[byt
   }
 }
 
-TEST_CASE("VM constant catalog values match the values declared in stdlib/Std.fleaux", "[bytecode][builtins]") {
+TEST_CASE("Std's constants are value lets of literals", "[bytecode][builtins]") {
   std::ifstream in(repo_root_path() / "stdlib" / "Std.fleaux");
   REQUIRE(in.good());
+  std::ostringstream source;
+  source << in.rdbuf();
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(source.str(), "Std.fleaux");
+  REQUIRE(parsed.has_value());
 
-  // Collect 'let Std.Name(): Float64 :: <literal>;' declarations, which may span lines.
-  std::map<std::string, double> declared_values;
-  std::string line;
-  std::string decl;
-  while (std::getline(in, line)) {
-    if (decl.empty() && !line.starts_with("let Std.")) {
+  std::size_t constants = 0;
+  for (const auto& statement : parsed->statements) {
+    const auto* let = std::get_if<fleaux::frontend::model::LetStatement>(&statement);
+    if (let == nullptr || let->is_builtin) {
       continue;
     }
-    decl += decl.empty() ? line : " " + line;
-    if (decl.find(';') == std::string::npos) {
+    INFO("let at line " << (let->span.has_value() ? let->span->line : 0));
+    REQUIRE(let->is_value_binding);
+    ++constants;
+  }
+  REQUIRE(constants == 72U);
+
+  constexpr fleaux::frontend::lowering::Lowerer lowerer;
+  const auto program = lowerer.lower_only(*parsed);
+  REQUIRE(program.has_value());
+  for (const auto& let : program->lets) {
+    if (let.is_builtin) {
       continue;
     }
-    constexpr std::string_view kMarker = "(): Float64 :: ";
-    if (const auto marker = decl.find(kMarker); marker != std::string::npos) {
-      const std::string name = decl.substr(4, marker - 4);
-      const auto value_start = marker + kMarker.size();
-      const std::string literal = decl.substr(value_start, decl.find(';', value_start) - value_start);
-      declared_values.insert_or_assign(name, std::stod(literal));
-    }
-    decl.clear();
+    INFO(let.name);
+    REQUIRE(fleaux::frontend::ir::value_let_literal(let) != nullptr);
   }
-
-  REQUIRE_FALSE(fleaux::vm::kConstantBuiltinSpecs.empty());
-  for (const auto& spec : fleaux::vm::kConstantBuiltinSpecs) {
-    const std::string name{spec.name};
-    INFO("constant: " << name);
-    const auto declared = declared_values.find(name);
-    REQUIRE(declared != declared_values.end());
-    INFO("catalog value: " << spec.value << ", Std value: " << declared->second);
-    REQUIRE(std::abs(spec.value - declared->second) <= 1e-15 * std::abs(declared->second));
-  }
+  REQUIRE_FALSE(fleaux::vm::builtin_id_from_name("Std.Pi").has_value());
 }
 
 TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecode][builtins][overload]") {
@@ -394,21 +384,18 @@ TEST_CASE("VM builtin catalog resolves overloaded stdlib symbol keys", "[bytecod
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#1") == fleaux::vm::BuiltinId::TupleRangeInt64Int64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Tuple.Range#2") ==
           fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#0") == fleaux::vm::BuiltinId::SliceTupleUInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#1") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#2") == fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#0") ==
-          fleaux::vm::BuiltinId::StringSliceStringUInt64);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#1") ==
-          fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#0") == fleaux::vm::BuiltinId::SliceTupleInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#1") == fleaux::vm::BuiltinId::SliceTupleInt64Int64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.Slice#2") == fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#0") == fleaux::vm::BuiltinId::StringSliceStringInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Slice#1") == fleaux::vm::BuiltinId::StringSliceStringInt64Int64);
   REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#0") == fleaux::vm::BuiltinId::StringFindStringString);
-  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#1") ==
-          fleaux::vm::BuiltinId::StringFindStringStringUInt64);
+  REQUIRE(fleaux::vm::builtin_id_from_symbol_key("Std.String.Find#1") == fleaux::vm::BuiltinId::StringFindStringStringInt64);
 }
 
 TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded builtin arity contracts",
           "[bytecode][builtins][arity]") {
-  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
+  for (const auto& spec : fleaux::vm::all_builtin_specs()) {
     INFO(spec.name);
   }
 
@@ -425,28 +412,28 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 1U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 2U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 1U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 5U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 0U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 1U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64Int64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 4U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 0U));
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 1U));
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 2U));
@@ -467,12 +454,6 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 2U));
-
-  for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
-    INFO(spec.name);
-    REQUIRE(fleaux::vm::builtin_accepts_arity(spec.id, 0U));
-    REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(spec.id, 1U));
-  }
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 1U));
@@ -582,32 +563,32 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 4U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 4U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleInt64Int64Int64, 5U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 4U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64Int64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64Int64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringInt64Int64, 4U));
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 3U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 2U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringInt64, 4U));
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 1U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 4U));
@@ -634,8 +615,8 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 0U));
 
-  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 1U));
-  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 0U));
+  REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultIsOk, 1U));
+  REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultIsOk, 0U));
 
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 0U));
@@ -1340,13 +1321,13 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
             "Builtin arity mismatch in bytecode compiler: 'Std.LoopN' expects 4 arguments but got 3.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.GetAt") {
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.ElementAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAt", std::string{"Std.Array.GetAt"}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "GetAt", std::string{"Std.ElementAt"}),
             })},
     };
 
@@ -1354,18 +1335,16 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.GetAt' expects 2 arguments but got 1.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.ElementAt' expects 2 arguments but got 1.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.SetAt") {
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Tuple.SetAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(
-                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt", std::string{"Std.Array.SetAt"}),
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "SetAt", std::string{"Std.Tuple.SetAt"}),
             })},
     };
 
@@ -1373,18 +1352,16 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.SetAt' expects 3 arguments but got 2.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.SetAt' expects 3 arguments but got 2.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.InsertAt") {
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Tuple.InsertAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(
-                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "InsertAt", std::string{"Std.Array.InsertAt"}),
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "InsertAt", std::string{"Std.Tuple.InsertAt"}),
             })},
     };
 
@@ -1392,18 +1369,17 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.InsertAt' expects 3 arguments but got 2.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.InsertAt' expects 3 arguments but got 2.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.RemoveAt") {
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.RemoveAt") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{
                     .items = {make_int_constant_box(1), make_int_constant_box(2), make_int_constant_box(3)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "RemoveAt", std::string{"Std.Array.RemoveAt"}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "RemoveAt", std::string{"Std.Tuple.RemoveAt"}),
             })},
     };
 
@@ -1411,18 +1387,16 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.RemoveAt' expects 2 arguments but got 3.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.RemoveAt' expects 2 arguments but got 3.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Array.Slice") {
+  SECTION("Tuple literal with wrong arity is rejected for ternary Std.Slice") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
-                .lhs = make_ir_box(
-                    fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Slice", std::string{"Std.Array.Slice"}),
+                .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1), make_int_constant_box(2)}}),
+                .rhs = make_ir_name_ref(std::string{"Std"}, "Slice", std::string{"Std.Slice#1"}),
             })},
     };
 
@@ -1430,17 +1404,16 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Slice' expects 3 arguments but got 2.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Slice' expects 3 arguments but got 2.");
   }
 
-  SECTION("Tuple literal with wrong arity is rejected for binary Std.Array.Concat") {
+  SECTION("Tuple literal with wrong arity is rejected for binary Std.Tuple.Concat") {
     fleaux::frontend::ir::IRProgram ir_program;
     ir_program.expressions = {
         fleaux::frontend::ir::IRExprStatement{
             .expr = make_ir_expr(fleaux::frontend::ir::IRFlowExpr{
                 .lhs = make_ir_box(fleaux::frontend::ir::IRTupleExpr{.items = {make_int_constant_box(1)}}),
-                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Concat", std::string{"Std.Array.Concat"}),
+                .rhs = make_ir_name_ref(std::string{"Std.Array"}, "Concat", std::string{"Std.Tuple.Concat"}),
             })},
     };
 
@@ -1448,8 +1421,7 @@ TEST_CASE("Bytecode compiler rejects malformed builtin arity for covered metadat
     const auto result = compiler.compile(ir_program);
 
     REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message ==
-            "Builtin arity mismatch in bytecode compiler: 'Std.Array.Concat' expects 2 arguments but got 1.");
+    REQUIRE(result.error().message == "Builtin arity mismatch in bytecode compiler: 'Std.Tuple.Concat' expects 2 arguments but got 1.");
   }
 
   SECTION("Tuple literal with wrong arity is rejected for quaternary Std.Array.SetAt2D") {
@@ -2024,10 +1996,11 @@ TEST_CASE("Bytecode compiler emits Dict<String, Any> options metadata for Parall
 
 TEST_CASE("Bytecode compiler emits exact UInt64 metadata for selected builtin value slots",
           "[bytecode][verification][builtins]") {
+  // A random generator's seed is the one exact UInt64 slot.
   const auto ir_program = lower_source_to_ir(
       "import Std;\n"
-      "let BuildIndex(): UInt64 = 1u64;\n"
-      "(\"abc\", () -> BuildIndex) -> Std.String.CharAt -> Std.Println;\n",
+      "let BuildSeed(): UInt64 = 1u64;\n"
+      "(() -> BuildSeed) -> Std.Random.Create -> Std.Random.NextUInt64 -> Std.First -> Std.Println;\n",
       "bytecode_exact_uint64_value_slot_metadata.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
@@ -2035,15 +2008,12 @@ TEST_CASE("Bytecode compiler emits exact UInt64 metadata for selected builtin va
   REQUIRE(result.has_value());
 
   const auto& module = *result;
-  const auto callsite_it = std::find_if(module.builtin_callsites.begin(), module.builtin_callsites.end(),
-                                        [](const fleaux::bytecode::BuiltinCallsiteRecord& record) {
-                                          return record.builtin_id == fleaux::vm::BuiltinId::StringCharAt;
-                                        });
+  const auto callsite_it = std::find_if(
+      module.builtin_callsites.begin(), module.builtin_callsites.end(),
+      [](const fleaux::bytecode::BuiltinCallsiteRecord& record) { return record.builtin_id == fleaux::vm::BuiltinId::RandomCreate; });
   REQUIRE(callsite_it != module.builtin_callsites.end());
-  REQUIRE(callsite_it->call_shape == fleaux::vm::BuiltinCallShape::kTupleExpanded);
-  REQUIRE(callsite_it->static_argument_count == 2U);
   REQUIRE(callsite_it->value_slots.size() == 1U);
-  REQUIRE(callsite_it->value_slots[0].slot_index == 1U);
+  REQUIRE(callsite_it->value_slots[0].slot_index == 0U);
   REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kExactUInt64);
   REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
   REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
@@ -2546,7 +2516,7 @@ let Step(n: Int64): Int64 = (n, 1) -> Std.Subtract;
                                                          "bytecode_loop_in_place_named.fleaux");
 
   REQUIRE(output == "0\n");
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kLoopCall) == 0U);
+  REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Loop"));
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kJumpIfNot) == 1U);
   // Continue and Step are inlined in the loop; without inlining, the loop calls them.
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 0U);
@@ -2567,11 +2537,11 @@ TEST_CASE("Bytecode compiler runs Std.Loop with inline closures in place", "[byt
 
   REQUIRE(output == "5\n");
   REQUIRE(bytecode_module.closures.empty());
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kLoopCall) == 0U);
+  REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Loop"));
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kJump) == 1U);
 }
 
-TEST_CASE("Bytecode compiler emits kLoopCall for Std.Loop with function-value arguments", "[bytecode]") {
+TEST_CASE("Bytecode compiler calls the Std.Loop builtin with function-value arguments", "[bytecode]") {
   const auto [bytecode_module, output] = compile_and_run(R"(
 let RunLoop(start: Int64, keep_going: (Int64) => Bool, step: (Int64) => Int64): Int64 =
   (start, keep_going, step) -> Std.Loop;
@@ -2580,15 +2550,14 @@ let RunLoop(start: Int64, keep_going: (Int64) => Bool, step: (Int64) => Int64): 
                                                          "bytecode_loop_function_values.fleaux");
 
   REQUIRE(output == "0\n");
-  REQUIRE(count_opcode(compiled_function(bytecode_module, "RunLoop").instructions,
-                       fleaux::bytecode::Opcode::kLoopCall) == 1U);
+  REQUIRE(calls_builtin(compiled_function(bytecode_module, "RunLoop").instructions, "Std.Loop"));
 }
 
-TEST_CASE("Bytecode compiler emits kLoopNCall for Std.LoopN", "[bytecode]") {
+TEST_CASE("Bytecode compiler calls the Std.LoopN builtin", "[bytecode]") {
   const auto ir_program = lower_source_to_ir(R"(
 let Continue(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;
 let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
-(10.0, Continue, Step, 100u64) -> Std.LoopN -> Std.Println;
+(10.0, Continue, Step, 100) -> Std.LoopN -> Std.Println;
 )",
                                              "bytecode_native_loopn.fleaux");
 
@@ -2597,13 +2566,52 @@ let Step(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;
 
   REQUIRE(result.has_value());
 
-  bool found_loop_n_call = false;
-  for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kLoopNCall) {
-      found_loop_n_call = true;
-    }
-  }
-  REQUIRE(found_loop_n_call);
+  REQUIRE(calls_builtin(result->instructions, "Std.LoopN"));
+
+  // As a builtin call, it records its two function arguments for the verifier.
+  const auto callsite =
+      std::ranges::find(result->builtin_callsites, fleaux::vm::BuiltinId::LoopN, &fleaux::bytecode::BuiltinCallsiteRecord::builtin_id);
+  REQUIRE(callsite != result->builtin_callsites.end());
+  REQUIRE(callsite->callable_slots.size() == 2U);
+  REQUIRE(callsite->callable_slots[0].slot_index == 1U);
+  REQUIRE(callsite->callable_slots[1].slot_index == 2U);
+  REQUIRE(callsite->callable_slots[0].kind == fleaux::bytecode::BuiltinCallableSlotKind::kFunction);
+  REQUIRE(fleaux::bytecode::verify_module_builtin_callsites(*result).has_value());
+}
+
+TEST_CASE("Calls bind their arguments for every arity, from a tuple or from the stack", "[bytecode][vm][calls]") {
+  // User functions called with one argument value (kCallUserFunc) and with the values on the stack
+  // (kCallUserFuncArgs), and function values holding a capture called from the stack (kCallFunctionValueArgs) and by
+  // a builtin with two values (Callable::call_binary).
+  const std::string source = R"(
+let Zero(): Int64 = 7;
+let One(x: Int64): Int64 = (x, 1) -> Std.Add;
+let Two(x: Int64, y: Int64): Int64 = (x, y) -> Std.Subtract;
+let Three(x: Int64, y: Int64, z: Int64): Int64 = ((x, y) -> Std.Multiply, z) -> Std.Add;
+let Rest(xs: Any...): Int64 = (xs) -> Std.Length;
+let Head(x: Int64, xs: Any...): Int64 = (x, (xs) -> Std.Length) -> Std.Add;
+let Offset(n: Int64): (Int64, Int64) => Int64 = (a: Int64, b: Int64): Int64 = ((a, b) -> Std.Add, n) -> Std.Add;
+let Use(f: (Int64, Int64) => Int64): Int64 = (3, 4) -> f;
+let Counter(n: Int64): (Any...) => Int64 = (xs: Any...): Int64 = ((xs) -> Std.Length, n) -> Std.Add;
+let UseRest(f: (Any...) => Int64): Int64 = (1, 2, 3) -> f;
+let Pair: Tuple<Int64, Int64> = (9, 4);
+() -> Zero -> Std.Println;
+(1) -> One -> Std.Println;
+(5, 2) -> Two -> Std.Println;
+(2, 3, 4) -> Three -> Std.Println;
+(1, 2, 3) -> Rest -> Std.Println;
+(10, 1, 2) -> Head -> Std.Println;
+(Pair...) -> Two -> Std.Println;
+((5) -> Counter) -> UseRest -> Std.Println;
+((100) -> Offset) -> Use -> Std.Println;
+((1, 2, 3), 0, (10) -> Offset) -> Std.Tuple.Reduce -> Std.Println;
+)";
+  const std::string expected = "7\n2\n3\n10\n3\n12\n5\n8\n107\n36\n";
+  const auto [inlined, inlined_output] = compile_and_run(source, "bytecode_binding_inlined.fleaux");
+  REQUIRE(inlined_output == expected);
+  const auto [called, called_output] = compile_and_run(source, "bytecode_binding_called.fleaux", without_inlining());
+  REQUIRE(called_output == expected);
+  REQUIRE(count_opcode(called.instructions, fleaux::bytecode::Opcode::kCallUserFuncArgs) >= 2U);
 }
 
 TEST_CASE("One-argument builtins receive their argument without a wrapping tuple", "[bytecode][builtins]") {
@@ -2623,8 +2631,8 @@ let Root: (Int64) => Float64 = (x: Int64): Float64 = x -> Std.ToFloat64 -> Std.M
 
 TEST_CASE("Std.ElementAt on a tuple and an index compiles to kElementAt", "[bytecode][builtins]") {
   const auto [bytecode_module, output] = compile_and_run(R"(
-let Pick(items: Tuple<Int64...>, at: UInt64): Int64 = (items, at) -> Std.ElementAt;
-((10, 20, 30), 1u64) -> Pick -> Std.Println;
+let Pick(items: Tuple<Int64...>, at: Int64): Int64 = (items, at) -> Std.ElementAt;
+((10, 20, 30), 1) -> Pick -> Std.Println;
 )",
                                                          "bytecode_element_at_opcode.fleaux");
 
@@ -2635,8 +2643,7 @@ let Pick(items: Tuple<Int64...>, at: UInt64): Int64 = (items, at) -> Std.Element
 }
 
 TEST_CASE("kElementAt reports an index past the end", "[bytecode][builtins]") {
-  const auto ir_program =
-      lower_source_to_ir("((10, 20), 5u64) -> Std.ElementAt -> Std.Println;\n", "bytecode_element_at_range.fleaux");
+  const auto ir_program = lower_source_to_ir("((10, 20), 5) -> Std.ElementAt -> Std.Println;\n", "bytecode_element_at_range.fleaux");
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
   const auto compiled = compiler.compile(ir_program);
   REQUIRE(compiled.has_value());
@@ -2644,7 +2651,7 @@ TEST_CASE("kElementAt reports an index past the end", "[bytecode][builtins]") {
   const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*compiled, output);
   REQUIRE_FALSE(executed.has_value());
-  REQUIRE(executed.error().message.find("ElementAt: index out of range") != std::string::npos);
+  REQUIRE(executed.error().message.find("Std.ElementAt: index ") != std::string::npos);
 }
 
 TEST_CASE("A one-argument builtin treats one-item tuples the same in every call", "[bytecode][builtins]") {
@@ -2678,7 +2685,6 @@ let Dec(x: Float64): Float64 = (x, 1.0) -> Std.Subtract;
                                                          "bytecode_branch_in_place_named.fleaux");
 
   REQUIRE(output == "11\n9\n");
-  REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kBranchCall) == 0U);
   REQUIRE_FALSE(calls_builtin(bytecode_module.instructions, "Std.Branch"));
   // Inc and Dec are inlined in both branches; without inlining, each branch calls its function.
   REQUIRE(count_opcode(bytecode_module.instructions, fleaux::bytecode::Opcode::kCallUserFunc) == 0U);
@@ -2935,7 +2941,7 @@ TEST_CASE("A Std.Match run in place with no matching case stops the program", "[
   const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*compiled, output);
   REQUIRE_FALSE(executed.has_value());
-  REQUIRE(executed.error().message.find("no case matched and no wildcard case provided") != std::string::npos);
+  REQUIRE(executed.error().message.find("Std.Match: no case matched, and there is no wildcard case") != std::string::npos);
   REQUIRE(output.str().empty());
 }
 
@@ -2992,7 +2998,7 @@ TEST_CASE("Bytecode compiler emits builtin callable refs for Std.Apply value cal
   REQUIRE(found_make_builtin_ref);
 }
 
-TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs", "[bytecode]") {
+TEST_CASE("Bytecode compiler calls the Std.Branch builtin with builtin refs", "[bytecode]") {
   const auto ir_program =
       lower_source_to_ir("(True, 10.0, Std.UnaryMinus<Float64>, Std.UnaryPlus<Float64>) -> Std.Branch -> Std.Println;\n",
                          "bytecode_builtin_callable_branch.fleaux");
@@ -3002,13 +3008,7 @@ TEST_CASE("Bytecode compiler emits kBranchCall for Std.Branch with builtin refs"
 
   REQUIRE(result.has_value());
 
-  bool found_branch_call = false;
-  for (const auto& ins : result->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
-      found_branch_call = true;
-    }
-  }
-  REQUIRE(found_branch_call);
+  REQUIRE(calls_builtin(result->instructions, "Std.Branch"));
 }
 
 TEST_CASE("Bytecode compiler emits closure materialization for inline closure literals", "[bytecode]") {
@@ -3108,12 +3108,8 @@ let ChooseApply(x: Float64, tf: (Float64) => Float64, ff: (Float64) => Float64):
                    [](const fleaux::bytecode::FunctionDef& fn) { return fn.name == "ChooseApply#0"; });
   REQUIRE(choose_it != result->functions.end());
 
-  bool found_branch_call = false;
   bool found_builtin_branch = false;
   for (const auto& ins : choose_it->instructions) {
-    if (ins.opcode == fleaux::bytecode::Opcode::kBranchCall) {
-      found_branch_call = true;
-    }
     if (is_builtin_call(ins.opcode)) {
       const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
       REQUIRE(builtin_id.has_value());
@@ -3124,7 +3120,6 @@ let ChooseApply(x: Float64, tf: (Float64) => Float64, ff: (Float64) => Float64):
     }
   }
 
-  REQUIRE_FALSE(found_branch_call);
   REQUIRE(found_builtin_branch);
 }
 
@@ -3490,8 +3485,8 @@ let Count(n: Int64, a: Int64, b: Int64, c: Int64, total: Int64): Int64 =
 
 TEST_CASE("Std.Bit operations compile to their own opcodes", "[bytecode][builtins]") {
   const auto [bytecode_module, output] = compile_and_run(R"(
-((12, 10) -> Std.Bit.And, (12, 10) -> Std.Bit.Or, (12, 10) -> Std.Bit.Xor, (1, 4u64) -> Std.Bit.ShiftLeft,
- (256, 4u64) -> Std.Bit.ShiftRight) -> Std.Println;
+((12, 10) -> Std.Bit.And, (12, 10) -> Std.Bit.Or, (12, 10) -> Std.Bit.Xor, (1, 4) -> Std.Bit.ShiftLeft,
+ (256, 4) -> Std.Bit.ShiftRight) -> Std.Println;
 )",
                                                          "bytecode_bit_opcodes.fleaux");
 
@@ -3630,7 +3625,7 @@ let Call(f: (Int64) => Int64): Int64 = 1 -> f;
   const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*compiled, output);
   REQUIRE_FALSE(executed.has_value());
-  REQUIRE(executed.error().message == "native 'div' threw: Divide: Int64 division by zero");
+  REQUIRE(executed.error().message == "Std.Divide: Int64 division by zero");
 }
 
 TEST_CASE("Bytecode compiler emits kCallUserFuncArgs for direct binary user calls", "[bytecode]") {
@@ -3695,32 +3690,44 @@ let Compute(): Int64 = {
   REQUIRE(found_take_local);
 }
 
-TEST_CASE("Bytecode compiler materializes bare top-level values as zero-arg calls", "[bytecode][blocks][let]") {
+TEST_CASE("Bytecode compiler pushes a value let of a literal and calls any other", "[bytecode][blocks][let]") {
   const auto ir_program = lower_source_to_ir(R"(
 import Std;
 let Meaning: Int64 = 42;
+let Sum: Int64 = (40, 2) -> Std.Add;
 Meaning -> Std.Println;
+Sum -> Std.Println;
+Std.Pi -> Std.Println;
 )",
                                              "bytecode_top_level_value_materialization.fleaux");
 
   const fleaux::bytecode::BytecodeCompiler compiler;
   const auto result = compiler.compile(ir_program);
   REQUIRE(result.has_value());
-  REQUIRE(result->functions.size() == 1U);
+  REQUIRE(result->functions.size() == 2U);
   REQUIRE(result->functions[0].name == "Meaning#0");
+  REQUIRE(result->functions[1].name == "Sum#0");
 
-  bool found_call_user_func = false;
-  bool found_make_user_func_ref = false;
-  bool found_empty_tuple = false;
+  // Meaning and Std.Pi are their literals; Sum is a call of its body. No builtin stands for Std.Pi.
+  std::vector<fleaux::bytecode::ConstValue> pushed;
+  std::vector<std::int64_t> called;
   for (const auto& ins : result->instructions) {
-    found_call_user_func = found_call_user_func || ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc;
-    found_make_user_func_ref = found_make_user_func_ref || ins.opcode == fleaux::bytecode::Opcode::kMakeUserFuncRef;
-    found_empty_tuple = found_empty_tuple || (ins.opcode == fleaux::bytecode::Opcode::kBuildTuple && ins.operand == 0);
+    if (ins.opcode == fleaux::bytecode::Opcode::kPushConst) {
+      pushed.push_back(result->constants[static_cast<std::size_t>(ins.operand)]);
+    }
+    if (ins.opcode == fleaux::bytecode::Opcode::kCallUserFunc) {
+      called.push_back(ins.operand);
+    }
+    REQUIRE(ins.opcode != fleaux::bytecode::Opcode::kMakeUserFuncRef);
   }
-
-  REQUIRE(found_call_user_func);
-  REQUIRE(found_empty_tuple);
-  REQUIRE_FALSE(found_make_user_func_ref);
+  REQUIRE(called == std::vector<std::int64_t>{1});
+  REQUIRE(std::ranges::count_if(pushed, [](const fleaux::bytecode::ConstValue& constant) {
+            return constant.data == fleaux::bytecode::ConstValue{std::int64_t{42}}.data;
+          }) == 1);
+  REQUIRE(std::ranges::count_if(pushed, [](const fleaux::bytecode::ConstValue& constant) {
+            const auto* value = std::get_if<double>(&constant.data);
+            return value != nullptr && *value == std::numbers::pi;
+          }) == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -3747,10 +3754,10 @@ TEST_CASE("Bytecode compiler stores constants in pool", "[bytecode]") {
 TEST_CASE("NoOpEliminationPass removes kNoOp from top-level instructions", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::NoOpEliminationPass{}.run(module);
@@ -3766,10 +3773,10 @@ TEST_CASE("NoOpEliminationPass removes kNoOp from function body", "[bytecode][op
   fn.name = "Foo";
   fn.arity = 0;
   fn.instructions = {
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
   };
   module.functions.push_back(std::move(fn));
 
@@ -3783,8 +3790,8 @@ TEST_CASE("NoOpEliminationPass removes kNoOp from function body", "[bytecode][op
 TEST_CASE("NoOpEliminationPass is a no-op when there are no kNoOps", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::NoOpEliminationPass{}.run(module);
@@ -3795,8 +3802,8 @@ TEST_CASE("NoOpEliminationPass is a no-op when there are no kNoOps", "[bytecode]
 TEST_CASE("BytecodeOptimizer baseline always runs NoOpEliminationPass", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
@@ -3819,10 +3826,10 @@ TEST_CASE("ConstantPoolDeduplicationPass merges duplicate pool entries", "[bytec
       fleaux::bytecode::ConstValue{std::int64_t{42}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},  // push 42 (first)
-      {fleaux::bytecode::Opcode::kPushConst, 1},  // push 99
-      {fleaux::bytecode::Opcode::kPushConst, 2},  // push 42 (duplicate)
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},  // push 42 (first)
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},  // push 99
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2},  // push 42 (duplicate)
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
@@ -3846,10 +3853,10 @@ TEST_CASE("ConstantPoolDeduplicationPass is a no-op when all entries are unique"
       fleaux::bytecode::ConstValue{std::int64_t{3}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
@@ -3867,9 +3874,9 @@ TEST_CASE("ConstantPoolDeduplicationPass deduplicates string constants", "[bytec
       fleaux::bytecode::ConstValue{std::string{"hello"}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantPoolDeduplicationPass{}.run(module);
@@ -3885,9 +3892,9 @@ TEST_CASE("ConstantPoolDeduplicationPass deduplicates string constants", "[bytec
 TEST_CASE("DeadPushEliminationPass removes kPushConst followed by kPop", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::DeadPushEliminationPass{}.run(module);
@@ -3899,9 +3906,9 @@ TEST_CASE("DeadPushEliminationPass removes kPushConst followed by kPop", "[bytec
 TEST_CASE("DeadPushEliminationPass removes kLoadLocal followed by kPop", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::DeadPushEliminationPass{}.run(module);
@@ -3914,10 +3921,10 @@ TEST_CASE("DeadPushEliminationPass does not remove kPop after a non-push", "[byt
   fleaux::bytecode::Module module;
   // kCallBuiltin has side effects; the kPop after it is live.
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin, 0},
-      {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::DeadPushEliminationPass{}.run(module);
@@ -3928,9 +3935,9 @@ TEST_CASE("DeadPushEliminationPass does not remove kPop after a non-push", "[byt
 TEST_CASE("DeadPushEliminationPass handles multiple consecutive dead pairs", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1}, {fleaux::bytecode::Opcode::kPop, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0}, {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1}, {.opcode = fleaux::bytecode::Opcode::kPop, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::DeadPushEliminationPass{}.run(module);
@@ -4019,15 +4026,16 @@ TEST_CASE("LocalItemReadFusionPass reads items of local tuples in one instructio
   using fleaux::bytecode::local_item_operand;
   using fleaux::bytecode::Opcode;
   fleaux::bytecode::Module bytecode_module;
-  // 0: UInt64 1, 1: Int64 1, 2: Float64 1.0, 3: UInt64 2^31, 4: the largest index that fits, 5: true.
-  bytecode_module.constants = {ConstValue{std::uint64_t{1}},
-                               ConstValue{std::int64_t{1}},
+  // 0: Int64 1, 1: UInt64 1, 2: Float64 1.0, 3: Int64 2^31, 4: the largest index that fits, 5: true, 6: Int64 -1.
+  bytecode_module.constants = {ConstValue{std::int64_t{1}},
+                               ConstValue{std::uint64_t{1}},
                                ConstValue{1.0},
-                               ConstValue{std::uint64_t{fleaux::bytecode::kMaxLocalItemIndex} + 1U},
-                               ConstValue{std::uint64_t{fleaux::bytecode::kMaxLocalItemIndex}},
-                               ConstValue{true}};
+                               ConstValue{std::int64_t{fleaux::bytecode::kMaxLocalItemIndex} + 1},
+                               ConstValue{std::int64_t{fleaux::bytecode::kMaxLocalItemIndex}},
+                               ConstValue{true},
+                               ConstValue{std::int64_t{-1}}};
 
-  SECTION("A read and a last read with a UInt64 index") {
+  SECTION("A read and a last read with an Int64 index") {
     bytecode_module.instructions = {
         {.opcode = Opcode::kLoadLocal, .operand = 3}, {.opcode = Opcode::kPushConst, .operand = 0},
         {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kTakeLocal, .operand = 3},
@@ -4044,14 +4052,24 @@ TEST_CASE("LocalItemReadFusionPass reads items of local tuples in one instructio
   }
 
   SECTION("Reads it cannot fuse stay as they are") {
-    // An Int64 index, a Float64 index, an index too large for the operand, and a slot too large for it.
+    // A UInt64 index, a Float64 index, an index too large for the operand, a negative index, and a slot too large for
+    // the operand.
     bytecode_module.instructions = {
-        {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 1},
-        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kLoadLocal, .operand = 0},
-        {.opcode = Opcode::kPushConst, .operand = 2}, {.opcode = Opcode::kElementAt, .operand = 0},
-        {.opcode = Opcode::kTakeLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 3},
-        {.opcode = Opcode::kElementAt, .operand = 0}, {.opcode = Opcode::kLoadLocal, .operand = std::int64_t{1} << 32},
-        {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 1},
+        {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 2},
+        {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kTakeLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 3},
+        {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kLoadLocal, .operand = 0},
+        {.opcode = Opcode::kPushConst, .operand = 6},
+        {.opcode = Opcode::kElementAt, .operand = 0},
+        {.opcode = Opcode::kLoadLocal, .operand = std::int64_t{1} << 32},
+        {.opcode = Opcode::kPushConst, .operand = 0},
+        {.opcode = Opcode::kElementAt, .operand = 0},
         {.opcode = Opcode::kHalt, .operand = 0},
     };
     const auto before = bytecode_module.instructions;
@@ -4103,7 +4121,7 @@ TEST_CASE("BytecodeOptimizer fuses local item reads in both modes", "[bytecode][
   for (const auto mode : {OptimizationMode::kBaseline, OptimizationMode::kExtended}) {
     INFO("extended mode " << (mode == OptimizationMode::kExtended));
     fleaux::bytecode::Module bytecode_module;
-    bytecode_module.constants = {ConstValue{std::uint64_t{1}}};
+    bytecode_module.constants = {ConstValue{std::int64_t{1}}};
     bytecode_module.instructions = {
         {.opcode = Opcode::kLoadLocal, .operand = 0},
         {.opcode = Opcode::kPushConst, .operand = 0},
@@ -4117,9 +4135,9 @@ TEST_CASE("BytecodeOptimizer fuses local item reads in both modes", "[bytecode][
                                             });
   }
 
-  // Folding (1u64, 1u64) -> + makes the index the constant 2.
+  // Folding (1, 1) -> + makes the index the constant 2.
   fleaux::bytecode::Module folded;
-  folded.constants = {ConstValue{std::uint64_t{1}}};
+  folded.constants = {ConstValue{std::int64_t{1}}};
   folded.instructions = {
       {.opcode = Opcode::kLoadLocal, .operand = 0}, {.opcode = Opcode::kPushConst, .operand = 0},
       {.opcode = Opcode::kPushConst, .operand = 0}, {.opcode = Opcode::kAdd, .operand = 0},
@@ -4135,8 +4153,8 @@ TEST_CASE("BytecodeOptimizer fuses local item reads in both modes", "[bytecode][
 TEST_CASE("BytecodeOptimizer extended mode also eliminates kNoOps", "[bytecode][optimizer]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kNoOp, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kNoOp, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
@@ -4178,10 +4196,10 @@ TEST_CASE("Bytecode serialization and deserialization round-trips", "[bytecode][
       },
   };
   original.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   original.constants = {
       fleaux::bytecode::ConstValue{std::int64_t{10}},
@@ -4256,10 +4274,10 @@ TEST_CASE("Bytecode serialization handles functions", "[bytecode][serialization]
   fn.arity = 2;
   fn.has_variadic_tail = false;
   fn.instructions = {
-      {fleaux::bytecode::Opcode::kLoadLocal, 0},
-      {fleaux::bytecode::Opcode::kLoadLocal, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kReturn, 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kLoadLocal, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0},
   };
   original.functions.push_back(std::move(fn));
 
@@ -4283,7 +4301,7 @@ TEST_CASE("Bytecode serialization keeps value lets", "[bytecode][serialization][
   fleaux::bytecode::FunctionDef fn;
   fn.name = "Twice";
   fn.is_value_binding = true;
-  fn.instructions = {{fleaux::bytecode::Opcode::kReturn, 0}};
+  fn.instructions = {{.opcode = fleaux::bytecode::Opcode::kReturn, .operand = 0}};
   original.functions.push_back(std::move(fn));
 
   const auto serialized = fleaux::bytecode::serialize_module(original);
@@ -4297,27 +4315,26 @@ TEST_CASE("Bytecode serialization keeps value lets", "[bytecode][serialization][
 TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[bytecode][serialization][verification]") {
   fleaux::bytecode::Module original;
   original.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions,
-                                   fleaux::vm::BuiltinCallShape::kTupleExpanded)},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 4},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 4},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   original.constants = {
       fleaux::bytecode::ConstValue{std::int64_t{1}},
@@ -4491,10 +4508,10 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
 TEST_CASE("Bytecode verifier rejects builtin callsite metadata drift", "[bytecode][verification][builtins]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.constants = {
       fleaux::bytecode::ConstValue{std::string{"Std.Help"}},
@@ -4518,11 +4535,11 @@ TEST_CASE("Bytecode verifier rejects builtin callsite metadata drift", "[bytecod
 TEST_CASE("Bytecode verifier rejects builtin callsite arity drift", "[bytecode][verification][builtins]") {
   fleaux::bytecode::Module module;
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 1},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Help, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.constants = {
       fleaux::bytecode::ConstValue{std::string{"Std.Help"}},
@@ -4553,12 +4570,12 @@ TEST_CASE("Bytecode verifier rejects stale callable slot metadata", "[bytecode][
       },
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 2},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Apply, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::Apply, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.constants = {
       fleaux::bytecode::ConstValue{std::int64_t{1}},
@@ -4603,15 +4620,14 @@ TEST_CASE("Bytecode verifier rejects stale Dict<String, Any> options metadata", 
       },
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kMakeUserFuncRef, 0},
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 1},
-      {fleaux::bytecode::Opcode::kBuildTuple, 3},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions,
-                                   fleaux::vm::BuiltinCallShape::kTupleExpanded)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kMakeUserFuncRef, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ParallelWithOptions, fleaux::vm::BuiltinCallShape::kTupleExpanded)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.constants = {
       fleaux::bytecode::ConstValue{std::int64_t{1}},
@@ -4657,11 +4673,11 @@ TEST_CASE("Bytecode verifier rejects stale exact UInt64 value metadata", "[bytec
       },
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::RandomCreate, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.builtin_callsites = {
       fleaux::bytecode::BuiltinCallsiteRecord{
@@ -4697,11 +4713,11 @@ TEST_CASE("Bytecode verifier rejects stale exact Int64 value metadata", "[byteco
       },
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::ExitInt64, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.builtin_callsites = {
       fleaux::bytecode::BuiltinCallsiteRecord{
@@ -4737,11 +4753,11 @@ TEST_CASE("Bytecode verifier rejects stale opaque handle value metadata", "[byte
       },
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kBuildTuple, 0},
-      {fleaux::bytecode::Opcode::kCallUserFunc, 0},
-      {fleaux::bytecode::Opcode::kCallBuiltin,
-       fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kBuildTuple, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallUserFunc, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCallBuiltin,
+       .operand = fleaux::vm::builtin_operand(fleaux::vm::BuiltinId::TaskAwait, fleaux::vm::BuiltinCallShape::kDirectValue)},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   module.builtin_callsites = {
       fleaux::bytecode::BuiltinCallsiteRecord{
@@ -4795,7 +4811,7 @@ TEST_CASE("Bytecode deserialization rejects version mismatch", "[bytecode][seria
 TEST_CASE("Bytecode deserialization rejects payload checksum mismatch", "[bytecode][serialization]") {
   fleaux::bytecode::Module module;
   module.header.module_name = "Checksum";
-  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+  module.instructions = {{.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0}};
 
   const auto serialized = fleaux::bytecode::serialize_module(module);
   REQUIRE(serialized.has_value());
@@ -5797,11 +5813,11 @@ TEST_CASE("ConstantFoldingPass folds safe literal unary and binary sequences", "
       fleaux::bytecode::ConstValue{std::int64_t{4}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kNot, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1}, {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kAdd, 0},       {fleaux::bytecode::Opcode::kPushConst, 3},
-      {fleaux::bytecode::Opcode::kPushConst, 4}, {fleaux::bytecode::Opcode::kCmpGt, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0}, {.opcode = fleaux::bytecode::Opcode::kNot, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1}, {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},       {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 3},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 4}, {.opcode = fleaux::bytecode::Opcode::kCmpGt, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantFoldingPass{}.run(module);
@@ -5826,11 +5842,11 @@ auto fold_binary_pairs(const fleaux::bytecode::Opcode opcode, const std::vector<
   fleaux::bytecode::Module module;
   module.constants = constants;
   for (const auto& [lhs, rhs] : operand_pairs) {
-    module.instructions.push_back({fleaux::bytecode::Opcode::kPushConst, lhs});
-    module.instructions.push_back({fleaux::bytecode::Opcode::kPushConst, rhs});
-    module.instructions.push_back({opcode, 0});
+    module.instructions.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = lhs});
+    module.instructions.push_back({.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = rhs});
+    module.instructions.push_back({.opcode = opcode, .operand = 0});
   }
-  module.instructions.push_back({fleaux::bytecode::Opcode::kHalt, 0});
+  module.instructions.push_back({.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0});
   fleaux::bytecode::ConstantFoldingPass{}.run(module);
   return module;
 }
@@ -5923,10 +5939,10 @@ TEST_CASE("BytecodeOptimizer baseline does not run ConstantFoldingPass", "[bytec
       fleaux::bytecode::ConstValue{std::int64_t{3}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
@@ -5945,10 +5961,10 @@ TEST_CASE("BytecodeOptimizer extended mode runs ConstantFoldingPass", "[bytecode
       fleaux::bytecode::ConstValue{std::int64_t{3}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kAdd, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kAdd, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
@@ -5970,9 +5986,9 @@ TEST_CASE("ConstantPropagationSelectPass folds literal kSelect true branch", "[b
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kSelect, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0}, {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2}, {.opcode = fleaux::bytecode::Opcode::kSelect, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantPropagationSelectPass{}.run(module);
@@ -5991,9 +6007,9 @@ TEST_CASE("ConstantPropagationSelectPass folds literal kSelect false branch", "[
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kPushConst, 2}, {fleaux::bytecode::Opcode::kSelect, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0}, {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2}, {.opcode = fleaux::bytecode::Opcode::kSelect, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   fleaux::bytecode::ConstantPropagationSelectPass{}.run(module);
@@ -6013,10 +6029,10 @@ TEST_CASE("BytecodeOptimizer extended mode propagates folded kSelect condition",
       fleaux::bytecode::ConstValue{std::int64_t{20}},
   };
   module.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0}, {fleaux::bytecode::Opcode::kPushConst, 1},
-      {fleaux::bytecode::Opcode::kCmpEq, 0},     {fleaux::bytecode::Opcode::kPushConst, 2},
-      {fleaux::bytecode::Opcode::kPushConst, 3}, {fleaux::bytecode::Opcode::kSelect, 0},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0}, {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kCmpEq, .operand = 0},     {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 2},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 3}, {.opcode = fleaux::bytecode::Opcode::kSelect, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
 
   constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
@@ -6083,10 +6099,10 @@ TEST_CASE("Bytecode serialization round-trips runtime type checks", "[bytecode][
                                                                 .variadic_tail = true}}}}},
   };
   original.instructions = {
-      {fleaux::bytecode::Opcode::kPushConst, 0},
-      {fleaux::bytecode::Opcode::kCheckType, 0},
-      {fleaux::bytecode::Opcode::kTryCheckType, 1},
-      {fleaux::bytecode::Opcode::kHalt, 0},
+      {.opcode = fleaux::bytecode::Opcode::kPushConst, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kCheckType, .operand = 0},
+      {.opcode = fleaux::bytecode::Opcode::kTryCheckType, .operand = 1},
+      {.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0},
   };
   original.constants = {fleaux::bytecode::ConstValue{.data = std::int64_t{1}}};
 
@@ -6529,87 +6545,114 @@ TEST_CASE("The last read of a local slot moves its value", "[bytecode][liveness]
   using fleaux::bytecode::Opcode;
 
   SECTION("A slot read twice moves only at the second read") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0}, {Opcode::kPop, 0}, {Opcode::kLoadLocal, 0},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kTakeLocal, Opcode::kReturn});
   }
 
   SECTION("A write ends the life of the value before it") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0}, {Opcode::kPushConst, 0}, {Opcode::kStoreLocal, 0},
-                                      {Opcode::kLoadLocal, 0}, {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kTakeLocal, Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kTakeLocal,
-                        Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPushConst, .operand = 0},
+                                      {.opcode = Opcode::kStoreLocal, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kTakeLocal, Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kTakeLocal, Opcode::kReturn});
   }
 
   SECTION("A read inside a loop copies while the loop can read the slot again") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0}, {Opcode::kPop, 0}, {Opcode::kLoadLocal, 1},
-                                      {Opcode::kJumpIf, 0}, {Opcode::kLoadLocal, 0}, {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kLoadLocal, Opcode::kJumpIf, Opcode::kTakeLocal,
-                        Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 1},
+                                      {.opcode = Opcode::kJumpIf, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kLoadLocal, Opcode::kJumpIf, Opcode::kTakeLocal, Opcode::kReturn});
   }
 
   SECTION("Each arm of a branch has its own last read") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 1}, {Opcode::kJumpIfNot, 4}, {Opcode::kLoadLocal, 0},
-                                      {Opcode::kJump, 5}, {Opcode::kLoadLocal, 0}, {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kTakeLocal, Opcode::kJumpIfNot, Opcode::kTakeLocal, Opcode::kJump, Opcode::kTakeLocal,
-                        Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 1},
+                                      {.opcode = Opcode::kJumpIfNot, .operand = 4},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kJump, .operand = 5},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kTakeLocal, Opcode::kJumpIfNot, Opcode::kTakeLocal, Opcode::kJump, Opcode::kTakeLocal, Opcode::kReturn});
     // A read after the arms join keeps the reads in the arms copies.
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 1}, {Opcode::kJumpIfNot, 4}, {Opcode::kLoadLocal, 0},
-                                      {Opcode::kJump, 5}, {Opcode::kLoadLocal, 0}, {Opcode::kLoadLocal, 0},
-                                      {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kTakeLocal, Opcode::kJumpIfNot, Opcode::kLoadLocal, Opcode::kJump, Opcode::kLoadLocal,
-                        Opcode::kTakeLocal, Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 1},
+                                      {.opcode = Opcode::kJumpIfNot, .operand = 4},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kJump, .operand = 5},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kTakeLocal, Opcode::kJumpIfNot, Opcode::kLoadLocal, Opcode::kJump, Opcode::kLoadLocal, Opcode::kTakeLocal,
+                        Opcode::kReturn});
   }
 
   SECTION("kIterate writes the item slot after its index, so the body's read of it is its last") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kPushConst, 0}, {Opcode::kStoreLocal, 0}, {Opcode::kPushConst, 1},
-                                      {Opcode::kStoreLocal, 1}, {Opcode::kJump, 6}, {Opcode::kLoadLocal, 2},
-                                      {Opcode::kIterate, 0}, {Opcode::kJumpIf, 5}, {Opcode::kLoadLocal, 1},
-                                      {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kJump,
-                        Opcode::kTakeLocal, Opcode::kIterate, Opcode::kJumpIf, Opcode::kTakeLocal, Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kPushConst, .operand = 0},
+                                      {.opcode = Opcode::kStoreLocal, .operand = 0},
+                                      {.opcode = Opcode::kPushConst, .operand = 1},
+                                      {.opcode = Opcode::kStoreLocal, .operand = 1},
+                                      {.opcode = Opcode::kJump, .operand = 6},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 2},
+                                      {.opcode = Opcode::kIterate, .operand = 0},
+                                      {.opcode = Opcode::kJumpIf, .operand = 5},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 1},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kJump, Opcode::kTakeLocal,
+                        Opcode::kIterate, Opcode::kJumpIf, Opcode::kTakeLocal, Opcode::kReturn});
   }
 
   SECTION("kIterate reads its tuple slot and its index slot") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kPushConst, 0}, {Opcode::kStoreLocal, 0}, {Opcode::kIterate, 0},
-                                      {Opcode::kJumpIfNot, 6}, {Opcode::kLoadLocal, 0}, {Opcode::kJump, 2},
-                                      {Opcode::kLoadLocal, 1}, {Opcode::kReturn, 0}}) ==
-            std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kIterate, Opcode::kJumpIfNot,
-                        Opcode::kLoadLocal, Opcode::kJump, Opcode::kTakeLocal, Opcode::kReturn});
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kPushConst, .operand = 0},
+                                      {.opcode = Opcode::kStoreLocal, .operand = 0},
+                                      {.opcode = Opcode::kIterate, .operand = 0},
+                                      {.opcode = Opcode::kJumpIfNot, .operand = 6},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kJump, .operand = 2},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 1},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
+            std::vector{Opcode::kPushConst, Opcode::kStoreLocal, Opcode::kIterate, Opcode::kJumpIfNot, Opcode::kLoadLocal, Opcode::kJump,
+                        Opcode::kTakeLocal, Opcode::kReturn});
   }
 
   SECTION("An item read reads the slot in the low bits of its operand") {
     // The operand of slot 0, item 1 is 2^32, not 0, so the read would be missed if it were taken as the slot.
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
-                                      {Opcode::kPop, 0},
-                                      {Opcode::kLoadLocalItem, fleaux::bytecode::local_item_operand(0U, 1U)},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocalItem, .operand = fleaux::bytecode::local_item_operand(0U, 1U)},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kLoadLocalItem, Opcode::kReturn});
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
-                                      {Opcode::kPop, 0},
-                                      {Opcode::kTakeLocalItem, fleaux::bytecode::local_item_operand(0U, 1U)},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kTakeLocalItem, .operand = fleaux::bytecode::local_item_operand(0U, 1U)},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kLoadLocal, Opcode::kPop, Opcode::kTakeLocalItem, Opcode::kReturn});
   }
 
   SECTION("kMarkStack writes its slot and kBuildTupleSinceMark reads it") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0},
-                                      {Opcode::kPop, 0},
-                                      {Opcode::kMarkStack, 0},
-                                      {Opcode::kBuildTupleSinceMark, 0},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kMarkStack, .operand = 0},
+                                      {.opcode = Opcode::kBuildTupleSinceMark, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kTakeLocal, Opcode::kPop, Opcode::kMarkStack, Opcode::kBuildTupleSinceMark, Opcode::kReturn});
-    REQUIRE(opcodes_after_last_reads({{Opcode::kMarkStack, 0},
-                                      {Opcode::kLoadLocal, 0},
-                                      {Opcode::kPop, 0},
-                                      {Opcode::kBuildTupleSinceMark, 0},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kMarkStack, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kPop, .operand = 0},
+                                      {.opcode = Opcode::kBuildTupleSinceMark, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kMarkStack, Opcode::kLoadLocal, Opcode::kPop, Opcode::kBuildTupleSinceMark, Opcode::kReturn});
   }
 
   SECTION("A return ends the frame") {
-    REQUIRE(opcodes_after_last_reads({{Opcode::kLoadLocal, 0}, {Opcode::kReturn, 0}, {Opcode::kLoadLocal, 0},
-                                      {Opcode::kReturn, 0}}) ==
+    REQUIRE(opcodes_after_last_reads({{.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0},
+                                      {.opcode = Opcode::kLoadLocal, .operand = 0},
+                                      {.opcode = Opcode::kReturn, .operand = 0}}) ==
             std::vector{Opcode::kTakeLocal, Opcode::kReturn, Opcode::kTakeLocal, Opcode::kReturn});
   }
 }
@@ -6618,28 +6661,28 @@ TEST_CASE("Updates leave a value that is read again as it was", "[bytecode][live
   const auto [bytecode_module, output] = compile_and_run(R"(
 // Every update reads `a` while a later read still needs it, so each one must leave `a` as it was.
 let Updates(a: Tuple<Int64...>): Tuple<Int64...> = {
-  ((a, 0u64, 9) -> Std.Array.SetAt) -> Std.Println;
-  ((a, 1u64, 2u64, 7) -> Std.Array.Fill) -> Std.Println;
+  ((a, 0, 9) -> Std.Tuple.SetAt) -> Std.Println;
+  ((a, 1, 2, 7) -> Std.Array.Fill) -> Std.Println;
   ((a, 4) -> Std.Tuple.Append) -> Std.Println;
   ((a, 0) -> Std.Tuple.Prepend) -> Std.Println;
-  ((a, 1u64, 5) -> Std.Array.InsertAt) -> Std.Println;
-  ((a, 1u64) -> Std.Array.RemoveAt) -> Std.Println;
-  ((a, a) -> Std.Array.Concat) -> Std.Println;
-  ((a, 2u64) -> Std.Take) -> Std.Println;
-  ((a, 1u64) -> Std.Drop) -> Std.Println;
-  ((a, 0u64, 3u64, 2u64) -> Std.Slice) -> Std.Println;
+  ((a, 1, 5) -> Std.Tuple.InsertAt) -> Std.Println;
+  ((a, 1) -> Std.Tuple.RemoveAt) -> Std.Println;
+  ((a, a) -> Std.Tuple.Concat) -> Std.Println;
+  ((a, 2) -> Std.Take) -> Std.Println;
+  ((a, 1) -> Std.Drop) -> Std.Println;
+  ((a, 0, 3, 2) -> Std.Slice) -> Std.Println;
   (a -> Std.Tuple.Sort) -> Std.Println;
   ((a, (x: Int64): Int64 = (x, 10) -> *) -> Std.Tuple.Map) -> Std.Println;
   a;
 };
 
 let Grid(g: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> = {
-  ((g, 0u64, 1u64, 8) -> Std.Array.SetAt2D) -> Std.Println;
+  ((g, 0, 1, 8) -> Std.Array.SetAt2D) -> Std.Println;
   g;
 };
 
 let Pair(p: Tuple<Tuple<Int64...>, Int64>): Tuple<Tuple<Int64...>, Int64> = {
-  ((p -> Std.First, 0u64, 6) -> Std.Array.SetAt) -> Std.Println;
+  ((p -> Std.First, 0, 6) -> Std.Tuple.SetAt) -> Std.Println;
   p;
 };
 
@@ -6663,21 +6706,21 @@ TEST_CASE("Updates take the only reference to a value", "[bytecode][liveness][in
   const auto [bytecode_module, output] = compile_and_run(R"(
 // Each update takes the only reference to the tuple before it.
 let Chain(a: Tuple<Int64...>): Tuple<Int64...> = {
-  let b: Tuple<Int64...> = (a, 0u64, 9) -> Std.Array.SetAt;
-  let c: Tuple<Int64...> = (b, 1u64, 1u64, 7) -> Std.Array.Fill;
+  let b: Tuple<Int64...> = (a, 0, 9) -> Std.Tuple.SetAt;
+  let c: Tuple<Int64...> = (b, 1, 1, 7) -> Std.Array.Fill;
   let d: Tuple<Int64...> = (c, 4) -> Std.Tuple.Append;
   let e: Tuple<Int64...> = (d, 0) -> Std.Tuple.Prepend;
-  let f: Tuple<Int64...> = (e, 1u64, 5) -> Std.Array.InsertAt;
-  let g: Tuple<Int64...> = (f, 0u64) -> Std.Array.RemoveAt;
-  let h: Tuple<Int64...> = (g, (1, 1)) -> Std.Array.Concat;
-  let i: Tuple<Int64...> = (h, 6u64) -> Std.Take;
-  let j: Tuple<Int64...> = (i, 1u64) -> Std.Drop;
-  let k: Tuple<Int64...> = (j, 0u64, 5u64, 2u64) -> Std.Slice;
+  let f: Tuple<Int64...> = (e, 1, 5) -> Std.Tuple.InsertAt;
+  let g: Tuple<Int64...> = (f, 0) -> Std.Tuple.RemoveAt;
+  let h: Tuple<Int64...> = (g, (1, 1)) -> Std.Tuple.Concat;
+  let i: Tuple<Int64...> = (h, 6) -> Std.Take;
+  let j: Tuple<Int64...> = (i, 1) -> Std.Drop;
+  let k: Tuple<Int64...> = (j, 0, 5, 2) -> Std.Slice;
   k -> Std.Tuple.Sort;
 };
 
 let Rows(rows: Tuple<Tuple<Int64...>...>): Tuple<Tuple<Int64...>...> =
-  (rows, (row: Tuple<Int64...>): Tuple<Int64...> = (row, 0u64, 0) -> Std.Array.SetAt) -> Std.Tuple.Map;
+  (rows, (row: Tuple<Int64...>): Tuple<Int64...> = (row, 0, 0) -> Std.Tuple.SetAt) -> Std.Tuple.Map;
 
 let Count(n: Int64): Int64 =
   ((n -> Std.Tuple.Range, 0 -> Std.Tuple.Range, (acc: Tuple<Int64...>, x: Int64): Tuple<Int64...> = (acc, x) -> Std.Tuple.Append)
@@ -6687,7 +6730,7 @@ let Lookup(n: Int64): Int64 = {
   let built: Dict<Int64, Int64> =
     (n -> Std.Tuple.Range, () -> Std.Dict.Create, (d: Dict<Int64, Int64>, x: Int64): Dict<Int64, Int64> = (d, x, (x, x) -> *) -> Std.Dict.Set)
       -> Std.Tuple.Reduce;
-  (built, 30) -> Std.Dict.Get;
+  (built, 30) -> Std.Dict.Get -> Std.Result.Unwrap;
 };
 
 (3, 1, 2,) -> Chain -> Std.Println;
@@ -6766,9 +6809,9 @@ let Lookup(key: String): Int64 =
 "plain" -> Std.String.Format -> Std.Println;
 ("{} and {}", 1, "two") -> Std.String.Format -> Std.Println;
 ("{} | {}", Pair...) -> Std.String.Format -> Std.Println;
-(Words, (), Std.Array.Concat) -> Std.Tuple.Reduce -> Std.Println;
+(Words, (), Std.Tuple.Concat) -> Std.Tuple.Reduce -> Std.Println;
 Words -> Std.Println;
-((1, 2), (3, 4)) -> Std.Array.Concat -> Std.Println;
+((1, 2), (3, 4)) -> Std.Tuple.Concat -> Std.Println;
 Std.Pi -> Std.Println;
 )",
                                                          "bytecode_builtin_arguments.fleaux");
@@ -6803,7 +6846,7 @@ Std.Pi -> Std.Println;
 TEST_CASE("An error in a builtin called with stack arguments reads as before", "[bytecode][builtins][arguments]") {
   const auto ir_program = lower_source_to_ir(R"(
 import Std;
-(() -> Std.Dict.Create -> (_, "a", 1) -> Std.Dict.Set, "missing") -> Std.Dict.Get -> Std.Println;
+(() -> Std.Dict.Create -> (_, "a", 1) -> Std.Dict.Set -> Std.Dict.Values, -1) -> Std.Take -> Std.Println;
 )",
                                              "bytecode_builtin_arguments_error.fleaux");
   constexpr fleaux::bytecode::BytecodeCompiler compiler;
@@ -6814,7 +6857,7 @@ import Std;
   const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*compiled, output);
   REQUIRE_FALSE(executed.has_value());
-  REQUIRE(executed.error().message == "builtin 'Std.Dict.Get' threw: DictGet: key not found");
+  REQUIRE(executed.error().message == "Std.Take: count -1 is negative");
 }
 
 TEST_CASE("The verifier refuses stack arguments for a builtin of one parameter", "[bytecode][verification][arguments]") {
@@ -6856,12 +6899,12 @@ let Outer(x: Int64): Int64 = (x, Inner) -> Std.Try -> Std.Result.Unwrap;
 let Failing(x: Int64): Int64 = (x, 0) -> /;
 let Sum(acc: Int64, x: Int64): Int64 = (acc, (x, (x, 3) -> -) -> /) -> +;
 
-("oops", Std.String.ParseInt64) -> Std.Try -> Std.Println;
+(-5, Std.ToUInt64) -> Std.Try -> Std.Println;
 (7, Half) -> Std.Try -> Std.Println;
 (5, Pick) -> Std.Try -> Std.Println;
 (3, (x: Int64): Int64 = (x, 0) -> Std.Mod) -> Std.Try -> Std.Println;
 (9, Outer) -> Std.Try -> Std.Println;
-("8080", Std.String.ParseInt64) -> Std.Try -> Std.Println;
+(5, Std.ToUInt64) -> Std.Try -> Std.Println;
 (Failing, 4) -> Std.Task.Spawn -> Std.Task.Await -> Std.Println;
 ((1, 2, 3), Failing) -> Std.Parallel.Map -> Std.Println;
 ((1, 2, 3), Failing) -> Std.Parallel.ForEach -> Std.Println;
@@ -6870,16 +6913,16 @@ let Sum(acc: Int64, x: Int64): Int64 = (acc, (x, (x, 3) -> -) -> /) -> +;
                                                          "bytecode_failing_calls.fleaux");
 
   REQUIRE(output ==
-          "(False, ParseInt64: invalid numeric input)\n"
-          "(False, Divide: Int64 division by zero)\n"
-          "(False, Match: no case matched and no wildcard case provided)\n"
-          "(False, Mod: Int64 division by zero)\n"
+          "(False, Std.ToUInt64: cannot convert the negative Int64 -5 to UInt64)\n"
+          "(False, Std.Divide: Int64 division by zero)\n"
+          "(False, Std.Match: no case matched, and there is no wildcard case)\n"
+          "(False, Std.Mod: Int64 division by zero)\n"
           "(True, 0)\n"
-          "(True, 8080)\n"
-          "(False, Divide: Int64 division by zero)\n"
-          "(False, (0, Divide: Int64 division by zero))\n"
-          "(False, (0, Divide: Int64 division by zero))\n"
-          "(False, (2, Divide: Int64 division by zero))\n");
+          "(True, 5)\n"
+          "(False, Std.Divide: Int64 division by zero)\n"
+          "(False, (0, Std.Divide: Int64 division by zero))\n"
+          "(False, (0, Std.Divide: Int64 division by zero))\n"
+          "(False, (2, Std.Divide: Int64 division by zero))\n");
 }
 
 TEST_CASE("Calls return to their caller's frame and position while the frames grow", "[bytecode][loop]") {
@@ -7056,7 +7099,7 @@ let Step(n: Int64): Int64 = ((n -> Std.Tuple.Range, (x: Int64): Bool = (x, 0) ->
 ((1, 2, 3, 4), (x: Int64): Bool = (x, 2) -> Std.Mod -> (_, 0) -> ==) -> Std.Tuple.Filter -> Std.Println;
 (1, 2, 3,) -> Shared -> Std.Println;
 ((1, 5, 10), 4) -> Above -> Std.Println;
-(((1, 2), (3, 4), (5, 6)), (p: Tuple<Int64, Int64>): Bool = ((p, 0u64) -> Std.ElementAt, 1) -> >) -> Std.Tuple.Filter
+(((1, 2), (3, 4), (5, 6)), (p: Tuple<Int64, Int64>): Bool = ((p, 0) -> Std.ElementAt, 1) -> >) -> Std.Tuple.Filter
     -> Std.Println;
 (() -> Empty, 7, (acc: Int64, x: Int64): Int64 = (acc, x) -> +) -> Std.Tuple.Reduce -> Std.Println;
 ((5,), 1, (acc: Int64, x: Int64): Int64 = (acc, x) -> *) -> Std.Tuple.Reduce -> Std.Println;
@@ -7101,7 +7144,7 @@ TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]"
   // version 46 records the builtin table's hash.
   fleaux::bytecode::Module module;
   module.header.module_name = "OldVersion";
-  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+  module.instructions = {{.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0}};
   const auto serialized = fleaux::bytecode::serialize_module(module);
   REQUIRE(serialized.has_value());
   REQUIRE(fleaux::bytecode::deserialize_module(*serialized).has_value());
@@ -7120,7 +7163,7 @@ TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]"
 TEST_CASE("Bytecode compiled against another builtin table is refused", "[bytecode][serialization]") {
   fleaux::bytecode::Module module;
   module.header.module_name = "OtherBuiltins";
-  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+  module.instructions = {{.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0}};
   const auto serialized = fleaux::bytecode::serialize_module(module);
   REQUIRE(serialized.has_value());
 
@@ -7169,13 +7212,13 @@ TEST_CASE("Constant item reads of local tuples read the item in one instruction"
   using fleaux::bytecode::Opcode;
   // A tuple-state Std.Loop, a function's parameter read twice, and the closure of an in-place Std.Tuple.Map.
   const auto [bytecode_module, output] = compile_optimize_and_run(R"(
-let Swap(p: Tuple<Int64, Int64>): Tuple<Int64, Int64> = ((p, 1u64) -> Std.ElementAt, (p, 0u64) -> Std.ElementAt);
-((0, 0), (s: Tuple<Int64, Int64>): Bool = ((s, 0u64) -> Std.ElementAt, 10) -> <,
+let Swap(p: Tuple<Int64, Int64>): Tuple<Int64, Int64> = ((p, 1) -> Std.ElementAt, (p, 0) -> Std.ElementAt);
+((0, 0), (s: Tuple<Int64, Int64>): Bool = ((s, 0) -> Std.ElementAt, 10) -> <,
  (s: Tuple<Int64, Int64>): Tuple<Int64, Int64> =
-     (((s, 0u64) -> Std.ElementAt, 1) -> +, ((s, 1u64) -> Std.ElementAt, (s, 0u64) -> Std.ElementAt) -> +)
+     (((s, 0) -> Std.ElementAt, 1) -> +, ((s, 1) -> Std.ElementAt, (s, 0) -> Std.ElementAt) -> +)
 ) -> Std.Loop -> Std.Println;
 (1, 2,) -> Swap -> Std.Println;
-(((1, 2), (3, 4)), (row: Tuple<Int64, Int64>): Int64 = ((row, 0u64) -> Std.ElementAt, (row, 1u64) -> Std.ElementAt) -> *)
+(((1, 2), (3, 4)), (row: Tuple<Int64, Int64>): Int64 = ((row, 0) -> Std.ElementAt, (row, 1) -> Std.ElementAt) -> *)
     -> Std.Tuple.Map -> Std.Println;
 )",
                                                                   "bytecode_local_item_reads.fleaux");
@@ -7196,7 +7239,7 @@ let Swap(p: Tuple<Int64, Int64>): Tuple<Int64, Int64> = ((p, 1u64) -> Std.Elemen
 
 TEST_CASE("A constant item read past the end of a local tuple fails as before", "[bytecode][optimizer][locals]") {
   const std::string source = R"(
-let At(t: Tuple<Int64...>): Int64 = (t, 5u64) -> Std.ElementAt;
+let At(t: Tuple<Int64...>): Int64 = (t, 5) -> Std.ElementAt;
 (10, 20,) -> At -> Std.Println;
 )";
   const auto [optimized, optimized_run] = compile_optimize_and_run(source, "bytecode_local_item_range.fleaux");
@@ -7212,7 +7255,7 @@ let At(t: Tuple<Int64...>): Int64 = (t, 5u64) -> Std.ElementAt;
   const fleaux::vm::Runtime runtime;
   const auto executed = runtime.execute(*compiled, output);
   REQUIRE_FALSE(executed.has_value());
-  REQUIRE(executed.error().message.find("ElementAt: index out of range") != std::string::npos);
+  REQUIRE(executed.error().message.find("Std.ElementAt: index ") != std::string::npos);
   REQUIRE(optimized_run.error() == executed.error().message);
 }
 
@@ -7393,10 +7436,312 @@ TEST_CASE("Bools that operations make are the same values as Bool constants", "[
   const auto [bytecode_module, output] = compile_and_run(R"(
 ((1, 2) -> <, (2, 1) -> <, ((1, 2) -> <, True) -> Std.And, True -> Std.Not, (1, 1) -> ==) -> Std.Println;
 (((1, 2) -> <, True) -> ==, ((2, 1) -> <, False) -> ==, ((1, 2) -> <, False) -> ==) -> Std.Println;
-((() -> Std.Dict.Create, (1, 2) -> <, "less") -> Std.Dict.Set, True) -> Std.Dict.Get -> Std.Println;
+((() -> Std.Dict.Create, (1, 2) -> <, "less") -> Std.Dict.Set, True) -> Std.Dict.Get -> Std.Result.Unwrap -> Std.Println;
 ((1, 2, 3), (x: Int64): Bool = (x, 2) -> >) -> Std.Tuple.Any -> Std.ToString -> Std.Println;
 )",
                                                          "bytecode_bool_values.fleaux");
 
   REQUIRE(output == "True False True False True\nTrue True False\nless\nTrue\n");
+}
+
+// Locations
+
+namespace {
+
+// The line and column (from 1) of the first `token` in `source`.
+auto position_of(const std::string& source, const std::string_view token) -> std::pair<std::uint32_t, std::uint32_t> {
+  const std::size_t offset = source.find(token);
+  REQUIRE(offset != std::string::npos);
+  const std::size_t line_start = source.rfind('\n', offset);
+  const std::size_t column = line_start == std::string::npos ? offset + 1U : offset - line_start;
+  return {static_cast<std::uint32_t>(std::ranges::count(source.substr(0, offset), '\n') + 1), static_cast<std::uint32_t>(column)};
+}
+
+auto compile_source(const std::string& source, const std::string& source_name,
+                    const fleaux::bytecode::CompileOptions& options = fleaux::bytecode::CompileOptions{}) -> fleaux::bytecode::Module {
+  const auto ir_program = lower_source_to_ir(source, source_name);
+  constexpr fleaux::bytecode::BytecodeCompiler compiler;
+  auto compiled = compiler.compile(ir_program, options);
+  REQUIRE(compiled.has_value());
+  return std::move(*compiled);
+}
+
+auto failure_of(const fleaux::bytecode::Module& bytecode_module) -> fleaux::vm::RuntimeError {
+  std::ostringstream output;
+  const fleaux::vm::Runtime runtime;
+  const auto executed = runtime.execute(bytecode_module, output);
+  REQUIRE_FALSE(executed.has_value());
+  return executed.error();
+}
+
+auto call_positions(const std::vector<fleaux::vm::RuntimeCall>& calls)
+    -> std::vector<std::tuple<std::string, std::uint32_t, std::uint32_t>> {
+  std::vector<std::tuple<std::string, std::uint32_t, std::uint32_t>> positions;
+  for (const auto& call : calls) {
+    positions.emplace_back(call.function, call.line, call.column);
+  }
+  return positions;
+}
+
+}  // namespace
+
+TEST_CASE("A failure's calls are the same whether its functions are inlined or called", "[bytecode][locations]") {
+  const std::string source = R"(import Std;
+let Half(x: Int64): Int64 = (x, 0) -> Std.Divide;
+let Twice(x: Int64): Int64 = (x) -> Half -> (_, 2) -> Std.Multiply;
+(3) -> Twice -> Std.Println;
+)";
+  const auto [divide_line, divide_column] = position_of(source, "Std.Divide");
+  const auto [half_line, half_column] = position_of(source, "Half ->");
+  const auto [twice_line, twice_column] = position_of(source, "Twice ->");
+  const std::vector<std::tuple<std::string, std::uint32_t, std::uint32_t>> expected{
+      {"Half", divide_line, divide_column}, {"Twice", half_line, half_column}, {"", twice_line, twice_column}};
+
+  for (const bool inline_functions : {true, false}) {
+    INFO("inline_functions " << inline_functions);
+    const auto bytecode_module =
+        compile_source(source, "locations_inlined.fleaux", fleaux::bytecode::CompileOptions{.inline_functions = inline_functions});
+    const auto error = failure_of(bytecode_module);
+    REQUIRE(error.message == "Std.Divide: Int64 division by zero");
+    REQUIRE(call_positions(error.calls) == expected);
+    REQUIRE(error.calls.front().file == "locations_inlined.fleaux");
+    REQUIRE(error.calls.front().file_hash == fleaux::common::fnv1a(source));
+    REQUIRE(error.calls.front().end_column == divide_column + 10U);
+  }
+}
+
+TEST_CASE("An inlined body's locations name the function and the call they were inlined for", "[bytecode][locations]") {
+  const auto bytecode_module = compile_source(R"(import Std;
+let Half(x: Int64): Int64 = (x, 2) -> Std.Divide;
+(8) -> Half -> Std.Println;
+)",
+                                              "locations_inlined_table.fleaux");
+  const auto half = std::ranges::find_if(bytecode_module.functions,
+                                         [](const fleaux::bytecode::FunctionDef& function) { return function.name.starts_with("Half"); });
+  REQUIRE(half != bytecode_module.functions.end());
+  const auto half_index = static_cast<std::uint32_t>(half - bytecode_module.functions.begin());
+
+  const auto divide =
+      std::ranges::find(bytecode_module.instructions, fleaux::bytecode::Opcode::kDiv, &fleaux::bytecode::Instruction::opcode);
+  REQUIRE(divide != bytecode_module.instructions.end());
+  const auto* location = fleaux::bytecode::find_location(bytecode_module.locations, divide->location);
+  REQUIRE(location != nullptr);
+  REQUIRE(location->inlined_function == half_index);
+  const auto* call = fleaux::bytecode::find_location(bytecode_module.locations, location->inlined_at);
+  REQUIRE(call != nullptr);
+  REQUIRE(call->line == 3U);
+  REQUIRE_FALSE(call->inlined_function.has_value());
+  REQUIRE(location->inlined_at < divide->location);
+}
+
+TEST_CASE("A fused item read reports the location of the read", "[bytecode][locations]") {
+  const std::string source = R"(import Std;
+let Second(t: Tuple<Int64...>): Int64 = (t, 1) -> Std.ElementAt;
+((1, 2, 3)) -> Second -> Std.Println;
+)";
+  auto bytecode_module = compile_source(source, "locations_fused.fleaux", fleaux::bytecode::CompileOptions{.inline_functions = false});
+  constexpr fleaux::bytecode::BytecodeOptimizer optimizer;
+  REQUIRE(optimizer.optimize(bytecode_module).has_value());
+
+  const auto second = std::ranges::find_if(
+      bytecode_module.functions, [](const fleaux::bytecode::FunctionDef& function) { return function.name.starts_with("Second"); });
+  REQUIRE(second != bytecode_module.functions.end());
+  const auto read = std::ranges::find_if(second->instructions, [](const fleaux::bytecode::Instruction& instruction) {
+    return instruction.opcode == fleaux::bytecode::Opcode::kLoadLocalItem || instruction.opcode == fleaux::bytecode::Opcode::kTakeLocalItem;
+  });
+  REQUIRE(read != second->instructions.end());
+  const auto* location = fleaux::bytecode::find_location(bytecode_module.locations, read->location);
+  REQUIRE(location != nullptr);
+  const auto [line, column] = position_of(source, "Std.ElementAt");
+  REQUIRE(location->line == line);
+  REQUIRE(location->column == column);
+}
+
+TEST_CASE("Locations survive a bytecode file", "[bytecode][locations][serialization]") {
+  const auto original = compile_source(R"(import Std;
+let Half(x: Int64): Int64 = (x, 2) -> Std.Divide;
+let Twice(x: Int64): Int64 = (x) -> Half -> (_, 2) -> Std.Multiply;
+(8) -> Twice -> Std.Println;
+((1, 2), (x: Int64): Bool = (x, 1) -> Std.GreaterThan) -> Std.Tuple.Filter -> Std.Println;
+)",
+                                       "locations_serialized.fleaux");
+  REQUIRE_FALSE(original.locations.empty());
+  // The in-place Filter's closure and its call are among them.
+  REQUIRE(std::ranges::any_of(original.locations, &fleaux::bytecode::SourceLocation::inlined_closure));
+  REQUIRE(std::ranges::any_of(original.locations, [](const fleaux::bytecode::SourceLocation& location) {
+    return location.called_by == static_cast<std::uint32_t>(fleaux::vm::BuiltinId::TupleFilter);
+  }));
+  const auto serialized = fleaux::bytecode::serialize_module(original);
+  REQUIRE(serialized.has_value());
+  const auto deserialized = fleaux::bytecode::deserialize_module(*serialized);
+  REQUIRE(deserialized.has_value());
+  REQUIRE(deserialized->source_files == original.source_files);
+  REQUIRE(deserialized->locations == original.locations);
+  REQUIRE(deserialized->instructions == original.instructions);
+  REQUIRE(deserialized->functions.size() == original.functions.size());
+  for (std::size_t index = 0; index < original.functions.size(); ++index) {
+    REQUIRE(deserialized->functions[index].instructions == original.functions[index].instructions);
+  }
+  REQUIRE(fleaux::bytecode::verify_module_locations(*deserialized).has_value());
+}
+
+TEST_CASE("The verifier refuses locations that do not exist", "[bytecode][locations][verifier]") {
+  using fleaux::bytecode::Opcode;
+  const auto with_location = [](const std::uint32_t location) -> fleaux::bytecode::Module {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {{.opcode = Opcode::kHalt, .location = location, .operand = 0}};
+    bytecode_module.source_files = {{.path = "a.fleaux", .hash = 1U}};
+    return bytecode_module;
+  };
+  const auto message_of = [](const fleaux::bytecode::Module& bytecode_module) -> std::string {
+    const auto verified = fleaux::bytecode::verify_module_locations(bytecode_module);
+    REQUIRE_FALSE(verified.has_value());
+    return verified.error().message;
+  };
+
+  auto valid = with_location(1U);
+  valid.locations = {{.file = 0U, .line = 1U, .column = 1U, .end_line = 1U, .end_column = 2U}};
+  REQUIRE(fleaux::bytecode::verify_module_locations(valid).has_value());
+
+  REQUIRE(message_of(with_location(1U)) == "module instruction 0 has location 1, but the module has 0.");
+
+  auto missing_file = valid;
+  missing_file.locations[0].file = 1U;
+  REQUIRE(message_of(missing_file) == "Location 1 names source file 1, but the module has 1.");
+
+  auto missing_function = valid;
+  missing_function.locations[0].inlined_function = 0U;
+  REQUIRE(message_of(missing_function) == "Location 1 names function 0, but the module has 0.");
+
+  auto later_call = valid;
+  later_call.locations.push_back(later_call.locations[0]);
+  later_call.locations[0].inlined_at = 2U;
+  REQUIRE(message_of(later_call) == "Location 1 is inlined at location 2, which does not come before it.");
+
+  auto own_call = valid;
+  own_call.locations[0].inlined_at = 1U;
+  REQUIRE(message_of(own_call) == "Location 1 is inlined at location 1, which does not come before it.");
+
+  auto closure_without_call = valid;
+  closure_without_call.locations[0].inlined_closure = true;
+  REQUIRE(message_of(closure_without_call) == "Location 1 is in an inlined closure, so it names no function and is inlined at a call.");
+
+  auto unknown_builtin = valid;
+  unknown_builtin.locations[0].called_by = static_cast<std::uint32_t>(fleaux::vm::builtin_count());
+  REQUIRE(message_of(unknown_builtin) ==
+          std::format("Location 1 is called by builtin {0}, but there are {0}.", fleaux::vm::builtin_count()));
+}
+
+TEST_CASE("The verifier refuses operands that name nothing", "[bytecode][verifier][trust]") {
+  using fleaux::bytecode::Opcode;
+  const auto with = [](const Opcode opcode, const std::int64_t operand) -> fleaux::bytecode::Module {
+    fleaux::bytecode::Module bytecode_module;
+    bytecode_module.instructions = {{.opcode = opcode, .operand = operand}, {.opcode = Opcode::kHalt, .operand = 0}};
+    return bytecode_module;
+  };
+  const auto message_of = [](const fleaux::bytecode::Module& bytecode_module) -> std::string {
+    const auto verified = fleaux::bytecode::verify_module_operands(bytecode_module);
+    REQUIRE_FALSE(verified.has_value());
+    return verified.error().message;
+  };
+
+  auto valid = with(Opcode::kPushConst, 0);
+  valid.constants.push_back(fleaux::bytecode::ConstValue{std::int64_t{1}});
+  REQUIRE(fleaux::bytecode::verify_module_operands(valid).has_value());
+  REQUIRE(fleaux::bytecode::verify_module_operands(with(Opcode::kJump, 2)).has_value());
+  REQUIRE(fleaux::bytecode::verify_module_operands(with(Opcode::kStoreLocal, fleaux::bytecode::kMaxLocalSlots - 1)).has_value());
+
+  REQUIRE(message_of(with(Opcode::kPushConst, 0)) == "module instruction 0 (PushConst) names constant 0, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kPushConst, -1)) == "module instruction 0 (PushConst) names constant -1, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kCallUserFunc, 3)) == "module instruction 0 (CallUserFunc) names function 3, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kMakeClosureRef, 0)) == "module instruction 0 (MakeClosureRef) names closure 0, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kTryCheckType, 0)) == "module instruction 0 (TryCheckType) names type check 0, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kCallNative, 0)) == "module instruction 0 (CallNative) names native function 0, but there are 0.");
+  REQUIRE(message_of(with(Opcode::kJumpIfNot, 3)) == "module instruction 0 (JumpIfNot) names instruction 3, but there are 3.");
+  REQUIRE(message_of(with(Opcode::kStoreLocal, -1)) == "module instruction 0 (StoreLocal) names local slot -1, but there are 65536.");
+  REQUIRE(message_of(with(Opcode::kLoadLocal, fleaux::bytecode::kMaxLocalSlots)) ==
+          "module instruction 0 (LoadLocal) names local slot 65536, but there are 65536.");
+  REQUIRE(message_of(with(Opcode::kIterate, fleaux::bytecode::kMaxLocalSlots - 1)) ==
+          "module instruction 0 (Iterate) names local slot 65535, but there are 65535.");
+  const auto far_item = fleaux::bytecode::local_item_operand(70'000U, 0U);
+  REQUIRE(message_of(with(Opcode::kLoadLocalItem, far_item)) ==
+          std::format("module instruction 0 (LoadLocalItem) names local item {}, but there are 65536.", far_item));
+
+  auto in_function = valid;
+  in_function.functions.push_back(
+      fleaux::bytecode::FunctionDef{.name = "F#0", .arity = 1, .instructions = {{.opcode = Opcode::kCallUserFunc, .operand = 1}}});
+  REQUIRE(message_of(in_function) == "function 0 instruction 0 (CallUserFunc) names function 1, but there are 1.");
+
+  auto closure = valid;
+  closure.closures.push_back(fleaux::bytecode::ClosureDef{.function_index = 0});
+  REQUIRE(message_of(closure) == "Closure 0 names function 0, but there are 0.");
+
+  auto exported = valid;
+  exported.exports.push_back(
+      fleaux::bytecode::ExportedSymbol{.name = "Lib.F", .kind = fleaux::bytecode::ExportKind::kFunction, .index = 2});
+  REQUIRE(message_of(exported) == "Export 'Lib.F' names function 2, but there are 0.");
+}
+
+namespace {
+
+// `bytes` with the byte at `index` set to `value`.
+auto with_byte(std::vector<std::uint8_t> bytes, const std::size_t index, const std::uint8_t value) -> std::vector<std::uint8_t> {
+  bytes.at(index) = value;
+  return bytes;
+}
+
+// `bytes` with its checksum written again, as a file someone made would have it.
+auto with_checksum(std::vector<std::uint8_t> bytes) -> std::vector<std::uint8_t> {
+  const std::uint64_t checksum = fleaux::common::fnv1a(std::span<const std::uint8_t>{bytes}.subspan(16U));
+  std::memcpy(bytes.data() + 8U, &checksum, sizeof checksum);
+  return bytes;
+}
+
+}  // namespace
+
+TEST_CASE("The deserializer refuses counts past the end, bytes that are no bool, and trailing data", "[bytecode][serialization][trust]") {
+  fleaux::bytecode::Module bytecode_module;
+  bytecode_module.header.module_name = "m";
+  bytecode_module.header.source_path = "p";
+  bytecode_module.dependencies.push_back(fleaux::bytecode::ModuleDependency{.module_name = "d", .is_symbolic = true});
+  bytecode_module.instructions = {{.opcode = fleaux::bytecode::Opcode::kHalt, .operand = 0}};
+  const auto serialized = fleaux::bytecode::serialize_module(bytecode_module);
+  REQUIRE(serialized.has_value());
+  REQUIRE(fleaux::bytecode::deserialize_module(*serialized).has_value());
+
+  // Magic, version, and checksum; the module's name and path; the source hash and optimization mode; the builtin table
+  // hash. The dependency count follows, then the dependency's name and its is_symbolic byte.
+  constexpr std::size_t kDependencyCount = 16U + 5U + 5U + 8U + 1U + 8U;
+  constexpr std::size_t kIsSymbolic = kDependencyCount + 4U + 5U;
+  REQUIRE(serialized->at(kDependencyCount) == 1U);
+  REQUIRE(serialized->at(kIsSymbolic) == 1U);
+
+  const auto refused_count = fleaux::bytecode::deserialize_module(with_checksum(with_byte(*serialized, kDependencyCount + 3U, 0x40U)));
+  REQUIRE_FALSE(refused_count.has_value());
+  REQUIRE(refused_count.error().message == "Cannot read dependency count");
+
+  const auto refused_bool = fleaux::bytecode::deserialize_module(with_checksum(with_byte(*serialized, kIsSymbolic, 2U)));
+  REQUIRE_FALSE(refused_bool.has_value());
+  REQUIRE(refused_bool.error().message == "Cannot read dependency");
+
+  auto trailing = *serialized;
+  trailing.push_back(0U);
+  const auto refused_trailing = fleaux::bytecode::deserialize_module(with_checksum(trailing));
+  REQUIRE_FALSE(refused_trailing.has_value());
+  REQUIRE(refused_trailing.error().message ==
+          std::format("Unexpected data after the last section ({} of {} bytes read)", serialized->size(), trailing.size()));
+}
+
+TEST_CASE("A union's first alternative does not make it the type of a value slot", "[bytecode][builtins][types]") {
+  // A union carries its first alternative's name, so a check by name alone took Dict<String | Null, Any> for
+  // Dict<String, Any>, the options slot of the parallel builtins.
+  const auto bytecode_module = compile_source(R"(import Std;
+let Options(): Dict<String, Any> = () -> Std.Dict.Create;
+let Loose(): Dict<String | Null, Any> = () -> Std.Dict.Create;
+let Count(): Int64 | String = 1;
+)",
+                                              "union_value_slots.fleaux");
+  REQUIRE(compiled_function(bytecode_module, "Options").return_value_slot_kind == fleaux::vm::BuiltinValueSlotKind::kDictStringAny);
+  REQUIRE_FALSE(compiled_function(bytecode_module, "Loose").return_value_slot_kind.has_value());
+  REQUIRE_FALSE(compiled_function(bytecode_module, "Count").return_value_slot_kind.has_value());
 }

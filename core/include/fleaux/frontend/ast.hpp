@@ -10,7 +10,6 @@
 #include "fleaux/common/indirect_optional.hpp"
 #include "fleaux/common/runtime_type_check.hpp"
 #include "fleaux/frontend/diagnostics.hpp"
-#include "fleaux/frontend/type_node.hpp"
 
 namespace fleaux::frontend::model {
 
@@ -228,15 +227,10 @@ using IRSimpleTypeBox = common::IndirectOptional<IRSimpleType>;
 struct IRSimpleType {
   std::string name{};
   bool variadic{false};
-  // Non-empty when this is a union type (e.g. Float64 | Int64 | UInt64).
-  // `name` holds the first alternative; `alternatives` holds all of them.
-  std::vector<std::string> alternatives{};
-  // Structured union alternatives preserved for Phase 2 migration.
-  // Compatibility note: current type checking still reads `alternatives` strings.
+  // Non-empty when this is a union type (e.g. Float64 | Int64 | UInt64): its alternatives, none of them a union.
+  // `name` holds the first alternative's name.
   std::vector<IRSimpleType> alternative_types{};
-  // Non-empty when this is a tuple type and we have preserved its element structure.
-  // Phase 2 compatibility note: current type checking still treats tuple compatibility
-  // coarsely; this field exists so later phases can stop erasing tuple shape in IR.
+  // The items of a tuple type, whose `name` is "Tuple".
   std::vector<IRSimpleType> tuple_items{};
   // Non-empty when this is an applied named type, e.g. Dict<String, Any>.
   // `name` holds the outer type name; `type_args` holds the argument types.
@@ -248,9 +242,6 @@ struct IRSimpleType {
     IRSimpleTypeBox return_type{std::nullopt};
   };
   std::optional<FunctionSignature> function_sig{std::nullopt};
-  // Phase 2 bridge artifact: structured type node preserved from lowering.
-  // Kept in parallel with existing fields to avoid behavior changes during migration.
-  std::optional<types::TypeNode> bridge_type_node{std::nullopt};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -291,6 +282,9 @@ struct IRNameRef {
   // Set by the type checker on a function value whose function takes hidden operator arguments (`Total<Money>`):
   // the operator functions to bind in front of the call's own arguments.
   std::vector<IRExprBox> bound_operator_args{};
+  // Set by the type checker on a read of a value let whose body is a literal (Std.Pi): the literal, which the compiler
+  // pushes in place of a call of the let.
+  std::optional<IRConstant> constant_value{std::nullopt};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
 
@@ -433,6 +427,14 @@ struct IRLet {
   std::vector<IROperatorRequirement> operator_requirements{};
   std::optional<diag::SourceSpan> span{std::nullopt};
 };
+
+// The body of a value let that is a literal (`let Std.Pi: Float64 = 3.14...;`), or null.
+[[nodiscard]] inline auto value_let_literal(const IRLet& let) -> const IRConstant* {
+  if (!let.is_value_binding || !let.body.has_value()) {
+    return nullptr;
+  }
+  return std::get_if<IRConstant>(&let.body->node);
+}
 
 struct IRTypeDecl {
   std::string name{};

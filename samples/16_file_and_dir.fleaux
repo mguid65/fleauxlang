@@ -1,33 +1,39 @@
 import Std;
 
+// The file and directory builtins return a Result: Ok with what they made or read, or Err with what failed and
+// why. Std.Result.Unwrap stops the program with that Err; Std.Result.UnwrapOr gives a default instead.
+
 // -- Write, read back, and delete a temp file --
 let TmpFile(): String =
     () -> Std.OS.TempDir -> (_, "fleaux_sample.txt") -> Std.Path.Join;
 
-() -> TmpFile -> (_, "hello from fleaux") -> Std.File.WriteText -> Std.Println;
+() -> TmpFile -> (_, "hello from fleaux") -> Std.File.WriteText -> Std.Result.Unwrap -> Std.Println;
 
-() -> TmpFile -> Std.File.ReadText -> Std.Println;                // hello from fleaux
+() -> TmpFile -> Std.File.ReadText -> Std.Result.Unwrap -> Std.Println;   // hello from fleaux
 
-() -> TmpFile -> Std.File.Size -> Std.Println;                    // 17
+() -> TmpFile -> Std.File.Size -> Std.Result.Unwrap -> Std.Println;       // 17
 
 // -- Append and re-read --
-() -> TmpFile -> (_, "\nline two") -> Std.File.AppendText -> Std.Println;
+() -> TmpFile -> (_, "\nline two") -> Std.File.AppendText -> Std.Result.Unwrap -> Std.Println;
 
-() -> TmpFile -> Std.File.ReadText -> Std.Println;
+() -> TmpFile -> Std.File.ReadText -> Std.Result.Unwrap -> Std.Println;
 
 // -- ReadLines returns a tuple of lines --
-() -> TmpFile -> Std.File.ReadLines -> Std.Println;
+() -> TmpFile -> Std.File.ReadLines -> Std.Result.Unwrap -> Std.Println;
 
 // -- Delete --
-() -> TmpFile -> Std.File.Delete -> Std.Println;                  // True
-() -> TmpFile -> Std.Path.Exists -> Std.Println;                  // False
+() -> TmpFile -> Std.File.Delete -> Std.Result.Unwrap -> Std.Println;     // True
+() -> TmpFile -> Std.Path.Exists -> Std.Println;                          // False
+
+// -- A file that is not there --
+() -> TmpFile -> Std.File.ReadText -> Std.Result.IsErr -> Std.Println;    // True
+() -> TmpFile -> Std.File.ReadText -> (_, "(no file)") -> Std.Result.UnwrapOr -> Std.Println;  // (no file)
 
 // -- Directory operations --
 let TmpDir(): String =
     () -> Std.OS.TempDir -> (_, "fleaux_sample_dir") -> Std.Path.Join;
 
-() -> TmpDir -> Std.Dir.Create -> Std.Println;
-() -> TmpDir -> Std.Path.IsDir -> Std.Println;                    // True
-() -> TmpDir -> Std.Dir.List -> Std.Println;                      // ()
-() -> TmpDir -> Std.Dir.Delete -> Std.Println;                    // True
-
+() -> TmpDir -> Std.Dir.Create -> Std.Result.Unwrap -> Std.Println;
+() -> TmpDir -> Std.Path.IsDir -> Std.Println;                            // True
+() -> TmpDir -> Std.Dir.List -> Std.Result.Unwrap -> Std.Println;         // ()
+() -> TmpDir -> Std.Dir.Delete -> Std.Result.Unwrap -> Std.Println;       // True

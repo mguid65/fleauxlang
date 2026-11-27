@@ -36,6 +36,9 @@ struct HostError {
   std::string message{};
   std::optional<std::string> hint{std::nullopt};
   std::optional<frontend::diag::SourceSpan> span{std::nullopt};
+  // For a run that failed (kRuntime), the calls it failed in, innermost first, and `span` is where it failed;
+  // vm::describe_runtime_calls makes the notes the CLI shows from them.
+  std::vector<vm::RuntimeCall> calls{};
 };
 
 template <typename T>
