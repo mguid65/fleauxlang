@@ -266,6 +266,57 @@ TEST_CASE("Parallel items and tasks see the run's process arguments and output",
   REQUIRE(output.str() == "(3, 3, 3)\n3\n7\n7\nTrue\n");
 }
 
+TEST_CASE("A failed parallel map returns after its other items end", "[vm][parallel]") {
+  // Item 0 fails at once, and the others count down before they print. The run ends with the map, so an item still
+  // running when the map returned would print after the run, into freed code.
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Go(n: Float64): Bool = (n, 0.0) -> Std.GreaterThan;\n"
+      "let Down(n: Float64): Float64 = (n, 1.0) -> Std.Subtract;\n"
+      "let Fail(x: Int64): Int64 = (\"boom\") -> Std.Result.Err -> Std.Result.Unwrap;\n"
+      "let Slow(x: Int64): Int64 = {\n"
+      "  (20000.0, Go, Down) -> Std.Loop;\n"
+      "  (\"done\") -> Std.Println;\n"
+      "  x;\n"
+      "};\n"
+      "let Item(x: Int64): Int64 = ((x, 0) -> Std.Equal, x, Fail, Slow) -> Std.Branch;\n"
+      "((0, 1, 2, 3, 4, 5, 6, 7), Item) -> Std.Parallel.Map -> Std.Result.IsErr -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "done\ndone\ndone\ndone\ndone\ndone\ndone\nTrue\n");
+}
+
+TEST_CASE("Parallel items that wait for parallel maps or tasks finish when every worker waits", "[vm][parallel]") {
+  // 64 items are more than the pool's workers, so every worker runs an item that waits, and runs what it waits for.
+  const fleaux::vm::Runtime runtime;
+  const auto session = runtime.create_session({});
+  std::ostringstream output;
+
+  const auto result = session.run_snippet(
+      "import Std;\n"
+      "let Double(x: Int64): Int64 = (x, 2) -> Std.Multiply;\n"
+      "let Inner(x: Int64): Int64 =\n"
+      "  ((x) -> Std.Tuple.Range, Double) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length;\n"
+      "let Awaits(x: Int64): Int64 = (Double, x) -> Std.Task.Spawn -> Std.Task.Await -> Std.Result.Unwrap;\n"
+      "((64) -> Std.Tuple.Range, Inner) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length -> Std.Println;\n"
+      "((64) -> Std.Tuple.Range, Awaits) -> Std.Parallel.Map -> Std.Result.Unwrap -> Std.Length -> Std.Println;\n",
+      output);
+
+  if (!result.has_value()) {
+    INFO(result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(output.str() == "64\n64\n");
+}
+
 TEST_CASE("RuntimeSession scopes explicit input to snippet execution", "[vm][repl]") {
   std::istringstream ambient_input{"Outer\n"};
   fleaux::runtime::RuntimeInputStreamScope ambient_scope(ambient_input);

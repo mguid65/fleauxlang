@@ -13,6 +13,9 @@ The current CLI help output includes:
 - --disassemble
 - --dump-ast
 - --dump-ir
+- --format, with --write or --check
+- --bench N
+- --extension PATH
 - --no-color
 
 And the general usage shape is:
@@ -106,12 +109,11 @@ This is convenient during experiments where you do not want source runs to updat
 
 The current CLI also exposes:
 
-- --optimize
-- --experimental-builtin-reductions
+- --optimize, which runs the extended optimizer passes as well as the baseline ones
 
-These are more advanced compilation controls.
-For everyday learning, you can ignore them.
-For performance experiments, they become more relevant.
+This is a more advanced compilation control.
+For everyday learning, you can ignore it.
+For performance experiments, it becomes more relevant.
 
 ## Starting the REPL
 

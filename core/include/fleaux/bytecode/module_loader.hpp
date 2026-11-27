@@ -21,7 +21,6 @@ struct ModuleLoadError {
 struct ModuleLoadOptions {
   OptimizationMode mode{OptimizationMode::kBaseline};
   bool write_bytecode_cache{true};
-  bool enable_experimental_builtin_reductions{false};
   // Searched for imports after the importing module's own directory, in order: the directories of loaded extensions.
   std::vector<std::filesystem::path> import_search_paths{};
 };

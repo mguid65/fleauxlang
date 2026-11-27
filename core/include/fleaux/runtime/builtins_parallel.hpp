@@ -163,6 +163,24 @@ public:
 
   [[nodiscard]] auto worker_count() const -> std::size_t { return workers_.size(); }
 
+  // Takes the job of `task` out of the queue and runs it on the calling thread. False when the job is not queued: a
+  // worker has taken it, or it was never queued here.
+  auto run_if_queued(const TaskControl* task) -> bool {
+    Job job;
+    {
+      const std::scoped_lock lock(mutex_);
+      const auto queued =
+          std::ranges::find_if(queue_, [task](const Job& candidate) -> bool { return task_control(candidate.task) == task; });
+      if (queued == queue_.end()) {
+        return false;
+      }
+      job = std::move(*queued);
+      queue_.erase(queued);
+    }
+    run_job(std::move(job));
+    return true;
+  }
+
 private:
   struct Job {
     Value function;
@@ -183,6 +201,7 @@ private:
   }
 
   void worker_loop() {
+    runtime_thread_context().pool_worker = true;
     for (;;) {
       Job job;
       {
@@ -194,48 +213,53 @@ private:
         job = std::move(queue_.front());
         queue_.pop_front();
       }
-
-      const ActiveRuntimeExecutionStateScope execution_state_scope(job.execution_state.get());
-      const RuntimeOutputStreamScope output_scope(job.output_stream.get());
-      const RuntimeInputStreamScope input_scope(job.input_stream.get());
-      const auto submitted_process_args = std::move(job.process_args);
-      const RuntimeProcessArgsOverrideScope process_args_scope(*submitted_process_args);
-      TaskControl& task = *task_control(job.task);
-
-      {
-        const std::scoped_lock task_lock(task.mutex);
-        if (task.cancel_requested) {
-          task.completed = true;
-          task.result = ResultErr(make_string(String{k_task_cancelled_message}));
-          task.cv.notify_all();
-          continue;
-        }
-        task.started = true;
-      }
-
-      // A failure of the VM's function values arrives as a value (call_or_fail); one of a function made from C++, such
-      // as the parallel builtins' chunks, as an exception.
-      Value result;
-      try {
-        std::string error;
-        if (auto value = as_callable(job.function).call_or_fail(std::move(job.argument), error); value.has_value()) {
-          result = ResultOk(std::move(*value));
-        } else {
-          result = ResultErr(make_string(normalize_runtime_error_message(std::move(error))));
-        }
-      } catch (const RuntimePayloadError& ex) {
-        result = ResultErr(ex.payload());
-      } catch (const std::exception& ex) {
-        result = ResultErr(make_string(normalize_runtime_error_message(ex.what())));
-      }
-
-      {
-        const std::scoped_lock task_lock(task.mutex);
-        task.result = std::move(result);
-        task.completed = true;
-      }
-      task.cv.notify_all();
+      run_job(std::move(job));
     }
+  }
+
+  // Runs a job in the context of the code that submitted it, and settles its task: cancelled, or with the function's
+  // result.
+  static void run_job(Job job) {
+    const ActiveRuntimeExecutionStateScope execution_state_scope(job.execution_state.get());
+    const RuntimeOutputStreamScope output_scope(job.output_stream.get());
+    const RuntimeInputStreamScope input_scope(job.input_stream.get());
+    const auto submitted_process_args = std::move(job.process_args);
+    const RuntimeProcessArgsOverrideScope process_args_scope(*submitted_process_args);
+    TaskControl& task = *task_control(job.task);
+
+    {
+      const std::scoped_lock task_lock(task.mutex);
+      if (task.cancel_requested) {
+        task.completed = true;
+        task.result = ResultErr(make_string(String{k_task_cancelled_message}));
+        task.cv.notify_all();
+        return;
+      }
+      task.started = true;
+    }
+
+    // A failure of the VM's function values arrives as a value (call_or_fail); one of a function made from C++, such as
+    // the parallel builtins' chunks, as an exception.
+    Value result;
+    try {
+      std::string error;
+      if (auto value = as_callable(job.function).call_or_fail(std::move(job.argument), error); value.has_value()) {
+        result = ResultOk(std::move(*value));
+      } else {
+        result = ResultErr(make_string(normalize_runtime_error_message(std::move(error))));
+      }
+    } catch (const RuntimePayloadError& ex) {
+      result = ResultErr(ex.payload());
+    } catch (const std::exception& ex) {
+      result = ResultErr(make_string(normalize_runtime_error_message(ex.what())));
+    }
+
+    {
+      const std::scoped_lock task_lock(task.mutex);
+      task.result = std::move(result);
+      task.completed = true;
+    }
+    task.cv.notify_all();
   }
 
   std::mutex mutex_;
@@ -248,6 +272,26 @@ private:
 inline auto task_runtime() -> TaskRuntime& {
   static TaskRuntime runtime;
   return runtime;
+}
+
+// Waits for a task and returns its result. A pool worker first takes the task's job out of the queue when no worker has
+// started it, and runs it itself: a worker that only waited could wait for a task that no free worker is left to run,
+// as when every worker runs a parallel item that waits for a parallel map of its own. A cancelled job settles as
+// cancelled. The worker runs only the task it waits for, so the jobs it nests are as deep as the program's own calls.
+// Other threads only wait: when they ran their tasks too, samples 35 and 38 were 16% and 22% slower.
+[[nodiscard]] inline auto await_task(const Value& handle) -> Value {
+  TaskControl* task = task_control(handle);
+  if (task != nullptr && runtime_thread_context().pool_worker) {
+    bool unstarted = false;
+    {
+      const std::scoped_lock lock(task->mutex);
+      unstarted = !task->started && !task->completed;
+    }
+    if (unstarted) {
+      (void)task_runtime().run_if_queued(task);
+    }
+  }
+  return wait_task_result(task);
 }
 
 // The number of tasks the active run has spawned and not yet settled.
@@ -321,13 +365,16 @@ private:
 // `on_result` with each item's index and Ok payload in input order. Returns the Err of the first item that fails. With
 // room for every item, they are all queued in one batch (TaskRuntime::submit_all); otherwise each is submitted when
 // the one `max_in_flight` before it has finished.
+//
+// After a failure, the items already submitted still run, and the map waits for them before it returns: the run that
+// called it can end as soon as it returns, and an item still running then would run code that the run has freed.
 template <typename OnResult>
 [[nodiscard]] auto run_parallel_pooled(const TupleView items, const Value& function, const std::size_t max_in_flight,
                                        const std::string_view builtin_name, OnResult&& on_result)
     -> std::optional<Value> {
   // Waits for an item's task: its Err, or nothing after passing its payload to on_result.
   const auto settle = [&](const std::size_t item_index, const Value& task) -> std::optional<Value> {
-    const Value result = wait_task_result(task_control(task));
+    const Value result = await_task(task);
     if (!result.is_tuple() || result.tuple().empty()) {
       return parallel_item_error(item_index, std::format("{}: unexpected result shape", builtin_name));
     }
@@ -345,6 +392,9 @@ template <typename OnResult>
     const std::vector<Value> tasks = task_runtime().submit_all(function, items);
     for (std::size_t item_index = 0; item_index < count; ++item_index) {
       if (auto error = settle(item_index, tasks[item_index])) {
+        for (std::size_t rest = item_index + 1; rest < count; ++rest) {
+          (void)await_task(tasks[rest]);
+        }
         return error;
       }
     }
@@ -368,6 +418,9 @@ template <typename OnResult>
     in_flight.pop_front();
     submit_next();
     if (auto error = settle(item_index, task)) {
+      for (const auto& [rest_index, rest_task] : in_flight) {
+        (void)await_task(rest_task);
+      }
       return error;
     }
   }
@@ -398,7 +451,7 @@ template <typename OnResult>
 
 [[nodiscard]] inline auto TaskAwait(Value arg) -> Value {
   const Value task_handle = std::move(arg);
-  return wait_task_result(task_control(task_handle));
+  return await_task(task_handle);
 }
 
 [[nodiscard]] inline auto TaskAwaitAll(Value arg) -> Value {
@@ -407,11 +460,10 @@ template <typename OnResult>
 
   TupleBuilder out(tasks.size());
   for (std::size_t task_index = 0; task_index < tasks.size(); ++task_index) {
-    TaskControl* task = task_control(tasks[task_index]);
-    if (task == nullptr) {
+    if (task_control(tasks[task_index]) == nullptr) {
       return parallel_item_error(task_index, "Task.AwaitAll: invalid task handle");
     }
-    const Value result = wait_task_result(task);
+    const Value result = await_task(tasks[task_index]);
     const TupleView outcome = as_tuple(result);
     if (!as_bool(outcome[0])) {
       return ResultErr(make_tuple(make_int(static_cast<Int>(task_index)), Value{outcome[1]}));
@@ -531,7 +583,7 @@ template <typename OnResult>
       return local;
     });
 
-    const Value result = wait_task_result(task_control(task_runtime().submit(std::move(fold_chunk), make_tuple())));
+    const Value result = await_task(task_runtime().submit(std::move(fold_chunk), make_tuple()));
     if (!result.is_tuple() || result.tuple().empty()) {
       return parallel_item_error(start, "Parallel.Reduce: unexpected result shape");
     }

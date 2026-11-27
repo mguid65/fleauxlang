@@ -1,6 +1,6 @@
 import Std;
 
-// Parser-oriented sample: load a Fleaux source file, strip comment-only lines,
+// Parser-oriented sample: take the text of a small Fleaux program, strip comment-only lines,
 // split it into statements, and print the surviving statement text blocks.
 
 let IsNotEmpty(line: String): Bool =

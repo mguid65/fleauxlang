@@ -163,6 +163,8 @@ Prefer inline closures when:
 - samples/17_printf_and_tostring.fleaux
 - samples/26_format_specifiers.fleaux
 - samples/28_variadics.fleaux
+- samples/53_random_seeded.fleaux
+- samples/61_raw_strings.fleaux
 
 ### Modules and composition
 
@@ -199,6 +201,16 @@ Prefer inline closures when:
 - samples/50_multi_accumulator_loop_state.fleaux
 - samples/51_strong_type_casts.fleaux
 - samples/52_variables_and_blocks.fleaux
+
+### Generics, function values, and operators
+
+- samples/54_generic_types.fleaux
+- samples/55_bounded_generics.fleaux
+- samples/56_checked_casts.fleaux
+- samples/57_user_operators.fleaux
+- samples/58_generic_function_values.fleaux
+- samples/59_generic_user_operators.fleaux
+- samples/60_function_values.fleaux
 
 ## Source-of-truth map by topic
 

@@ -1,13 +1,18 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <initializer_list>
 #include <numbers>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+
+#include "fleaux/common/fnv1a.hpp"
 
 namespace fleaux::vm {
 
@@ -298,7 +303,6 @@ enum class BuiltinId : std::uint16_t {
 };
 
 enum class BuiltinArityKind : std::uint8_t {
-  kUnchecked,
   kExact,
   kVariadicMinimum,
 };
@@ -309,7 +313,7 @@ enum class BuiltinCallShape : std::uint8_t {
 };
 
 struct BuiltinArityContract {
-  BuiltinArityKind kind{BuiltinArityKind::kUnchecked};
+  BuiltinArityKind kind{BuiltinArityKind::kExact};
   std::uint8_t primary{0U};
 };
 
@@ -321,12 +325,82 @@ struct BuiltinArityContract {
   return BuiltinArityContract{.kind = BuiltinArityKind::kVariadicMinimum, .primary = minimum_arity};
 }
 
+// The kind of value a builtin's value slot takes (BuiltinSlot). The numbers are written in bytecode.
+enum class BuiltinValueSlotKind : std::uint8_t {
+  kDictStringAny = 0,
+  kExactUInt64 = 1,
+  kExactInt64 = 2,
+  kTaskHandle = 3,
+  kRandomGenerator = 4,
+  kFileHandle = 5,
+};
+
+[[nodiscard]] constexpr auto builtin_value_slot_kind_name(const BuiltinValueSlotKind kind) -> std::string_view {
+  switch (kind) {
+    case BuiltinValueSlotKind::kDictStringAny:
+      return "Dict<String, Any>";
+    case BuiltinValueSlotKind::kExactUInt64:
+      return "exact UInt64";
+    case BuiltinValueSlotKind::kExactInt64:
+      return "exact Int64";
+    case BuiltinValueSlotKind::kTaskHandle:
+      return "TaskHandle";
+    case BuiltinValueSlotKind::kRandomGenerator:
+      return "RandomGenerator";
+    case BuiltinValueSlotKind::kFileHandle:
+      return "FileHandle";
+  }
+  return "unknown";
+}
+
+// An argument of a builtin that the compiler records at each call and the verifier checks when it loads bytecode:
+// either a function of `callable_arity` parameters, or a value of `value_kind`. A builtin's slots follow its
+// parameter types in stdlib/Std.fleaux, which a test checks.
+struct BuiltinSlot {
+  std::uint8_t index{0};
+  std::optional<BuiltinValueSlotKind> value_kind{std::nullopt};
+  std::uint8_t callable_arity{0};
+};
+
+[[nodiscard]] constexpr auto callable_slot(const std::uint8_t index, const std::uint8_t arity) -> BuiltinSlot {
+  return BuiltinSlot{.index = index, .value_kind = std::nullopt, .callable_arity = arity};
+}
+
+[[nodiscard]] constexpr auto value_slot(const std::uint8_t index, const BuiltinValueSlotKind kind) -> BuiltinSlot {
+  return BuiltinSlot{.index = index, .value_kind = kind, .callable_arity = 0};
+}
+
+// A builtin's slots, in order of argument position.
+class BuiltinSlots {
+public:
+  static constexpr std::size_t kCapacity = 4;
+
+  constexpr BuiltinSlots() = default;
+
+  // More slots than kCapacity do not compile: the throw is not a constant expression.
+  constexpr BuiltinSlots(const std::initializer_list<BuiltinSlot> slots) {
+    for (const BuiltinSlot& slot : slots) {
+      if (count_ == kCapacity) {
+        throw std::length_error("a builtin has more slots than BuiltinSlots::kCapacity");
+      }
+      items_[count_++] = slot;
+    }
+  }
+
+  [[nodiscard]] constexpr auto view() const -> std::span<const BuiltinSlot> { return {items_.data(), count_}; }
+
+private:
+  std::array<BuiltinSlot, kCapacity> items_{};
+  std::size_t count_{0};
+};
+
 struct BuiltinSpec {
   BuiltinId id;
   std::string_view name;
   std::string_view symbol_key{};
 
   BuiltinArityContract arity{};
+  BuiltinSlots slots{};
 };
 
 [[nodiscard]] constexpr auto nullary_builtin_spec(const BuiltinId id, const std::string_view name) -> BuiltinSpec {
@@ -348,12 +422,30 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::Divide, .name = "Std.Divide", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Mod, .name = "Std.Mod", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Pow, .name = "Std.Pow", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::BitAnd, .name = "Std.Bit.And", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::BitOr, .name = "Std.Bit.Or", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::BitXor, .name = "Std.Bit.Xor", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::BitNot, .name = "Std.Bit.Not", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::BitShiftLeft, .name = "Std.Bit.ShiftLeft", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::BitShiftRight, .name = "Std.Bit.ShiftRight", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::BitAnd,
+                .name = "Std.Bit.And",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactInt64)}},
+    BuiltinSpec{.id = BuiltinId::BitOr,
+                .name = "Std.Bit.Or",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactInt64)}},
+    BuiltinSpec{.id = BuiltinId::BitXor,
+                .name = "Std.Bit.Xor",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactInt64)}},
+    BuiltinSpec{.id = BuiltinId::BitNot,
+                .name = "Std.Bit.Not",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64)}},
+    BuiltinSpec{.id = BuiltinId::BitShiftLeft,
+                .name = "Std.Bit.ShiftLeft",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::BitShiftRight,
+                .name = "Std.Bit.ShiftRight",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::Equal, .name = "Std.Equal", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::NotEqual, .name = "Std.NotEqual", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::LessThan, .name = "Std.LessThan", .arity = builtin_arity_exact(2U)},
@@ -365,25 +457,32 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::Or, .name = "Std.Or", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::Select, .name = "Std.Select", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::Match, .name = "Std.Match", .arity = builtin_arity_variadic_minimum(2U)},
-    BuiltinSpec{.id = BuiltinId::Apply, .name = "Std.Apply", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::Branch, .name = "Std.Branch", .arity = builtin_arity_exact(4U)},
-    BuiltinSpec{.id = BuiltinId::Loop, .name = "Std.Loop", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::LoopN, .name = "Std.LoopN", .arity = builtin_arity_exact(4U)},
+    BuiltinSpec{.id = BuiltinId::Apply, .name = "Std.Apply", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::Branch,
+                .name = "Std.Branch",
+                .arity = builtin_arity_exact(4U),
+                .slots = {callable_slot(2U, 1U), callable_slot(3U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::Loop,
+                .name = "Std.Loop",
+                .arity = builtin_arity_exact(3U),
+                .slots = {callable_slot(1U, 1U), callable_slot(2U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::LoopN,
+                .name = "Std.LoopN",
+                .arity = builtin_arity_exact(4U),
+                .slots = {callable_slot(1U, 1U), callable_slot(2U, 1U), value_slot(3U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::Printf, .name = "Std.Printf", .arity = builtin_arity_variadic_minimum(1U)},
     BuiltinSpec{.id = BuiltinId::Println, .name = "Std.Println", .arity = builtin_arity_variadic_minimum(0U)},
     BuiltinSpec{.id = BuiltinId::GetArgs, .name = "Std.GetArgs", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::Type, .name = "Std.Type", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{
-        .id = BuiltinId::InputVoid, .name = "Std.Input", .symbol_key = "Std.Input#0", .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{.id = BuiltinId::InputString,
-                .name = "Std.Input",
-                .symbol_key = "Std.Input#1",
-                .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::InputVoid, .name = "Std.Input", .symbol_key = "Std.Input#0", .arity = builtin_arity_exact(0U)},
+    BuiltinSpec{.id = BuiltinId::InputString, .name = "Std.Input", .symbol_key = "Std.Input#1", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Help, .name = "Std.Help", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{
-        .id = BuiltinId::ExitVoid, .name = "Std.Exit", .symbol_key = "Std.Exit#0", .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{
-        .id = BuiltinId::ExitInt64, .name = "Std.Exit", .symbol_key = "Std.Exit#1", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::ExitVoid, .name = "Std.Exit", .symbol_key = "Std.Exit#0", .arity = builtin_arity_exact(0U)},
+    BuiltinSpec{.id = BuiltinId::ExitInt64,
+                .name = "Std.Exit",
+                .symbol_key = "Std.Exit#1",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64)}},
     BuiltinSpec{.id = BuiltinId::Cwd, .name = "Std.OS.Cwd", .arity = builtin_arity_exact(0U)},
     BuiltinSpec{.id = BuiltinId::OSEnv, .name = "Std.OS.Env", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::OSHasEnv, .name = "Std.OS.HasEnv", .arity = builtin_arity_exact(1U)},
@@ -416,12 +515,28 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::FileDelete, .name = "Std.File.Delete", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::FileSize, .name = "Std.File.Size", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::FileOpen, .name = "Std.File.Open", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileReadLine, .name = "Std.File.ReadLine", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::FileReadChunk, .name = "Std.File.ReadChunk", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileWriteChunk, .name = "Std.File.WriteChunk", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::FileFlush, .name = "Std.File.Flush", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::FileClose, .name = "Std.File.Close", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::FileWithOpen, .name = "Std.File.WithOpen", .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{.id = BuiltinId::FileReadLine,
+                .name = "Std.File.ReadLine",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kFileHandle)}},
+    BuiltinSpec{.id = BuiltinId::FileReadChunk,
+                .name = "Std.File.ReadChunk",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kFileHandle), value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::FileWriteChunk,
+                .name = "Std.File.WriteChunk",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kFileHandle)}},
+    BuiltinSpec{.id = BuiltinId::FileFlush,
+                .name = "Std.File.Flush",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kFileHandle)}},
+    BuiltinSpec{.id = BuiltinId::FileClose,
+                .name = "Std.File.Close",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kFileHandle)}},
+    BuiltinSpec{
+        .id = BuiltinId::FileWithOpen, .name = "Std.File.WithOpen", .arity = builtin_arity_exact(3U), .slots = {callable_slot(2U, 1U)}},
     BuiltinSpec{.id = BuiltinId::DirCreate, .name = "Std.Dir.Create", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::DirDelete, .name = "Std.Dir.Delete", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::DirList, .name = "Std.Dir.List", .arity = builtin_arity_exact(1U)},
@@ -431,53 +546,84 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::TupleReverse, .name = "Std.Tuple.Reverse", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleContains, .name = "Std.Tuple.Contains", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::TupleZip, .name = "Std.Tuple.Zip", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleMap, .name = "Std.Tuple.Map", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleFilter, .name = "Std.Tuple.Filter", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::TupleMap, .name = "Std.Tuple.Map", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{
+        .id = BuiltinId::TupleFilter, .name = "Std.Tuple.Filter", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
     BuiltinSpec{.id = BuiltinId::TupleSort, .name = "Std.Tuple.Sort", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleUnique, .name = "Std.Tuple.Unique", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleMin, .name = "Std.Tuple.Min", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::TupleMax, .name = "Std.Tuple.Max", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::TupleReduce, .name = "Std.Tuple.Reduce", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::TupleFindIndex, .name = "Std.Tuple.FindIndex", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleAny, .name = "Std.Tuple.Any", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TupleAll, .name = "Std.Tuple.All", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{
+        .id = BuiltinId::TupleReduce, .name = "Std.Tuple.Reduce", .arity = builtin_arity_exact(3U), .slots = {callable_slot(2U, 2U)}},
+    BuiltinSpec{
+        .id = BuiltinId::TupleFindIndex, .name = "Std.Tuple.FindIndex", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::TupleAny, .name = "Std.Tuple.Any", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::TupleAll, .name = "Std.Tuple.All", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
     BuiltinSpec{.id = BuiltinId::TupleRangeInt64,
                 .name = "Std.Tuple.Range",
                 .symbol_key = "Std.Tuple.Range#0",
-                .arity = builtin_arity_exact(1U)},
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64)}},
     BuiltinSpec{.id = BuiltinId::TupleRangeInt64Int64,
                 .name = "Std.Tuple.Range",
                 .symbol_key = "Std.Tuple.Range#1",
-                .arity = builtin_arity_exact(2U)},
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactInt64)}},
     BuiltinSpec{.id = BuiltinId::TupleRangeInt64Int64Int64,
                 .name = "Std.Tuple.Range",
                 .symbol_key = "Std.Tuple.Range#2",
-                .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::ArrayGetAt, .name = "Std.Array.GetAt", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::ArraySetAt, .name = "Std.Array.SetAt", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::ArrayInsertAt, .name = "Std.Array.InsertAt", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::ArrayRemoveAt, .name = "Std.Array.RemoveAt", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::ArraySlice, .name = "Std.Array.Slice", .arity = builtin_arity_exact(3U)},
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactInt64), value_slot(1U, BuiltinValueSlotKind::kExactInt64),
+                          value_slot(2U, BuiltinValueSlotKind::kExactInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArrayGetAt,
+                .name = "Std.Array.GetAt",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArraySetAt,
+                .name = "Std.Array.SetAt",
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArrayInsertAt,
+                .name = "Std.Array.InsertAt",
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArrayRemoveAt,
+                .name = "Std.Array.RemoveAt",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArraySlice,
+                .name = "Std.Array.Slice",
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::ArrayConcat, .name = "Std.Array.Concat", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::ArraySetAt2D, .name = "Std.Array.SetAt2D", .arity = builtin_arity_exact(4U)},
-    BuiltinSpec{.id = BuiltinId::ArrayFill, .name = "Std.Array.Fill", .arity = builtin_arity_exact(4U)},
+    BuiltinSpec{.id = BuiltinId::ArraySetAt2D,
+                .name = "Std.Array.SetAt2D",
+                .arity = builtin_arity_exact(4U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArrayFill,
+                .name = "Std.Array.Fill",
+                .arity = builtin_arity_exact(4U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::ArrayTranspose2D, .name = "Std.Array.Transpose2D", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::ArraySlice2D, .name = "Std.Array.Slice2D", .arity = builtin_arity_exact(5U)},
-    BuiltinSpec{.id = BuiltinId::ArrayReshape, .name = "Std.Array.Reshape", .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{.id = BuiltinId::ArraySlice2D,
+                .name = "Std.Array.Slice2D",
+                .arity = builtin_arity_exact(5U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64),
+                          value_slot(3U, BuiltinValueSlotKind::kExactUInt64), value_slot(4U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::ArrayReshape,
+                .name = "Std.Array.Reshape",
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::ArrayRank, .name = "Std.Array.Rank", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ArrayShape, .name = "Std.Array.Shape", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ArrayFlatten, .name = "Std.Array.Flatten", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ArrayGetAtND, .name = "Std.Array.GetAtND", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::ArraySetAtND, .name = "Std.Array.SetAtND", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::ArrayReshapeND, .name = "Std.Array.ReshapeND", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::DictCreateVoid,
-                .name = "Std.Dict.Create",
-                .symbol_key = "Std.Dict.Create#0",
-                .arity = builtin_arity_exact(0U)},
-    BuiltinSpec{.id = BuiltinId::DictCreateDict,
-                .name = "Std.Dict.Create",
-                .symbol_key = "Std.Dict.Create#1",
-                .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{
+        .id = BuiltinId::DictCreateVoid, .name = "Std.Dict.Create", .symbol_key = "Std.Dict.Create#0", .arity = builtin_arity_exact(0U)},
+    BuiltinSpec{
+        .id = BuiltinId::DictCreateDict, .name = "Std.Dict.Create", .symbol_key = "Std.Dict.Create#1", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::DictSet, .name = "Std.Dict.Set", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::DictGet, .name = "Std.Dict.Get", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::DictGetDefault, .name = "Std.Dict.GetDefault", .arity = builtin_arity_exact(3U)},
@@ -494,12 +640,30 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::ToInt64, .name = "Std.ToInt64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToUInt64, .name = "Std.ToUInt64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToFloat64, .name = "Std.ToFloat64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomCreate, .name = "Std.Random.Create", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomNextUInt64, .name = "Std.Random.NextUInt64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomNextInt64, .name = "Std.Random.NextInt64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomNextFloat64, .name = "Std.Random.NextFloat64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomNextBool, .name = "Std.Random.NextBool", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::RandomSplit, .name = "Std.Random.Split", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::RandomCreate,
+                .name = "Std.Random.Create",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::RandomNextUInt64,
+                .name = "Std.Random.NextUInt64",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kRandomGenerator)}},
+    BuiltinSpec{.id = BuiltinId::RandomNextInt64,
+                .name = "Std.Random.NextInt64",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kRandomGenerator)}},
+    BuiltinSpec{.id = BuiltinId::RandomNextFloat64,
+                .name = "Std.Random.NextFloat64",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kRandomGenerator)}},
+    BuiltinSpec{.id = BuiltinId::RandomNextBool,
+                .name = "Std.Random.NextBool",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kRandomGenerator)}},
+    BuiltinSpec{.id = BuiltinId::RandomSplit,
+                .name = "Std.Random.Split",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kRandomGenerator)}},
     BuiltinSpec{.id = BuiltinId::MathFloor, .name = "Std.Math.Floor", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::MathCeil, .name = "Std.Math.Ceil", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::MathAbs, .name = "Std.Math.Abs", .arity = builtin_arity_exact(1U)},
@@ -517,43 +681,71 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::ResultIsErr, .name = "Std.Result.IsErr", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ResultUnwrap, .name = "Std.Result.Unwrap", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ResultUnwrapErr, .name = "Std.Result.UnwrapErr", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::Try, .name = "Std.Try", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::ParallelMap, .name = "Std.Parallel.Map", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::Try, .name = "Std.Try", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
     BuiltinSpec{
-        .id = BuiltinId::ParallelWithOptions, .name = "Std.Parallel.WithOptions", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::ParallelForEach, .name = "Std.Parallel.ForEach", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::ParallelReduce, .name = "Std.Parallel.Reduce", .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{.id = BuiltinId::TaskSpawn, .name = "Std.Task.Spawn", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::TaskAwait, .name = "Std.Task.Await", .arity = builtin_arity_exact(1U)},
+        .id = BuiltinId::ParallelMap, .name = "Std.Parallel.Map", .arity = builtin_arity_exact(2U), .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::ParallelWithOptions,
+                .name = "Std.Parallel.WithOptions",
+                .arity = builtin_arity_exact(3U),
+                .slots = {callable_slot(1U, 1U), value_slot(2U, BuiltinValueSlotKind::kDictStringAny)}},
+    BuiltinSpec{.id = BuiltinId::ParallelForEach,
+                .name = "Std.Parallel.ForEach",
+                .arity = builtin_arity_exact(2U),
+                .slots = {callable_slot(1U, 1U)}},
+    BuiltinSpec{
+        .id = BuiltinId::ParallelReduce, .name = "Std.Parallel.Reduce", .arity = builtin_arity_exact(3U), .slots = {callable_slot(2U, 2U)}},
+    BuiltinSpec{.id = BuiltinId::TaskSpawn, .name = "Std.Task.Spawn", .arity = builtin_arity_exact(2U), .slots = {callable_slot(0U, 1U)}},
+    BuiltinSpec{.id = BuiltinId::TaskAwait,
+                .name = "Std.Task.Await",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kTaskHandle)}},
     BuiltinSpec{.id = BuiltinId::TaskAwaitAll, .name = "Std.Task.AwaitAll", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::TaskCancel, .name = "Std.Task.Cancel", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::TaskWithTimeout, .name = "Std.Task.WithTimeout", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::TaskCancel,
+                .name = "Std.Task.Cancel",
+                .arity = builtin_arity_exact(1U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kTaskHandle)}},
+    BuiltinSpec{.id = BuiltinId::TaskWithTimeout,
+                .name = "Std.Task.WithTimeout",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(0U, BuiltinValueSlotKind::kTaskHandle), value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::Wrap, .name = "Std.Wrap", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Unwrap, .name = "Std.Unwrap", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::First, .name = "Std.First", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::Second, .name = "Std.Second", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::ElementAt, .name = "Std.ElementAt", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::ElementAt,
+                .name = "Std.ElementAt",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::Length, .name = "Std.Length", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::Take, .name = "Std.Take", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{.id = BuiltinId::Drop, .name = "Std.Drop", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::Take,
+                .name = "Std.Take",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::Drop,
+                .name = "Std.Drop",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::SliceTupleUInt64,
                 .name = "Std.Slice",
                 .symbol_key = "Std.Slice#0",
-                .arity = builtin_arity_exact(2U)},
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::SliceTupleUInt64UInt64,
                 .name = "Std.Slice",
                 .symbol_key = "Std.Slice#1",
-                .arity = builtin_arity_exact(3U)},
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::SliceTupleUInt64UInt64UInt64,
                 .name = "Std.Slice",
                 .symbol_key = "Std.Slice#2",
-                .arity = builtin_arity_exact(4U)},
+                .arity = builtin_arity_exact(4U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64),
+                          value_slot(3U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::ToString, .name = "Std.ToString", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::ToNum, .name = "Std.ToNum", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringParseInt64, .name = "Std.String.ParseInt64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringParseUInt64, .name = "Std.String.ParseUInt64", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{
-        .id = BuiltinId::StringParseFloat64, .name = "Std.String.ParseFloat64", .arity = builtin_arity_exact(1U)},
+    BuiltinSpec{.id = BuiltinId::StringParseFloat64, .name = "Std.String.ParseFloat64", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringUpper, .name = "Std.String.Upper", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringLower, .name = "Std.String.Lower", .arity = builtin_arity_exact(1U)},
     BuiltinSpec{.id = BuiltinId::StringTrim, .name = "Std.String.Trim", .arity = builtin_arity_exact(1U)},
@@ -566,15 +758,20 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::StringStartsWith, .name = "Std.String.StartsWith", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringEndsWith, .name = "Std.String.EndsWith", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringLength, .name = "Std.String.Length", .arity = builtin_arity_exact(1U)},
-    BuiltinSpec{.id = BuiltinId::StringCharAt, .name = "Std.String.CharAt", .arity = builtin_arity_exact(2U)},
+    BuiltinSpec{.id = BuiltinId::StringCharAt,
+                .name = "Std.String.CharAt",
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::StringSliceStringUInt64,
                 .name = "Std.String.Slice",
                 .symbol_key = "Std.String.Slice#0",
-                .arity = builtin_arity_exact(2U)},
+                .arity = builtin_arity_exact(2U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::StringSliceStringUInt64UInt64,
                 .name = "Std.String.Slice",
                 .symbol_key = "Std.String.Slice#1",
-                .arity = builtin_arity_exact(3U)},
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(1U, BuiltinValueSlotKind::kExactUInt64), value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
     BuiltinSpec{.id = BuiltinId::StringFindStringString,
                 .name = "Std.String.Find",
                 .symbol_key = "Std.String.Find#0",
@@ -582,14 +779,12 @@ inline constexpr auto kBuiltinSpecs = std::to_array<BuiltinSpec>({
     BuiltinSpec{.id = BuiltinId::StringFindStringStringUInt64,
                 .name = "Std.String.Find",
                 .symbol_key = "Std.String.Find#1",
-                .arity = builtin_arity_exact(3U)},
-    BuiltinSpec{
-        .id = BuiltinId::StringFormat, .name = "Std.String.Format", .arity = builtin_arity_variadic_minimum(1U)},
-    BuiltinSpec{
-        .id = BuiltinId::StringRegexIsMatch, .name = "Std.String.Regex.IsMatch", .arity = builtin_arity_exact(2U)},
+                .arity = builtin_arity_exact(3U),
+                .slots = {value_slot(2U, BuiltinValueSlotKind::kExactUInt64)}},
+    BuiltinSpec{.id = BuiltinId::StringFormat, .name = "Std.String.Format", .arity = builtin_arity_variadic_minimum(1U)},
+    BuiltinSpec{.id = BuiltinId::StringRegexIsMatch, .name = "Std.String.Regex.IsMatch", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::StringRegexFind, .name = "Std.String.Regex.Find", .arity = builtin_arity_exact(2U)},
-    BuiltinSpec{
-        .id = BuiltinId::StringRegexReplace, .name = "Std.String.Regex.Replace", .arity = builtin_arity_exact(3U)},
+    BuiltinSpec{.id = BuiltinId::StringRegexReplace, .name = "Std.String.Regex.Replace", .arity = builtin_arity_exact(3U)},
     BuiltinSpec{.id = BuiltinId::StringRegexSplit, .name = "Std.String.Regex.Split", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::WrappingAdd, .name = "Std.WrappingAdd", .arity = builtin_arity_exact(2U)},
     BuiltinSpec{.id = BuiltinId::WrappingSubtract, .name = "Std.WrappingSubtract", .arity = builtin_arity_exact(2U)},
@@ -893,14 +1088,8 @@ inline constexpr std::uint64_t kBuiltinOperandArgumentCountMask = 0xFFFFULL;
                                     kBuiltinOperandArgumentCountMask);
 }
 
-[[nodiscard]] constexpr auto builtin_has_arity_contract(const BuiltinId id) -> bool {
-  return builtin_arity_contract(id).kind != BuiltinArityKind::kUnchecked;
-}
-
 [[nodiscard]] constexpr auto builtin_accepts_arity(const BuiltinId id, const std::size_t arity) -> bool {
   switch (const auto [kind, primary] = builtin_arity_contract(id); kind) {
-    case BuiltinArityKind::kUnchecked:
-      return true;
     case BuiltinArityKind::kExact:
       return arity == primary;
     case BuiltinArityKind::kVariadicMinimum:
@@ -918,5 +1107,66 @@ inline constexpr std::uint64_t kBuiltinOperandArgumentCountMask = 0xFFFFULL;
 [[nodiscard]] constexpr auto all_constant_builtin_specs() -> std::span<const ConstantBuiltinSpec> {
   return kConstantBuiltinSpecs;
 }
+
+[[nodiscard]] constexpr auto builtin_slots(const BuiltinId id) -> std::span<const BuiltinSlot> {
+  return kBuiltinSpecs[static_cast<std::size_t>(id)].slots.view();
+}
+
+[[nodiscard]] constexpr auto builtin_has_callable_slots(const BuiltinId id) -> bool {
+  return std::ranges::any_of(builtin_slots(id), [](const BuiltinSlot& slot) -> bool { return !slot.value_kind; });
+}
+
+// The number of parameters of the function the builtin takes as argument `index`, or nothing when that argument is not
+// a function slot.
+[[nodiscard]] constexpr auto builtin_callable_slot_arity(const BuiltinId id, const std::uint32_t index) -> std::optional<std::uint32_t> {
+  for (const BuiltinSlot& slot : builtin_slots(id)) {
+    if (slot.index == index && !slot.value_kind.has_value()) {
+      return slot.callable_arity;
+    }
+  }
+  return std::nullopt;
+}
+
+// The kind of value the builtin takes as argument `index`, or nothing when that argument is not a value slot.
+[[nodiscard]] constexpr auto builtin_value_slot_kind(const BuiltinId id, const std::uint32_t index) -> std::optional<BuiltinValueSlotKind> {
+  for (const BuiltinSlot& slot : builtin_slots(id)) {
+    if (slot.index == index && slot.value_kind.has_value()) {
+      return slot.value_kind;
+    }
+  }
+  return std::nullopt;
+}
+
+// A hash of what bytecode depends on in the builtin table: each builtin's position, name, symbol key, arity, and
+// slots. Bytecode records the hash it was compiled with, and the loader refuses a module compiled against another
+// table, so a change to the builtins invalidates old bytecode without a change of BYTECODE_VERSION.
+[[nodiscard]] consteval auto compute_builtin_table_hash() -> std::uint64_t {
+  std::uint64_t hash = common::kFnv1aOffsetBasis;
+  const auto mix = [&hash](const std::uint64_t value) -> void {
+    std::array<std::uint8_t, sizeof(value)> bytes{};
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+      bytes[index] = static_cast<std::uint8_t>((value >> (index * 8U)) & 0xFFU);
+    }
+    hash = common::fnv1a(std::span<const std::uint8_t>{bytes}, hash);
+  };
+  for (const BuiltinSpec& spec : kBuiltinSpecs) {
+    mix(static_cast<std::uint64_t>(spec.id));
+    hash = common::fnv1a(spec.name, hash);
+    mix(spec.name.size());
+    hash = common::fnv1a(spec.symbol_key, hash);
+    mix(spec.symbol_key.size());
+    mix(static_cast<std::uint64_t>(spec.arity.kind));
+    mix(spec.arity.primary);
+    for (const BuiltinSlot& slot : spec.slots.view()) {
+      mix(slot.index);
+      mix(slot.value_kind.has_value() ? static_cast<std::uint64_t>(*slot.value_kind) + 1U : 0U);
+      mix(slot.callable_arity);
+    }
+    mix(spec.slots.view().size());
+  }
+  return hash;
+}
+
+inline constexpr std::uint64_t kBuiltinTableHash = compute_builtin_table_hash();
 
 }  // namespace fleaux::vm

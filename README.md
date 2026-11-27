@@ -37,10 +37,10 @@ import Std;
 
 let Square(x: Float64): Float64 = (x, x) -> Std.Multiply;
 let Average(a: Float64, b: Float64): Float64 =
-    (a, b) -> Std.Add -> (_, 2) -> Std.Divide;
+    (a, b) -> Std.Add -> (_, 2.0) -> Std.Divide;
 
-(6) -> Square -> Std.Println;
-(10, 20) -> Average -> Std.Println;
+(6.0) -> Square -> Std.Println;
+(10.0, 20.0) -> Average -> Std.Println;
 ```
 
 ### Imports
@@ -50,15 +50,16 @@ let Average(a: Float64, b: Float64): Float64 =
 ```f#
 import Std;
 
-let Add4(x: Float64): Float64 = (4, x) -> Std.Add;
+let Add4(x: Float64): Float64 = (4.0, x) -> Std.Add;
 ```
 
 `main.fleaux`
 
 ```f#
+import Std;
 import lib;
 
-(4) -> Add4 -> Std.Println;
+(4.0) -> Add4 -> Std.Println;
 ```
 
 ## Build prerequisites

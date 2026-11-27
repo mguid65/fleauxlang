@@ -169,13 +169,13 @@ function(fleaux_set_project_warnings project_name)
 
   if(MSVC)
     set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_MSVC_WARNINGS})
-    set(FLEAUX_RELEASE_ERROR_FLAG /WX)
+    set(FLEAUX_ERROR_FLAG /WX)
   elseif(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
     set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_CLANG_WARNINGS})
-    set(FLEAUX_RELEASE_ERROR_FLAG -Werror)
+    set(FLEAUX_ERROR_FLAG -Werror)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(FLEAUX_PROJECT_WARNINGS ${FLEAUX_WARN_GCC_WARNINGS})
-    set(FLEAUX_RELEASE_ERROR_FLAG -Werror)
+    set(FLEAUX_ERROR_FLAG -Werror)
   else()
     message(AUTHOR_WARNING "No compiler warnings configured for CXX compiler: '${CMAKE_CXX_COMPILER_ID}'")
     return()
@@ -184,11 +184,9 @@ function(fleaux_set_project_warnings project_name)
   target_compile_options(${project_name} PRIVATE
       $<$<COMPILE_LANGUAGE:CXX>:${FLEAUX_PROJECT_WARNINGS}>)
 
+  # Warnings are errors in every configuration, so that a warning is not found only in a Release build.
   if(FLEAUX_WARN_WARNINGS_AS_ERRORS)
-    target_compile_options(${project_name} PRIVATE
-        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:${FLEAUX_RELEASE_ERROR_FLAG}>
-        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:RelWithDebInfo>>:${FLEAUX_RELEASE_ERROR_FLAG}>
-        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:MinSizeRel>>:${FLEAUX_RELEASE_ERROR_FLAG}>)
+    target_compile_options(${project_name} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${FLEAUX_ERROR_FLAG}>)
   endif()
 endfunction()
 
@@ -207,6 +205,11 @@ fleaux_set_project_warnings(fleaux_common WARNINGS_AS_ERRORS)
 if(TARGET fleaux_emscripten_threads)
   target_link_libraries(fleaux_common PUBLIC fleaux_emscripten_threads)
 endif()
+
+# The REPL's line editor, which the CLI and its tests share. Built only for the targets that link it.
+add_library(fleaux_line_editor STATIC EXCLUDE_FROM_ALL src/cli/line_editor.cpp)
+target_link_libraries(fleaux_line_editor PUBLIC fleaux_common)
+fleaux_set_project_warnings(fleaux_line_editor WARNINGS_AS_ERRORS)
 
 set(FLEAUX_GENERATED_RESOURCE_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_resources.cpp")
 add_custom_command(
@@ -310,7 +313,6 @@ if(BUILD_TESTING)
       tests/runtime_builtins_tests.cpp
       tests/embedded_resource_integration_tests.cpp
       tests/repl_line_editor_tests.cpp
-      src/cli/line_editor.cpp
       ${FLEAUX_GENERATED_RESOURCE_CPP})
   target_compile_definitions(fleaux_core_tests PRIVATE
       FLEAUX_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -319,11 +321,11 @@ if(BUILD_TESTING)
       fleaux_common
       fleaux_frontend_diagnostics
       fleaux_frontend_parser
-      fleaux_frontend_lowering)
+      fleaux_frontend_lowering
+      fleaux_line_editor)
   fleaux_set_project_warnings(fleaux_core_tests WARNINGS_AS_ERRORS)
 
   catch_discover_tests(fleaux_core_tests
-      TEST_SPEC ~[benchmark]
       TEST_PREFIX "fleaux_core_tests::"
       EXTRA_ARGS --reporter compact)
 endif()
@@ -372,6 +374,7 @@ if(FLEAUX_PCRE2_TARGET)
       PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vm)
 
   set(FLEAUX_VM_SOURCES
+          src/vm/builtins_regex.cpp
           src/vm/runtime.cpp
   )
 
@@ -389,15 +392,9 @@ if(FLEAUX_PCRE2_TARGET)
     target_link_libraries(fleaux_vm PUBLIC fleaux_emscripten_threads)
   endif()
 
-  set(FLEAUX_MAIN_SOURCES
-          src/cli/vm_main.cpp src/cli/repl_driver.cpp src/cli/line_editor.cpp
-          include/fleaux/runtime/builtins_parallel.hpp
-          include/fleaux/runtime/builtins_math.hpp
-  )
-
-  add_executable(fleaux ${FLEAUX_MAIN_SOURCES})
+  add_executable(fleaux src/cli/vm_main.cpp src/cli/repl_driver.cpp)
   target_sources(fleaux PRIVATE ${FLEAUX_GENERATED_RESOURCE_CPP})
-  target_link_libraries(fleaux PRIVATE fleaux_vm fleaux_embed)
+  target_link_libraries(fleaux PRIVATE fleaux_vm fleaux_embed fleaux_line_editor)
   fleaux_set_project_warnings(fleaux WARNINGS_AS_ERRORS)
 
   add_library(fleaux_embed STATIC
@@ -475,35 +472,23 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
   target_link_libraries(fleaux_runtime_microbench PRIVATE fleaux_vm fleaux_embed)
   fleaux_set_project_warnings(fleaux_runtime_microbench WARNINGS_AS_ERRORS)
 
-  add_library(fleaux_test_binding_plugin SHARED
-      tests/fixtures/binding_plugin_echo.cpp)
-  target_include_directories(fleaux_test_binding_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin PRIVATE fleaux_heap tl_expected)
-  fleaux_set_project_warnings(fleaux_test_binding_plugin WARNINGS_AS_ERRORS)
-
-  add_library(fleaux_test_binding_plugin_abi_mismatch SHARED
-      tests/fixtures/binding_plugin_abi_mismatch.cpp)
-  target_include_directories(fleaux_test_binding_plugin_abi_mismatch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_abi_mismatch PRIVATE fleaux_heap tl_expected)
-  fleaux_set_project_warnings(fleaux_test_binding_plugin_abi_mismatch WARNINGS_AS_ERRORS)
-
-  add_library(fleaux_test_binding_plugin_missing_entrypoint SHARED
-      tests/fixtures/binding_plugin_missing_entrypoint.cpp)
-  target_include_directories(fleaux_test_binding_plugin_missing_entrypoint PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_missing_entrypoint PRIVATE fleaux_heap tl_expected)
-  fleaux_set_project_warnings(fleaux_test_binding_plugin_missing_entrypoint WARNINGS_AS_ERRORS)
-
-  add_library(fleaux_test_binding_plugin_registration_failed SHARED
-      tests/fixtures/binding_plugin_registration_failed.cpp)
-  target_include_directories(fleaux_test_binding_plugin_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_registration_failed PRIVATE fleaux_heap tl_expected)
-  fleaux_set_project_warnings(fleaux_test_binding_plugin_registration_failed WARNINGS_AS_ERRORS)
-
-  add_library(fleaux_test_binding_plugin_partial_registration_failed SHARED
-      tests/fixtures/binding_plugin_partial_registration_failed.cpp)
-  target_include_directories(fleaux_test_binding_plugin_partial_registration_failed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(fleaux_test_binding_plugin_partial_registration_failed PRIVATE fleaux_heap tl_expected)
-  fleaux_set_project_warnings(fleaux_test_binding_plugin_partial_registration_failed WARNINGS_AS_ERRORS)
+  # The binding plugins the embedding tests load, each a target and its fixture source.
+  set(FLEAUX_TEST_BINDING_PLUGINS
+      fleaux_test_binding_plugin=binding_plugin_echo
+      fleaux_test_binding_plugin_abi_mismatch=binding_plugin_abi_mismatch
+      fleaux_test_binding_plugin_missing_entrypoint=binding_plugin_missing_entrypoint
+      fleaux_test_binding_plugin_registration_failed=binding_plugin_registration_failed
+      fleaux_test_binding_plugin_partial_registration_failed=binding_plugin_partial_registration_failed)
+  foreach(plugin IN LISTS FLEAUX_TEST_BINDING_PLUGINS)
+    string(REPLACE "=" ";" plugin_parts "${plugin}")
+    list(GET plugin_parts 0 plugin_target)
+    list(GET plugin_parts 1 plugin_fixture)
+    add_library(${plugin_target} SHARED tests/fixtures/${plugin_fixture}.cpp)
+    target_include_directories(${plugin_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(${plugin_target} PRIVATE fleaux_heap tl_expected)
+    fleaux_set_project_warnings(${plugin_target} WARNINGS_AS_ERRORS)
+    add_dependencies(fleaux_core_tests ${plugin_target})
+  endforeach()
 
   target_sources(fleaux_core_tests PRIVATE
       tests/bytecode_tests.cpp
@@ -525,11 +510,6 @@ if(BUILD_TESTING AND TARGET fleaux_vm)
       FLEAUX_TEST_BINDING_PLUGIN_MISSING_ENTRYPOINT_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_missing_entrypoint>"
       FLEAUX_TEST_BINDING_PLUGIN_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_registration_failed>"
       FLEAUX_TEST_BINDING_PLUGIN_PARTIAL_REGISTRATION_FAILED_PATH="$<TARGET_FILE:fleaux_test_binding_plugin_partial_registration_failed>")
-  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin)
-  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_abi_mismatch)
-  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_missing_entrypoint)
-  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_registration_failed)
-  add_dependencies(fleaux_core_tests fleaux_test_binding_plugin_partial_registration_failed)
   add_dependencies(fleaux_core_tests fleaux)
 
 endif()

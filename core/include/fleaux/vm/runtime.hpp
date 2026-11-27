@@ -30,10 +30,6 @@ struct RuntimeError {
 using RuntimeResult = tl::expected<ExecutionResult, RuntimeError>;
 using RuntimeValueResult = tl::expected<runtime::Value, RuntimeError>;
 
-struct RuntimeCompileOptions {
-  bool enable_experimental_builtin_reductions{false};
-};
-
 // Finds the extension function for a native function symbol, or nothing when no loaded extension provides it.
 using NativeFunctionResolver = std::function<std::optional<runtime::NativeFunction>(std::string_view symbol)>;
 
@@ -47,8 +43,7 @@ struct RuntimeInvocationOptions {
 
 class RuntimeSession {
 public:
-  explicit RuntimeSession(const std::vector<std::string>& process_args = {},
-                          const RuntimeCompileOptions& compile_options = {});
+  explicit RuntimeSession(const std::vector<std::string>& process_args = {});
   RuntimeSession(const RuntimeSession& other);
   RuntimeSession(RuntimeSession&& other) noexcept;
   auto operator=(const RuntimeSession& other) -> RuntimeSession&;
@@ -85,8 +80,7 @@ public:
                                    runtime::Value arg, std::ostream& output,
                                    const RuntimeInvocationOptions& options) const -> RuntimeValueResult;
 
-  [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {},
-                                    const RuntimeCompileOptions& compile_options = {}) const -> RuntimeSession;
+  [[nodiscard]] auto create_session(const std::vector<std::string>& process_args = {}) const -> RuntimeSession;
 
 private:
   std::vector<std::string> process_args_{};

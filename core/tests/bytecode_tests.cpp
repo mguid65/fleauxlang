@@ -1,17 +1,19 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <format>
+#include <fstream>
 #include <limits>
 #include <map>
-#include <filesystem>
-#include <fstream>
 #include <random>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "fleaux/bytecode/compiler.hpp"
@@ -22,6 +24,7 @@
 #include "fleaux/bytecode/optimizer.hpp"
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/bytecode/verifier.hpp"
+#include "fleaux/common/fnv1a.hpp"
 #include "fleaux/frontend/lowering.hpp"
 #include "fleaux/frontend/parser.hpp"
 #include "fleaux/frontend/source_loader.hpp"
@@ -123,10 +126,6 @@ auto make_string_constant_box(std::string value) -> fleaux::frontend::ir::IRExpr
   return make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::move(value), .span = std::nullopt});
 }
 
-auto make_null_constant_box() -> fleaux::frontend::ir::IRExprBox {
-  return make_ir_box(fleaux::frontend::ir::IRConstant{.val = std::monostate{}, .span = std::nullopt});
-}
-
 auto make_name_ref_box(std::optional<std::string> qualifier, std::string name,
                        std::optional<std::string> resolved_symbol_key = std::nullopt)
     -> fleaux::frontend::ir::IRExprBox {
@@ -156,17 +155,13 @@ auto make_ir_name_ref(std::optional<std::string> qualifier, std::string name,
 }
 
 auto make_compile_options(std::optional<std::filesystem::path> source_path = std::nullopt,
-                          std::optional<std::string> source_text = std::nullopt,
-                          std::optional<std::string> module_name = std::nullopt,
-                          std::vector<fleaux::bytecode::Module> imported_modules = {},
-                          const bool enable_experimental_builtin_reductions = false)
-    -> fleaux::bytecode::CompileOptions {
+                          std::optional<std::string> source_text = std::nullopt, std::optional<std::string> module_name = std::nullopt,
+                          std::vector<fleaux::bytecode::Module> imported_modules = {}) -> fleaux::bytecode::CompileOptions {
   fleaux::bytecode::CompileOptions options{};
   options.source_path = std::move(source_path);
   options.source_text = std::move(source_text);
   options.module_name = std::move(module_name);
   options.imported_modules = std::move(imported_modules);
-  options.enable_experimental_builtin_reductions = enable_experimental_builtin_reductions;
   return options;
 }
 
@@ -256,6 +251,101 @@ TEST_CASE("VM builtin catalog stays in sync with stdlib/Std.fleaux", "[bytecode]
   REQUIRE(vm_catalog_constant_names() == parse_std_declared_names(false));
 }
 
+namespace {
+
+auto describe_builtin_slot(const fleaux::vm::BuiltinSlot& slot) -> std::string {
+  if (slot.value_kind.has_value()) {
+    return std::format("value {} {}", static_cast<unsigned>(slot.index), fleaux::vm::builtin_value_slot_kind_name(*slot.value_kind));
+  }
+  return std::format("callable {} of {} parameters", static_cast<unsigned>(slot.index), static_cast<unsigned>(slot.callable_arity));
+}
+
+auto is_named_type(const fleaux::frontend::model::TypeNode& type, const std::string_view name) -> bool {
+  const auto* type_name = std::get_if<std::string>(&type.value);
+  return type_name != nullptr && *type_name == name && !type.variadic;
+}
+
+// The slot a builtin's parameter type in Std.fleaux calls for, described as describe_builtin_slot does: a function
+// parameter is a callable slot of its arity; a parameter declared as exactly UInt64 or Int64 is an exact slot; and a
+// TaskHandle, RandomGenerator, FileHandle, or Dict<String, Any> parameter is a slot of that kind.
+auto std_parameter_slot(const fleaux::frontend::model::TypeNode& type, const std::size_t index) -> std::optional<std::string> {
+  using fleaux::frontend::model::AppliedTypeNodeBox;
+  using fleaux::frontend::model::FunctionTypeNodeBox;
+  if (type.variadic) {
+    return std::nullopt;
+  }
+  for (const auto& [name, kind] :
+       {std::pair{"UInt64", "exact UInt64"}, std::pair{"Int64", "exact Int64"}, std::pair{"TaskHandle", "TaskHandle"},
+        std::pair{"RandomGenerator", "RandomGenerator"}, std::pair{"FileHandle", "FileHandle"}}) {
+    if (is_named_type(type, name)) {
+      return std::format("value {} {}", index, kind);
+    }
+  }
+  if (const auto* applied = std::get_if<AppliedTypeNodeBox>(&type.value); applied != nullptr) {
+    const auto& node = **applied;
+    if (node.name == "TaskHandle") {
+      return std::format("value {} TaskHandle", index);
+    }
+    if (node.name == "Dict" && node.args.types.size() == 2U && is_named_type(*node.args.types[0], "String") &&
+        is_named_type(*node.args.types[1], "Any")) {
+      return std::format("value {} Dict<String, Any>", index);
+    }
+    return std::nullopt;
+  }
+  if (const auto* function = std::get_if<FunctionTypeNodeBox>(&type.value); function != nullptr) {
+    return std::format("callable {} of {} parameters", index, (*function)->params.types.size());
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
+TEST_CASE("Builtin slots follow the parameter types in stdlib/Std.fleaux", "[bytecode][builtins]") {
+  std::ifstream in(repo_root_path() / "stdlib" / "Std.fleaux");
+  REQUIRE(in.good());
+  std::ostringstream source;
+  source << in.rdbuf();
+  const fleaux::frontend::parse::Parser parser;
+  const auto parsed = parser.parse_program(source.str(), "Std.fleaux");
+  REQUIRE(parsed.has_value());
+
+  // Each builtin name's declarations in order: the catalog's symbol key of an overload is "Name#k" for the k-th.
+  std::map<std::string, std::vector<const fleaux::frontend::model::LetStatement*>> declarations;
+  for (const auto& statement : parsed->statements) {
+    const auto* let = std::get_if<fleaux::frontend::model::LetStatement>(&statement);
+    if (let == nullptr || !let->is_builtin) {
+      continue;
+    }
+    const auto* id = std::get_if<fleaux::frontend::model::QualifiedId>(&let->id);
+    REQUIRE(id != nullptr);
+    declarations[id->qualifier.qualifier + "." + id->id].push_back(let);
+  }
+
+  for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
+    INFO(spec.name << " " << spec.symbol_key);
+    const auto found = declarations.find(std::string{spec.name});
+    REQUIRE(found != declarations.end());
+    std::size_t overload = 0;
+    if (const auto hash = spec.symbol_key.rfind('#'); hash != std::string_view::npos) {
+      overload = std::stoul(std::string{spec.symbol_key.substr(hash + 1)});
+    }
+    REQUIRE(overload < found->second.size());
+    const auto& params = found->second[overload]->params.params;
+
+    std::vector<std::string> expected;
+    for (std::size_t index = 0; index < params.size(); ++index) {
+      if (auto slot = std_parameter_slot(params[index].type, index)) {
+        expected.push_back(std::move(*slot));
+      }
+    }
+    std::vector<std::string> actual;
+    for (const auto& slot : fleaux::vm::builtin_slots(spec.id)) {
+      actual.push_back(describe_builtin_slot(slot));
+    }
+    CHECK(actual == expected);
+  }
+}
+
 TEST_CASE("VM constant catalog values match the values declared in stdlib/Std.fleaux", "[bytecode][builtins]") {
   std::ifstream in(repo_root_path() / "stdlib" / "Std.fleaux");
   REQUIRE(in.good());
@@ -320,323 +410,247 @@ TEST_CASE("VM builtin catalog exposes complete scalar, variadic, and overloaded 
           "[bytecode][builtins][arity]") {
   for (const auto& spec : fleaux::vm::all_callable_builtin_specs()) {
     INFO(spec.name);
-    REQUIRE(fleaux::vm::builtin_has_arity_contract(spec.id));
   }
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::UnaryPlus));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::UnaryPlus, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 3U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::BitAnd));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitNot, 1U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::BitShiftLeft, 2U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Not, 1U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToUInt64, 0U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cwd, 1U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Printf, 4U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringString));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSIsWindows, 0U));
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringStringUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSMakeTempFile, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::PathJoin));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathJoin, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::PathWithExtension));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathWithExtension, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::PathWithExtension, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSSetEnv));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSSetEnv, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSSetEnv, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileReadChunk));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileReadChunk, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileReadChunk, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileWithOpen));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileWithOpen, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileWithOpen, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictSet));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictSet, 2U));
 
   for (const auto& spec : fleaux::vm::all_constant_builtin_specs()) {
     INFO(spec.name);
-    REQUIRE(fleaux::vm::builtin_has_arity_contract(spec.id));
     REQUIRE(fleaux::vm::builtin_accepts_arity(spec.id, 0U));
     REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(spec.id, 1U));
   }
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictGet));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGet, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictGetDefault));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGetDefault, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictGetDefault, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictMerge));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictMerge, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictMerge, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAppend));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAppend, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAppend, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleZip));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleZip, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleZip, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleMap));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleMap, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleMap, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleFilter));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFilter, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFilter, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleFindIndex));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFindIndex, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleFindIndex, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAny));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAny, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAny, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleAll));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAll, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleAll, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleReduce));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleReduce, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleReduce, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSplit));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSplit, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSplit, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringJoin));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringJoin, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringJoin, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringContains));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringContains, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringContains, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringCharAt));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringCharAt, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringCharAt, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringReplace));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringReplace, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringReplace, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexIsMatch));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexIsMatch, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexIsMatch, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexFind));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexFind, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexFind, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexReplace));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexReplace, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexReplace, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringRegexSplit));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexSplit, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringRegexSplit, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskSpawn));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskSpawn, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskSpawn, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskWithTimeout));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskWithTimeout, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskWithTimeout, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelMap));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelMap, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelMap, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelWithOptions));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelWithOptions, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelWithOptions, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelForEach));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelForEach, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelForEach, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ParallelReduce));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ParallelReduce, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Cast));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cast, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Cast, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ToString));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToString, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ToString, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ExitVoid));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitVoid, 0U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitVoid, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ExitInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitInt64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ExitInt64, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::InputVoid));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputVoid, 0U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputVoid, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::InputString));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 0U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::InputString, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TupleRangeInt64Int64Int64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::SliceTupleUInt64UInt64UInt64, 5U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringSliceStringUInt64UInt64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringString));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringString, 3U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFindStringStringUInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 3U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFindStringStringUInt64, 4U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringFormat));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 1U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 4U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringFormat, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Help));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Help, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Help, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::OSEnv));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSEnv, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::OSEnv, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::FileOpen));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileOpen, 2U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::FileOpen, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::DictKeys));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictKeys, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::DictKeys, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::RandomCreate));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::RandomCreate, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::RandomCreate, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::MathFloor));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::MathFloor, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::MathFloor, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Type));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Type, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::ResultTag));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::ResultTag, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::TaskAwait));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::TaskAwait, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::StringParseInt64));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringParseInt64, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::StringParseInt64, 0U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Match));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 2U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 5U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Match, 1U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Unwrap));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 1U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 0U));
   REQUIRE_FALSE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Unwrap, 2U));
 
-  REQUIRE(fleaux::vm::builtin_has_arity_contract(fleaux::vm::BuiltinId::Println));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Println, 0U));
   REQUIRE(fleaux::vm::builtin_accepts_arity(fleaux::vm::BuiltinId::Println, 3U));
 }
@@ -1998,10 +2012,11 @@ TEST_CASE("Bytecode compiler emits Dict<String, Any> options metadata for Parall
   REQUIRE(callsite_it != module.builtin_callsites.end());
   REQUIRE(callsite_it->value_slots.size() == 1U);
   REQUIRE(callsite_it->value_slots[0].slot_index == 2U);
-  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kDictStringAny);
   REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
   REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
-  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_dict_string_any);
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_value_slot_kind ==
+          fleaux::vm::BuiltinValueSlotKind::kDictStringAny);
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
   REQUIRE(verified.has_value());
@@ -2029,10 +2044,11 @@ TEST_CASE("Bytecode compiler emits exact UInt64 metadata for selected builtin va
   REQUIRE(callsite_it->static_argument_count == 2U);
   REQUIRE(callsite_it->value_slots.size() == 1U);
   REQUIRE(callsite_it->value_slots[0].slot_index == 1U);
-  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kExactUInt64);
   REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
   REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
-  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_exact_uint64);
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_value_slot_kind ==
+          fleaux::vm::BuiltinValueSlotKind::kExactUInt64);
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
   REQUIRE(verified.has_value());
@@ -2060,10 +2076,11 @@ TEST_CASE("Bytecode compiler emits exact Int64 metadata for selected builtin val
   REQUIRE(callsite_it->static_argument_count == 1U);
   REQUIRE(callsite_it->value_slots.size() == 1U);
   REQUIRE(callsite_it->value_slots[0].slot_index == 0U);
-  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kExactInt64);
   REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
   REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
-  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_exact_int64);
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_value_slot_kind ==
+          fleaux::vm::BuiltinValueSlotKind::kExactInt64);
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
   REQUIRE(verified.has_value());
@@ -2092,10 +2109,11 @@ TEST_CASE("Bytecode compiler emits opaque handle metadata for selected builtin v
   REQUIRE(callsite_it->static_argument_count == 1U);
   REQUIRE(callsite_it->value_slots.size() == 1U);
   REQUIRE(callsite_it->value_slots[0].slot_index == 0U);
-  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle);
+  REQUIRE(callsite_it->value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kTaskHandle);
   REQUIRE(callsite_it->value_slots[0].source_kind == fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn);
   REQUIRE(callsite_it->value_slots[0].source_index < module.functions.size());
-  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_type_is_task_handle);
+  REQUIRE(module.functions[callsite_it->value_slots[0].source_index].return_value_slot_kind ==
+          fleaux::vm::BuiltinValueSlotKind::kTaskHandle);
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(module);
   REQUIRE(verified.has_value());
@@ -2315,174 +2333,6 @@ TEST_CASE("Bytecode compiler lowers explicit Std.Add to native opcode by default
 
   REQUIRE(found_native_add);
   REQUIRE_FALSE(found_builtin_add);
-}
-
-TEST_CASE("Bytecode compiler keeps reducible builtin call chains intact by default", "[bytecode]") {
-  const auto ir_program = lower_source_to_ir(
-      "import Std;\n"
-      "\"  hello  \" -> Std.String.TrimStart -> Std.String.TrimEnd;\n",
-      "builtin_reductions_default_off.fleaux");
-
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(ir_program);
-
-  REQUIRE(result.has_value());
-
-  bool found_builtin_trim = false;
-  bool found_builtin_trim_start = false;
-  bool found_builtin_trim_end = false;
-  for (const auto& ins : result->instructions) {
-    if (is_builtin_call(ins.opcode)) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim")
-        found_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart")
-        found_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd")
-        found_builtin_trim_end = true;
-    }
-  }
-
-  REQUIRE_FALSE(found_builtin_trim);
-  REQUIRE(found_builtin_trim_start);
-  REQUIRE(found_builtin_trim_end);
-}
-
-TEST_CASE("Bytecode compiler can experimentally reduce builtin call chains to equivalent single calls",
-          "[bytecode][optimizer][experimental]") {
-  const auto ir_program = lower_source_to_ir(
-      "import Std;\n"
-      "\"  hello  \" -> Std.String.TrimStart -> Std.String.TrimEnd;\n"
-      "1 -> Std.Result.Ok -> Std.Result.Tag -> Std.Not;\n"
-      "1 -> Std.Result.Ok -> Std.Result.Tag;\n"
-      "((1, 2), (3, 4),) -> Std.Array.Shape -> Std.Length;\n"
-      "(\"abc\", \"b\", 0u64) -> Std.String.Find -> (_, -1) -> Std.NotEqual;\n"
-      "(\"abc\", \"b\") -> Std.String.Regex.Find -> (_, -1) -> Std.NotEqual;\n",
-      "builtin_reductions.fleaux");
-
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(
-      ir_program, make_compile_options(std::nullopt, std::nullopt, std::nullopt, {}, true));
-
-  REQUIRE(result.has_value());
-
-  bool found_builtin_trim = false;
-  bool found_builtin_trim_start = false;
-  bool found_builtin_trim_end = false;
-  bool found_builtin_result_is_err = false;
-  bool found_builtin_result_tag = false;
-  bool found_builtin_result_is_ok = false;
-  bool found_builtin_array_rank = false;
-  bool found_builtin_array_shape = false;
-  bool found_builtin_length = false;
-  bool found_builtin_string_contains = false;
-  bool found_builtin_string_find = false;
-  bool found_builtin_regex_is_match = false;
-  bool found_builtin_regex_find = false;
-  for (const auto& ins : result->instructions) {
-    if (is_builtin_call(ins.opcode)) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim")
-        found_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart")
-        found_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd")
-        found_builtin_trim_end = true;
-      if (builtin_name == "Std.Result.IsErr")
-        found_builtin_result_is_err = true;
-      if (builtin_name == "Std.Result.Tag")
-        found_builtin_result_tag = true;
-      if (builtin_name == "Std.Result.IsOk")
-        found_builtin_result_is_ok = true;
-      if (builtin_name == "Std.Array.Rank")
-        found_builtin_array_rank = true;
-      if (builtin_name == "Std.Array.Shape")
-        found_builtin_array_shape = true;
-      if (builtin_name == "Std.Length")
-        found_builtin_length = true;
-      if (builtin_name == "Std.String.Contains")
-        found_builtin_string_contains = true;
-      if (builtin_name == "Std.String.Find")
-        found_builtin_string_find = true;
-      if (builtin_name == "Std.String.Regex.IsMatch")
-        found_builtin_regex_is_match = true;
-      if (builtin_name == "Std.String.Regex.Find")
-        found_builtin_regex_find = true;
-    }
-  }
-
-  REQUIRE(found_builtin_trim);
-  REQUIRE_FALSE(found_builtin_trim_start);
-  REQUIRE_FALSE(found_builtin_trim_end);
-  REQUIRE(found_builtin_result_is_err);
-  REQUIRE_FALSE(found_builtin_result_tag);
-  REQUIRE(found_builtin_result_is_ok);
-  REQUIRE(found_builtin_array_rank);
-  REQUIRE_FALSE(found_builtin_array_shape);
-  REQUIRE_FALSE(found_builtin_length);
-  REQUIRE(found_builtin_string_contains);
-  REQUIRE_FALSE(found_builtin_string_find);
-  REQUIRE(found_builtin_regex_is_match);
-  REQUIRE_FALSE(found_builtin_regex_find);
-}
-
-TEST_CASE("Bytecode compiler can experimentally reduce Std.OS.Env null comparison to Std.OS.HasEnv",
-          "[bytecode][experimental][optimizer]") {
-  fleaux::frontend::ir::IRProgram ir_program;
-  ir_program.expressions =
-      {
-          fleaux::frontend::ir::IRExprStatement{
-              .expr = make_ir_expr(fleaux::frontend::ir::
-                                       IRFlowExpr{
-                                           .lhs = make_ir_box(fleaux::frontend::ir::
-                                                                  IRTupleExpr{
-                                                                      .items =
-                                                                          {
-                                                                              make_ir_box(
-                                                                                  fleaux::frontend::ir::IRFlowExpr{
-                                                                                      .lhs = make_string_constant_box(
-                                                                                          "PATH"),
-                                                                                      .rhs = make_ir_name_ref("Std.OS",
-                                                                                                              "Env"),
-                                                                                      .span = std::nullopt,
-                                                                                  }),
-                                                                              make_null_constant_box(),
-                                                                          },
-                                                                      .span = std::nullopt,
-                                                                  }),
-                                           .rhs = make_ir_name_ref("Std", "NotEqual"),
-                                           .span = std::nullopt,
-                                       }),
-              .span = std::nullopt,
-          },
-      };
-
-  const fleaux::bytecode::BytecodeCompiler compiler;
-  const auto result = compiler.compile(
-      ir_program, make_compile_options(std::nullopt, std::nullopt, std::nullopt, {}, true));
-
-  REQUIRE(result.has_value());
-
-  bool found_builtin_os_has_env = false;
-  bool found_builtin_os_env = false;
-  for (const auto& ins : result->instructions) {
-    if (is_builtin_call(ins.opcode)) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.OS.HasEnv")
-        found_builtin_os_has_env = true;
-      if (builtin_name == "Std.OS.Env")
-        found_builtin_os_env = true;
-    }
-  }
-
-  REQUIRE(found_builtin_os_has_env);
-  REQUIRE_FALSE(found_builtin_os_env);
 }
 
 TEST_CASE("Bytecode compiler rejects operators the type checker did not resolve", "[bytecode]") {
@@ -4489,7 +4339,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
           }},
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 2,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kDictStringAny,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 1,
           }},
@@ -4503,7 +4353,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kExactUInt64,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 2,
           }},
@@ -4517,7 +4367,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kExactInt64,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 3,
           }},
@@ -4531,7 +4381,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kTaskHandle,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 4,
           }},
@@ -4548,28 +4398,28 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "Dict",
-          .return_type_is_dict_string_any = true,
+          .return_value_slot_kind = fleaux::vm::BuiltinValueSlotKind::kDictStringAny,
       },
       fleaux::bytecode::FunctionDef{
           .name = "BuildSeed",
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "UInt64",
-          .return_type_is_exact_uint64 = true,
+          .return_value_slot_kind = fleaux::vm::BuiltinValueSlotKind::kExactUInt64,
       },
       fleaux::bytecode::FunctionDef{
           .name = "BuildExitCode",
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "Int64",
-          .return_type_is_exact_int64 = true,
+          .return_value_slot_kind = fleaux::vm::BuiltinValueSlotKind::kExactInt64,
       },
       fleaux::bytecode::FunctionDef{
           .name = "BuildTask",
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "TaskHandle",
-          .return_type_is_task_handle = true,
+          .return_value_slot_kind = fleaux::vm::BuiltinValueSlotKind::kTaskHandle,
       },
   };
 
@@ -4592,8 +4442,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
   REQUIRE(restored_parallel.callable_slots[0].target_index == 0U);
   REQUIRE(restored_parallel.value_slots.size() == 1U);
   REQUIRE(restored_parallel.value_slots[0].slot_index == 2U);
-  REQUIRE(restored_parallel.value_slots[0].summary_kind ==
-          fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny);
+  REQUIRE(restored_parallel.value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kDictStringAny);
   REQUIRE(restored_parallel.value_slots[0].source_index == 1U);
 
   const auto& restored_random_create = deserialized->builtin_callsites[1];
@@ -4606,8 +4455,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
   REQUIRE(restored_random_create.callable_slots.empty());
   REQUIRE(restored_random_create.value_slots.size() == 1U);
   REQUIRE(restored_random_create.value_slots[0].slot_index == 0U);
-  REQUIRE(restored_random_create.value_slots[0].summary_kind ==
-          fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64);
+  REQUIRE(restored_random_create.value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kExactUInt64);
   REQUIRE(restored_random_create.value_slots[0].source_index == 2U);
 
   const auto& restored_exit = deserialized->builtin_callsites[2];
@@ -4620,7 +4468,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
   REQUIRE(restored_exit.callable_slots.empty());
   REQUIRE(restored_exit.value_slots.size() == 1U);
   REQUIRE(restored_exit.value_slots[0].slot_index == 0U);
-  REQUIRE(restored_exit.value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64);
+  REQUIRE(restored_exit.value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kExactInt64);
   REQUIRE(restored_exit.value_slots[0].source_index == 3U);
 
   const auto& restored_task = deserialized->builtin_callsites[3];
@@ -4633,7 +4481,7 @@ TEST_CASE("Bytecode serialization round-trips builtin callsite metadata", "[byte
   REQUIRE(restored_task.callable_slots.empty());
   REQUIRE(restored_task.value_slots.size() == 1U);
   REQUIRE(restored_task.value_slots[0].slot_index == 0U);
-  REQUIRE(restored_task.value_slots[0].summary_kind == fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle);
+  REQUIRE(restored_task.value_slots[0].summary_kind == fleaux::vm::BuiltinValueSlotKind::kTaskHandle);
   REQUIRE(restored_task.value_slots[0].source_index == 4U);
 
   const auto verified = fleaux::bytecode::verify_module_builtin_callsites(*deserialized);
@@ -4751,7 +4599,7 @@ TEST_CASE("Bytecode verifier rejects stale Dict<String, Any> options metadata", 
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "Dict",
-          .return_type_is_dict_string_any = false,
+          .return_value_slot_kind = std::nullopt,
       },
   };
   module.instructions = {
@@ -4785,7 +4633,7 @@ TEST_CASE("Bytecode verifier rejects stale Dict<String, Any> options metadata", 
           }},
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 2,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kDictStringAny,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kDictStringAny,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 1,
           }},
@@ -4805,7 +4653,7 @@ TEST_CASE("Bytecode verifier rejects stale exact UInt64 value metadata", "[bytec
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "UInt64",
-          .return_type_is_exact_uint64 = false,
+          .return_value_slot_kind = std::nullopt,
       },
   };
   module.instructions = {
@@ -4825,7 +4673,7 @@ TEST_CASE("Bytecode verifier rejects stale exact UInt64 value metadata", "[bytec
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactUInt64,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kExactUInt64,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 0,
           }},
@@ -4845,7 +4693,7 @@ TEST_CASE("Bytecode verifier rejects stale exact Int64 value metadata", "[byteco
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "Int64",
-          .return_type_is_exact_int64 = false,
+          .return_value_slot_kind = std::nullopt,
       },
   };
   module.instructions = {
@@ -4865,7 +4713,7 @@ TEST_CASE("Bytecode verifier rejects stale exact Int64 value metadata", "[byteco
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kExactInt64,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kExactInt64,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 0,
           }},
@@ -4885,7 +4733,7 @@ TEST_CASE("Bytecode verifier rejects stale opaque handle value metadata", "[byte
           .arity = 0,
           .has_variadic_tail = false,
           .return_type_name = "TaskHandle",
-          .return_type_is_task_handle = false,
+          .return_value_slot_kind = std::nullopt,
       },
   };
   module.instructions = {
@@ -4905,7 +4753,7 @@ TEST_CASE("Bytecode verifier rejects stale opaque handle value metadata", "[byte
           .static_argument_count = 1,
           .value_slots = {fleaux::bytecode::BuiltinValueSlotRecord{
               .slot_index = 0,
-              .summary_kind = fleaux::bytecode::BuiltinValueSlotSummaryKind::kTaskHandle,
+              .summary_kind = fleaux::vm::BuiltinValueSlotKind::kTaskHandle,
               .source_kind = fleaux::bytecode::BuiltinValueSlotSourceKind::kFunctionReturn,
               .source_index = 0,
           }},
@@ -5872,51 +5720,6 @@ TEST_CASE("Bytecode module loader honors optimization-mode cache mismatch withou
   REQUIRE(cached_after_extended.has_value());
   REQUIRE(cached_after_extended->header.optimization_mode ==
           static_cast<std::uint8_t>(fleaux::bytecode::OptimizationMode::kBaseline));
-}
-
-TEST_CASE("Bytecode module loader threads experimental builtin reductions into compilation and bypasses cache writes",
-          "[bytecode][optimizer][experimental][loader]") {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "fleaux_bytecode_builtin_reductions_loader";
-  std::filesystem::remove_all(temp_dir);
-  std::filesystem::create_directories(temp_dir);
-
-  const auto entry_path = temp_dir / "entry.fleaux";
-  const auto entry_bytecode_path = temp_dir / "entry.fleaux.bc";
-
-  {
-    std::ofstream out(entry_path);
-    REQUIRE(out.good());
-    out << "import Std;\n"
-           "\"  hi  \" -> Std.String.TrimStart -> Std.String.TrimEnd -> Std.Println;\n";
-  }
-
-  const auto loaded =
-      fleaux::bytecode::load_linked_module(entry_path, fleaux::bytecode::ModuleLoadOptions{
-                                                           .enable_experimental_builtin_reductions = true,
-                                                       });
-  REQUIRE(loaded.has_value());
-
-  bool saw_builtin_trim = false;
-  bool saw_builtin_trim_start = false;
-  bool saw_builtin_trim_end = false;
-  for (const auto& ins : loaded->instructions) {
-    if (is_builtin_call(ins.opcode)) {
-      const auto builtin_id = fleaux::vm::builtin_id_from_operand(ins.operand);
-      REQUIRE(builtin_id.has_value());
-      const auto& builtin_name = fleaux::vm::builtin_name(*builtin_id);
-      if (builtin_name == "Std.String.Trim")
-        saw_builtin_trim = true;
-      if (builtin_name == "Std.String.TrimStart")
-        saw_builtin_trim_start = true;
-      if (builtin_name == "Std.String.TrimEnd")
-        saw_builtin_trim_end = true;
-    }
-  }
-
-  REQUIRE(saw_builtin_trim);
-  REQUIRE_FALSE(saw_builtin_trim_start);
-  REQUIRE_FALSE(saw_builtin_trim_end);
-  REQUIRE_FALSE(std::filesystem::exists(entry_bytecode_path));
 }
 
 TEST_CASE("Bytecode module loader handles diamond dependencies with serialized fallback",
@@ -7294,7 +7097,8 @@ let Step(n: Int64): Int64 = ((n -> Std.Tuple.Range, (x: Int64): Bool = (x, 0) ->
 TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]") {
   // Version 41's kIterate pushed the item, where version 42's stores it in its slot. Version 43 compiles constant
   // item reads of local tuples to kLoadLocalItem and kTakeLocalItem, version 44 runs Std.Tuple.Filter and
-  // Std.Tuple.Reduce in place with kMarkStack and kBuildTupleSinceMark, and version 45 inlines small named functions.
+  // Std.Tuple.Reduce in place with kMarkStack and kBuildTupleSinceMark, version 45 inlines small named functions, and
+  // version 46 records the builtin table's hash.
   fleaux::bytecode::Module module;
   module.header.module_name = "OldVersion";
   module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
@@ -7302,7 +7106,7 @@ TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]"
   REQUIRE(serialized.has_value());
   REQUIRE(fleaux::bytecode::deserialize_module(*serialized).has_value());
 
-  for (const std::uint32_t old_version : {41U, 42U, 43U, 44U}) {
+  for (const std::uint32_t old_version : {41U, 42U, 43U, 44U, 45U}) {
     INFO("version " << old_version);
     // The version follows the four bytes of the magic number.
     std::vector<std::uint8_t> bytes = *serialized;
@@ -7311,6 +7115,31 @@ TEST_CASE("Bytecode of earlier versions is refused", "[bytecode][serialization]"
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message.find("Version") != std::string::npos);
   }
+}
+
+TEST_CASE("Bytecode compiled against another builtin table is refused", "[bytecode][serialization]") {
+  fleaux::bytecode::Module module;
+  module.header.module_name = "OtherBuiltins";
+  module.instructions = {{fleaux::bytecode::Opcode::kHalt, 0}};
+  const auto serialized = fleaux::bytecode::serialize_module(module);
+  REQUIRE(serialized.has_value());
+
+  // The hash follows the header. Change one of its bytes, then the checksum of everything after it, which follows the
+  // magic number and the version, so that only the hash differs.
+  std::vector<std::uint8_t> bytes = *serialized;
+  std::array<std::uint8_t, sizeof(std::uint64_t)> hash_bytes{};
+  std::memcpy(hash_bytes.data(), &fleaux::vm::kBuiltinTableHash, hash_bytes.size());
+  const auto hash_at = std::search(bytes.begin(), bytes.end(), hash_bytes.begin(), hash_bytes.end());
+  REQUIRE(hash_at != bytes.end());
+  *hash_at ^= 0x01U;
+  constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2U;
+  const std::uint64_t checksum =
+      fleaux::common::fnv1a(std::span<const std::uint8_t>{bytes}.subspan(kChecksumOffset + sizeof(std::uint64_t)));
+  std::memcpy(bytes.data() + kChecksumOffset, &checksum, sizeof checksum);
+
+  const auto result = fleaux::bytecode::deserialize_module(bytes);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().message.find("Builtin table mismatch") != std::string::npos);
 }
 
 namespace {

@@ -10,6 +10,7 @@
 #include "fleaux/bytecode/compiler.hpp"
 #include "fleaux/bytecode/serialization.hpp"
 #include "fleaux/bytecode/verifier.hpp"
+#include "fleaux/common/fnv1a.hpp"
 #include "fleaux/common/symbol_name.hpp"
 #include "fleaux/frontend/import_resolution.hpp"
 #include "fleaux/frontend/lowering.hpp"
@@ -19,8 +20,6 @@
 
 namespace fleaux::bytecode {
 namespace {
-constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
-constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
 using ResolvedModulePaths = frontend::import_resolution::ResolvedModulePaths;
 
@@ -82,18 +81,6 @@ auto make_parse_error(const std::string& message, const std::optional<std::strin
                       const std::optional<frontend::diag::SourceSpan>& span) -> ModuleLoadError {
   return make_error(compose_detailed_message(message, hint), hint, span);
 }
-
-auto hash_text(const std::string& text) -> std::uint64_t {
-  std::uint64_t hash = kFnvOffsetBasis;
-  for (const char ch : text) {
-    hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(ch));
-    hash *= kFnvPrime;
-  }
-  return hash;
-}
-
-// The bytecode cache holds modules compiled with the default options only.
-auto cache_compatible(const ModuleLoadOptions& options) -> bool { return !options.enable_experimental_builtin_reductions; }
 
 auto let_identity_key(const frontend::ir::IRLet& let) -> std::string {
   if (!let.symbol_key.empty()) {
@@ -239,12 +226,7 @@ auto merge_module_into(Module& target, const Module& source,
                                 .generic_bounds = function.generic_bounds,
                                 .param_type_names = function.param_type_names,
                                 .return_type_name = function.return_type_name,
-                                .return_type_is_dict_string_any = function.return_type_is_dict_string_any,
-                                .return_type_is_exact_uint64 = function.return_type_is_exact_uint64,
-                                .return_type_is_exact_int64 = function.return_type_is_exact_int64,
-                                .return_type_is_task_handle = function.return_type_is_task_handle,
-                                .return_type_is_random_generator = function.return_type_is_random_generator,
-                                .return_type_is_file_handle = function.return_type_is_file_handle};
+                                .return_value_slot_kind = function.return_value_slot_kind};
     target.functions.push_back(std::move(merged_function));
   }
 
@@ -318,7 +300,7 @@ auto link_module_into(const ResolvedModulePaths& paths, const ModuleLoadOptions&
 
 auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOptions& options)
     -> tl::expected<std::optional<Module>, ModuleLoadError> {
-  if (!paths.bytecode.has_value() || (paths.source.has_value() && !cache_compatible(options))) {
+  if (!paths.bytecode.has_value()) {
     return std::optional<Module>{};
   }
 
@@ -350,7 +332,7 @@ auto try_load_cached_module(const ResolvedModulePaths& paths, const ModuleLoadOp
   }
 
   if (const auto source_text = frontend::source_loader::read_text_file(*paths.source);
-      source_text && deserialized->header.source_hash == hash_text(*source_text) &&
+      source_text && deserialized->header.source_hash == common::fnv1a(*source_text) &&
       deserialized->header.optimization_mode == static_cast<std::uint8_t>(options.mode)) {
     return std::optional<Module>{deserialized.value()};
   }
@@ -632,7 +614,6 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
                      .source_text = source_text,
                      .module_name = paths.source->stem().string(),
                      .imported_modules = std::move(loaded_imports.modules),
-                      .enable_experimental_builtin_reductions = options.enable_experimental_builtin_reductions,
                  });
   if (!compiled) {
     return tl::unexpected(make_error(compiled.error().message));
@@ -645,7 +626,7 @@ auto compile_from_source(const ResolvedModulePaths& paths, const ModuleLoadOptio
     return tl::unexpected(make_error(optimized.error().message));
   }
 
-  if (options.write_bytecode_cache && paths.bytecode.has_value() && cache_compatible(options)) {
+  if (options.write_bytecode_cache && paths.bytecode.has_value()) {
     if (const auto serialized = serialize_module(mod); serialized) {
       write_binary_file(*paths.bytecode, *serialized);
     }

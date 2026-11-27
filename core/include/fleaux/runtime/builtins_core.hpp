@@ -479,9 +479,10 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 
 [[nodiscard]] inline auto Println(Value arg) -> Value {
   // Prints the value, returns it unchanged.
-  auto& output = runtime_output_stream();
-  print_value_varargs(output, arg);
-  output << std::endl;
+  std::string text;
+  append_value_varargs(text, arg);
+  text += '\n';
+  write_runtime_output(text, true);
   return arg;
 }
 
@@ -490,7 +491,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
   // Prints formatted text and returns the original argument tuple unchanged.
   if (!arg.is_tuple()) {
     const std::string fmt = to_string(arg);
-    runtime_output_stream() << format_values(fmt, std::vector<Value>{});
+    write_runtime_output(format_values(fmt, std::vector<Value>{}));
     return make_tuple(std::move(arg));
   }
 
@@ -505,7 +506,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
     values.push_back(tuple_at(arg, arg_index));
   }
 
-  runtime_output_stream() << format_values(fmt, values);
+  write_runtime_output(format_values(fmt, values));
   return arg;
 }
 
@@ -522,9 +523,7 @@ inline auto require_valid_shift(const UInt shift, const char* op_name) -> void {
 }
 
 [[nodiscard]] inline auto Input_String(Value arg) -> Value {
-  auto& output = runtime_output_stream();
-  output << to_string(arg);
-  output.flush();
+  write_runtime_output(to_string(arg), true);
   return read_input_line();
 }
 

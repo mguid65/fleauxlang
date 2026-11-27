@@ -313,8 +313,6 @@ auto VmHost::run_file(const std::filesystem::path& path) -> VmResult {
         *resolved_path, bytecode::ModuleLoadOptions{
                             .mode = bytecode::OptimizationMode::kBaseline,
                             .write_bytecode_cache = true,
-                            .enable_experimental_builtin_reductions =
-                                impl_->config.compile_options.enable_experimental_builtin_reductions,
                             .import_search_paths = impl_->config.import_roots,
                         });
     if (!module_result) {

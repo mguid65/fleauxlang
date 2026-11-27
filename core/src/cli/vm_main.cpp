@@ -32,7 +32,6 @@ struct CliOptions {
   bool no_run = false;
   bool optimize = false;
   bool write_bytecode_cache = true;
-  bool enable_experimental_builtin_reductions = false;
   bool no_color = false;
   bool repl = false;
   bool show_help = false;
@@ -87,10 +86,10 @@ auto dedupe_hint_if_embedded(const std::string& message, const std::optional<std
 }
 
 auto usage_text() -> std::string {
-  return "usage: fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--format [--write|--check]] "
+  return "usage: fleaux [--repl] [--no-run] [--optimize] [--disassemble] [--dump-ast] [--dump-ir] "
+         "[--format [--write|--check]] "
          "[--extension PATH]... [--bench N] "
          "[--no-emit-bytecode] [--no-color] "
-         "[--experimental-builtin-reductions] "
          "[file.fleaux|file.fleaux.bc] "
          "[-- "
          "<arg1> <arg2> ...]";
@@ -105,8 +104,6 @@ void print_help() {
             << "  --no-run               Skip execution and print what would run\n"
             << "  --optimize             Enable extended optimizer passes (baseline passes always run)\n"
             << "  --no-emit-bytecode     Do not write/refresh .fleaux.bc cache files while loading modules\n"
-            << "  --experimental-builtin-reductions\n"
-            << "                         Enable experimental reduction of selected builtin-call chains to equivalent single calls\n"
             << "  --disassemble          Print the disassembly for a .fleaux.bc module and exit\n"
             << "  --dump-ast             Parse a .fleaux source file, print the AST, and exit\n"
             << "  --dump-ir              Parse/lower a .fleaux source file, print the IR, and exit\n"
@@ -322,9 +319,8 @@ auto bench_vm(const fleaux::vm::Runtime& runtime, const fleaux::bytecode::Module
 }
 
 auto run_vm(const std::filesystem::path& source_file, const std::vector<std::string>& process_args, const bool optimize,
-            const bool write_bytecode_cache, const bool enable_experimental_builtin_reductions,
-            const std::vector<std::filesystem::path>& extensions, const std::optional<std::size_t> bench_runs)
-    -> tl::expected<void, CliError> {
+            const bool write_bytecode_cache, const std::vector<std::filesystem::path>& extensions,
+            const std::optional<std::size_t> bench_runs) -> tl::expected<void, CliError> {
   // Extensions load into a host whose bindings the program's native functions call. Each extension's directory is
   // searched for the modules that declare them.
   fleaux::embed::NativeBindingRegistry registry;
@@ -350,7 +346,6 @@ auto run_vm(const std::filesystem::path& source_file, const std::vector<std::str
                        .mode = optimize ? fleaux::bytecode::OptimizationMode::kExtended
                                         : fleaux::bytecode::OptimizationMode::kBaseline,
                        .write_bytecode_cache = write_bytecode_cache,
-                       .enable_experimental_builtin_reductions = enable_experimental_builtin_reductions,
                        .import_search_paths = extension_directories,
                    });
   if (!module_result) {
@@ -441,17 +436,14 @@ auto run(const std::optional<std::filesystem::path>& source_path, const std::str
   return 0;
 }
 
-auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_args, const bool no_color,
-                   const bool enable_experimental_builtin_reductions) -> int {
+auto run_repl_mode(const bool no_run, const std::vector<std::string>& process_args, const bool no_color) -> int {
   if (no_run) {
     std::cout << "[vm] skipped run (--no-run): <repl>\n";
     return 0;
   }
 
   constexpr fleaux::cli::ReplDriver repl_driver;
-  return repl_driver.run(
-      process_args, !no_color,
-      fleaux::vm::RuntimeCompileOptions{.enable_experimental_builtin_reductions = enable_experimental_builtin_reductions});
+  return repl_driver.run(process_args, !no_color);
 }
 
 auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, CliError> {
@@ -491,11 +483,6 @@ auto parse_cli_args(const int argc, char** argv) -> tl::expected<CliOptions, Cli
 
     if (token == "--no-emit-bytecode") {
       options.write_bytecode_cache = false;
-      continue;
-    }
-
-    if (token == "--experimental-builtin-reductions") {
-      options.enable_experimental_builtin_reductions = true;
       continue;
     }
 
@@ -638,9 +625,8 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache,
-               enable_experimental_builtin_reductions, no_color, repl, show_help, disassemble, dump_ast, dump_ir, format, format_write,
-               format_check, extensions, bench_runs] = *parsed;
+  const auto& [source_path, process_args, no_run, optimize, write_bytecode_cache, no_color, repl, show_help, disassemble, dump_ast, dump_ir,
+               format, format_write, format_check, extensions, bench_runs] = *parsed;
   if (show_help) {
     print_help();
     return 0;
@@ -676,7 +662,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (repl) {
-    return run_repl_mode(no_run, process_args, no_color, enable_experimental_builtin_reductions);
+    return run_repl_mode(no_run, process_args, no_color);
   }
 
   if (!source_path.has_value()) {
@@ -692,9 +678,7 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
-  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache,
-                                 enable_experimental_builtin_reductions, extensions, bench_runs);
-      !result) {
+  if (const auto result = run_vm(*source_path, process_args, optimize, write_bytecode_cache, extensions, bench_runs); !result) {
     return print_diag_and_return("vm-run", result.error());
   }
   return 0;

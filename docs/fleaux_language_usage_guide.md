@@ -35,7 +35,7 @@ Key ideas:
 The native CLI executable is fleaux.
 Current help output shows these core forms:
 
-    fleaux [--repl] [--no-run] [--disassemble] [--dump-ast] [--dump-ir] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] [-- <arg1> <arg2> ...]
+    fleaux [--repl] [--no-run] [--optimize] [--disassemble] [--dump-ast] [--dump-ir] [--format [--write|--check]] [--extension PATH]... [--bench N] [--no-emit-bytecode] [--no-color] [file.fleaux|file.fleaux.bc] [-- <arg1> <arg2> ...]
 
 Common workflows:
 
@@ -331,7 +331,7 @@ This means:
 
 Important rule:
 
-- _ is only valid in tuple-template stages after ->
+- _ is only valid in tuple-template stages after ->, and as the wildcard pattern of Std.Match
 
 ## Calling functions
 
@@ -440,6 +440,34 @@ A single operand is negated; two operands are subtracted. Spread a tuple to use 
     7 -> - -> Std.Println;                      // -7
     let Pair: Tuple<Int64, Int64> = (10, 4);
     (Pair...) -> - -> Std.Println;              // 6
+
+### Operators on strong types
+
+When the Std builtin does not accept the operands, an operator calls the function of the same name declared on the
+operand's strong type. For a strong type Money, + calls Money.Add, * calls Money.Multiply, < calls Money.LessThan, and a
+unary - calls Money.UnaryMinus:
+
+    type Money = Int64;
+
+    let Money.Add(a: Money, b: Money): Money =
+      ((a -> Std.Cast<Int64>, b -> Std.Cast<Int64>) -> +) -> Std.Cast<Money>;
+
+    let Price: Money = 5 -> Std.Cast<Money>;
+    let Tax: Money = 2 -> Std.Cast<Money>;
+    (Price, Tax) -> + -> Std.Println;           // 7
+
+Rules:
+
+- The operands may have different types, as in Money.Multiply(m: Money, k: Int64).
+- The Std builtin always wins. == on Money is Std.Equal, and declaring Money.Equal is an error.
+- A generic function can use an operator on a type parameter whose bound lists strong types, such as
+  <T: Int64 | Money>. Every alternative of the bound needs a function for each operator the body uses, and each call
+  passes the right one.
+- Used as a value, such a generic function needs its type arguments, which pick its operator functions: Add2<Money>.
+- One operator may use at most one such type parameter, and a generic closure cannot use operators of its own
+  strong-bounded type parameters.
+
+See samples/57_user_operators.fleaux and samples/59_generic_user_operators.fleaux.
 
 ## Blocks and lexical scope
 
@@ -679,6 +707,7 @@ They serve as:
 Useful tuple helpers include:
 
 - Std.ElementAt
+- Std.First and Std.Second
 - Std.Length
 - Std.Take
 - Std.Drop
@@ -693,6 +722,10 @@ Useful tuple helpers include:
 - Std.Tuple.Reduce
 - Std.Tuple.Any
 - Std.Tuple.All
+- Std.Tuple.FindIndex
+- Std.Tuple.Sort
+- Std.Tuple.Unique
+- Std.Tuple.Min and Std.Tuple.Max
 - Std.Tuple.Range
 - Std.Wrap and Std.Unwrap
 
@@ -919,6 +952,7 @@ The standard library follows a namespace-style naming scheme:
 - Std.Result for result helpers
 - Std.Parallel for parallel helpers
 - Std.Task for task helpers
+- Std.Random for seeded random numbers
 - Std.Bit for bitwise helpers
 
 This keeps most functionality discoverable by category.
@@ -955,7 +989,7 @@ Use inline closures when you need local callable behavior inside a block.
 
 ### Placeholder usage is restricted
 
-Use _ only in tuple-template stages after ->.
+Use _ only in tuple-template stages after ->, and as the wildcard pattern of Std.Match.
 
 ### Prefer grouping when inline closures get complex
 
@@ -974,6 +1008,8 @@ A practical reading order is:
 - 33 through 38 for parallel and task helpers
 - 39 through 47 for match-driven control flow, recursion, higher-order functions, and dispatch styles
 - 48 through 52 for more dataflow idioms, strong type casts, and block-scoped values
+- 53 through 56 for seeded random numbers, generic types, bounded generics, and checked casts
+- 57 through 61 for user operators, generic function values, function values, and raw strings
 
 Representative sample files:
 
@@ -987,6 +1023,8 @@ Representative sample files:
 - samples/35_concurrency_tasks.fleaux
 - samples/51_strong_type_casts.fleaux
 - samples/52_variables_and_blocks.fleaux
+- samples/55_bounded_generics.fleaux
+- samples/57_user_operators.fleaux
 
 ## Practical style advice
 

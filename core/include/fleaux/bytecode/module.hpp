@@ -93,13 +93,10 @@ struct FunctionDef {
   // Declared return type in canonical source syntax.  Same encoding as `param_type_names`.
   std::string return_type_name{};
 
-  // Narrow verifier-facing summary bit for the selected domain slice.
-  bool return_type_is_dict_string_any{false};
-  bool return_type_is_exact_uint64{false};
-  bool return_type_is_exact_int64{false};
-  bool return_type_is_task_handle{false};
-  bool return_type_is_random_generator{false};
-  bool return_type_is_file_handle{false};
+  // The kind of value slot the function's result fits, if any. A builtin call records a value slot
+  // (BuiltinValueSlotRecord) only for an argument a call of such a function makes, and the verifier checks the record
+  // against this.
+  std::optional<vm::BuiltinValueSlotKind> return_value_slot_kind{std::nullopt};
 
   // Hidden leading parameters (counted in `arity`) that carry operator implementations, one per requirement.
   std::uint32_t hidden_operator_params{0};
@@ -152,22 +149,13 @@ struct BuiltinCallableSlotRecord {
   bool has_variadic_tail{false};
 };
 
-enum class BuiltinValueSlotSummaryKind : std::uint8_t {
-  kDictStringAny = 0,
-  kExactUInt64 = 1,
-  kExactInt64 = 2,
-  kTaskHandle = 3,
-  kRandomGenerator = 4,
-  kFileHandle = 5,
-};
-
 enum class BuiltinValueSlotSourceKind : std::uint8_t {
   kFunctionReturn = 0,
 };
 
 struct BuiltinValueSlotRecord {
   std::uint32_t slot_index{0};
-  BuiltinValueSlotSummaryKind summary_kind{BuiltinValueSlotSummaryKind::kDictStringAny};
+  vm::BuiltinValueSlotKind summary_kind{vm::BuiltinValueSlotKind::kDictStringAny};
   BuiltinValueSlotSourceKind source_kind{BuiltinValueSlotSourceKind::kFunctionReturn};
   std::uint32_t source_index{kUnknownCallableTargetIndex};
 };

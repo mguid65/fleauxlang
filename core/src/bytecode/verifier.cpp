@@ -8,11 +8,6 @@ namespace {
 
 using BuiltinCallsiteList = std::vector<BuiltinCallsiteRecord>;
 
-struct CallableSlotContract {
-  std::uint32_t slot_index;
-  std::uint32_t expected_arity;
-};
-
 auto owner_label(const BuiltinCallsiteRecord& record) -> std::string {
   if (record.owner_kind == BuiltinCallsiteOwnerKind::kModule) {
     return std::string{"module"};
@@ -46,120 +41,6 @@ auto inferred_static_argument_count(const std::vector<Instruction>& instructions
   }
 
   return static_cast<std::uint32_t>(previous.operand);
-}
-
-auto builtin_callable_slot_contracts(const vm::BuiltinId builtin_id) -> std::vector<CallableSlotContract> {
-  switch (builtin_id) {
-    case vm::BuiltinId::Apply:
-    case vm::BuiltinId::Try:
-    case vm::BuiltinId::TupleMap:
-    case vm::BuiltinId::TupleFilter:
-    case vm::BuiltinId::TupleFindIndex:
-    case vm::BuiltinId::TupleAny:
-    case vm::BuiltinId::TupleAll:
-    case vm::BuiltinId::ParallelMap:
-    case vm::BuiltinId::ParallelForEach:
-    case vm::BuiltinId::ParallelWithOptions:
-    case vm::BuiltinId::TaskSpawn:
-    case vm::BuiltinId::FileWithOpen:
-      return {{builtin_id == vm::BuiltinId::TaskSpawn ? 0U : builtin_id == vm::BuiltinId::FileWithOpen ? 2U : 1U, 1U}};
-    case vm::BuiltinId::TupleReduce:
-    case vm::BuiltinId::ParallelReduce:
-      return {{2U, 2U}};
-    case vm::BuiltinId::Branch:
-      return {{2U, 1U}, {3U, 1U}};
-    case vm::BuiltinId::Loop:
-    case vm::BuiltinId::LoopN:
-      return {{1U, 1U}, {2U, 1U}};
-    default:
-      return {};
-  }
-}
-
-auto builtin_exact_numeric_slot_indices(const vm::BuiltinId builtin_id) -> std::vector<std::uint32_t> {
-  switch (builtin_id) {
-    case vm::BuiltinId::ExitInt64:
-    case vm::BuiltinId::RandomCreate:
-    case vm::BuiltinId::TupleRangeInt64:
-      return {0U};
-    case vm::BuiltinId::TupleRangeInt64Int64:
-      return {0U, 1U};
-    case vm::BuiltinId::TupleRangeInt64Int64Int64:
-      return {0U, 1U, 2U};
-    case vm::BuiltinId::TaskWithTimeout:
-    case vm::BuiltinId::LoopN:
-    case vm::BuiltinId::FileReadChunk:
-      return builtin_id == vm::BuiltinId::LoopN ? std::vector<std::uint32_t>{3U} : std::vector<std::uint32_t>{1U};
-    case vm::BuiltinId::ElementAt:
-    case vm::BuiltinId::Take:
-    case vm::BuiltinId::Drop:
-    case vm::BuiltinId::SliceTupleUInt64:
-    case vm::BuiltinId::StringCharAt:
-    case vm::BuiltinId::StringSliceStringUInt64:
-    case vm::BuiltinId::BitShiftLeft:
-    case vm::BuiltinId::BitShiftRight:
-    case vm::BuiltinId::ArrayGetAt:
-    case vm::BuiltinId::ArraySetAt:
-    case vm::BuiltinId::ArrayInsertAt:
-    case vm::BuiltinId::ArrayRemoveAt:
-      return {1U};
-    case vm::BuiltinId::SliceTupleUInt64UInt64:
-    case vm::BuiltinId::StringSliceStringUInt64UInt64:
-    case vm::BuiltinId::ArraySlice:
-    case vm::BuiltinId::ArrayReshape:
-      return {1U, 2U};
-    case vm::BuiltinId::SliceTupleUInt64UInt64UInt64:
-      return {1U, 2U, 3U};
-    case vm::BuiltinId::StringFindStringStringUInt64:
-      return {2U};
-    case vm::BuiltinId::ArraySetAt2D:
-    case vm::BuiltinId::ArrayFill:
-      return {1U, 2U};
-    case vm::BuiltinId::ArraySlice2D:
-      return {1U, 2U, 3U, 4U};
-    default:
-      return {};
-  }
-}
-
-auto builtin_handle_slot_summary_kind(const vm::BuiltinId builtin_id, const std::uint32_t slot_index)
-    -> std::optional<BuiltinValueSlotSummaryKind> {
-  if ((builtin_id == vm::BuiltinId::TaskAwait || builtin_id == vm::BuiltinId::TaskCancel ||
-       builtin_id == vm::BuiltinId::TaskWithTimeout) &&
-      slot_index == 0U) {
-    return BuiltinValueSlotSummaryKind::kTaskHandle;
-  }
-  if ((builtin_id == vm::BuiltinId::RandomNextUInt64 || builtin_id == vm::BuiltinId::RandomNextInt64 ||
-       builtin_id == vm::BuiltinId::RandomNextFloat64 || builtin_id == vm::BuiltinId::RandomNextBool ||
-       builtin_id == vm::BuiltinId::RandomSplit) &&
-      slot_index == 0U) {
-    return BuiltinValueSlotSummaryKind::kRandomGenerator;
-  }
-  if ((builtin_id == vm::BuiltinId::FileReadLine || builtin_id == vm::BuiltinId::FileReadChunk ||
-       builtin_id == vm::BuiltinId::FileWriteChunk || builtin_id == vm::BuiltinId::FileFlush ||
-       builtin_id == vm::BuiltinId::FileClose) &&
-      slot_index == 0U) {
-    return BuiltinValueSlotSummaryKind::kFileHandle;
-  }
-  return std::nullopt;
-}
-
-auto function_matches_value_slot_summary(const FunctionDef& function, const BuiltinValueSlotSummaryKind summary_kind) -> bool {
-  switch (summary_kind) {
-    case BuiltinValueSlotSummaryKind::kDictStringAny:
-      return function.return_type_is_dict_string_any;
-    case BuiltinValueSlotSummaryKind::kExactUInt64:
-      return function.return_type_is_exact_uint64;
-    case BuiltinValueSlotSummaryKind::kExactInt64:
-      return function.return_type_is_exact_int64;
-    case BuiltinValueSlotSummaryKind::kTaskHandle:
-      return function.return_type_is_task_handle;
-    case BuiltinValueSlotSummaryKind::kRandomGenerator:
-      return function.return_type_is_random_generator;
-    case BuiltinValueSlotSummaryKind::kFileHandle:
-      return function.return_type_is_file_handle;
-  }
-  return false;
 }
 
 void collect_builtin_callsites_for_stream(BuiltinCallsiteList& out, const BuiltinCallsiteOwnerKind owner_kind,
@@ -327,7 +208,6 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
                                                               record.static_argument_count)});
     }
 
-    const auto callable_contracts = builtin_callable_slot_contracts(record.builtin_id);
     std::unordered_set<std::uint32_t> seen_slots;
     for (const auto& callable_slot : record.callable_slots) {
       if (!seen_slots.insert(callable_slot.slot_index).second) {
@@ -337,11 +217,8 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
                                                     callable_slot.slot_index)});
       }
 
-      const auto contract_it = std::find_if(callable_contracts.begin(), callable_contracts.end(),
-                                            [&](const CallableSlotContract& contract) {
-                                              return contract.slot_index == callable_slot.slot_index;
-                                            });
-      if (contract_it == callable_contracts.end()) {
+      const auto expected_arity = vm::builtin_callable_slot_arity(record.builtin_id, callable_slot.slot_index);
+      if (!expected_arity.has_value()) {
         return tl::unexpected(VerificationError{.message = std::format(
                                                     "Builtin callsite at {} instruction {} records unsupported callable slot {} for {}.",
                                                     owner_label(record), record.instruction_index,
@@ -404,12 +281,11 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
         }
       }
 
-      if (callable_slot.has_variadic_tail || callable_slot.declared_arity != contract_it->expected_arity) {
-        return tl::unexpected(VerificationError{.message = std::format(
-                                                    "Builtin callsite callable mismatch at {} instruction {} for {} slot {}: expected arity {}.",
-                                                    owner_label(record), record.instruction_index,
-                                                    vm::builtin_name(record.builtin_id), callable_slot.slot_index,
-                                                    contract_it->expected_arity)});
+      if (callable_slot.has_variadic_tail || callable_slot.declared_arity != *expected_arity) {
+        return tl::unexpected(VerificationError{
+            .message = std::format("Builtin callsite callable mismatch at {} instruction {} for {} slot {}: expected arity {}.",
+                                   owner_label(record), record.instruction_index, vm::builtin_name(record.builtin_id),
+                                   callable_slot.slot_index, *expected_arity)});
       }
     }
 
@@ -422,25 +298,8 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
                                                     value_slot.slot_index)});
       }
 
-      const auto exact_numeric_slots = builtin_exact_numeric_slot_indices(record.builtin_id);
-      const auto expected_handle_summary = builtin_handle_slot_summary_kind(record.builtin_id, value_slot.slot_index);
-      const bool expects_dict_string_any = record.builtin_id == vm::BuiltinId::ParallelWithOptions && value_slot.slot_index == 2U &&
-                                          value_slot.summary_kind == BuiltinValueSlotSummaryKind::kDictStringAny;
-      const bool expects_exact_uint64 =
-          value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactUInt64 &&
-          record.builtin_id != vm::BuiltinId::ExitInt64 && record.builtin_id != vm::BuiltinId::TupleRangeInt64 &&
-          record.builtin_id != vm::BuiltinId::TupleRangeInt64Int64 &&
-          record.builtin_id != vm::BuiltinId::TupleRangeInt64Int64Int64 &&
-          std::ranges::find(exact_numeric_slots, value_slot.slot_index) != exact_numeric_slots.end();
-      const bool expects_exact_int64 =
-          value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactInt64 &&
-          (record.builtin_id == vm::BuiltinId::ExitInt64 || record.builtin_id == vm::BuiltinId::TupleRangeInt64 ||
-           record.builtin_id == vm::BuiltinId::TupleRangeInt64Int64 ||
-           record.builtin_id == vm::BuiltinId::TupleRangeInt64Int64Int64) &&
-          std::ranges::find(exact_numeric_slots, value_slot.slot_index) != exact_numeric_slots.end();
-      const bool expects_handle = expected_handle_summary.has_value() && value_slot.summary_kind == *expected_handle_summary;
-      if ((!expects_dict_string_any && !expects_exact_uint64 && !expects_exact_int64 && !expects_handle) ||
-          value_slot.source_kind != BuiltinValueSlotSourceKind::kFunctionReturn) {
+      const auto expected_kind = vm::builtin_value_slot_kind(record.builtin_id, value_slot.slot_index);
+      if (expected_kind != value_slot.summary_kind || value_slot.source_kind != BuiltinValueSlotSourceKind::kFunctionReturn) {
         return tl::unexpected(VerificationError{.message = std::format(
                                                     "Builtin callsite at {} instruction {} records unsupported value metadata for {} slot {}.",
                                                     owner_label(record), record.instruction_index,
@@ -454,23 +313,11 @@ auto verify_module_builtin_callsites(const Module& module) -> tl::expected<void,
                                                     value_slot.source_index)});
       }
 
-      if (!function_matches_value_slot_summary(module.functions[value_slot.source_index], value_slot.summary_kind)) {
-        return tl::unexpected(VerificationError{.message = std::format(
-                                                    "Builtin callsite at {} instruction {} has stale {} value metadata for slot {}.",
-                                                    owner_label(record), record.instruction_index,
-                                                    value_slot.summary_kind == BuiltinValueSlotSummaryKind::kDictStringAny
-                                                        ? "Dict<String, Any>"
-                                                        : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactUInt64
-                                                              ? "exact UInt64"
-                                                              : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactInt64
-                                                                    ? "exact Int64"
-                                                                    : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kTaskHandle
-                                                                          ? "TaskHandle"
-                                                                          : value_slot.summary_kind ==
-                                                                                    BuiltinValueSlotSummaryKind::kRandomGenerator
-                                                                                ? "RandomGenerator"
-                                                                                : "FileHandle",
-                                                    value_slot.slot_index)});
+      if (module.functions[value_slot.source_index].return_value_slot_kind != value_slot.summary_kind) {
+        return tl::unexpected(
+            VerificationError{.message = std::format("Builtin callsite at {} instruction {} has stale {} value metadata for slot {}.",
+                                                     owner_label(record), record.instruction_index,
+                                                     vm::builtin_value_slot_kind_name(value_slot.summary_kind), value_slot.slot_index)});
       }
     }
   }

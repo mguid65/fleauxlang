@@ -31,13 +31,26 @@ let WriteSample(path: String): Bool =
 
 () -> TmpPath -> WriteSample -> Std.Println;           // True
 
-//  2. Read line-by-line with ReadLine + Loop
-let ReadFirstLine(path: String): Any =
-    (path, "r") -> Std.File.Open -> Std.File.ReadLine -> Std.Println;
+//  2. Read line by line with ReadLine and Std.Loop
+// The loop's state is what ReadLine returns, (handle, line, eof): it prints the line and reads the next, until ReadLine
+// reports the end of the file. Each step spreads the state into a function of its three parts.
+let PrintAndReadNext(handle: FileHandle, line: String, _eof: Bool): Tuple<FileHandle, String, Bool> = {
+    (line) -> Std.Println;
+    handle -> Std.File.ReadLine;
+};
+let NotAtEnd(_handle: FileHandle, _line: String, eof: Bool): Bool = eof -> Std.Not;
+let CloseHandle(handle: FileHandle, _line: String, _eof: Bool): Bool = handle -> Std.File.Close;
 
-() -> TmpPath -> ReadFirstLine;                        // (handle, alpha, False)
+let LinesContinue(state: Tuple<FileHandle, String, Bool>): Bool = (state...) -> NotAtEnd;
+let LinesStep(state: Tuple<FileHandle, String, Bool>): Tuple<FileHandle, String, Bool> = (state...) -> PrintAndReadNext;
+let LinesClose(state: Tuple<FileHandle, String, Bool>): Bool = (state...) -> CloseHandle;
 
-//  3. Read in fixed-size chunks with ReadChunk + Loop
+let PrintEveryLine(path: String): Bool =
+    ((path, "r") -> Std.File.Open -> Std.File.ReadLine, LinesContinue, LinesStep) -> Std.Loop -> LinesClose;
+
+() -> TmpPath -> PrintEveryLine -> Std.Println;        // alpha, beta, gamma, then True
+
+//  3. Read a fixed-size chunk with ReadChunk
 let ReadFirstChunk(path: String): Any =
     (path, "r") -> Std.File.Open -> (_, 4u64) -> Std.File.ReadChunk -> Std.Println;
 

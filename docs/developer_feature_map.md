@@ -148,7 +148,7 @@ This guide helps contributors identify exactly where to implement a feature in `
     keep the stacks' capacity. `CallFrameStack::pop` releases the frame's inline locals, so a value a run leaves
     there does not outlive it.
   - Values become text by `append_value_repr` (`value.hpp`), which writes into a `std::string`: `to_string`,
-    `print_value_repr`, `Std.String.Join`, and `Std.ToString` all use it. Building a `std::ostringstream` costs more
+    `Std.Println`, `Std.String.Join`, and `Std.ToString` all use it. Building a `std::ostringstream` costs more
     than writing most values, so the runtime does not make one per value.
   - `Std.Task.*` and `Std.Parallel.*` run on one shared pool of up to 16 workers (`TaskRuntime` in
     `core/include/fleaux/runtime/builtins_parallel.hpp`), one task per item.
@@ -160,6 +160,16 @@ This guide helps contributors identify exactly where to implement a feature in `
       one `max_workers` before it finishes.
     - **The job's context.** Each job carries the submitting run's execution state, streams, and process arguments;
       the jobs of one `submit_all` share one copy of the arguments.
+    - **Waiting** (`await_task`). A pool worker that waits for a task no worker has started takes the task's job out of
+      the queue and runs it itself. Otherwise a parallel map inside a parallel item, or a task awaited inside one,
+      waits forever once every worker waits. A worker runs only the task it waits for, so the jobs it nests are as deep
+      as the program's calls. Other threads only wait, and `Std.Task.WithTimeout` never runs the task, so its timeout
+      holds. A worker is known by `RuntimeThreadContext::pool_worker`.
+    - **A failed map.** After an item fails, `run_parallel_pooled` waits for every item it has submitted before it
+      returns the Err: the run that called it can end as soon as it returns, and an item still running then would run
+      code that the run has freed.
+  - `Std.Println`, `Std.Printf`, and the prompt of `Std.Input` write through `write_runtime_output` (`value.hpp`), under
+    one lock, since parallel items and tasks print to the stream of the run that started them.
   - A failure inside a function value reaches `Std.Try` and the task worker as a value where it can:
     `Callable::call_or_fail` returns no value and the error text instead of throwing, for the VM's builtins
     (`BuiltinCallable`) and compiled functions (`CompiledFunctionValue::run_or_fail`). A function value made from C++
@@ -212,8 +222,11 @@ Reference: `core/CMakeLists.txt`
 - `fleaux_heap`: the allocator for values; everything that makes values links it, extensions included
 - `fleaux_bytecode`: bytecode compiler, loader, optimizer, serializer
 - `fleaux_vm`: VM runtime
+- `fleaux_line_editor`: the REPL's line editor, which the CLI and the tests link
 - `fleaux`: CLI executable
 - `fleaux_core_tests`: test runner
+
+Every target sets its warnings with `fleaux_set_project_warnings`, and warnings are errors in every configuration.
 
 ## If you are adding X, start here
 
@@ -294,18 +307,28 @@ Tests:
 - `core/tests/vm_samples_tests.cpp` VM spot-check
 
 ### 4) New builtin or builtin signature change
-Touch all relevant layers:
+Touch, each checked by a `static_assert` or a test:
 - `stdlib/Std.fleaux` (language signature)
-- `core/include/fleaux/vm/builtin_catalog.hpp`
-- `core/src/vm/runtime.cpp`: a builtin of one parameter (and `Std.Println` and `Std.Printf`, which return their
-  argument tuple) takes its argument as a `Value` and goes in the switch of `dispatch_builtin`; every other builtin
-  takes `const runtime::Arguments&` (`args[i]` reads one, `args.take(i)` moves one out) and goes in
-  `kArgumentsBuiltins`, which a `static_assert` checks is complete (`vm::builtin_takes_arguments` decides which).
-  The compiler calls the latter with `kCallBuiltinArgs` on the argument values on the stack, with no argument tuple;
-  an argument list with spreads, or a call through a function value, passes the tuple, and `Arguments` lends its
-  items.
-- `core/src/vm/builtin_map.hpp`
-- `core/src/frontend/type_system/builtin_contracts.cpp` (when contract-validated)
+- `core/include/fleaux/vm/builtin_catalog.hpp`: the `BuiltinId` enum (callable builtins go before `Half`), and the
+  builtin's row in `kBuiltinSpecs`, in the same order, with its arity and its slots. A slot is an argument the compiler
+  records at each call and the verifier checks when it loads bytecode: a function (`callable_slot(index, arity)`), or a
+  value that must come from an exact UInt64 or Int64, a TaskHandle, RandomGenerator, or FileHandle, or a
+  `Dict<String, Any>` (`value_slot(index, kind)`). The test "Builtin slots follow the parameter types in
+  stdlib/Std.fleaux" derives each builtin's slots from its Std parameter types and checks the row.
+- The implementation in `core/include/fleaux/runtime/builtins_*.hpp`. The regex builtins are in
+  `core/src/vm/builtins_regex.cpp`, since only the VM links PCRE2.
+- Its entry in `kBuiltinImplementations` (`core/src/vm/runtime.cpp`): `takes_value` for a builtin of one parameter (and
+  `Std.Println` and `Std.Printf`, which return their argument tuple), which takes its argument as a `Value`;
+  `takes_arguments` for every other builtin, which takes `const runtime::Arguments&` (`args[i]` reads one, `args.take(i)`
+  moves one out). `vm::builtin_takes_arguments` decides which, and a `static_assert` checks that every callable builtin
+  has the one its kind needs. The compiler calls the latter with `kCallBuiltinArgs` on the argument values on the
+  stack, with no argument tuple; an argument list with spreads, or a call through a function value, passes the tuple,
+  and `Arguments` lends its items.
+- `core/src/frontend/type_system/builtin_contracts.cpp`, for a rule a type cannot state (scalar Dict keys, parallel
+  options).
+
+No `BYTECODE_VERSION` change is needed: the bytecode header records `vm::kBuiltinTableHash`, a hash of each builtin's
+position, name, symbol key, arity, and slots, and the loader refuses bytecode compiled against another table.
 
 Tests:
 - `core/tests/runtime_builtins_tests.cpp`
@@ -415,6 +438,18 @@ Tests:
 - Update `stdlib/Std.fleaux` when builtin signatures or constants change
 - Add tests in the owning suite and one VM-oriented sample or runtime suite
 - Run focused tests for touched areas, then broader VM regression runs
+
+## Benchmarks
+`bench/` times release builds:
+- `bench/ab.py BINARY,BINARY PROGRAM,PROGRAM`: an A/B of binaries, the best median of several `--bench` runs, with the
+  binaries taking turns.
+- `bench/suite.py run BINARY --out FILE`: the standard set (the timed samples, `bench/programs/`, and
+  `fleaux_runtime_microbench` with `--microbench`). `bench/suite.py compare bench/baseline.json FILE` marks what got
+  slower by more than 5%; a stabilization cycle ends with that check.
+- `bench/python/compare.py BINARY`: the algorithmic samples against Python ports of them.
+
+The scripts time copies of the programs without their `.fleaux.bc` caches, which `--no-emit-bytecode` would still
+read. Set `FLEAUX_BENCH_PATH` to a directory to put in front of `PATH`, such as MinGW's `bin`.
 
 ## Useful commands
 ```bash

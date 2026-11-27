@@ -98,11 +98,26 @@ struct RuntimeThreadContext {
   std::reference_wrapper<std::istream> input{std::cin};
   std::vector<std::string> process_args{};
   std::optional<std::reference_wrapper<const std::vector<std::string>>> process_args_override{};
+  // True on the task pool's workers, which run a task they wait for themselves (await_task in builtins_parallel.hpp).
+  bool pool_worker{false};
 };
 
 [[nodiscard]] auto runtime_thread_context() -> RuntimeThreadContext&;
 
 [[nodiscard]] inline auto runtime_output_stream() -> std::ostream& { return runtime_thread_context().output.get(); }
+
+// Writes text to the running code's output stream, under one lock for the process. Parallel items and tasks print to
+// the stream of the run that started them, so several threads can print to one stream at once; the lock keeps the
+// stream whole, and each call's text in one piece.
+inline void write_runtime_output(const std::string_view text, const bool flush = false) {
+  static std::mutex mutex;
+  const std::scoped_lock lock(mutex);
+  std::ostream& output = runtime_output_stream();
+  output << text;
+  if (flush) {
+    output.flush();
+  }
+}
 
 [[nodiscard]] inline auto runtime_input_stream() -> std::istream& { return runtime_thread_context().input.get(); }
 
@@ -677,29 +692,19 @@ inline void append_value_repr(std::string& out, const Value& value) {
   return text;
 }
 
-inline void print_value_repr(std::ostream& os, const Value& value) {
-  if (value.is_string()) {
-    os << value.string_value();
-    return;
-  }
-  os << to_string(value);
-}
-
-// A tuple argument prints as its items, separated by spaces.
-inline void print_value_varargs(std::ostream& os, const Value& value) {
+// Std.Println's text: a tuple argument prints as its items, separated by spaces.
+inline void append_value_varargs(std::string& out, const Value& value) {
   if (!value.is_tuple()) {
-    print_value_repr(os, value);
+    append_value_repr(out, value);
     return;
   }
-  std::string text;
   const TupleView items = value.tuple();
   for (std::size_t index = 0; index < items.size(); ++index) {
     if (index > 0) {
-      text += ' ';
+      out += ' ';
     }
-    append_value_repr(text, items[index]);
+    append_value_repr(out, items[index]);
   }
-  os << text;
 }
 
 [[nodiscard]] inline auto type_name(const Value& value) -> std::string {

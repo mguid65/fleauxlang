@@ -1,4 +1,5 @@
 #include "fleaux/bytecode/serialization.hpp"
+#include "fleaux/common/fnv1a.hpp"
 #include "fleaux/common/overloaded.hpp"
 #include "fleaux/runtime/builtins_core.hpp"
 #include "fleaux/vm/builtin_catalog.hpp"
@@ -15,16 +16,12 @@ namespace fleaux::bytecode {
 namespace {
 
 constexpr std::uint32_t BYTECODE_MAGIC = 0x464C4558;
-// Builtin operands are serialized as numeric BuiltinId values, so changes to
-// builtin ordering are bytecode ABI changes and must invalidate cached modules.
-// Requiring an explicit `import Std;` before `Std.*` resolution is also a
-// bytecode-cache compatibility boundary because older caches may have been
-// compiled from source that would now fail semantic analysis.
-constexpr std::uint32_t BYTECODE_VERSION = 45;
+// Builtin operands are serialized as numeric BuiltinId values. The header records the builtin table's hash
+// (vm::kBuiltinTableHash), and a module compiled against another table is refused, so a change to the builtins needs no
+// change of BYTECODE_VERSION.
+constexpr std::uint32_t BYTECODE_VERSION = 46;
 constexpr std::size_t kChecksumOffset = sizeof(std::uint32_t) * 2;
 constexpr std::size_t kPayloadOffset = kChecksumOffset + sizeof(std::uint64_t);
-constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
-constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
 enum class ConstTag : std::uint8_t {
   kInt64 = 0,
@@ -76,12 +73,24 @@ auto read_string(const std::vector<std::uint8_t>& buffer, std::size_t& offset, s
 }
 
 auto checksum_bytes(const std::vector<std::uint8_t>& buffer, const std::size_t begin) -> std::uint64_t {
-  std::uint64_t hash = kFnvOffsetBasis;
-  for (std::size_t index = begin; index < buffer.size(); ++index) {
-    hash ^= static_cast<std::uint64_t>(buffer[index]);
-    hash *= kFnvPrime;
+  return common::fnv1a(std::span<const std::uint8_t>{buffer}.subspan(begin));
+}
+
+// A function's return value slot kind as one byte: 0 for none, and the kind plus one otherwise.
+auto encode_value_slot_kind(const std::optional<vm::BuiltinValueSlotKind> kind) -> std::uint8_t {
+  return kind.has_value() ? static_cast<std::uint8_t>(static_cast<std::uint8_t>(*kind) + 1U) : std::uint8_t{0};
+}
+
+auto decode_value_slot_kind(const std::uint8_t encoded, std::optional<vm::BuiltinValueSlotKind>& kind) -> bool {
+  if (encoded == 0U) {
+    kind.reset();
+    return true;
   }
-  return hash;
+  if (encoded - 1U > static_cast<unsigned>(vm::BuiltinValueSlotKind::kFileHandle)) {
+    return false;
+  }
+  kind = static_cast<vm::BuiltinValueSlotKind>(encoded - 1U);
+  return true;
 }
 
 void patch_checksum(std::vector<std::uint8_t>& buffer, const std::uint64_t checksum) {
@@ -285,11 +294,11 @@ auto read_builtin_value_slot(const std::vector<std::uint8_t>& buffer, std::size_
       !read_pod(buffer, offset, source_kind) || !read_pod(buffer, offset, record.source_index)) {
     return false;
   }
-  if (summary_kind > static_cast<std::uint8_t>(BuiltinValueSlotSummaryKind::kFileHandle) ||
+  if (summary_kind > static_cast<std::uint8_t>(vm::BuiltinValueSlotKind::kFileHandle) ||
       source_kind > static_cast<std::uint8_t>(BuiltinValueSlotSourceKind::kFunctionReturn)) {
     return false;
   }
-  record.summary_kind = static_cast<BuiltinValueSlotSummaryKind>(summary_kind);
+  record.summary_kind = static_cast<vm::BuiltinValueSlotKind>(summary_kind);
   record.source_kind = static_cast<BuiltinValueSlotSourceKind>(source_kind);
   return true;
 }
@@ -569,6 +578,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   write_pod(buffer, static_cast<std::uint64_t>(0));
 
   write_header(buffer, module.header);
+  write_pod(buffer, vm::kBuiltinTableHash);
 
   {
     const auto count = static_cast<std::uint32_t>(module.dependencies.size());
@@ -599,11 +609,9 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
   {
     const auto count = static_cast<std::uint32_t>(module.functions.size());
     write_pod(buffer, count);
-    for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                      generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
-                      return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
-                      return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
-                      operator_requirements, is_value_binding] : module.functions) {
+    for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params, generic_bounds, param_type_names,
+                      return_type_name, return_value_slot_kind, hidden_operator_params, operator_requirements, is_value_binding] :
+         module.functions) {
       write_string(buffer, name);
       write_pod(buffer, arity);
       write_pod(buffer, has_variadic_tail);
@@ -613,12 +621,7 @@ auto serialize_module(const Module& module) -> tl::expected<std::vector<std::uin
       write_string_list(buffer, generic_bounds);
       write_string_list(buffer, param_type_names);
       write_string(buffer, return_type_name);
-      write_pod(buffer, return_type_is_dict_string_any);
-      write_pod(buffer, return_type_is_exact_uint64);
-      write_pod(buffer, return_type_is_exact_int64);
-      write_pod(buffer, return_type_is_task_handle);
-      write_pod(buffer, return_type_is_random_generator);
-      write_pod(buffer, return_type_is_file_handle);
+      write_pod(buffer, encode_value_slot_kind(return_value_slot_kind));
       write_pod(buffer, hidden_operator_params);
       write_pod(buffer, static_cast<std::uint32_t>(operator_requirements.size()));
       for (const auto& requirement : operator_requirements) {
@@ -704,6 +707,9 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
   if (!read_header(buffer, offset, deserialized.header)) {
     return tl::unexpected(SerializationError{.message = "Cannot read module header"});
   }
+  if (std::uint64_t builtin_table_hash = 0; !read_pod(buffer, offset, builtin_table_hash) || builtin_table_hash != vm::kBuiltinTableHash) {
+    return tl::unexpected(SerializationError{.message = "Builtin table mismatch: compiled against other builtins"});
+  }
   deserialized.header.payload_checksum = checksum_bytes(buffer, kPayloadOffset);
 
   {
@@ -773,15 +779,10 @@ auto deserialize_module(const std::vector<std::uint8_t>& buffer) -> tl::expected
         return tl::unexpected(
             SerializationError{.message = std::format("Cannot read function '{}': {}", fn.name, *instruction_error)});
       }
-      if (!read_string_list(buffer, offset, fn.generic_params) ||
-          !read_string_list(buffer, offset, fn.generic_bounds) ||
+      std::uint8_t return_value_slot_kind = 0;
+      if (!read_string_list(buffer, offset, fn.generic_params) || !read_string_list(buffer, offset, fn.generic_bounds) ||
           !read_string_list(buffer, offset, fn.param_type_names) || !read_string(buffer, offset, fn.return_type_name) ||
-          !read_pod(buffer, offset, fn.return_type_is_dict_string_any) ||
-          !read_pod(buffer, offset, fn.return_type_is_exact_uint64) ||
-          !read_pod(buffer, offset, fn.return_type_is_exact_int64) ||
-          !read_pod(buffer, offset, fn.return_type_is_task_handle) ||
-          !read_pod(buffer, offset, fn.return_type_is_random_generator) ||
-          !read_pod(buffer, offset, fn.return_type_is_file_handle)) {
+          !read_pod(buffer, offset, return_value_slot_kind) || !decode_value_slot_kind(return_value_slot_kind, fn.return_value_slot_kind)) {
         return tl::unexpected(SerializationError{.message = "Cannot read function"});
       }
       std::uint32_t requirement_count = 0;
@@ -966,11 +967,9 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
   out << "Functions:\n";
   size_t func_index = 0;
-  for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params,
-                    generic_bounds, param_type_names, return_type_name, return_type_is_dict_string_any,
-                    return_type_is_exact_uint64, return_type_is_exact_int64, return_type_is_task_handle,
-                    return_type_is_random_generator, return_type_is_file_handle, hidden_operator_params,
-                    operator_requirements, is_value_binding] : module.functions) {
+  for (const auto& [name, arity, has_variadic_tail, is_import_placeholder, instructions, generic_params, generic_bounds, param_type_names,
+                    return_type_name, return_value_slot_kind, hidden_operator_params, operator_requirements, is_value_binding] :
+       module.functions) {
     out << std::format(
         "  Function {}:\n"
         "    name: {}\n"
@@ -978,16 +977,10 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
         "    has_variadic_tail: {}\n"
         "    is_import_placeholder: {}\n"
         "    return_type_name: {}\n"
-        "    return_type_is_dict_string_any: {}\n"
-        "    return_type_is_exact_uint64: {}\n"
-        "    return_type_is_exact_int64: {}\n"
-        "    return_type_is_task_handle: {}\n"
-        "    return_type_is_random_generator: {}\n"
-        "    return_type_is_file_handle: {}\n"
+        "    return_value_slot_kind: {}\n"
         "    is_value_binding: {}\n",
         func_index, name, arity, has_variadic_tail, is_import_placeholder, return_type_name,
-        return_type_is_dict_string_any, return_type_is_exact_uint64, return_type_is_exact_int64,
-        return_type_is_task_handle, return_type_is_random_generator, return_type_is_file_handle, is_value_binding);
+        return_value_slot_kind.has_value() ? vm::builtin_value_slot_kind_name(*return_value_slot_kind) : "none", is_value_binding);
 
     if (!generic_params.empty()) {
       out << "    generic_params:";
@@ -1098,18 +1091,7 @@ auto disassemble_module(const Module& module, std::ostream& out) -> tl::expected
 
     for (const auto& value_slot : record.value_slots) {
       out << std::format("      value slot {}: summary={} source_kind={} source_index={}\n", value_slot.slot_index,
-                         value_slot.summary_kind == BuiltinValueSlotSummaryKind::kDictStringAny
-                             ? "Dict<String, Any>"
-                             : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactUInt64
-                                   ? "UInt64"
-                                   : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kExactInt64 ? "Int64"
-                                          : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kTaskHandle
-                                                ? "TaskHandle"
-                                                : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kRandomGenerator
-                                                      ? "RandomGenerator"
-                                                      : value_slot.summary_kind == BuiltinValueSlotSummaryKind::kFileHandle
-                                                            ? "FileHandle"
-                                                            : "unknown",
+                         vm::builtin_value_slot_kind_name(value_slot.summary_kind),
                          value_slot.source_kind == BuiltinValueSlotSourceKind::kFunctionReturn ? "function_return" : "unknown",
                          value_slot.source_index);
     }

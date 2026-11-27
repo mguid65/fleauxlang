@@ -55,7 +55,6 @@ using OutputSink = std::function<void(std::string_view)>;
 struct VmHostConfig {
   std::vector<std::string> process_args{};
   std::vector<std::filesystem::path> import_roots{};
-  vm::RuntimeCompileOptions compile_options{};
   std::optional<OutputSink> stdout_sink{std::nullopt};
   // Optional non-owning observer. When unset, runtime input falls back to the
   // process stdin stream for execution and Fleaux calls that use Std.Input.

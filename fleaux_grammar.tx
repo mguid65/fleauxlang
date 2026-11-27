@@ -31,9 +31,11 @@ AliasStatement:
 LetStatement:
   FunctionLetStatement | ValueLetStatement;
 
+// '__builtin__' declares a function the runtime provides; '__native__' one an extension implements, which the host's
+// native bindings call.
 FunctionLetStatement:
   'let' id=OptionallyQualifiedId generic_params=OptionalGenericParamList '(' params=ParameterDeclList ')' ':' rtype=Type
-  DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__');
+  DeclarationDefinitionSeparator (expr=Expression | expr='__builtin__' | expr='__native__');
 
 ValueLetStatement:
   'let' id=OptionallyQualifiedId ':' rtype=Type '=' expr=Expression;
@@ -65,14 +67,14 @@ TypeList:
 SimpleType:
   'Int64' | 'UInt64' | 'Float64' | 'String' | 'Bool' | 'Null' | 'Any' | 'Never';
 
+// A type, a variadic type 'T...', or a union of alternatives such as 'Int64 | UInt64 | Null'. A variadic type is not
+// an alternative of a union.
 Type:
-  (base=SimpleType |
-   base=TupleType |
-   base=AppliedType |
-   base=FunctionType |
-   base=QualifiedId |
-   base=Identifier)
-  variadic?='...';
+  base=TypeBase variadic?='...' |
+  first=TypeBase ('|' alternatives+=Type)+;
+
+TypeBase:
+  SimpleType | TupleType | AppliedType | FunctionType | QualifiedId | Identifier;
 
 // Type arguments always use angle brackets, e.g. Tuple<Int64, String>, Tuple<T...>, Tuple<>.
 TupleType:
@@ -170,6 +172,8 @@ NamespaceIdentifier:
 // STRING also covers raw strings, which the lexer reads: three or more quotes open and close one, and the content has
 // no escapes. When only whitespace follows the opening quotes, the content is the lines up to the closing quotes,
 // which stand on a line of their own, with the closing quotes' indentation removed from each line.
+// A NUMBER ending in 'u64', such as 0u64, is a UInt64; other integers are Int64, and a number with a '.' or an exponent
+// is a Float64.
 Constant:
   val=NUMBER | val=STRING | val=BOOL | val='null';
 

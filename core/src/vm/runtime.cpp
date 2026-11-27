@@ -482,24 +482,12 @@ constexpr std::size_t k_min_frame_capacity = 4U;
   return std::max(k_min_frame_capacity, function_count + 1U);
 }
 
-auto constant_builtin_value(const BuiltinId builtin_id) -> std::optional<double> {
-  for (const auto& spec : all_constant_builtin_specs()) {
-    if (spec.id == builtin_id) {
-      return spec.value;
-    }
-  }
-  return std::nullopt;
-}
-
 // Forward declarations.
 auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, CallFrameStack& frames,
               std::ostream& output) -> LoopResult;
 
-auto dispatch_builtin(BuiltinId builtin_id, BuiltinCallShape /*shape*/, Value arg) -> tl::expected<Value, RuntimeError>;
+auto dispatch_builtin(BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError>;
 auto dispatch_builtin_args(BuiltinId builtin_id, std::span<Value> values) -> tl::expected<Value, RuntimeError>;
-auto builtin_constant(BuiltinId builtin_id) -> Value;
-using ArgumentsBuiltin = Value (*)(const runtime::Arguments&);
-[[nodiscard]] auto arguments_builtin(BuiltinId builtin_id) -> ArgumentsBuiltin;
 
 // The two-argument form of a builtin, for the builtins that have one.
 using BinaryBuiltin = auto (*)(const Value&, const Value&) -> Value;
@@ -918,15 +906,14 @@ private:
 // A function value for a builtin.
 class BuiltinCallable final : public runtime::Callable {
 public:
-  BuiltinCallable(const BuiltinId builtin_id, const BuiltinCallShape shape)
-      : builtin_id_(builtin_id), shape_(shape), binary_(builtin_binary_specialization(builtin_id)) {}
+  explicit BuiltinCallable(const BuiltinId builtin_id) : builtin_id_(builtin_id), binary_(builtin_binary_specialization(builtin_id)) {}
 
   [[nodiscard]] auto call(Value argument) const -> Value override {
-    return value_or_throw(dispatch_builtin(builtin_id_, shape_, std::move(argument)));
+    return value_or_throw(dispatch_builtin(builtin_id_, std::move(argument)));
   }
 
   [[nodiscard]] auto call_or_fail(Value argument, std::string& error) const -> std::optional<Value> override {
-    auto result = dispatch_builtin(builtin_id_, shape_, std::move(argument));
+    auto result = dispatch_builtin(builtin_id_, std::move(argument));
     if (!result) {
       error = std::move(result.error().message);
       return std::nullopt;
@@ -948,7 +935,6 @@ public:
 
 private:
   BuiltinId builtin_id_;
-  BuiltinCallShape shape_;
   BinaryBuiltin binary_;
 };
 
@@ -996,9 +982,7 @@ auto call_function_value_natively(Value& argument, const runtime::Callable& call
   return run_native_op(opname, [&]() -> Value { return callable.call(std::move(argument)); });
 }
 
-auto make_builtin_function_value(const BuiltinId builtin_id, const BuiltinCallShape shape) -> Value {
-  return runtime::adopt_function(new BuiltinCallable(builtin_id, shape));
-}
+auto make_builtin_function_value(const BuiltinId builtin_id) -> Value { return runtime::adopt_function(new BuiltinCallable(builtin_id)); }
 
 // run_loop
 
@@ -1190,15 +1174,10 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
-        const auto builtin_shape = builtin_call_shape_from_operand(operand);
-        if (!builtin_shape.has_value()) {
-          return tl::unexpected(make_runtime_error("builtin operand shape is invalid"));
-        }
-
         if (stack.empty()) {
           return tl::unexpected(stack_underflow("call_builtin"));
         }
-        auto result = dispatch_builtin(*builtin_id, *builtin_shape, std::move(stack.back()));
+        auto result = dispatch_builtin(*builtin_id, std::move(stack.back()));
         if (!result)
           return tl::unexpected(result.error());
         stack.back() = std::move(*result);
@@ -1340,11 +1319,7 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
         if (!builtin_id.has_value()) {
           return tl::unexpected(make_runtime_error("builtin index out of range"));
         }
-        const auto builtin_shape = builtin_call_shape_from_operand(operand);
-        if (!builtin_shape.has_value()) {
-          return tl::unexpected(make_runtime_error("builtin operand shape is invalid"));
-        }
-        stack.push_back(make_builtin_function_value(*builtin_id, *builtin_shape));
+        stack.push_back(make_builtin_function_value(*builtin_id));
         break;
       }
 
@@ -1796,366 +1771,284 @@ auto run_loop(const RunningModule& running_module, std::vector<Value>& stack, Ca
   }
 }
 
-auto dispatch_builtin(const BuiltinId builtin_id, const BuiltinCallShape /*shape*/, Value arg)
-    -> tl::expected<Value, RuntimeError> {
-  try {
-    if (builtin_takes_arguments(builtin_id)) {
-      // An argument tuple, built at run time (a spread) or by a call through a function value.
-      if (const ArgumentsBuiltin builtin = arguments_builtin(builtin_id); builtin != nullptr) {
-        return builtin(runtime::Arguments{std::move(arg)});
-      }
-      return builtin_constant(builtin_id);
-    }
-    switch (builtin_id) {
-      case BuiltinId::UnaryPlus:
-        return runtime::UnaryPlus(std::move(arg));
-      case BuiltinId::UnaryMinus:
-        return runtime::UnaryMinus(std::move(arg));
-      case BuiltinId::BitNot:
-        return runtime::BitNot(std::move(arg));
-      case BuiltinId::Not:
-        return runtime::Not(std::move(arg));
-      case BuiltinId::Printf:
-        return runtime::Printf(std::move(arg));
-      case BuiltinId::Println:
-        return runtime::Println(std::move(arg));
-      case BuiltinId::Type:
-        return runtime::Type(std::move(arg));
-      case BuiltinId::InputString:
-        return runtime::Input_String(std::move(arg));
-      case BuiltinId::Help:
-        return runtime::Help(std::move(arg));
-      case BuiltinId::ExitInt64:
-        return runtime::Exit_Int64(std::move(arg));
-      case BuiltinId::OSEnv:
-        return runtime::OSEnv(std::move(arg));
-      case BuiltinId::OSHasEnv:
-        return runtime::OSHasEnv(std::move(arg));
-      case BuiltinId::OSUnsetEnv:
-        return runtime::OSUnsetEnv(std::move(arg));
-      case BuiltinId::OSExec:
-        return runtime::OSExec(std::move(arg));
-      case BuiltinId::PathNormalize:
-        return runtime::PathNormalize(std::move(arg));
-      case BuiltinId::PathBasename:
-        return runtime::PathBasename(std::move(arg));
-      case BuiltinId::PathDirname:
-        return runtime::PathDirname(std::move(arg));
-      case BuiltinId::PathExists:
-        return runtime::PathExists(std::move(arg));
-      case BuiltinId::PathIsFile:
-        return runtime::PathIsFile(std::move(arg));
-      case BuiltinId::PathIsDir:
-        return runtime::PathIsDir(std::move(arg));
-      case BuiltinId::PathAbsolute:
-        return runtime::PathAbsolute(std::move(arg));
-      case BuiltinId::PathExtension:
-        return runtime::PathExtension(std::move(arg));
-      case BuiltinId::PathStem:
-        return runtime::PathStem(std::move(arg));
-      case BuiltinId::FileReadText:
-        return runtime::FileReadText(std::move(arg));
-      case BuiltinId::FileReadLines:
-        return runtime::FileReadLines(std::move(arg));
-      case BuiltinId::FileDelete:
-        return runtime::FileDelete(std::move(arg));
-      case BuiltinId::FileSize:
-        return runtime::FileSize(std::move(arg));
-      case BuiltinId::FileReadLine:
-        return runtime::FileReadLine(std::move(arg));
-      case BuiltinId::FileFlush:
-        return runtime::FileFlush(std::move(arg));
-      case BuiltinId::FileClose:
-        return runtime::FileClose(std::move(arg));
-      case BuiltinId::DirCreate:
-        return runtime::DirCreate(std::move(arg));
-      case BuiltinId::DirDelete:
-        return runtime::DirDelete(std::move(arg));
-      case BuiltinId::DirList:
-        return runtime::DirList(std::move(arg));
-      case BuiltinId::DirListFull:
-        return runtime::DirListFull(std::move(arg));
-      case BuiltinId::TupleReverse:
-        return runtime::TupleReverse(std::move(arg));
-      case BuiltinId::TupleSort:
-        return runtime::TupleSort(std::move(arg));
-      case BuiltinId::TupleUnique:
-        return runtime::TupleUnique(std::move(arg));
-      case BuiltinId::TupleMin:
-        return runtime::TupleMin(std::move(arg));
-      case BuiltinId::TupleMax:
-        return runtime::TupleMax(std::move(arg));
-      case BuiltinId::TupleRangeInt64:
-        return runtime::TupleRangeInt64(std::move(arg));
-      case BuiltinId::ArrayTranspose2D:
-        return runtime::ArrayTranspose2D(std::move(arg));
-      case BuiltinId::ArrayRank:
-        return runtime::ArrayRank(std::move(arg));
-      case BuiltinId::ArrayShape:
-        return runtime::ArrayShape(std::move(arg));
-      case BuiltinId::ArrayFlatten:
-        return runtime::ArrayFlatten(std::move(arg));
-      case BuiltinId::DictCreateDict:
-        return runtime::DictCreate_Dict(std::move(arg));
-      case BuiltinId::DictKeys:
-        return runtime::DictKeys(std::move(arg));
-      case BuiltinId::DictValues:
-        return runtime::DictValues(std::move(arg));
-      case BuiltinId::DictEntries:
-        return runtime::DictEntries(std::move(arg));
-      case BuiltinId::DictClear:
-        return runtime::DictClear(std::move(arg));
-      case BuiltinId::DictLength:
-        return runtime::DictLength(std::move(arg));
-      case BuiltinId::Cast:
-        return runtime::Cast(std::move(arg));
-      case BuiltinId::TryCast:
-        return runtime::TryCast(std::move(arg));
-      case BuiltinId::ToInt64:
-        return runtime::ToInt64(std::move(arg));
-      case BuiltinId::ToUInt64:
-        return runtime::ToUInt64(std::move(arg));
-      case BuiltinId::ToFloat64:
-        return runtime::ToFloat64(std::move(arg));
-      case BuiltinId::RandomCreate:
-        return runtime::RandomCreate(std::move(arg));
-      case BuiltinId::RandomNextUInt64:
-        return runtime::RandomNextUInt64(std::move(arg));
-      case BuiltinId::RandomNextInt64:
-        return runtime::RandomNextInt64(std::move(arg));
-      case BuiltinId::RandomNextFloat64:
-        return runtime::RandomNextFloat64(std::move(arg));
-      case BuiltinId::RandomNextBool:
-        return runtime::RandomNextBool(std::move(arg));
-      case BuiltinId::RandomSplit:
-        return runtime::RandomSplit(std::move(arg));
-      case BuiltinId::MathFloor:
-        return runtime::MathFloor(std::move(arg));
-      case BuiltinId::MathCeil:
-        return runtime::MathCeil(std::move(arg));
-      case BuiltinId::MathAbs:
-        return runtime::MathAbs(std::move(arg));
-      case BuiltinId::MathLog:
-        return runtime::MathLog(std::move(arg));
-      case BuiltinId::Sqrt:
-        return runtime::Sqrt(std::move(arg));
-      case BuiltinId::Sin:
-        return runtime::Sin(std::move(arg));
-      case BuiltinId::Cos:
-        return runtime::Cos(std::move(arg));
-      case BuiltinId::Tan:
-        return runtime::Tan(std::move(arg));
-      case BuiltinId::ResultOk:
-        return runtime::ResultOk(std::move(arg));
-      case BuiltinId::ResultErr:
-        return runtime::ResultErr(std::move(arg));
-      case BuiltinId::ResultTag:
-        return runtime::ResultTag(std::move(arg));
-      case BuiltinId::ResultPayload:
-        return runtime::ResultPayload(std::move(arg));
-      case BuiltinId::ResultIsOk:
-        return runtime::ResultIsOk(std::move(arg));
-      case BuiltinId::ResultIsErr:
-        return runtime::ResultIsErr(std::move(arg));
-      case BuiltinId::ResultUnwrap:
-        return runtime::ResultUnwrap(std::move(arg));
-      case BuiltinId::ResultUnwrapErr:
-        return runtime::ResultUnwrapErr(std::move(arg));
-      case BuiltinId::TaskAwait:
-        return runtime::TaskAwait(std::move(arg));
-      case BuiltinId::TaskAwaitAll:
-        return runtime::TaskAwaitAll(std::move(arg));
-      case BuiltinId::TaskCancel:
-        return runtime::TaskCancel(std::move(arg));
-      case BuiltinId::Wrap:
-        return runtime::Wrap(std::move(arg));
-      case BuiltinId::Unwrap:
-        return runtime::Unwrap(std::move(arg));
-      case BuiltinId::First:
-        return runtime::First(std::move(arg));
-      case BuiltinId::Second:
-        return runtime::Second(std::move(arg));
-      case BuiltinId::Length:
-        return runtime::Length(std::move(arg));
-      case BuiltinId::ToString:
-        return runtime::ToString(std::move(arg));
-      case BuiltinId::ToNum:
-        return runtime::ToNum(std::move(arg));
-      case BuiltinId::StringParseInt64:
-        return runtime::StringParseInt64(std::move(arg));
-      case BuiltinId::StringParseUInt64:
-        return runtime::StringParseUInt64(std::move(arg));
-      case BuiltinId::StringParseFloat64:
-        return runtime::StringParseFloat64(std::move(arg));
-      case BuiltinId::StringUpper:
-        return runtime::StringUpper(std::move(arg));
-      case BuiltinId::StringLower:
-        return runtime::StringLower(std::move(arg));
-      case BuiltinId::StringTrim:
-        return runtime::StringTrim(std::move(arg));
-      case BuiltinId::StringTrimStart:
-        return runtime::StringTrimStart(std::move(arg));
-      case BuiltinId::StringTrimEnd:
-        return runtime::StringTrimEnd(std::move(arg));
-      case BuiltinId::StringLength:
-        return runtime::StringLength(std::move(arg));
-      default:
-        return tl::unexpected(make_runtime_error("unknown builtin id"));
-    }
-  } catch (const std::exception& ex) {
-    return tl::unexpected(
-        make_runtime_error(std::string("builtin '") + std::string(builtin_name(builtin_id)) + "' threw: " + ex.what()));
-  }
-}
+// The function of each callable builtin, by BuiltinId. A builtin of one parameter, Std.Println, and Std.Printf take
+// their argument as a value; every other builtin takes runtime::Arguments (vm::builtin_takes_arguments). A call is
+// one indirect call. The constants have no function: builtin_constant gives their values.
+using ValueBuiltin = Value (*)(Value&&);
+using ArgumentsBuiltin = Value (*)(const runtime::Arguments&);
 
-// The builtins that take runtime::Arguments (vm::builtin_takes_arguments), by BuiltinId; the constants have none. The
-// call is one indirect call, and the check below makes a builtin that takes Arguments without an entry a compile
-// error.
-constexpr auto kArgumentsBuiltins = []() {
-  std::array<ArgumentsBuiltin, builtin_count()> table{};
-  table[static_cast<std::size_t>(BuiltinId::Add)] = &runtime::Add;
-  table[static_cast<std::size_t>(BuiltinId::Subtract)] = &runtime::Subtract;
-  table[static_cast<std::size_t>(BuiltinId::Multiply)] = &runtime::Multiply;
-  table[static_cast<std::size_t>(BuiltinId::WrappingAdd)] = &runtime::WrappingAdd;
-  table[static_cast<std::size_t>(BuiltinId::WrappingSubtract)] = &runtime::WrappingSubtract;
-  table[static_cast<std::size_t>(BuiltinId::WrappingMultiply)] = &runtime::WrappingMultiply;
-  table[static_cast<std::size_t>(BuiltinId::SaturatingAdd)] = &runtime::SaturatingAdd;
-  table[static_cast<std::size_t>(BuiltinId::SaturatingSubtract)] = &runtime::SaturatingSubtract;
-  table[static_cast<std::size_t>(BuiltinId::SaturatingMultiply)] = &runtime::SaturatingMultiply;
-  table[static_cast<std::size_t>(BuiltinId::Divide)] = &runtime::Divide;
-  table[static_cast<std::size_t>(BuiltinId::Mod)] = &runtime::Mod;
-  table[static_cast<std::size_t>(BuiltinId::Pow)] = &runtime::Pow;
-  table[static_cast<std::size_t>(BuiltinId::BitAnd)] = &runtime::BitAnd;
-  table[static_cast<std::size_t>(BuiltinId::BitOr)] = &runtime::BitOr;
-  table[static_cast<std::size_t>(BuiltinId::BitXor)] = &runtime::BitXor;
-  table[static_cast<std::size_t>(BuiltinId::BitShiftLeft)] = &runtime::BitShiftLeft;
-  table[static_cast<std::size_t>(BuiltinId::BitShiftRight)] = &runtime::BitShiftRight;
-  table[static_cast<std::size_t>(BuiltinId::Equal)] = &runtime::Equal;
-  table[static_cast<std::size_t>(BuiltinId::NotEqual)] = &runtime::NotEqual;
-  table[static_cast<std::size_t>(BuiltinId::LessThan)] = &runtime::LessThan;
-  table[static_cast<std::size_t>(BuiltinId::GreaterThan)] = &runtime::GreaterThan;
-  table[static_cast<std::size_t>(BuiltinId::GreaterOrEqual)] = &runtime::GreaterOrEqual;
-  table[static_cast<std::size_t>(BuiltinId::LessOrEqual)] = &runtime::LessOrEqual;
-  table[static_cast<std::size_t>(BuiltinId::And)] = &runtime::And;
-  table[static_cast<std::size_t>(BuiltinId::Or)] = &runtime::Or;
-  table[static_cast<std::size_t>(BuiltinId::Select)] = &runtime::Select;
-  table[static_cast<std::size_t>(BuiltinId::Match)] = &runtime::Match;
-  table[static_cast<std::size_t>(BuiltinId::Apply)] = &runtime::Apply;
-  table[static_cast<std::size_t>(BuiltinId::Branch)] = &runtime::Branch;
-  table[static_cast<std::size_t>(BuiltinId::Loop)] = &runtime::Loop;
-  table[static_cast<std::size_t>(BuiltinId::LoopN)] = &runtime::LoopN;
-  table[static_cast<std::size_t>(BuiltinId::GetArgs)] = &runtime::GetArgs;
-  table[static_cast<std::size_t>(BuiltinId::InputVoid)] = &runtime::Input_Void;
-  table[static_cast<std::size_t>(BuiltinId::ExitVoid)] = &runtime::Exit_Void;
-  table[static_cast<std::size_t>(BuiltinId::Cwd)] = &runtime::Cwd;
-  table[static_cast<std::size_t>(BuiltinId::OSSetEnv)] = &runtime::OSSetEnv;
-  table[static_cast<std::size_t>(BuiltinId::OSIsWindows)] = &runtime::OSIsWindows;
-  table[static_cast<std::size_t>(BuiltinId::OSIsLinux)] = &runtime::OSIsLinux;
-  table[static_cast<std::size_t>(BuiltinId::OSIsMacOS)] = &runtime::OSIsMacOS;
-  table[static_cast<std::size_t>(BuiltinId::OSHome)] = &runtime::OSHome;
-  table[static_cast<std::size_t>(BuiltinId::OSTempDir)] = &runtime::OSTempDir;
-  table[static_cast<std::size_t>(BuiltinId::OSMakeTempFile)] = &runtime::OSMakeTempFile;
-  table[static_cast<std::size_t>(BuiltinId::OSMakeTempDir)] = &runtime::OSMakeTempDir;
-  table[static_cast<std::size_t>(BuiltinId::PathJoin)] = &runtime::PathJoin;
-  table[static_cast<std::size_t>(BuiltinId::PathWithExtension)] = &runtime::PathWithExtension;
-  table[static_cast<std::size_t>(BuiltinId::PathWithBasename)] = &runtime::PathWithBasename;
-  table[static_cast<std::size_t>(BuiltinId::FileWriteText)] = &runtime::FileWriteText;
-  table[static_cast<std::size_t>(BuiltinId::FileAppendText)] = &runtime::FileAppendText;
-  table[static_cast<std::size_t>(BuiltinId::FileOpen)] = &runtime::FileOpen;
-  table[static_cast<std::size_t>(BuiltinId::FileReadChunk)] = &runtime::FileReadChunk;
-  table[static_cast<std::size_t>(BuiltinId::FileWriteChunk)] = &runtime::FileWriteChunk;
-  table[static_cast<std::size_t>(BuiltinId::FileWithOpen)] = &runtime::FileWithOpen;
-  table[static_cast<std::size_t>(BuiltinId::TupleAppend)] = &runtime::TupleAppend;
-  table[static_cast<std::size_t>(BuiltinId::TuplePrepend)] = &runtime::TuplePrepend;
-  table[static_cast<std::size_t>(BuiltinId::TupleContains)] = &runtime::TupleContains;
-  table[static_cast<std::size_t>(BuiltinId::TupleZip)] = &runtime::TupleZip;
-  table[static_cast<std::size_t>(BuiltinId::TupleMap)] = &runtime::TupleMap;
-  table[static_cast<std::size_t>(BuiltinId::TupleFilter)] = &runtime::TupleFilter;
-  table[static_cast<std::size_t>(BuiltinId::TupleReduce)] = &runtime::TupleReduce;
-  table[static_cast<std::size_t>(BuiltinId::TupleFindIndex)] = &runtime::TupleFindIndex;
-  table[static_cast<std::size_t>(BuiltinId::TupleAny)] = &runtime::TupleAny;
-  table[static_cast<std::size_t>(BuiltinId::TupleAll)] = &runtime::TupleAll;
-  table[static_cast<std::size_t>(BuiltinId::TupleRangeInt64Int64)] = &runtime::TupleRangeInt64Int64;
-  table[static_cast<std::size_t>(BuiltinId::TupleRangeInt64Int64Int64)] = &runtime::TupleRangeInt64Int64Int64;
-  table[static_cast<std::size_t>(BuiltinId::ArrayGetAt)] = &runtime::ArrayGetAt;
-  table[static_cast<std::size_t>(BuiltinId::ArraySetAt)] = &runtime::ArraySetAt;
-  table[static_cast<std::size_t>(BuiltinId::ArrayInsertAt)] = &runtime::ArrayInsertAt;
-  table[static_cast<std::size_t>(BuiltinId::ArrayRemoveAt)] = &runtime::ArrayRemoveAt;
-  table[static_cast<std::size_t>(BuiltinId::ArraySlice)] = &runtime::ArraySlice;
-  table[static_cast<std::size_t>(BuiltinId::ArrayConcat)] = &runtime::ArrayConcat;
-  table[static_cast<std::size_t>(BuiltinId::ArraySetAt2D)] = &runtime::ArraySetAt2D;
-  table[static_cast<std::size_t>(BuiltinId::ArrayFill)] = &runtime::ArrayFill;
-  table[static_cast<std::size_t>(BuiltinId::ArraySlice2D)] = &runtime::ArraySlice2D;
-  table[static_cast<std::size_t>(BuiltinId::ArrayReshape)] = &runtime::ArrayReshape;
-  table[static_cast<std::size_t>(BuiltinId::ArrayGetAtND)] = &runtime::ArrayGetAtND;
-  table[static_cast<std::size_t>(BuiltinId::ArraySetAtND)] = &runtime::ArraySetAtND;
-  table[static_cast<std::size_t>(BuiltinId::ArrayReshapeND)] = &runtime::ArrayReshapeND;
-  table[static_cast<std::size_t>(BuiltinId::DictCreateVoid)] = &runtime::DictCreate_Void;
-  table[static_cast<std::size_t>(BuiltinId::DictSet)] = &runtime::DictSet;
-  table[static_cast<std::size_t>(BuiltinId::DictGet)] = &runtime::DictGet;
-  table[static_cast<std::size_t>(BuiltinId::DictGetDefault)] = &runtime::DictGetDefault;
-  table[static_cast<std::size_t>(BuiltinId::DictContains)] = &runtime::DictContains;
-  table[static_cast<std::size_t>(BuiltinId::DictDelete)] = &runtime::DictDelete;
-  table[static_cast<std::size_t>(BuiltinId::DictMerge)] = &runtime::DictMerge;
-  table[static_cast<std::size_t>(BuiltinId::MathClamp)] = &runtime::MathClamp;
-  table[static_cast<std::size_t>(BuiltinId::Try)] = &runtime::Try;
-  table[static_cast<std::size_t>(BuiltinId::ParallelMap)] = &runtime::ParallelMap;
-  table[static_cast<std::size_t>(BuiltinId::ParallelWithOptions)] = &runtime::ParallelWithOptions;
-  table[static_cast<std::size_t>(BuiltinId::ParallelForEach)] = &runtime::ParallelForEach;
-  table[static_cast<std::size_t>(BuiltinId::ParallelReduce)] = &runtime::ParallelReduce;
-  table[static_cast<std::size_t>(BuiltinId::TaskSpawn)] = &runtime::TaskSpawn;
-  table[static_cast<std::size_t>(BuiltinId::TaskWithTimeout)] = &runtime::TaskWithTimeout;
-  table[static_cast<std::size_t>(BuiltinId::ElementAt)] = &runtime::ElementAt;
-  table[static_cast<std::size_t>(BuiltinId::Take)] = &runtime::Take;
-  table[static_cast<std::size_t>(BuiltinId::Drop)] = &runtime::Drop;
-  table[static_cast<std::size_t>(BuiltinId::SliceTupleUInt64)] = &runtime::SliceTupleUInt64;
-  table[static_cast<std::size_t>(BuiltinId::SliceTupleUInt64UInt64)] = &runtime::SliceTupleUInt64UInt64;
-  table[static_cast<std::size_t>(BuiltinId::SliceTupleUInt64UInt64UInt64)] = &runtime::SliceTupleUInt64UInt64UInt64;
-  table[static_cast<std::size_t>(BuiltinId::StringSplit)] = &runtime::StringSplit;
-  table[static_cast<std::size_t>(BuiltinId::StringJoin)] = &runtime::StringJoin;
-  table[static_cast<std::size_t>(BuiltinId::StringReplace)] = &runtime::StringReplace;
-  table[static_cast<std::size_t>(BuiltinId::StringContains)] = &runtime::StringContains;
-  table[static_cast<std::size_t>(BuiltinId::StringStartsWith)] = &runtime::StringStartsWith;
-  table[static_cast<std::size_t>(BuiltinId::StringEndsWith)] = &runtime::StringEndsWith;
-  table[static_cast<std::size_t>(BuiltinId::StringCharAt)] = &runtime::StringCharAt;
-  table[static_cast<std::size_t>(BuiltinId::StringSliceStringUInt64)] = &runtime::StringSliceStringUInt64;
-  table[static_cast<std::size_t>(BuiltinId::StringSliceStringUInt64UInt64)] = &runtime::StringSliceStringUInt64UInt64;
-  table[static_cast<std::size_t>(BuiltinId::StringFindStringString)] = &runtime::StringFindStringString;
-  table[static_cast<std::size_t>(BuiltinId::StringFindStringStringUInt64)] = &runtime::StringFindStringStringUInt64;
-  table[static_cast<std::size_t>(BuiltinId::StringFormat)] = &runtime::StringFormat;
-  table[static_cast<std::size_t>(BuiltinId::StringRegexIsMatch)] = &runtime::StringRegexIsMatch;
-  table[static_cast<std::size_t>(BuiltinId::StringRegexFind)] = &runtime::StringRegexFind;
-  table[static_cast<std::size_t>(BuiltinId::StringRegexReplace)] = &runtime::StringRegexReplace;
-  table[static_cast<std::size_t>(BuiltinId::StringRegexSplit)] = &runtime::StringRegexSplit;
+struct BuiltinImplementation {
+  ValueBuiltin value{nullptr};
+  ArgumentsBuiltin arguments{nullptr};
+};
+
+constexpr auto kBuiltinImplementations = []() {
+  std::array<BuiltinImplementation, builtin_count()> table{};
+  const auto takes_value = [&table](const BuiltinId id, const ValueBuiltin function) -> void {
+    table[static_cast<std::size_t>(id)].value = function;
+  };
+  const auto takes_arguments = [&table](const BuiltinId id, const ArgumentsBuiltin function) -> void {
+    table[static_cast<std::size_t>(id)].arguments = function;
+  };
+
+  takes_value(BuiltinId::UnaryPlus, [](Value&& arg) -> Value { return runtime::UnaryPlus(std::move(arg)); });
+  takes_value(BuiltinId::UnaryMinus, [](Value&& arg) -> Value { return runtime::UnaryMinus(std::move(arg)); });
+  takes_value(BuiltinId::BitNot, [](Value&& arg) -> Value { return runtime::BitNot(std::move(arg)); });
+  takes_value(BuiltinId::Not, [](Value&& arg) -> Value { return runtime::Not(std::move(arg)); });
+  takes_value(BuiltinId::Printf, [](Value&& arg) -> Value { return runtime::Printf(std::move(arg)); });
+  takes_value(BuiltinId::Println, [](Value&& arg) -> Value { return runtime::Println(std::move(arg)); });
+  takes_value(BuiltinId::Type, [](Value&& arg) -> Value { return runtime::Type(std::move(arg)); });
+  takes_value(BuiltinId::InputString, [](Value&& arg) -> Value { return runtime::Input_String(std::move(arg)); });
+  takes_value(BuiltinId::Help, [](Value&& arg) -> Value { return runtime::Help(std::move(arg)); });
+  takes_value(BuiltinId::ExitInt64, [](Value&& arg) -> Value { return runtime::Exit_Int64(std::move(arg)); });
+  takes_value(BuiltinId::OSEnv, [](Value&& arg) -> Value { return runtime::OSEnv(std::move(arg)); });
+  takes_value(BuiltinId::OSHasEnv, [](Value&& arg) -> Value { return runtime::OSHasEnv(std::move(arg)); });
+  takes_value(BuiltinId::OSUnsetEnv, [](Value&& arg) -> Value { return runtime::OSUnsetEnv(std::move(arg)); });
+  takes_value(BuiltinId::OSExec, [](Value&& arg) -> Value { return runtime::OSExec(std::move(arg)); });
+  takes_value(BuiltinId::PathNormalize, [](Value&& arg) -> Value { return runtime::PathNormalize(std::move(arg)); });
+  takes_value(BuiltinId::PathBasename, [](Value&& arg) -> Value { return runtime::PathBasename(std::move(arg)); });
+  takes_value(BuiltinId::PathDirname, [](Value&& arg) -> Value { return runtime::PathDirname(std::move(arg)); });
+  takes_value(BuiltinId::PathExists, [](Value&& arg) -> Value { return runtime::PathExists(std::move(arg)); });
+  takes_value(BuiltinId::PathIsFile, [](Value&& arg) -> Value { return runtime::PathIsFile(std::move(arg)); });
+  takes_value(BuiltinId::PathIsDir, [](Value&& arg) -> Value { return runtime::PathIsDir(std::move(arg)); });
+  takes_value(BuiltinId::PathAbsolute, [](Value&& arg) -> Value { return runtime::PathAbsolute(std::move(arg)); });
+  takes_value(BuiltinId::PathExtension, [](Value&& arg) -> Value { return runtime::PathExtension(std::move(arg)); });
+  takes_value(BuiltinId::PathStem, [](Value&& arg) -> Value { return runtime::PathStem(std::move(arg)); });
+  takes_value(BuiltinId::FileReadText, [](Value&& arg) -> Value { return runtime::FileReadText(std::move(arg)); });
+  takes_value(BuiltinId::FileReadLines, [](Value&& arg) -> Value { return runtime::FileReadLines(std::move(arg)); });
+  takes_value(BuiltinId::FileDelete, [](Value&& arg) -> Value { return runtime::FileDelete(std::move(arg)); });
+  takes_value(BuiltinId::FileSize, [](Value&& arg) -> Value { return runtime::FileSize(std::move(arg)); });
+  takes_value(BuiltinId::FileReadLine, [](Value&& arg) -> Value { return runtime::FileReadLine(std::move(arg)); });
+  takes_value(BuiltinId::FileFlush, [](Value&& arg) -> Value { return runtime::FileFlush(std::move(arg)); });
+  takes_value(BuiltinId::FileClose, [](Value&& arg) -> Value { return runtime::FileClose(std::move(arg)); });
+  takes_value(BuiltinId::DirCreate, [](Value&& arg) -> Value { return runtime::DirCreate(std::move(arg)); });
+  takes_value(BuiltinId::DirDelete, [](Value&& arg) -> Value { return runtime::DirDelete(std::move(arg)); });
+  takes_value(BuiltinId::DirList, [](Value&& arg) -> Value { return runtime::DirList(std::move(arg)); });
+  takes_value(BuiltinId::DirListFull, [](Value&& arg) -> Value { return runtime::DirListFull(std::move(arg)); });
+  takes_value(BuiltinId::TupleReverse, [](Value&& arg) -> Value { return runtime::TupleReverse(std::move(arg)); });
+  takes_value(BuiltinId::TupleSort, [](Value&& arg) -> Value { return runtime::TupleSort(std::move(arg)); });
+  takes_value(BuiltinId::TupleUnique, [](Value&& arg) -> Value { return runtime::TupleUnique(std::move(arg)); });
+  takes_value(BuiltinId::TupleMin, [](Value&& arg) -> Value { return runtime::TupleMin(std::move(arg)); });
+  takes_value(BuiltinId::TupleMax, [](Value&& arg) -> Value { return runtime::TupleMax(std::move(arg)); });
+  takes_value(BuiltinId::TupleRangeInt64, [](Value&& arg) -> Value { return runtime::TupleRangeInt64(std::move(arg)); });
+  takes_value(BuiltinId::ArrayTranspose2D, [](Value&& arg) -> Value { return runtime::ArrayTranspose2D(std::move(arg)); });
+  takes_value(BuiltinId::ArrayRank, [](Value&& arg) -> Value { return runtime::ArrayRank(std::move(arg)); });
+  takes_value(BuiltinId::ArrayShape, [](Value&& arg) -> Value { return runtime::ArrayShape(std::move(arg)); });
+  takes_value(BuiltinId::ArrayFlatten, [](Value&& arg) -> Value { return runtime::ArrayFlatten(std::move(arg)); });
+  takes_value(BuiltinId::DictCreateDict, [](Value&& arg) -> Value { return runtime::DictCreate_Dict(std::move(arg)); });
+  takes_value(BuiltinId::DictKeys, [](Value&& arg) -> Value { return runtime::DictKeys(std::move(arg)); });
+  takes_value(BuiltinId::DictValues, [](Value&& arg) -> Value { return runtime::DictValues(std::move(arg)); });
+  takes_value(BuiltinId::DictEntries, [](Value&& arg) -> Value { return runtime::DictEntries(std::move(arg)); });
+  takes_value(BuiltinId::DictClear, [](Value&& arg) -> Value { return runtime::DictClear(std::move(arg)); });
+  takes_value(BuiltinId::DictLength, [](Value&& arg) -> Value { return runtime::DictLength(std::move(arg)); });
+  takes_value(BuiltinId::Cast, [](Value&& arg) -> Value { return runtime::Cast(std::move(arg)); });
+  takes_value(BuiltinId::TryCast, [](Value&& arg) -> Value { return runtime::TryCast(std::move(arg)); });
+  takes_value(BuiltinId::ToInt64, [](Value&& arg) -> Value { return runtime::ToInt64(std::move(arg)); });
+  takes_value(BuiltinId::ToUInt64, [](Value&& arg) -> Value { return runtime::ToUInt64(std::move(arg)); });
+  takes_value(BuiltinId::ToFloat64, [](Value&& arg) -> Value { return runtime::ToFloat64(std::move(arg)); });
+  takes_value(BuiltinId::RandomCreate, [](Value&& arg) -> Value { return runtime::RandomCreate(std::move(arg)); });
+  takes_value(BuiltinId::RandomNextUInt64, [](Value&& arg) -> Value { return runtime::RandomNextUInt64(std::move(arg)); });
+  takes_value(BuiltinId::RandomNextInt64, [](Value&& arg) -> Value { return runtime::RandomNextInt64(std::move(arg)); });
+  takes_value(BuiltinId::RandomNextFloat64, [](Value&& arg) -> Value { return runtime::RandomNextFloat64(std::move(arg)); });
+  takes_value(BuiltinId::RandomNextBool, [](Value&& arg) -> Value { return runtime::RandomNextBool(std::move(arg)); });
+  takes_value(BuiltinId::RandomSplit, [](Value&& arg) -> Value { return runtime::RandomSplit(std::move(arg)); });
+  takes_value(BuiltinId::MathFloor, [](Value&& arg) -> Value { return runtime::MathFloor(std::move(arg)); });
+  takes_value(BuiltinId::MathCeil, [](Value&& arg) -> Value { return runtime::MathCeil(std::move(arg)); });
+  takes_value(BuiltinId::MathAbs, [](Value&& arg) -> Value { return runtime::MathAbs(std::move(arg)); });
+  takes_value(BuiltinId::MathLog, [](Value&& arg) -> Value { return runtime::MathLog(std::move(arg)); });
+  takes_value(BuiltinId::Sqrt, [](Value&& arg) -> Value { return runtime::Sqrt(std::move(arg)); });
+  takes_value(BuiltinId::Sin, [](Value&& arg) -> Value { return runtime::Sin(std::move(arg)); });
+  takes_value(BuiltinId::Cos, [](Value&& arg) -> Value { return runtime::Cos(std::move(arg)); });
+  takes_value(BuiltinId::Tan, [](Value&& arg) -> Value { return runtime::Tan(std::move(arg)); });
+  takes_value(BuiltinId::ResultOk, [](Value&& arg) -> Value { return runtime::ResultOk(std::move(arg)); });
+  takes_value(BuiltinId::ResultErr, [](Value&& arg) -> Value { return runtime::ResultErr(std::move(arg)); });
+  takes_value(BuiltinId::ResultTag, [](Value&& arg) -> Value { return runtime::ResultTag(std::move(arg)); });
+  takes_value(BuiltinId::ResultPayload, [](Value&& arg) -> Value { return runtime::ResultPayload(std::move(arg)); });
+  takes_value(BuiltinId::ResultIsOk, [](Value&& arg) -> Value { return runtime::ResultIsOk(std::move(arg)); });
+  takes_value(BuiltinId::ResultIsErr, [](Value&& arg) -> Value { return runtime::ResultIsErr(std::move(arg)); });
+  takes_value(BuiltinId::ResultUnwrap, [](Value&& arg) -> Value { return runtime::ResultUnwrap(std::move(arg)); });
+  takes_value(BuiltinId::ResultUnwrapErr, [](Value&& arg) -> Value { return runtime::ResultUnwrapErr(std::move(arg)); });
+  takes_value(BuiltinId::TaskAwait, [](Value&& arg) -> Value { return runtime::TaskAwait(std::move(arg)); });
+  takes_value(BuiltinId::TaskAwaitAll, [](Value&& arg) -> Value { return runtime::TaskAwaitAll(std::move(arg)); });
+  takes_value(BuiltinId::TaskCancel, [](Value&& arg) -> Value { return runtime::TaskCancel(std::move(arg)); });
+  takes_value(BuiltinId::Wrap, [](Value&& arg) -> Value { return runtime::Wrap(std::move(arg)); });
+  takes_value(BuiltinId::Unwrap, [](Value&& arg) -> Value { return runtime::Unwrap(std::move(arg)); });
+  takes_value(BuiltinId::First, [](Value&& arg) -> Value { return runtime::First(std::move(arg)); });
+  takes_value(BuiltinId::Second, [](Value&& arg) -> Value { return runtime::Second(std::move(arg)); });
+  takes_value(BuiltinId::Length, [](Value&& arg) -> Value { return runtime::Length(std::move(arg)); });
+  takes_value(BuiltinId::ToString, [](Value&& arg) -> Value { return runtime::ToString(std::move(arg)); });
+  takes_value(BuiltinId::ToNum, [](Value&& arg) -> Value { return runtime::ToNum(std::move(arg)); });
+  takes_value(BuiltinId::StringParseInt64, [](Value&& arg) -> Value { return runtime::StringParseInt64(std::move(arg)); });
+  takes_value(BuiltinId::StringParseUInt64, [](Value&& arg) -> Value { return runtime::StringParseUInt64(std::move(arg)); });
+  takes_value(BuiltinId::StringParseFloat64, [](Value&& arg) -> Value { return runtime::StringParseFloat64(std::move(arg)); });
+  takes_value(BuiltinId::StringUpper, [](Value&& arg) -> Value { return runtime::StringUpper(std::move(arg)); });
+  takes_value(BuiltinId::StringLower, [](Value&& arg) -> Value { return runtime::StringLower(std::move(arg)); });
+  takes_value(BuiltinId::StringTrim, [](Value&& arg) -> Value { return runtime::StringTrim(std::move(arg)); });
+  takes_value(BuiltinId::StringTrimStart, [](Value&& arg) -> Value { return runtime::StringTrimStart(std::move(arg)); });
+  takes_value(BuiltinId::StringTrimEnd, [](Value&& arg) -> Value { return runtime::StringTrimEnd(std::move(arg)); });
+  takes_value(BuiltinId::StringLength, [](Value&& arg) -> Value { return runtime::StringLength(std::move(arg)); });
+
+  takes_arguments(BuiltinId::Add, &runtime::Add);
+  takes_arguments(BuiltinId::Subtract, &runtime::Subtract);
+  takes_arguments(BuiltinId::Multiply, &runtime::Multiply);
+  takes_arguments(BuiltinId::WrappingAdd, &runtime::WrappingAdd);
+  takes_arguments(BuiltinId::WrappingSubtract, &runtime::WrappingSubtract);
+  takes_arguments(BuiltinId::WrappingMultiply, &runtime::WrappingMultiply);
+  takes_arguments(BuiltinId::SaturatingAdd, &runtime::SaturatingAdd);
+  takes_arguments(BuiltinId::SaturatingSubtract, &runtime::SaturatingSubtract);
+  takes_arguments(BuiltinId::SaturatingMultiply, &runtime::SaturatingMultiply);
+  takes_arguments(BuiltinId::Divide, &runtime::Divide);
+  takes_arguments(BuiltinId::Mod, &runtime::Mod);
+  takes_arguments(BuiltinId::Pow, &runtime::Pow);
+  takes_arguments(BuiltinId::BitAnd, &runtime::BitAnd);
+  takes_arguments(BuiltinId::BitOr, &runtime::BitOr);
+  takes_arguments(BuiltinId::BitXor, &runtime::BitXor);
+  takes_arguments(BuiltinId::BitShiftLeft, &runtime::BitShiftLeft);
+  takes_arguments(BuiltinId::BitShiftRight, &runtime::BitShiftRight);
+  takes_arguments(BuiltinId::Equal, &runtime::Equal);
+  takes_arguments(BuiltinId::NotEqual, &runtime::NotEqual);
+  takes_arguments(BuiltinId::LessThan, &runtime::LessThan);
+  takes_arguments(BuiltinId::GreaterThan, &runtime::GreaterThan);
+  takes_arguments(BuiltinId::GreaterOrEqual, &runtime::GreaterOrEqual);
+  takes_arguments(BuiltinId::LessOrEqual, &runtime::LessOrEqual);
+  takes_arguments(BuiltinId::And, &runtime::And);
+  takes_arguments(BuiltinId::Or, &runtime::Or);
+  takes_arguments(BuiltinId::Select, &runtime::Select);
+  takes_arguments(BuiltinId::Match, &runtime::Match);
+  takes_arguments(BuiltinId::Apply, &runtime::Apply);
+  takes_arguments(BuiltinId::Branch, &runtime::Branch);
+  takes_arguments(BuiltinId::Loop, &runtime::Loop);
+  takes_arguments(BuiltinId::LoopN, &runtime::LoopN);
+  takes_arguments(BuiltinId::GetArgs, &runtime::GetArgs);
+  takes_arguments(BuiltinId::InputVoid, &runtime::Input_Void);
+  takes_arguments(BuiltinId::ExitVoid, &runtime::Exit_Void);
+  takes_arguments(BuiltinId::Cwd, &runtime::Cwd);
+  takes_arguments(BuiltinId::OSSetEnv, &runtime::OSSetEnv);
+  takes_arguments(BuiltinId::OSIsWindows, &runtime::OSIsWindows);
+  takes_arguments(BuiltinId::OSIsLinux, &runtime::OSIsLinux);
+  takes_arguments(BuiltinId::OSIsMacOS, &runtime::OSIsMacOS);
+  takes_arguments(BuiltinId::OSHome, &runtime::OSHome);
+  takes_arguments(BuiltinId::OSTempDir, &runtime::OSTempDir);
+  takes_arguments(BuiltinId::OSMakeTempFile, &runtime::OSMakeTempFile);
+  takes_arguments(BuiltinId::OSMakeTempDir, &runtime::OSMakeTempDir);
+  takes_arguments(BuiltinId::PathJoin, &runtime::PathJoin);
+  takes_arguments(BuiltinId::PathWithExtension, &runtime::PathWithExtension);
+  takes_arguments(BuiltinId::PathWithBasename, &runtime::PathWithBasename);
+  takes_arguments(BuiltinId::FileWriteText, &runtime::FileWriteText);
+  takes_arguments(BuiltinId::FileAppendText, &runtime::FileAppendText);
+  takes_arguments(BuiltinId::FileOpen, &runtime::FileOpen);
+  takes_arguments(BuiltinId::FileReadChunk, &runtime::FileReadChunk);
+  takes_arguments(BuiltinId::FileWriteChunk, &runtime::FileWriteChunk);
+  takes_arguments(BuiltinId::FileWithOpen, &runtime::FileWithOpen);
+  takes_arguments(BuiltinId::TupleAppend, &runtime::TupleAppend);
+  takes_arguments(BuiltinId::TuplePrepend, &runtime::TuplePrepend);
+  takes_arguments(BuiltinId::TupleContains, &runtime::TupleContains);
+  takes_arguments(BuiltinId::TupleZip, &runtime::TupleZip);
+  takes_arguments(BuiltinId::TupleMap, &runtime::TupleMap);
+  takes_arguments(BuiltinId::TupleFilter, &runtime::TupleFilter);
+  takes_arguments(BuiltinId::TupleReduce, &runtime::TupleReduce);
+  takes_arguments(BuiltinId::TupleFindIndex, &runtime::TupleFindIndex);
+  takes_arguments(BuiltinId::TupleAny, &runtime::TupleAny);
+  takes_arguments(BuiltinId::TupleAll, &runtime::TupleAll);
+  takes_arguments(BuiltinId::TupleRangeInt64Int64, &runtime::TupleRangeInt64Int64);
+  takes_arguments(BuiltinId::TupleRangeInt64Int64Int64, &runtime::TupleRangeInt64Int64Int64);
+  takes_arguments(BuiltinId::ArrayGetAt, &runtime::ArrayGetAt);
+  takes_arguments(BuiltinId::ArraySetAt, &runtime::ArraySetAt);
+  takes_arguments(BuiltinId::ArrayInsertAt, &runtime::ArrayInsertAt);
+  takes_arguments(BuiltinId::ArrayRemoveAt, &runtime::ArrayRemoveAt);
+  takes_arguments(BuiltinId::ArraySlice, &runtime::ArraySlice);
+  takes_arguments(BuiltinId::ArrayConcat, &runtime::ArrayConcat);
+  takes_arguments(BuiltinId::ArraySetAt2D, &runtime::ArraySetAt2D);
+  takes_arguments(BuiltinId::ArrayFill, &runtime::ArrayFill);
+  takes_arguments(BuiltinId::ArraySlice2D, &runtime::ArraySlice2D);
+  takes_arguments(BuiltinId::ArrayReshape, &runtime::ArrayReshape);
+  takes_arguments(BuiltinId::ArrayGetAtND, &runtime::ArrayGetAtND);
+  takes_arguments(BuiltinId::ArraySetAtND, &runtime::ArraySetAtND);
+  takes_arguments(BuiltinId::ArrayReshapeND, &runtime::ArrayReshapeND);
+  takes_arguments(BuiltinId::DictCreateVoid, &runtime::DictCreate_Void);
+  takes_arguments(BuiltinId::DictSet, &runtime::DictSet);
+  takes_arguments(BuiltinId::DictGet, &runtime::DictGet);
+  takes_arguments(BuiltinId::DictGetDefault, &runtime::DictGetDefault);
+  takes_arguments(BuiltinId::DictContains, &runtime::DictContains);
+  takes_arguments(BuiltinId::DictDelete, &runtime::DictDelete);
+  takes_arguments(BuiltinId::DictMerge, &runtime::DictMerge);
+  takes_arguments(BuiltinId::MathClamp, &runtime::MathClamp);
+  takes_arguments(BuiltinId::Try, &runtime::Try);
+  takes_arguments(BuiltinId::ParallelMap, &runtime::ParallelMap);
+  takes_arguments(BuiltinId::ParallelWithOptions, &runtime::ParallelWithOptions);
+  takes_arguments(BuiltinId::ParallelForEach, &runtime::ParallelForEach);
+  takes_arguments(BuiltinId::ParallelReduce, &runtime::ParallelReduce);
+  takes_arguments(BuiltinId::TaskSpawn, &runtime::TaskSpawn);
+  takes_arguments(BuiltinId::TaskWithTimeout, &runtime::TaskWithTimeout);
+  takes_arguments(BuiltinId::ElementAt, &runtime::ElementAt);
+  takes_arguments(BuiltinId::Take, &runtime::Take);
+  takes_arguments(BuiltinId::Drop, &runtime::Drop);
+  takes_arguments(BuiltinId::SliceTupleUInt64, &runtime::SliceTupleUInt64);
+  takes_arguments(BuiltinId::SliceTupleUInt64UInt64, &runtime::SliceTupleUInt64UInt64);
+  takes_arguments(BuiltinId::SliceTupleUInt64UInt64UInt64, &runtime::SliceTupleUInt64UInt64UInt64);
+  takes_arguments(BuiltinId::StringSplit, &runtime::StringSplit);
+  takes_arguments(BuiltinId::StringJoin, &runtime::StringJoin);
+  takes_arguments(BuiltinId::StringReplace, &runtime::StringReplace);
+  takes_arguments(BuiltinId::StringContains, &runtime::StringContains);
+  takes_arguments(BuiltinId::StringStartsWith, &runtime::StringStartsWith);
+  takes_arguments(BuiltinId::StringEndsWith, &runtime::StringEndsWith);
+  takes_arguments(BuiltinId::StringCharAt, &runtime::StringCharAt);
+  takes_arguments(BuiltinId::StringSliceStringUInt64, &runtime::StringSliceStringUInt64);
+  takes_arguments(BuiltinId::StringSliceStringUInt64UInt64, &runtime::StringSliceStringUInt64UInt64);
+  takes_arguments(BuiltinId::StringFindStringString, &runtime::StringFindStringString);
+  takes_arguments(BuiltinId::StringFindStringStringUInt64, &runtime::StringFindStringStringUInt64);
+  takes_arguments(BuiltinId::StringFormat, &runtime::StringFormat);
+  takes_arguments(BuiltinId::StringRegexIsMatch, &runtime::StringRegexIsMatch);
+  takes_arguments(BuiltinId::StringRegexFind, &runtime::StringRegexFind);
+  takes_arguments(BuiltinId::StringRegexReplace, &runtime::StringRegexReplace);
+  takes_arguments(BuiltinId::StringRegexSplit, &runtime::StringRegexSplit);
   return table;
 }();
 
-[[nodiscard]] consteval auto arguments_builtins_are_complete() -> bool {
+// Every callable builtin has the one function its kind takes, and a constant has none, so a builtin missing from the
+// table is a compile error.
+[[nodiscard]] consteval auto builtin_implementations_are_complete() -> bool {
   for (std::size_t index = 0; index < builtin_count(); ++index) {
-    const auto builtin_id = static_cast<BuiltinId>(index);
-    const bool constant = std::ranges::any_of(all_constant_builtin_specs(), [builtin_id](const auto& spec) {
-      return spec.id == builtin_id;
-    });
-    if (builtin_takes_arguments(builtin_id) && !constant && kArgumentsBuiltins[index] == nullptr) {
+    const BuiltinImplementation& implementation = kBuiltinImplementations[index];
+    if (index >= callable_builtin_count()) {
+      if (implementation.value != nullptr || implementation.arguments != nullptr) {
+        return false;
+      }
+      continue;
+    }
+    const bool takes_arguments = builtin_takes_arguments(static_cast<BuiltinId>(index));
+    if ((implementation.arguments != nullptr) != takes_arguments || (implementation.value != nullptr) == takes_arguments) {
       return false;
     }
   }
   return true;
 }
-static_assert(arguments_builtins_are_complete(), "every builtin that takes runtime::Arguments has an entry");
+static_assert(builtin_implementations_are_complete(), "every callable builtin has the one function its kind takes");
 
-// The function of a builtin that takes runtime::Arguments, or null for a constant. Both dispatches call it
-// themselves.
-auto arguments_builtin(const BuiltinId builtin_id) -> ArgumentsBuiltin {
-  return kArgumentsBuiltins[static_cast<std::size_t>(builtin_id)];
+// The value of a constant (Std.Pi, ...). The constants follow the callable builtins in BuiltinId order, as
+// kConstantBuiltinSpecs lists them.
+auto builtin_constant(const BuiltinId builtin_id) -> Value {
+  const auto index = static_cast<std::size_t>(builtin_id);
+  if (index < callable_builtin_count()) {
+    throw std::logic_error("builtin is not a constant");
+  }
+  return runtime::make_float(all_constant_builtin_specs()[index - callable_builtin_count()].value);
 }
 
-// The value of a constant (Std.Pi, ...), which takes no arguments.
-auto builtin_constant(const BuiltinId builtin_id) -> Value {
-  if (const auto constant_value = constant_builtin_value(builtin_id); constant_value.has_value()) {
-    return runtime::make_float(*constant_value);
+auto dispatch_builtin(const BuiltinId builtin_id, Value arg) -> tl::expected<Value, RuntimeError> {
+  try {
+    const BuiltinImplementation& implementation = kBuiltinImplementations[static_cast<std::size_t>(builtin_id)];
+    if (implementation.value != nullptr) {
+      return implementation.value(std::move(arg));
+    }
+    if (implementation.arguments != nullptr) {
+      // An argument tuple, built at run time (a spread) or by a call through a function value.
+      return implementation.arguments(runtime::Arguments{std::move(arg)});
+    }
+    return builtin_constant(builtin_id);
+  } catch (const std::exception& ex) {
+    return tl::unexpected(make_runtime_error(std::string("builtin '") + std::string(builtin_name(builtin_id)) + "' threw: " + ex.what()));
   }
-  throw std::logic_error("builtin does not take Arguments");
 }
 
 // Calls a builtin that takes runtime::Arguments with `values`, which the call owns, as kCallBuiltinArgs does. The
@@ -2168,7 +2061,7 @@ auto dispatch_builtin_args(const BuiltinId builtin_id, const std::span<Value> va
                                              "' does not take its arguments from the stack"));
   }
   try {
-    if (const ArgumentsBuiltin builtin = arguments_builtin(builtin_id); builtin != nullptr) {
+    if (const ArgumentsBuiltin builtin = kBuiltinImplementations[static_cast<std::size_t>(builtin_id)].arguments; builtin != nullptr) {
       return builtin(runtime::Arguments{values});
     }
     return builtin_constant(builtin_id);
@@ -2181,12 +2074,9 @@ auto dispatch_builtin_args(const BuiltinId builtin_id, const std::span<Value> va
 }  // namespace
 
 struct RuntimeSession::Impl {
-  explicit Impl(const std::vector<std::string>& initial_process_args,
-                const RuntimeCompileOptions& session_compile_options)
-      : compile_options(session_compile_options), process_args(initial_process_args),
-        source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {}
+  explicit Impl(const std::vector<std::string>& initial_process_args)
+      : process_args(initial_process_args), source_path((std::filesystem::current_path() / "__repl__.fleaux").lexically_normal()) {}
 
-  RuntimeCompileOptions compile_options;
   std::vector<std::string> process_args;
   std::filesystem::path source_path;
   std::vector<frontend::ir::IRLet> lets;
@@ -2194,9 +2084,7 @@ struct RuntimeSession::Impl {
   std::vector<frontend::ir::IRAliasDecl> alias_decls;
 };
 
-RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args,
-                               const RuntimeCompileOptions& compile_options)
-    : impl_(std::in_place, process_args, compile_options) {}
+RuntimeSession::RuntimeSession(const std::vector<std::string>& process_args) : impl_(std::in_place, process_args) {}
 
 RuntimeSession::RuntimeSession(const RuntimeSession& other) = default;
 
@@ -2238,7 +2126,6 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
           .source_text = snippet_text,
           .module_name = std::string{"repl"},
           .imported_modules = {},
-          .enable_experimental_builtin_reductions = impl_->compile_options.enable_experimental_builtin_reductions,
       });
   if (!compiled) {
     return tl::unexpected(
@@ -2258,10 +2145,7 @@ auto RuntimeSession::run_snippet(const std::string& snippet_text, std::ostream& 
 
 Runtime::Runtime(std::vector<std::string> process_args) : process_args_(std::move(process_args)) {}
 
-auto Runtime::create_session(const std::vector<std::string>& process_args,
-                             const RuntimeCompileOptions& compile_options) const -> RuntimeSession {
-  return RuntimeSession(process_args, compile_options);
-}
+auto Runtime::create_session(const std::vector<std::string>& process_args) const -> RuntimeSession { return RuntimeSession(process_args); }
 
 auto Runtime::execute(const bytecode::Module& bytecode_module) const -> RuntimeResult {
   return execute(bytecode_module, RuntimeInvocationOptions{});
@@ -2328,7 +2212,7 @@ auto prepend_host_operator_args(const RunningModule& running_module, const bytec
     }
     const auto& key = requirement.alternative_functions[alternative];
     if (const auto builtin_id = builtin_id_from_symbol_key(key); builtin_id.has_value()) {
-      arguments.push(make_builtin_function_value(*builtin_id, builtin_callable_call_shape(*builtin_id)));
+      arguments.push(make_builtin_function_value(*builtin_id));
       continue;
     }
     const auto function_it = std::ranges::find_if(
@@ -2399,7 +2283,7 @@ auto Runtime::invoke_symbol(const bytecode::Module& bytecode_module, const std::
     if (!builtin_id.has_value()) {
       return tl::unexpected(make_runtime_error("Unknown builtin alias symbol: '" + builtin_name + "'."));
     }
-    auto dispatched = dispatch_builtin(*builtin_id, builtin_callable_call_shape(*builtin_id), std::move(arg));
+    auto dispatched = dispatch_builtin(*builtin_id, std::move(arg));
     if (!dispatched) {
       return tl::unexpected(dispatched.error());
     }
